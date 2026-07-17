@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button, Spin, Empty, Input, message } from 'antd';
-import { SearchOutlined, ToolOutlined, RightOutlined } from '@ant-design/icons';
+import { SearchOutlined, ToolOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
+import { useAuth } from '../../hooks/useAuth';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
-import type { ToolEvent } from '../../types';
+import type { Tool } from '../../types';
 
 interface HeldTool {
   id: string;
@@ -16,21 +17,19 @@ interface HeldTool {
 
 export default function MyToolsPage() {
   const { colors } = useWorkerTheme();
+  const { user } = useAuth();
   const [tools, setTools] = useState<HeldTool[]>([]);
-  const [history, setHistory] = useState<ToolEvent[]>([]);
+  const [allTools, setAllTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
   const [returning, setReturning] = useState<string | null>(null);
-  const [tab, setTab] = useState<'borrowed' | 'history'>('borrowed');
+  const [tab, setTab] = useState<'borrowed' | 'all'>('borrowed');
   const [query, setQuery] = useState('');
 
   const fetchData = async () => {
     try {
-      const [held, hist] = await Promise.all([
-        toolsApi.myTools(),
-        toolsApi.myHistory({ perPage: 50 }),
-      ]);
+      const [held, all] = await Promise.all([toolsApi.myTools(), toolsApi.list()]);
       setTools(held.data);
-      setHistory(hist.data.items);
+      setAllTools(all.data);
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
@@ -64,15 +63,13 @@ export default function MyToolsPage() {
     );
   }, [tools, query]);
 
-  const filteredHistory = useMemo(() => {
+  const filteredAllTools = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return history;
-    return history.filter(
-      (e) =>
-        (e.toolName || '').toLowerCase().includes(q) ||
-        (e.toolCode || '').toLowerCase().includes(q)
+    if (!q) return allTools;
+    return allTools.filter(
+      (t) => t.name.toLowerCase().includes(q) || t.code.toLowerCase().includes(q)
     );
-  }, [history, query]);
+  }, [allTools, query]);
 
   return (
     <div>
@@ -111,7 +108,7 @@ export default function MyToolsPage() {
           {(
             [
               { key: 'borrowed' as const, label: `Borrowed (${tools.length})` },
-              { key: 'history' as const, label: 'History' },
+              { key: 'all' as const, label: 'All Tools' },
             ]
           ).map((t) => (
             <button
@@ -208,52 +205,77 @@ export default function MyToolsPage() {
               ))}
             </div>
           )
-        ) : filteredHistory.length === 0 ? (
-          <Empty description="No tool history yet" style={{ marginTop: 40 }} />
+        ) : filteredAllTools.length === 0 ? (
+          <Empty description="No tools found" style={{ marginTop: 40 }} />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {filteredHistory.map((event) => (
-              <div
-                key={event.id}
-                style={{
-                  background: colors.card,
-                  border: `1px solid ${colors.cardBorder}`,
-                  borderRadius: 14,
-                  padding: 14,
-                  boxShadow: colors.shadow,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                }}
-              >
+            {filteredAllTools.map((tool) => {
+              const heldByMe = tool.custody?.holderId === user?.id;
+              const inUse = Boolean(tool.custody);
+              const statusText = !inUse ? 'Available' : heldByMe ? 'You have it' : 'In Use';
+              const statusColor = !inUse ? colors.green : heldByMe ? colors.accent : colors.amber;
+              const statusBg = !inUse
+                ? colors.greenSoft
+                : heldByMe
+                  ? 'rgba(59,130,246,0.12)'
+                  : 'rgba(217,119,6,0.12)';
+
+              return (
                 <div
+                  key={tool.id}
                   style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                    background: colors.chipBg,
-                    color: event.type === 'BORROW' ? colors.green : colors.accent,
+                    background: colors.card,
+                    border: `1px solid ${colors.cardBorder}`,
+                    borderRadius: 14,
+                    padding: 14,
+                    boxShadow: colors.shadow,
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 18,
-                    flexShrink: 0,
+                    gap: 12,
                   }}
                 >
-                  <ToolOutlined />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{event.toolName}</div>
-                  <div style={{ fontSize: 12, color: colors.textSecondary }}>
-                    {event.toolCode} · {event.type === 'BORROW' ? 'Borrowed' : 'Returned'}
+                  <div
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 12,
+                      background: colors.chipBg,
+                      color: statusColor,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 18,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <ToolOutlined />
                   </div>
-                  <div style={{ fontSize: 12, color: colors.textSecondary }}>
-                    {dayjs(event.createdAt).format('MMM D, h:mm A')}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{tool.name}</div>
+                    <div style={{ fontSize: 12, color: colors.textSecondary }}>{tool.code}</div>
+                    {inUse && !heldByMe && tool.custody?.holderName && (
+                      <div style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>
+                        With {tool.custody.holderName} since{' '}
+                        {dayjs(tool.custody.since).format('MMM D, h:mm A')}
+                      </div>
+                    )}
                   </div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: 999,
+                      background: statusBg,
+                      color: statusColor,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {statusText}
+                  </span>
                 </div>
-                <RightOutlined style={{ color: colors.textSecondary }} />
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

@@ -12,7 +12,7 @@ tools_bp = Blueprint("tools", __name__)
 
 @tools_bp.route("", methods=["GET"])
 @jwt_required()
-@require_roles(UserRole.ADMIN)
+@require_roles(UserRole.ADMIN, UserRole.PRODUCTION_WORKER)
 def list_tools():
     tools = Tool.query.order_by(Tool.name).all()
     return jsonify([t.to_dict(include_custody=True) for t in tools])
