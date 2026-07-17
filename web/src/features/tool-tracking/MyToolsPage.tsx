@@ -176,38 +176,15 @@ export default function MyToolsPage() {
                       Borrowed {dayjs(tool.since).format('MMM D, h:mm A')}
                     </div>
                   </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'flex-end',
-                      gap: 8,
-                      flexShrink: 0,
-                    }}
+                  <Button
+                    type="primary"
+                    danger
+                    loading={returning === tool.id}
+                    onClick={() => handleReturn(tool)}
+                    style={{ fontWeight: 700, flexShrink: 0 }}
                   >
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        padding: '3px 10px',
-                        borderRadius: 999,
-                        background: colors.greenSoft,
-                        color: colors.green,
-                      }}
-                    >
-                      In Use
-                    </span>
-                    <Button
-                      type="primary"
-                      danger
-                      size="small"
-                      loading={returning === tool.id}
-                      onClick={() => handleReturn(tool)}
-                      style={{ fontWeight: 700, height: 30 }}
-                    >
-                      Return
-                    </Button>
-                  </div>
+                    Return
+                  </Button>
                 </div>
               ))}
             </div>
