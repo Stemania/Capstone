@@ -31,7 +31,9 @@ def check_job_access(job_order, user_id, user_role):
 
 
 def list_job_orders(user_id, user_role, status=None):
-    query = JobOrder.query
+    from sqlalchemy.orm import joinedload
+
+    query = JobOrder.query.options(joinedload(JobOrder.operations), joinedload(JobOrder.client))
     if user_role == UserRole.PRODUCTION_WORKER.value:
         query = query.filter_by(assigned_worker_id=user_id)
     if status:

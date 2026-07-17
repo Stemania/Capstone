@@ -7,10 +7,19 @@ export const toolsApi = {
     apiClient.post<Tool>('/tools', data),
   get: (id: string) => apiClient.get<Tool>(`/tools/${id}`),
   getQrUrl: (id: string) => `${import.meta.env.VITE_API_BASE_URL || '/api/v1'}/tools/${id}/qr`,
-  scan: (code: string, jobOrderId?: string) =>
-    apiClient.post<ToolEvent>('/tools/scan', { code, jobOrderId }),
+  scan: (code: string, options?: { jobOrderId?: string; intent?: 'BORROW' | 'RETURN' }) =>
+    apiClient.post<ToolEvent>('/tools/scan', {
+      code,
+      jobOrderId: options?.jobOrderId,
+      intent: options?.intent,
+    }),
   myTools: () =>
     apiClient.get<{ id: string; name: string; code: string; since: string }[]>('/tools/my'),
+  myHistory: (params?: { page?: number; perPage?: number }) =>
+    apiClient.get<{ items: ToolEvent[]; total: number; page: number; pages: number }>(
+      '/tools/my/history',
+      { params }
+    ),
   listEvents: (params?: { toolId?: string; page?: number; perPage?: number }) =>
     apiClient.get<{ items: ToolEvent[]; total: number; page: number; pages: number }>(
       '/tools/events',

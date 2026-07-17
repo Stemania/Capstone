@@ -6,8 +6,9 @@ import {
   ToolOutlined,
   SunOutlined,
   MoonOutlined,
+  LeftOutlined,
 } from '@ant-design/icons';
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
@@ -16,13 +17,19 @@ export interface WorkerPalette {
   card: string;
   cardBorder: string;
   navBg: string;
+  headerBg: string;
+  headerText: string;
   accent: string;
   accentSoft: string;
   green: string;
+  greenSoft: string;
+  amber: string;
   red: string;
   text: string;
   textSecondary: string;
   chipBg: string;
+  shadow: string;
+  inputBg: string;
 }
 
 const darkPalette: WorkerPalette = {
@@ -30,13 +37,19 @@ const darkPalette: WorkerPalette = {
   card: '#13223a',
   cardBorder: '#1e3251',
   navBg: '#0f1c2e',
+  headerBg: '#0f1c2e',
+  headerText: '#ffffff',
   accent: '#3b82f6',
   accentSoft: '#60a5fa',
   green: '#22c55e',
+  greenSoft: 'rgba(34,197,94,0.15)',
+  amber: '#f59e0b',
   red: '#ef4444',
   text: '#ffffff',
   textSecondary: '#94a3b8',
   chipBg: 'rgba(255,255,255,0.06)',
+  shadow: 'none',
+  inputBg: '#13223a',
 };
 
 const lightPalette: WorkerPalette = {
@@ -44,49 +57,146 @@ const lightPalette: WorkerPalette = {
   card: '#ffffff',
   cardBorder: '#e2e8f0',
   navBg: '#ffffff',
+  headerBg: '#0f1c2e',
+  headerText: '#ffffff',
   accent: '#2563eb',
   accentSoft: '#3b82f6',
   green: '#16a34a',
+  greenSoft: 'rgba(22,163,74,0.12)',
+  amber: '#d97706',
   red: '#dc2626',
   text: '#0f172a',
   textSecondary: '#64748b',
   chipBg: '#f1f5f9',
+  shadow: '0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04)',
+  inputBg: '#ffffff',
 };
 
 type WorkerMode = 'dark' | 'light';
 
-const WorkerThemeContext = createContext<{ colors: WorkerPalette; mode: WorkerMode }>({
-  colors: darkPalette,
-  mode: 'dark',
+interface WorkerThemeValue {
+  colors: WorkerPalette;
+  mode: WorkerMode;
+  toggleMode: () => void;
+  logout: () => void;
+}
+
+const WorkerThemeContext = createContext<WorkerThemeValue>({
+  colors: lightPalette,
+  mode: 'light',
+  toggleMode: () => {},
+  logout: () => {},
 });
 
 export function useWorkerTheme() {
   return useContext(WorkerThemeContext);
 }
 
-function initials(name: string) {
-  return name
-    .split(' ')
-    .map((p) => p[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
+export function WorkerPageHeader({
+  title,
+  subtitle,
+  onBack,
+  right,
+}: {
+  title: string;
+  subtitle?: string;
+  onBack?: () => void;
+  right?: ReactNode;
+}) {
+  const { colors, mode, toggleMode, logout } = useWorkerTheme();
+
+  return (
+    <header
+      style={{
+        background: colors.headerBg,
+        color: colors.headerText,
+        padding: '16px 16px 18px',
+        position: 'sticky',
+        top: 0,
+        zIndex: 10,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        {onBack && (
+          <button
+            onClick={onBack}
+            aria-label="Back"
+            style={{
+              background: 'none',
+              border: 'none',
+              color: colors.headerText,
+              fontSize: 18,
+              padding: '4px 4px 0 0',
+              cursor: 'pointer',
+            }}
+          >
+            <LeftOutlined />
+          </button>
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2 }}>{title}</div>
+          {subtitle && (
+            <div style={{ fontSize: 13, opacity: 0.7, marginTop: 4 }}>{subtitle}</div>
+          )}
+        </div>
+        {right}
+        <button
+          onClick={toggleMode}
+          aria-label="Toggle theme"
+          style={{
+            background: 'rgba(255,255,255,0.08)',
+            border: 'none',
+            color: colors.headerText,
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            cursor: 'pointer',
+            fontSize: 16,
+          }}
+        >
+          {mode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+        </button>
+        <button
+          onClick={logout}
+          aria-label="Logout"
+          style={{
+            background: 'rgba(255,255,255,0.08)',
+            border: 'none',
+            color: colors.headerText,
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            cursor: 'pointer',
+            fontSize: 16,
+          }}
+        >
+          <LogoutOutlined />
+        </button>
+      </div>
+    </header>
+  );
 }
 
 export default function WorkerLayout() {
-  const { user, logout } = useAuth();
+  const { logout: authLogout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [mode, setMode] = useState<WorkerMode>(
-    () => (localStorage.getItem('workerTheme') as WorkerMode) || 'dark'
+    () => (localStorage.getItem('workerTheme') as WorkerMode) || 'light'
   );
 
   const colors = mode === 'dark' ? darkPalette : lightPalette;
+  const isScan = location.pathname.startsWith('/scan');
 
   const toggleMode = () => {
     const next = mode === 'dark' ? 'light' : 'dark';
     setMode(next);
     localStorage.setItem('workerTheme', next);
+  };
+
+  const logout = () => {
+    authLogout();
+    navigate('/login');
   };
 
   const tabs = [
@@ -95,17 +205,8 @@ export default function WorkerLayout() {
     { key: '/my-tools', label: 'Tools', icon: <ToolOutlined style={{ fontSize: 22 }} /> },
   ];
 
-  const iconButtonStyle: React.CSSProperties = {
-    background: 'none',
-    border: 'none',
-    color: colors.textSecondary,
-    fontSize: 20,
-    padding: 8,
-    cursor: 'pointer',
-  };
-
   return (
-    <WorkerThemeContext.Provider value={{ colors, mode }}>
+    <WorkerThemeContext.Provider value={{ colors, mode, toggleMode, logout }}>
       <ConfigProvider
         theme={{
           algorithm: mode === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
@@ -121,72 +222,13 @@ export default function WorkerLayout() {
         <div
           style={{
             minHeight: '100dvh',
-            background: colors.bg,
+            background: isScan ? '#000' : colors.bg,
             color: colors.text,
             display: 'flex',
             flexDirection: 'column',
           }}
         >
-          <header
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '14px 16px',
-              background: colors.navBg,
-              position: 'sticky',
-              top: 0,
-              zIndex: 10,
-              borderBottom: `1px solid ${colors.cardBorder}`,
-            }}
-          >
-            <div
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 10,
-                background: colors.accent,
-                color: '#fff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 700,
-                fontSize: 15,
-                marginRight: 4,
-              }}
-            >
-              {user ? initials(user.fullName) : '?'}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {user?.fullName}
-              </div>
-              <div style={{ fontSize: 12, color: colors.textSecondary }}>Production Worker</div>
-            </div>
-            <span
-              style={{
-                width: 10,
-                height: 10,
-                borderRadius: '50%',
-                background: colors.green,
-              }}
-            />
-            <button onClick={toggleMode} style={iconButtonStyle} aria-label="Toggle theme">
-              {mode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
-            </button>
-            <button
-              onClick={() => {
-                logout();
-                navigate('/login');
-              }}
-              style={iconButtonStyle}
-              aria-label="Logout"
-            >
-              <LogoutOutlined />
-            </button>
-          </header>
-
-          <main style={{ flex: 1, padding: 16, paddingBottom: 96, overflowY: 'auto' }}>
+          <main style={{ flex: 1, paddingBottom: 88, overflowY: 'auto' }}>
             <Outlet />
           </main>
 
@@ -201,9 +243,10 @@ export default function WorkerLayout() {
               alignItems: 'center',
               background: colors.navBg,
               borderTop: `1px solid ${colors.cardBorder}`,
-              padding: '10px 0',
-              paddingBottom: 'calc(10px + env(safe-area-inset-bottom))',
+              padding: '8px 0',
+              paddingBottom: 'calc(8px + env(safe-area-inset-bottom))',
               zIndex: 20,
+              boxShadow: mode === 'light' ? '0 -2px 10px rgba(15,23,42,0.04)' : 'none',
             }}
           >
             {tabs.map((tab) => {
@@ -215,11 +258,11 @@ export default function WorkerLayout() {
                     onClick={() => navigate(tab.key)}
                     aria-label={tab.label}
                     style={{
-                      width: 56,
-                      height: 56,
-                      borderRadius: 16,
-                      marginTop: -28,
-                      border: 'none',
+                      width: 58,
+                      height: 58,
+                      borderRadius: '50%',
+                      marginTop: -26,
+                      border: `3px solid ${colors.navBg}`,
                       background: colors.accent,
                       color: '#fff',
                       display: 'flex',
@@ -243,8 +286,9 @@ export default function WorkerLayout() {
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
-                    gap: 4,
+                    gap: 2,
                     fontSize: 12,
+                    fontWeight: active ? 700 : 500,
                     cursor: 'pointer',
                     padding: '4px 20px',
                   }}

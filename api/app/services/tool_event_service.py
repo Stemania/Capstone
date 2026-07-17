@@ -47,7 +47,7 @@ def generate_qr_png(tool_code):
     return buffer
 
 
-def scan_tool(code, worker_id, job_order_id=None):
+def scan_tool(code, worker_id, job_order_id=None, intent=None):
     tool = Tool.query.filter_by(code=code).first()
     if not tool:
         raise AppError("Tool not found", "NOT_FOUND", 404)
@@ -57,11 +57,24 @@ def scan_tool(code, worker_id, job_order_id=None):
         .order_by(ToolEvent.created_at.desc())
         .first()
     )
+    is_borrowed = latest and latest.type == ToolEventType.BORROW
 
-    if latest and latest.type == ToolEventType.BORROW:
-        event_type = ToolEventType.RETURN
+    if intent:
+        intent = intent.upper()
+        if intent not in ("BORROW", "RETURN"):
+            raise AppError("intent must be BORROW or RETURN", "VALIDATION_ERROR", 400)
+        if intent == "BORROW" and is_borrowed:
+            holder = latest.worker.full_name if latest.worker else "another worker"
+            raise AppError(f"Tool is already borrowed by {holder}", "CONFLICT", 409)
+        if intent == "RETURN" and not is_borrowed:
+            raise AppError("Tool is not currently borrowed", "CONFLICT", 409)
+        if intent == "RETURN" and latest.worker_id != worker_id:
+            raise AppError("You can only return tools you borrowed", "FORBIDDEN", 403)
+        event_type = ToolEventType(intent)
     else:
-        event_type = ToolEventType.BORROW
+        event_type = ToolEventType.RETURN if is_borrowed else ToolEventType.BORROW
+        if event_type == ToolEventType.RETURN and latest.worker_id != worker_id:
+            raise AppError("You can only return tools you borrowed", "FORBIDDEN", 403)
 
     try:
         event = ToolEvent(
@@ -121,4 +134,13 @@ def list_tool_events(tool_id=None, page=1, per_page=50):
     if tool_id:
         query = query.filter_by(tool_id=tool_id)
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    return pagination
+
+
+def list_worker_tool_events(worker_id, page=1, per_page=50):
+    pagination = (
+        ToolEvent.query.filter_by(worker_id=worker_id)
+        .order_by(ToolEvent.created_at.desc())
+        .paginate(page=page, per_page=per_page, error_out=False)
+    )
     return pagination

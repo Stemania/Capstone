@@ -40,6 +40,7 @@ export interface Operation {
 
 export interface JobOrder {
   id: string;
+  jobNumber?: string;
   clientId: string;
   clientName?: string;
   title: string;
@@ -50,6 +51,9 @@ export interface JobOrder {
   assignedWorkerName?: string;
   createdById?: string;
   createdAt?: string;
+  opsCompleted?: number;
+  opsTotal?: number;
+  nextOperation?: string | null;
   operations?: Operation[];
 }
 

@@ -60,8 +60,15 @@ class JobOrder(db.Model):
     tool_events = db.relationship("ToolEvent", back_populates="job_order")
 
     def to_dict(self, include_operations=False):
+        ops = list(self.operations or [])
+        completed = sum(1 for op in ops if op.status.value == "COMPLETED")
+        next_op = next((op for op in ops if op.status.value != "COMPLETED"), None)
+        year = self.created_at.year if self.created_at else datetime.now(timezone.utc).year
+        short = (self.id or "")[:4].upper()
+
         data = {
             "id": self.id,
+            "jobNumber": f"JO-{year}-{short}",
             "clientId": self.client_id,
             "clientName": self.client.name if self.client else None,
             "title": self.title,
@@ -74,7 +81,10 @@ class JobOrder(db.Model):
             ),
             "createdById": self.created_by_id,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
+            "opsCompleted": completed,
+            "opsTotal": len(ops),
+            "nextOperation": next_op.name if next_op else None,
         }
         if include_operations:
-            data["operations"] = [op.to_dict() for op in self.operations]
+            data["operations"] = [op.to_dict() for op in ops]
         return data

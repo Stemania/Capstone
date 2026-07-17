@@ -39,6 +39,23 @@ def my_tools():
     return jsonify(tools)
 
 
+@tools_bp.route("/my/history", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.PRODUCTION_WORKER)
+def my_tool_history():
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("perPage", 50, type=int)
+    pagination = te_service.list_worker_tool_events(get_current_user_id(), page, per_page)
+    return jsonify(
+        {
+            "items": [e.to_dict() for e in pagination.items],
+            "total": pagination.total,
+            "page": pagination.page,
+            "pages": pagination.pages,
+        }
+    )
+
+
 @tools_bp.route("/scan", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.PRODUCTION_WORKER)
@@ -48,7 +65,9 @@ def scan_tool():
     if not code:
         raise AppError("Tool code is required", "VALIDATION_ERROR", 400)
 
-    event = te_service.scan_tool(code, get_current_user_id(), data.get("jobOrderId"))
+    event = te_service.scan_tool(
+        code, get_current_user_id(), data.get("jobOrderId"), data.get("intent")
+    )
     return jsonify(event.to_dict()), 201
 
 
