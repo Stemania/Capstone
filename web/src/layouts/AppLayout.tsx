@@ -169,12 +169,12 @@ export default function AppLayout() {
         </Header>
         <Content
           style={{
-            margin: 20,
-            padding: 24,
+            margin: 16,
+            padding: 20,
             background: '#fff',
             borderRadius: 12,
             border: '1px solid #e2e8f0',
-            minHeight: 280,
+            flex: 'none',
           }}
         >
           <Outlet />
