@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import {
-  Form, Input, Button, DatePicker, Select, Space, Card, Typography, Alert, Tag, Spin,
+  Form, Input, Button, DatePicker, Select, Typography, Alert, Tag, Spin, Row, Col,
 } from 'antd';
-import { MinusCircleOutlined, PlusOutlined, StarOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined, StarFilled } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { clientsApi, jobOrdersApi, workersApi } from '../../api/jobOrders.api';
@@ -115,90 +115,233 @@ export default function JobOrderFormPage() {
 
   if (loading) return <Spin size="large" />;
 
+  const sectionTitle = (text: string) => (
+    <div
+      style={{
+        fontSize: 12,
+        fontWeight: 700,
+        letterSpacing: 0.8,
+        textTransform: 'uppercase',
+        color: '#64748b',
+        marginBottom: 12,
+        paddingBottom: 8,
+        borderBottom: '1px solid #e2e8f0',
+      }}
+    >
+      {text}
+    </div>
+  );
+
   return (
-    <div>
-      <Title level={4}>{isEdit ? 'Edit Job Order' : 'New Job Order'}</Title>
-      {error && <Alert type="error" message={error} style={{ marginBottom: 16 }} showIcon />}
+    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 16,
+        }}
+      >
+        <Title level={4} style={{ margin: 0 }}>
+          {isEdit ? 'Edit Job Order' : 'New Job Order'}
+        </Title>
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          Fields marked <span style={{ color: '#dc2626' }}>*</span> are required
+        </Text>
+      </div>
 
-      <Form form={form} layout="vertical" onFinish={onFinish} initialValues={{ operations: [{ name: '' }] }}>
-        <Form.Item name="clientId" label="Client" rules={[{ required: true }]}>
-          <Select
-            showSearch
-            optionFilterProp="label"
-            options={clients.map((c) => ({ value: c.id, label: c.name }))}
-            placeholder="Select client"
-          />
-        </Form.Item>
+      {error && <Alert type="error" message={error} style={{ marginBottom: 12 }} showIcon />}
 
-        <Form.Item name="title" label="Title" rules={[{ required: true }]}>
-          <Input />
-        </Form.Item>
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={onFinish}
+        initialValues={{ operations: [{ name: '' }] }}
+        style={{ marginBottom: 0 }}
+      >
+        <Row gutter={20}>
+          <Col xs={24} lg={13}>
+            <div
+              style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: 12,
+                padding: '16px 18px',
+                height: '100%',
+              }}
+            >
+              {sectionTitle('Job Information')}
 
-        <Form.Item name="description" label="Description">
-          <TextArea rows={3} />
-        </Form.Item>
-
-        <Form.Item name="dueDate" label="Due Date" rules={[{ required: true }]}>
-          <DatePicker style={{ width: '100%' }} />
-        </Form.Item>
-
-        <Title level={5}>Operations</Title>
-        <Form.List name="operations">
-          {(fields, { add, remove }) => (
-            <>
-              {fields.map(({ key, name, ...rest }) => (
-                <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+              <Row gutter={12}>
+                <Col span={14}>
                   <Form.Item
-                    {...rest}
-                    name={[name, 'name']}
-                    rules={[{ required: true, message: 'Operation name required' }]}
-                    style={{ flex: 1, minWidth: 200 }}
+                    name="clientId"
+                    label="Client"
+                    rules={[{ required: true }]}
+                    style={{ marginBottom: 14 }}
                   >
-                    <Input placeholder="Operation name" onBlur={onOperationsChange} />
+                    <Select
+                      showSearch
+                      optionFilterProp="label"
+                      options={clients.map((c) => ({ value: c.id, label: c.name }))}
+                      placeholder="Select client"
+                    />
                   </Form.Item>
-                  {fields.length > 1 && (
-                    <MinusCircleOutlined onClick={() => { remove(name); onOperationsChange(); }} />
+                </Col>
+                <Col span={10}>
+                  <Form.Item
+                    name="dueDate"
+                    label="Due Date"
+                    rules={[{ required: true }]}
+                    style={{ marginBottom: 14 }}
+                  >
+                    <DatePicker style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Form.Item name="title" label="Title" rules={[{ required: true }]} style={{ marginBottom: 14 }}>
+                <Input placeholder="e.g. Hydraulic Cylinder Rod" />
+              </Form.Item>
+
+              <Form.Item name="description" label="Description" style={{ marginBottom: 0 }}>
+                <TextArea
+                  rows={3}
+                  placeholder="Notes, tolerances, special instructions (optional)"
+                  style={{ resize: 'none' }}
+                />
+              </Form.Item>
+            </div>
+          </Col>
+
+          <Col xs={24} lg={11}>
+            <div
+              style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: 12,
+                padding: '16px 18px',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              {sectionTitle('Operations & Assignment')}
+
+              <div style={{ maxHeight: 180, overflowY: 'auto', paddingRight: 4 }}>
+                <Form.List name="operations">
+                  {(fields, { add, remove }) => (
+                    <>
+                      {fields.map(({ key, name, ...rest }, index) => (
+                        <div
+                          key={key}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}
+                        >
+                          <span
+                            style={{
+                              width: 24,
+                              height: 24,
+                              borderRadius: 6,
+                              background: '#e2e8f0',
+                              color: '#475569',
+                              fontSize: 12,
+                              fontWeight: 700,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {index + 1}
+                          </span>
+                          <Form.Item
+                            {...rest}
+                            name={[name, 'name']}
+                            rules={[{ required: true, message: 'Operation name required' }]}
+                            style={{ flex: 1, marginBottom: 0 }}
+                          >
+                            <Input placeholder="Operation name (e.g. Milling)" onBlur={onOperationsChange} />
+                          </Form.Item>
+                          <Button
+                            type="text"
+                            danger
+                            size="small"
+                            icon={<DeleteOutlined />}
+                            disabled={fields.length <= 1}
+                            onClick={() => {
+                              remove(name);
+                              onOperationsChange();
+                            }}
+                          />
+                        </div>
+                      ))}
+                      <Button
+                        type="dashed"
+                        onClick={() => add()}
+                        block
+                        size="small"
+                        icon={<PlusOutlined />}
+                        style={{ marginBottom: 12 }}
+                      >
+                        Add Operation
+                      </Button>
+                    </>
                   )}
-                </Space>
-              ))}
-              <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                Add Operation
-              </Button>
-            </>
-          )}
-        </Form.List>
-
-        {suggestions.length > 0 && (
-          <Card size="small" title="Suggested Workers" style={{ marginTop: 16, marginBottom: 16 }}>
-            <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-              The system proposes, the human decides.
-            </Text>
-            {suggestions.slice(0, 3).map((s) => (
-              <div key={s.workerId} style={{ marginBottom: 8 }}>
-                <Tag icon={<StarOutlined />} color={s.score > 0 ? 'gold' : 'default'}>
-                  {s.fullName} (score: {s.score})
-                </Tag>
-                {s.matchedSkills.map((sk) => (
-                  <Tag key={sk}>{sk}</Tag>
-                ))}
+                </Form.List>
               </div>
-            ))}
-          </Card>
-        )}
 
-        <Form.Item name="assignedWorkerId" label="Assign Worker" rules={[{ required: true }]}>
-          <Select
-            placeholder="Select worker"
-            options={workers.map((w) => ({ value: w.id, label: w.fullName }))}
-          />
-        </Form.Item>
+              <Form.Item
+                name="assignedWorkerId"
+                label="Assign Worker"
+                rules={[{ required: true }]}
+                style={{ marginBottom: suggestions.length ? 10 : 0 }}
+              >
+                <Select
+                  placeholder="Select worker"
+                  options={workers.map((w) => ({ value: w.id, label: w.fullName }))}
+                />
+              </Form.Item>
 
-        <Space>
-          <Button type="primary" htmlType="submit" loading={submitting}>
+              {suggestions.length > 0 && (
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+                    Suggested based on operation skills — tap to assign:
+                  </Text>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {suggestions.slice(0, 3).map((s) => (
+                      <Tag
+                        key={s.workerId}
+                        icon={s.score > 0 ? <StarFilled /> : undefined}
+                        color={s.score > 0 ? 'gold' : 'default'}
+                        style={{ cursor: 'pointer', marginInlineEnd: 0, padding: '3px 10px' }}
+                        onClick={() => form.setFieldValue('assignedWorkerId', s.workerId)}
+                      >
+                        {s.fullName}
+                        {s.matchedSkills.length > 0 && ` · ${s.matchedSkills.join(', ')}`}
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Col>
+        </Row>
+
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 10,
+            marginTop: 16,
+            paddingTop: 16,
+            borderTop: '1px solid #e2e8f0',
+          }}
+        >
+          <Button onClick={() => navigate('/job-orders')}>Cancel</Button>
+          <Button type="primary" htmlType="submit" loading={submitting} style={{ fontWeight: 600, minWidth: 160 }}>
             {isEdit ? 'Save Changes' : 'Create Job Order'}
           </Button>
-          <Button onClick={() => navigate('/job-orders')}>Cancel</Button>
-        </Space>
+        </div>
       </Form>
     </div>
   );
