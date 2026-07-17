@@ -1,0 +1,21 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: #f0f2f5;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+@media (max-width: 768px) {
+  .ant-layout-content {
+    margin: 8px !important;
+    padding: 16px !important;
+  }
+}
