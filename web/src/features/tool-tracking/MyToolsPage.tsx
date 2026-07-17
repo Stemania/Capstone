@@ -4,7 +4,7 @@ import { ToolOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
-import { workerColors } from '../../layouts/WorkerLayout';
+import { useWorkerTheme } from '../../layouts/WorkerLayout';
 
 interface HeldTool {
   id: string;
@@ -14,6 +14,7 @@ interface HeldTool {
 }
 
 export default function MyToolsPage() {
+  const { colors } = useWorkerTheme();
   const [tools, setTools] = useState<HeldTool[]>([]);
   const [loading, setLoading] = useState(true);
   const [returning, setReturning] = useState<string | null>(null);
@@ -53,7 +54,7 @@ export default function MyToolsPage() {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
-        <span style={{ fontSize: 44, fontWeight: 800, color: workerColors.accent, lineHeight: 1 }}>
+        <span style={{ fontSize: 44, fontWeight: 800, color: colors.accent, lineHeight: 1 }}>
           {tools.length}
         </span>
         <span style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.2 }}>
@@ -62,7 +63,7 @@ export default function MyToolsPage() {
           out to you
         </span>
       </div>
-      <p style={{ color: workerColors.textSecondary, fontSize: 13, marginBottom: 20 }}>
+      <p style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 20 }}>
         Return a tool here, or scan its tag again.
       </p>
 
@@ -74,8 +75,8 @@ export default function MyToolsPage() {
             <div
               key={tool.id}
               style={{
-                background: workerColors.card,
-                border: `1px solid ${workerColors.cardBorder}`,
+                background: colors.card,
+                border: `1px solid ${colors.cardBorder}`,
                 borderRadius: 12,
                 padding: '14px 16px',
                 display: 'flex',
@@ -89,7 +90,7 @@ export default function MyToolsPage() {
                   height: 44,
                   borderRadius: 10,
                   background: 'rgba(59,130,246,0.12)',
-                  color: workerColors.accent,
+                  color: colors.accent,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -101,7 +102,7 @@ export default function MyToolsPage() {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{tool.name}</div>
-                <div style={{ fontSize: 12, color: workerColors.textSecondary }}>
+                <div style={{ fontSize: 12, color: colors.textSecondary }}>
                   {tool.code} · since {dayjs(tool.since).format('MMM D, h:mm A')}
                 </div>
               </div>

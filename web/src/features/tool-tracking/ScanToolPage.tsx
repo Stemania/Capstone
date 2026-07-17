@@ -4,22 +4,23 @@ import { CheckCircleFilled, CameraOutlined } from '@ant-design/icons';
 import { Html5Qrcode } from 'html5-qrcode';
 import { toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
-import { workerColors } from '../../layouts/WorkerLayout';
+import { useWorkerTheme } from '../../layouts/WorkerLayout';
 import type { ToolEvent } from '../../types';
 
 type CameraState = 'starting' | 'scanning' | 'denied';
 
-const corner = (pos: React.CSSProperties): React.CSSProperties => ({
+const corner = (color: string, pos: React.CSSProperties): React.CSSProperties => ({
   position: 'absolute',
   width: 36,
   height: 36,
-  borderColor: workerColors.green,
+  borderColor: color,
   borderStyle: 'solid',
   borderWidth: 0,
   ...pos,
 });
 
 export default function ScanToolPage() {
+  const { colors } = useWorkerTheme();
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const processingRef = useRef(false);
   const [cameraState, setCameraState] = useState<CameraState>('starting');
@@ -101,7 +102,7 @@ export default function ScanToolPage() {
       <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: 3, marginBottom: 4 }}>
         SCAN TOOL TAG
       </div>
-      <div style={{ color: workerColors.textSecondary, fontSize: 13, marginBottom: 16 }}>
+      <div style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 16 }}>
         Hold steady over the tool QR code
       </div>
 
@@ -117,10 +118,10 @@ export default function ScanToolPage() {
       >
         <div id="qr-camera-view" style={{ width: '100%', height: '100%' }} />
 
-        <div style={corner({ top: 16, left: 16, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: 8 })} />
-        <div style={corner({ top: 16, right: 16, borderTopWidth: 4, borderRightWidth: 4, borderTopRightRadius: 8 })} />
-        <div style={corner({ bottom: 16, left: 16, borderBottomWidth: 4, borderLeftWidth: 4, borderBottomLeftRadius: 8 })} />
-        <div style={corner({ bottom: 16, right: 16, borderBottomWidth: 4, borderRightWidth: 4, borderBottomRightRadius: 8 })} />
+        <div style={corner(colors.green, { top: 16, left: 16, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: 8 })} />
+        <div style={corner(colors.green, { top: 16, right: 16, borderTopWidth: 4, borderRightWidth: 4, borderTopRightRadius: 8 })} />
+        <div style={corner(colors.green, { bottom: 16, left: 16, borderBottomWidth: 4, borderLeftWidth: 4, borderBottomLeftRadius: 8 })} />
+        <div style={corner(colors.green, { bottom: 16, right: 16, borderBottomWidth: 4, borderRightWidth: 4, borderBottomRightRadius: 8 })} />
 
         {cameraState !== 'scanning' && (
           <div
@@ -132,7 +133,7 @@ export default function ScanToolPage() {
               alignItems: 'center',
               justifyContent: 'center',
               gap: 12,
-              color: workerColors.textSecondary,
+              color: colors.textSecondary,
               padding: 24,
               background: 'rgba(0,0,0,0.6)',
             }}
@@ -191,13 +192,13 @@ export default function ScanToolPage() {
       <Modal open={Boolean(result)} onCancel={closeResult} footer={null} centered closable={false}>
         <div style={{ textAlign: 'center', padding: '16px 0' }}>
           <CheckCircleFilled
-            style={{ fontSize: 64, color: isBorrow ? workerColors.green : '#3b82f6', marginBottom: 16 }}
+            style={{ fontSize: 64, color: isBorrow ? colors.green : colors.accent, marginBottom: 16 }}
           />
           <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: 2, marginBottom: 4 }}>
             {isBorrow ? 'BORROWED' : 'RETURNED'}
           </div>
           <div style={{ fontSize: 16, marginBottom: 4 }}>{result?.toolName}</div>
-          <div style={{ color: '#888', fontSize: 13, marginBottom: 24 }}>{result?.toolCode}</div>
+          <div style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 24 }}>{result?.toolCode}</div>
           <Button type="primary" block size="large" style={{ height: 48, fontWeight: 700 }} onClick={closeResult}>
             Done — keep scanning
           </Button>

@@ -4,25 +4,28 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
-import { workerColors } from '../../layouts/WorkerLayout';
+import { useWorkerTheme, type WorkerPalette } from '../../layouts/WorkerLayout';
 import type { JobOrder } from '../../types';
 
 function isOverdue(job: JobOrder) {
   return job.status !== 'COMPLETED' && dayjs(job.dueDate).isBefore(dayjs(), 'day');
 }
 
-const statusLabels: Record<string, { text: string; color: string }> = {
-  ASSIGNED: { text: 'ASSIGNED', color: '#60a5fa' },
-  IN_PROGRESS: { text: 'IN PROGRESS', color: workerColors.accent },
-  COMPLETED: { text: 'DONE', color: workerColors.green },
-  UNASSIGNED: { text: 'UNASSIGNED', color: workerColors.textSecondary },
-};
+function statusLabels(colors: WorkerPalette): Record<string, { text: string; color: string }> {
+  return {
+    ASSIGNED: { text: 'ASSIGNED', color: colors.accentSoft },
+    IN_PROGRESS: { text: 'IN PROGRESS', color: colors.accent },
+    COMPLETED: { text: 'DONE', color: colors.green },
+    UNASSIGNED: { text: 'UNASSIGNED', color: colors.textSecondary },
+  };
+}
 
 export default function MyAssignmentsPage() {
   const [jobs, setJobs] = useState<JobOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const { colors } = useWorkerTheme();
 
   useEffect(() => {
     jobOrdersApi
@@ -36,12 +39,13 @@ export default function MyAssignmentsPage() {
     return <Spin size="large" style={{ display: 'block', margin: '64px auto' }} />;
   }
 
+  const labels = statusLabels(colors);
   const activeCount = jobs.filter((j) => j.status !== 'COMPLETED').length;
 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
-        <span style={{ fontSize: 44, fontWeight: 800, color: workerColors.accent, lineHeight: 1 }}>
+        <span style={{ fontSize: 44, fontWeight: 800, color: colors.accent, lineHeight: 1 }}>
           {activeCount}
         </span>
         <span style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.2 }}>
@@ -50,11 +54,11 @@ export default function MyAssignmentsPage() {
           bench today
         </span>
       </div>
-      <p style={{ color: workerColors.textSecondary, fontSize: 13, marginBottom: 20 }}>
+      <p style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 20 }}>
         Tap a job to open its operations.
       </p>
 
-      {error && <p style={{ color: workerColors.red }}>{error}</p>}
+      {error && <p style={{ color: colors.red }}>{error}</p>}
 
       {jobs.length === 0 ? (
         <Empty description="No assignments yet" style={{ marginTop: 48 }} />
@@ -62,15 +66,15 @@ export default function MyAssignmentsPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {jobs.map((job) => {
             const overdue = isOverdue(job);
-            const status = statusLabels[job.status];
+            const status = labels[job.status];
             return (
               <div
                 key={job.id}
                 onClick={() => navigate(`/my-assignments/${job.id}`)}
                 style={{
-                  background: workerColors.card,
-                  border: `1px solid ${workerColors.cardBorder}`,
-                  borderTop: `3px solid ${overdue ? workerColors.red : status.color}`,
+                  background: colors.card,
+                  border: `1px solid ${colors.cardBorder}`,
+                  borderTop: `3px solid ${overdue ? colors.red : status.color}`,
                   borderRadius: 12,
                   padding: '14px 16px',
                   cursor: 'pointer',
@@ -82,7 +86,7 @@ export default function MyAssignmentsPage() {
                       fontSize: 12,
                       fontWeight: 700,
                       letterSpacing: 1,
-                      color: workerColors.textSecondary,
+                      color: colors.textSecondary,
                       textTransform: 'uppercase',
                     }}
                   >
@@ -94,8 +98,8 @@ export default function MyAssignmentsPage() {
                       fontWeight: 700,
                       padding: '3px 10px',
                       borderRadius: 999,
-                      background: overdue ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)',
-                      color: overdue ? workerColors.red : status.color,
+                      background: overdue ? 'rgba(239,68,68,0.12)' : colors.chipBg,
+                      color: overdue ? colors.red : status.color,
                     }}
                   >
                     {overdue ? 'OVERDUE' : status.text}
@@ -108,7 +112,7 @@ export default function MyAssignmentsPage() {
                   <span
                     style={{
                       fontSize: 13,
-                      color: overdue ? workerColors.red : workerColors.textSecondary,
+                      color: overdue ? colors.red : colors.textSecondary,
                       textAlign: 'right',
                     }}
                   >

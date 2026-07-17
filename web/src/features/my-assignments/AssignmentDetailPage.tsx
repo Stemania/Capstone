@@ -6,18 +6,18 @@ import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { operationsApi } from '../../api/operations.api';
 import { getErrorMessage } from '../../api/client';
-import { workerColors } from '../../layouts/WorkerLayout';
+import { useWorkerTheme } from '../../layouts/WorkerLayout';
 import type { JobOrder, Operation } from '../../types';
-
-const opStatusStyle: Record<string, { label: string; color: string }> = {
-  PENDING: { label: 'PENDING', color: workerColors.textSecondary },
-  IN_PROGRESS: { label: 'IN PROGRESS', color: workerColors.accent },
-  COMPLETED: { label: 'DONE', color: workerColors.green },
-};
 
 export default function AssignmentDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { colors } = useWorkerTheme();
+  const opStatusStyle: Record<string, { label: string; color: string }> = {
+    PENDING: { label: 'PENDING', color: colors.textSecondary },
+    IN_PROGRESS: { label: 'IN PROGRESS', color: colors.accent },
+    COMPLETED: { label: 'DONE', color: colors.green },
+  };
   const [job, setJob] = useState<JobOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -58,7 +58,7 @@ export default function AssignmentDetailPage() {
   };
 
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '64px auto' }} />;
-  if (!job) return <p style={{ color: workerColors.red }}>Job not found</p>;
+  if (!job) return <p style={{ color: colors.red }}>Job not found</p>;
 
   const overdue = job.status !== 'COMPLETED' && dayjs(job.dueDate).isBefore(dayjs(), 'day');
 
@@ -69,7 +69,7 @@ export default function AssignmentDetailPage() {
         style={{
           background: 'none',
           border: 'none',
-          color: workerColors.accent,
+          color: colors.accent,
           fontSize: 14,
           fontWeight: 600,
           padding: '4px 0',
@@ -88,7 +88,7 @@ export default function AssignmentDetailPage() {
           fontSize: 12,
           fontWeight: 700,
           letterSpacing: 1,
-          color: workerColors.textSecondary,
+          color: colors.textSecondary,
           textTransform: 'uppercase',
           marginBottom: 4,
         }}
@@ -96,7 +96,7 @@ export default function AssignmentDetailPage() {
         {job.clientName}
       </div>
       <h2 style={{ fontSize: 22, fontWeight: 800, margin: '0 0 8px' }}>{job.title}</h2>
-      <div style={{ fontSize: 13, color: overdue ? workerColors.red : workerColors.textSecondary, marginBottom: 24 }}>
+      <div style={{ fontSize: 13, color: overdue ? colors.red : colors.textSecondary, marginBottom: 24 }}>
         Due {dayjs(job.dueDate).format('MMM D, YYYY')}
         {overdue && ' · running behind'}
       </div>
@@ -109,8 +109,8 @@ export default function AssignmentDetailPage() {
             <div
               key={op.id}
               style={{
-                background: workerColors.card,
-                border: `1px solid ${workerColors.cardBorder}`,
+                background: colors.card,
+                border: `1px solid ${colors.cardBorder}`,
                 borderRadius: 12,
                 padding: '14px 16px',
                 opacity: done ? 0.65 : 1,
@@ -122,7 +122,7 @@ export default function AssignmentDetailPage() {
                     width: 28,
                     height: 28,
                     borderRadius: 8,
-                    background: 'rgba(255,255,255,0.06)',
+                    background: colors.chipBg,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -131,14 +131,14 @@ export default function AssignmentDetailPage() {
                     flexShrink: 0,
                   }}
                 >
-                  {done ? <CheckCircleFilled style={{ color: workerColors.green }} /> : op.seq}
+                  {done ? <CheckCircleFilled style={{ color: colors.green }} /> : op.seq}
                 </span>
                 <span style={{ flex: 1, fontWeight: 700, fontSize: 15 }}>{op.name}</span>
                 <span style={{ fontSize: 11, fontWeight: 700, color: style.color }}>{style.label}</span>
               </div>
 
               {(op.startedAt || op.completedAt) && (
-                <div style={{ fontSize: 12, color: workerColors.textSecondary, margin: '4px 0 10px 38px' }}>
+                <div style={{ fontSize: 12, color: colors.textSecondary, margin: '4px 0 10px 38px' }}>
                   {op.startedAt && `Started ${dayjs(op.startedAt).format('MMM D, h:mm A')}`}
                   {op.completedAt && ` · Done ${dayjs(op.completedAt).format('MMM D, h:mm A')}`}
                 </div>
