@@ -53,7 +53,7 @@ export default function MyToolsPage() {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
-        <span style={{ fontSize: 44, fontWeight: 800, color: workerColors.green, lineHeight: 1 }}>
+        <span style={{ fontSize: 44, fontWeight: 800, color: workerColors.accent, lineHeight: 1 }}>
           {tools.length}
         </span>
         <span style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.2 }}>
@@ -88,8 +88,8 @@ export default function MyToolsPage() {
                   width: 44,
                   height: 44,
                   borderRadius: 10,
-                  background: 'rgba(34,197,94,0.12)',
-                  color: workerColors.green,
+                  background: 'rgba(59,130,246,0.12)',
+                  color: workerColors.accent,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',

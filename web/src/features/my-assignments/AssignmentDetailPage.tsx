@@ -11,8 +11,8 @@ import type { JobOrder, Operation } from '../../types';
 
 const opStatusStyle: Record<string, { label: string; color: string }> = {
   PENDING: { label: 'PENDING', color: workerColors.textSecondary },
-  IN_PROGRESS: { label: 'IN PROGRESS', color: workerColors.green },
-  COMPLETED: { label: 'DONE', color: '#3b82f6' },
+  IN_PROGRESS: { label: 'IN PROGRESS', color: workerColors.accent },
+  COMPLETED: { label: 'DONE', color: workerColors.green },
 };
 
 export default function AssignmentDetailPage() {
@@ -69,7 +69,7 @@ export default function AssignmentDetailPage() {
         style={{
           background: 'none',
           border: 'none',
-          color: workerColors.green,
+          color: workerColors.accent,
           fontSize: 14,
           fontWeight: 600,
           padding: '4px 0',
@@ -131,7 +131,7 @@ export default function AssignmentDetailPage() {
                     flexShrink: 0,
                   }}
                 >
-                  {done ? <CheckCircleFilled style={{ color: '#3b82f6' }} /> : op.seq}
+                  {done ? <CheckCircleFilled style={{ color: workerColors.green }} /> : op.seq}
                 </span>
                 <span style={{ flex: 1, fontWeight: 700, fontSize: 15 }}>{op.name}</span>
                 <span style={{ fontSize: 11, fontWeight: 700, color: style.color }}>{style.label}</span>

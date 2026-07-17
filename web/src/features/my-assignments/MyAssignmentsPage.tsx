@@ -12,9 +12,9 @@ function isOverdue(job: JobOrder) {
 }
 
 const statusLabels: Record<string, { text: string; color: string }> = {
-  ASSIGNED: { text: 'ASSIGNED', color: '#3b82f6' },
-  IN_PROGRESS: { text: 'IN PROGRESS', color: workerColors.green },
-  COMPLETED: { text: 'DONE', color: workerColors.textSecondary },
+  ASSIGNED: { text: 'ASSIGNED', color: '#60a5fa' },
+  IN_PROGRESS: { text: 'IN PROGRESS', color: workerColors.accent },
+  COMPLETED: { text: 'DONE', color: workerColors.green },
   UNASSIGNED: { text: 'UNASSIGNED', color: workerColors.textSecondary },
 };
 
@@ -41,7 +41,7 @@ export default function MyAssignmentsPage() {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
-        <span style={{ fontSize: 44, fontWeight: 800, color: workerColors.green, lineHeight: 1 }}>
+        <span style={{ fontSize: 44, fontWeight: 800, color: workerColors.accent, lineHeight: 1 }}>
           {activeCount}
         </span>
         <span style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.2 }}>

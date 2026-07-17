@@ -4,12 +4,13 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
 export const workerColors = {
-  bg: '#0f1214',
-  card: '#1b1f23',
-  cardBorder: '#2a2f35',
+  bg: '#0b1526',
+  card: '#13223a',
+  cardBorder: '#1e3251',
+  accent: '#3b82f6',
   green: '#22c55e',
   red: '#ef4444',
-  textSecondary: '#9ca3af',
+  textSecondary: '#94a3b8',
 };
 
 function initials(name: string) {
@@ -37,9 +38,11 @@ export default function WorkerLayout() {
       theme={{
         algorithm: antdTheme.darkAlgorithm,
         token: {
-          colorPrimary: workerColors.green,
+          colorPrimary: workerColors.accent,
           colorBgContainer: workerColors.card,
           borderRadius: 12,
+          fontFamily:
+            "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
         },
       }}
     >
@@ -70,8 +73,8 @@ export default function WorkerLayout() {
               width: 40,
               height: 40,
               borderRadius: 10,
-              background: workerColors.green,
-              color: '#06240f',
+              background: workerColors.accent,
+              color: '#fff',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -128,7 +131,7 @@ export default function WorkerLayout() {
             display: 'flex',
             justifyContent: 'space-around',
             alignItems: 'center',
-            background: '#15181b',
+            background: '#0f1c2e',
             borderTop: `1px solid ${workerColors.cardBorder}`,
             padding: '10px 0',
             paddingBottom: 'calc(10px + env(safe-area-inset-bottom))',
@@ -149,12 +152,12 @@ export default function WorkerLayout() {
                     borderRadius: 16,
                     marginTop: -28,
                     border: 'none',
-                    background: workerColors.green,
-                    color: '#06240f',
+                    background: workerColors.accent,
+                    color: '#fff',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    boxShadow: '0 4px 14px rgba(34,197,94,0.45)',
+                    boxShadow: '0 4px 14px rgba(59,130,246,0.45)',
                     cursor: 'pointer',
                   }}
                 >
@@ -169,7 +172,7 @@ export default function WorkerLayout() {
                 style={{
                   background: 'none',
                   border: 'none',
-                  color: active ? workerColors.green : workerColors.textSecondary,
+                  color: active ? workerColors.accent : workerColors.textSecondary,
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',

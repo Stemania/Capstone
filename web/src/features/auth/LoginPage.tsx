@@ -4,7 +4,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { getErrorMessage } from '../../api/client';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
@@ -35,17 +35,22 @@ export default function LoginPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#f0f2f5',
+        background: '#f1f5f9',
         padding: 16,
       }}
     >
-      <Card style={{ width: '100%', maxWidth: 420 }}>
-        <Title level={3} style={{ textAlign: 'center', marginBottom: 8 }}>
-          Brothers Machine Shop
-        </Title>
-        <Text type="secondary" style={{ display: 'block', textAlign: 'center', marginBottom: 24 }}>
-          Production Scheduling System
-        </Text>
+      <Card
+        style={{ width: '100%', maxWidth: 420, border: '1px solid #e2e8f0' }}
+        styles={{ body: { padding: 32 } }}
+      >
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: 0.5 }}>
+            METAL<span style={{ color: '#2563eb' }}>LINK</span> ERP
+          </div>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            Brothers Machine Shop and Services Corporation
+          </Text>
+        </div>
 
         {error && <Alert type="error" message={error} style={{ marginBottom: 16 }} showIcon />}
 
@@ -56,16 +61,37 @@ export default function LoginPage() {
           <Form.Item name="password" label="Password" rules={[{ required: true }]}>
             <Input.Password size="large" />
           </Form.Item>
-          <Button type="primary" htmlType="submit" block size="large" loading={submitting}>
+          <Button
+            type="primary"
+            htmlType="submit"
+            block
+            size="large"
+            loading={submitting}
+            style={{ fontWeight: 600, height: 44 }}
+          >
             Sign In
           </Button>
         </Form>
 
-        <div style={{ marginTop: 24, fontSize: 12, color: '#888' }}>
-          <p>Demo accounts:</p>
-          <p>Admin: admin@bmsc.local / Admin123!</p>
-          <p>Office: office@bmsc.local / Office123!</p>
-          <p>Worker: worker1@bmsc.local / Worker123!</p>
+        <div
+          style={{
+            marginTop: 24,
+            padding: 12,
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: 8,
+            fontSize: 12,
+            color: '#64748b',
+            lineHeight: 1.8,
+          }}
+        >
+          <strong>Demo accounts</strong>
+          <br />
+          Admin: admin@bmsc.local / Admin123!
+          <br />
+          Office: office@bmsc.local / Office123!
+          <br />
+          Worker: worker1@bmsc.local / Worker123!
         </div>
       </Card>
     </div>

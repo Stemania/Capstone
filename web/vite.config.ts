@@ -12,7 +12,7 @@ export default defineConfig({
         name: 'Brothers Machine Shop',
         short_name: 'BMSC',
         description: 'Production scheduling, worker progress, and tool tracking',
-        theme_color: '#1677ff',
+        theme_color: '#2563eb',
         background_color: '#ffffff',
         display: 'standalone',
         orientation: 'portrait',
