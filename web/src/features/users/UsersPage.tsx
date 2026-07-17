@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react';
 import {
-  Table, Button, Modal, Form, Input, Select, Tag, Typography, Space, Popconfirm, message,
+  Table, Button, Modal, Form, Input, Select, Tag, Space, Popconfirm, message,
 } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { usersApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
+import StatusPill, { type PillColor } from '../../components/StatusPill';
 import type { User } from '../../types';
 
-const { Title } = Typography;
+const roleStyle: Record<string, { label: string; color: PillColor }> = {
+  ADMIN: { label: 'Administrator', color: 'blue' },
+  OFFICE_STAFF: { label: 'Office Staff', color: 'amber' },
+  PRODUCTION_WORKER: { label: 'Production Worker', color: 'green' },
+};
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -61,25 +66,37 @@ export default function UsersPage() {
   };
 
   const columns = [
-    { title: 'Name', dataIndex: 'fullName', key: 'fullName' },
+    {
+      title: 'Name',
+      dataIndex: 'fullName',
+      key: 'fullName',
+      render: (n: string) => <span style={{ fontWeight: 600 }}>{n}</span>,
+    },
     { title: 'Email', dataIndex: 'email', key: 'email' },
     {
       title: 'Role',
       dataIndex: 'role',
       key: 'role',
-      render: (r: string) => <Tag>{r.replace('_', ' ')}</Tag>,
+      render: (r: string) => {
+        const st = roleStyle[r] || { label: r.replace('_', ' '), color: 'gray' as PillColor };
+        return <StatusPill color={st.color}>{st.label}</StatusPill>;
+      },
     },
     {
       title: 'Skills',
       key: 'skills',
       render: (_: unknown, record: User) =>
-        record.workerProfile?.skills?.map((s) => <Tag key={s}>{s}</Tag>),
+        record.workerProfile?.skills?.map((s) => (
+          <Tag key={s} style={{ borderRadius: 999 }}>{s}</Tag>
+        )),
     },
     {
       title: 'Status',
       dataIndex: 'active',
       key: 'active',
-      render: (a: boolean) => <Tag color={a ? 'green' : 'red'}>{a ? 'Active' : 'Inactive'}</Tag>,
+      render: (a: boolean) => (
+        <StatusPill color={a ? 'green' : 'red'}>{a ? 'Active' : 'Inactive'}</StatusPill>
+      ),
     },
     {
       title: 'Actions',
@@ -95,8 +112,7 @@ export default function UsersPage() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
-        <Title level={4} style={{ margin: 0 }}>User Management</Title>
+      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'flex-end' }}>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
           Add User
         </Button>

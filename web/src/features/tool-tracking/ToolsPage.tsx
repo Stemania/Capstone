@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, Typography, Tag, Space } from 'antd';
+import { Table, Button, Modal, Form, Input, Typography, Space } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { toolsApi } from '../../api/tools.api';
+import StatusPill from '../../components/StatusPill';
 import type { Tool } from '../../types';
 import apiClient from '../../api/client';
-
-const { Title } = Typography;
 
 export default function ToolsPage() {
   const [tools, setTools] = useState<Tool[]>([]);
@@ -36,16 +35,26 @@ export default function ToolsPage() {
   };
 
   const columns = [
-    { title: 'Name', dataIndex: 'name', key: 'name' },
-    { title: 'Code', dataIndex: 'code', key: 'code' },
+    {
+      title: 'Name',
+      dataIndex: 'name',
+      key: 'name',
+      render: (n: string) => <span style={{ fontWeight: 600 }}>{n}</span>,
+    },
+    {
+      title: 'Code',
+      dataIndex: 'code',
+      key: 'code',
+      render: (c: string) => <span style={{ color: '#64748b', fontSize: 12 }}>{c}</span>,
+    },
     {
       title: 'Current Holder',
       key: 'custody',
       render: (_: unknown, record: Tool) =>
         record.custody ? (
-          <Tag color="orange">{record.custody.holderName}</Tag>
+          <StatusPill color="amber">In Use · {record.custody.holderName}</StatusPill>
         ) : (
-          <Tag color="green">Available</Tag>
+          <StatusPill color="green">Available</StatusPill>
         ),
     },
     {
@@ -59,8 +68,7 @@ export default function ToolsPage() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
-        <Title level={4} style={{ margin: 0 }}>Tools</Title>
+      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'flex-end' }}>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
           Add Tool
         </Button>

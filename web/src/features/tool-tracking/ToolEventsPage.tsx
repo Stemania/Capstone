@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Table, Tag, Typography } from 'antd';
+import { Table } from 'antd';
 import dayjs from 'dayjs';
 import { toolsApi } from '../../api/tools.api';
+import StatusPill from '../../components/StatusPill';
 import type { ToolEvent } from '../../types';
-
-const { Title } = Typography;
 
 export default function ToolEventsPage() {
   const [events, setEvents] = useState<ToolEvent[]>([]);
@@ -30,22 +29,33 @@ export default function ToolEventsPage() {
       key: 'createdAt',
       render: (d: string) => dayjs(d).format('MMM D, YYYY h:mm A'),
     },
-    { title: 'Tool', dataIndex: 'toolName', key: 'toolName' },
-    { title: 'Code', dataIndex: 'toolCode', key: 'toolCode' },
+    {
+      title: 'Tool',
+      dataIndex: 'toolName',
+      key: 'toolName',
+      render: (n: string) => <span style={{ fontWeight: 600 }}>{n}</span>,
+    },
+    {
+      title: 'Code',
+      dataIndex: 'toolCode',
+      key: 'toolCode',
+      render: (c: string) => <span style={{ color: '#64748b', fontSize: 12 }}>{c}</span>,
+    },
     { title: 'Worker', dataIndex: 'workerName', key: 'workerName' },
     {
       title: 'Type',
       dataIndex: 'type',
       key: 'type',
       render: (t: string) => (
-        <Tag color={t === 'BORROW' ? 'orange' : 'green'}>{t}</Tag>
+        <StatusPill color={t === 'BORROW' ? 'amber' : 'green'}>
+          {t === 'BORROW' ? 'Borrowed' : 'Returned'}
+        </StatusPill>
       ),
     },
   ];
 
   return (
     <div>
-      <Title level={4}>Tool Borrow/Return Logs</Title>
       <Table
         rowKey="id"
         columns={columns}

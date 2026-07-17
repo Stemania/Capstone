@@ -1,4 +1,4 @@
-import { Grid, Layout, Menu, Button, Typography, Drawer, Avatar, Dropdown } from 'antd';
+import { Grid, Layout, Menu, Button, Drawer, Dropdown } from 'antd';
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -13,9 +13,15 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
 const { Header, Sider, Content } = Layout;
-const { Text } = Typography;
 
-const SIDEBAR_BG = '#0f1c2e';
+const NAVY = '#0f1c2e';
+
+const pageMeta: Record<string, { title: string; subtitle: string }> = {
+  '/job-orders': { title: 'Job Orders', subtitle: 'Create and manage production job orders' },
+  '/users': { title: 'Users & Roles', subtitle: 'Manage accounts and worker skills' },
+  '/tools': { title: 'Tools', subtitle: 'Tool registry and QR codes' },
+  '/tool-events': { title: 'Tool Logs', subtitle: 'Borrow and return history' },
+};
 
 function Brand({ collapsed }: { collapsed: boolean }) {
   return (
@@ -62,7 +68,7 @@ export default function AppLayout() {
   }
 
   const selectedKey = menuItems.find((item) => location.pathname.startsWith(item.key))?.key || '';
-  const pageTitle = menuItems.find((item) => item.key === selectedKey)?.label || '';
+  const meta = pageMeta[selectedKey] || { title: '', subtitle: '' };
 
   const menu = (
     <Menu
@@ -95,7 +101,7 @@ export default function AppLayout() {
         breakpoint="lg"
         collapsedWidth={0}
         width={230}
-        style={{ background: SIDEBAR_BG }}
+        style={{ background: NAVY }}
       >
         <Brand collapsed={collapsed} />
         {menu}
@@ -106,7 +112,7 @@ export default function AppLayout() {
         placement="left"
         open={mobileOpen}
         onClose={() => setMobileOpen(false)}
-        styles={{ body: { padding: 0, background: SIDEBAR_BG } }}
+        styles={{ body: { padding: 0, background: NAVY } }}
         width={240}
       >
         <Brand collapsed={false} />
@@ -117,15 +123,16 @@ export default function AppLayout() {
         <Header
           style={{
             padding: '0 20px',
-            background: '#fff',
+            background: NAVY,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            borderBottom: '1px solid #e2e8f0',
-            height: 60,
+            height: 68,
+            lineHeight: 'normal',
+            borderLeft: isMobile ? 'none' : '1px solid rgba(255,255,255,0.08)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
             <Button
               type="text"
               icon={collapsed || isMobile ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
@@ -133,8 +140,28 @@ export default function AppLayout() {
                 if (isMobile) setMobileOpen(true);
                 else setCollapsed(!collapsed);
               }}
+              style={{ color: 'rgba(255,255,255,0.75)' }}
             />
-            <Text strong style={{ fontSize: 16 }}>{pageTitle}</Text>
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  color: '#fff',
+                  fontSize: 17,
+                  fontWeight: 800,
+                  lineHeight: 1.2,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {meta.title}
+              </div>
+              {meta.subtitle && !isMobile && (
+                <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 2 }}>
+                  {meta.subtitle}
+                </div>
+              )}
+            </div>
           </div>
 
           <Dropdown
@@ -152,14 +179,37 @@ export default function AppLayout() {
               ],
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-              <Avatar style={{ background: '#2563eb', fontWeight: 600 }} size={34}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                cursor: 'pointer',
+                background: 'rgba(255,255,255,0.08)',
+                borderRadius: 12,
+                padding: '6px 12px 6px 6px',
+              }}
+            >
+              <div
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
+                  background: '#2563eb',
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
                 {initials}
-              </Avatar>
+              </div>
               {!isMobile && (
                 <div style={{ lineHeight: 1.2 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>{user?.fullName}</div>
-                  <div style={{ fontSize: 11, color: '#64748b' }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: '#fff' }}>{user?.fullName}</div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)' }}>
                     {user?.role === 'ADMIN' ? 'Administrator' : 'Office Staff'}
                   </div>
                 </div>
@@ -172,8 +222,9 @@ export default function AppLayout() {
             margin: 16,
             padding: 20,
             background: '#fff',
-            borderRadius: 12,
+            borderRadius: 14,
             border: '1px solid #e2e8f0',
+            boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04)',
             flex: 'none',
           }}
         >
