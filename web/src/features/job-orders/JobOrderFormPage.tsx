@@ -159,7 +159,7 @@ export default function JobOrderFormPage() {
         initialValues={{ operations: [{ name: '' }] }}
         style={{ marginBottom: 0 }}
       >
-        <Row gutter={20}>
+        <Row gutter={[20, 16]}>
           <Col xs={24} lg={13}>
             <div
               style={{
@@ -206,7 +206,7 @@ export default function JobOrderFormPage() {
 
               <Form.Item name="description" label="Description" style={{ marginBottom: 0 }}>
                 <TextArea
-                  rows={3}
+                  rows={4}
                   placeholder="Notes, tolerances, special instructions (optional)"
                   style={{ resize: 'none' }}
                 />
@@ -215,114 +215,129 @@ export default function JobOrderFormPage() {
           </Col>
 
           <Col xs={24} lg={11}>
-            <div
-              style={{
-                background: '#f8fafc',
-                border: '1px solid #e2e8f0',
-                borderRadius: 12,
-                padding: '16px 18px',
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              {sectionTitle('Operations & Assignment')}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
+              <div
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 12,
+                  padding: '16px 18px',
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                {sectionTitle('Operations')}
 
-              <div style={{ maxHeight: 180, overflowY: 'auto', paddingRight: 4 }}>
+                <div style={{ flex: 1, maxHeight: 132, overflowY: 'auto', paddingRight: 4, marginBottom: 10 }}>
+                  <Form.List name="operations">
+                    {(fields, { remove }) => (
+                      <>
+                        {fields.map(({ key, name, ...rest }, index) => (
+                          <div
+                            key={key}
+                            style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}
+                          >
+                            <span
+                              style={{
+                                width: 26,
+                                height: 26,
+                                borderRadius: 8,
+                                background: '#e2e8f0',
+                                color: '#475569',
+                                fontSize: 12,
+                                fontWeight: 700,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {index + 1}
+                            </span>
+                            <Form.Item
+                              {...rest}
+                              name={[name, 'name']}
+                              rules={[{ required: true, message: 'Operation name required' }]}
+                              style={{ flex: 1, marginBottom: 0 }}
+                            >
+                              <Input placeholder="Operation name (e.g. Milling)" onBlur={onOperationsChange} />
+                            </Form.Item>
+                            <Button
+                              type="text"
+                              danger
+                              icon={<DeleteOutlined />}
+                              disabled={fields.length <= 1}
+                              onClick={() => {
+                                remove(name);
+                                onOperationsChange();
+                              }}
+                            />
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </Form.List>
+                </div>
+
                 <Form.List name="operations">
-                  {(fields, { add, remove }) => (
-                    <>
-                      {fields.map(({ key, name, ...rest }, index) => (
-                        <div
-                          key={key}
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}
-                        >
-                          <span
-                            style={{
-                              width: 24,
-                              height: 24,
-                              borderRadius: 6,
-                              background: '#e2e8f0',
-                              color: '#475569',
-                              fontSize: 12,
-                              fontWeight: 700,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexShrink: 0,
-                            }}
-                          >
-                            {index + 1}
-                          </span>
-                          <Form.Item
-                            {...rest}
-                            name={[name, 'name']}
-                            rules={[{ required: true, message: 'Operation name required' }]}
-                            style={{ flex: 1, marginBottom: 0 }}
-                          >
-                            <Input placeholder="Operation name (e.g. Milling)" onBlur={onOperationsChange} />
-                          </Form.Item>
-                          <Button
-                            type="text"
-                            danger
-                            size="small"
-                            icon={<DeleteOutlined />}
-                            disabled={fields.length <= 1}
-                            onClick={() => {
-                              remove(name);
-                              onOperationsChange();
-                            }}
-                          />
-                        </div>
-                      ))}
-                      <Button
-                        type="dashed"
-                        onClick={() => add()}
-                        block
-                        size="small"
-                        icon={<PlusOutlined />}
-                        style={{ marginBottom: 12 }}
-                      >
-                        Add Operation
-                      </Button>
-                    </>
+                  {(_fields, { add }) => (
+                    <Button
+                      type="dashed"
+                      onClick={() => add()}
+                      block
+                      icon={<PlusOutlined />}
+                    >
+                      Add Operation
+                    </Button>
                   )}
                 </Form.List>
               </div>
 
-              <Form.Item
-                name="assignedWorkerId"
-                label="Assign Worker"
-                rules={[{ required: true }]}
-                style={{ marginBottom: suggestions.length ? 10 : 0 }}
+              <div
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 12,
+                  padding: '16px 18px',
+                }}
               >
-                <Select
-                  placeholder="Select worker"
-                  options={workers.map((w) => ({ value: w.id, label: w.fullName }))}
-                />
-              </Form.Item>
+                {sectionTitle('Assignment')}
 
-              {suggestions.length > 0 && (
-                <div>
-                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
-                    Suggested based on operation skills — tap to assign:
-                  </Text>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {suggestions.slice(0, 3).map((s) => (
-                      <Tag
-                        key={s.workerId}
-                        icon={s.score > 0 ? <StarFilled /> : undefined}
-                        color={s.score > 0 ? 'gold' : 'default'}
-                        style={{ cursor: 'pointer', marginInlineEnd: 0, padding: '3px 10px' }}
-                        onClick={() => form.setFieldValue('assignedWorkerId', s.workerId)}
-                      >
-                        {s.fullName}
-                        {s.matchedSkills.length > 0 && ` · ${s.matchedSkills.join(', ')}`}
-                      </Tag>
-                    ))}
+                <Form.Item
+                  name="assignedWorkerId"
+                  label="Assign Worker"
+                  rules={[{ required: true }]}
+                  style={{ marginBottom: suggestions.length ? 12 : 0 }}
+                >
+                  <Select
+                    placeholder="Select worker"
+                    options={workers.map((w) => ({ value: w.id, label: w.fullName }))}
+                  />
+                </Form.Item>
+
+                {suggestions.length > 0 && (
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+                      Suggested based on operation skills — tap to assign:
+                    </Text>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {suggestions.slice(0, 3).map((s) => (
+                        <Tag
+                          key={s.workerId}
+                          icon={s.score > 0 ? <StarFilled /> : undefined}
+                          color={s.score > 0 ? 'gold' : 'default'}
+                          style={{ cursor: 'pointer', marginInlineEnd: 0, padding: '3px 10px' }}
+                          onClick={() => form.setFieldValue('assignedWorkerId', s.workerId)}
+                        >
+                          {s.fullName}
+                          {s.matchedSkills.length > 0 && ` · ${s.matchedSkills.join(', ')}`}
+                        </Tag>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </Col>
         </Row>
