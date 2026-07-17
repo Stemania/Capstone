@@ -4,7 +4,7 @@ import {
   CheckCircleFilled,
   CameraOutlined,
   ArrowUpOutlined,
-  ArrowDownOutlined,
+  QrcodeOutlined,
   SunOutlined,
   MoonOutlined,
   LogoutOutlined,
@@ -16,7 +16,6 @@ import { useWorkerTheme } from '../../layouts/WorkerLayout';
 import type { ToolEvent } from '../../types';
 
 type CameraState = 'starting' | 'scanning' | 'denied';
-type ScanIntent = 'BORROW' | 'RETURN';
 
 const corner = (color: string, pos: React.CSSProperties): React.CSSProperties => ({
   position: 'absolute',
@@ -31,51 +30,27 @@ const corner = (color: string, pos: React.CSSProperties): React.CSSProperties =>
 export default function ScanToolPage() {
   const { colors, mode, toggleMode, logout } = useWorkerTheme();
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const processingRef = useRef(false);
-  const intentRef = useRef<ScanIntent>('BORROW');
   const [cameraState, setCameraState] = useState<CameraState>('starting');
-  const [intent, setIntent] = useState<ScanIntent>('BORROW');
+  const [detectedCode, setDetectedCode] = useState('');
   const [result, setResult] = useState<ToolEvent | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualCode, setManualCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  intentRef.current = intent;
-
-  const handleCode = async (code: string) => {
-    if (processingRef.current) return;
-    processingRef.current = true;
-    try {
-      scannerRef.current?.pause(true);
-    } catch {
-      // scanner may not be running
-    }
+  const borrow = async (code: string) => {
+    if (submitting) return;
     setSubmitting(true);
     try {
-      const { data } = await toolsApi.scan(code.trim(), { intent: intentRef.current });
+      const { data } = await toolsApi.scan(code.trim(), { intent: 'BORROW' });
       setResult(data);
       setManualOpen(false);
       setManualCode('');
+      setDetectedCode('');
     } catch (err) {
       message.error(getErrorMessage(err));
-      resumeScanning();
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const resumeScanning = () => {
-    processingRef.current = false;
-    try {
-      scannerRef.current?.resume();
-    } catch {
-      // camera not active
-    }
-  };
-
-  const closeResult = () => {
-    setResult(null);
-    resumeScanning();
   };
 
   useEffect(() => {
@@ -87,7 +62,7 @@ export default function ScanToolPage() {
       .start(
         { facingMode: 'environment' },
         { fps: 10, qrbox: { width: 240, height: 240 } },
-        (decodedText) => handleCode(decodedText),
+        (decodedText) => setDetectedCode(decodedText.trim()),
         () => {}
       )
       .then(() => {
@@ -105,10 +80,7 @@ export default function ScanToolPage() {
         }
       });
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const isBorrow = result?.type === 'BORROW';
 
   return (
     <div
@@ -242,50 +214,44 @@ export default function ScanToolPage() {
           border: `1px solid ${colors.cardBorder}`,
         }}
       >
-        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, textAlign: 'center' }}>
-          Point the camera at the tool&apos;s QR code
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-          <button
-            onClick={() => setIntent('BORROW')}
-            style={{
-              border: `2px solid ${intent === 'BORROW' ? colors.green : colors.cardBorder}`,
-              background: intent === 'BORROW' ? colors.greenSoft : 'transparent',
-              borderRadius: 12,
-              padding: '14px 10px',
-              cursor: 'pointer',
-              color: intent === 'BORROW' ? colors.green : colors.textSecondary,
-              fontWeight: 800,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <ArrowUpOutlined style={{ fontSize: 20 }} />
-            Borrow Tool
-          </button>
-          <button
-            onClick={() => setIntent('RETURN')}
-            style={{
-              border: `2px solid ${intent === 'RETURN' ? colors.red : colors.cardBorder}`,
-              background: intent === 'RETURN' ? 'rgba(220,38,38,0.1)' : 'transparent',
-              borderRadius: 12,
-              padding: '14px 10px',
-              cursor: 'pointer',
-              color: intent === 'RETURN' ? colors.red : colors.textSecondary,
-              fontWeight: 800,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <ArrowDownOutlined style={{ fontSize: 20 }} />
-            Return Tool
-          </button>
-        </div>
+        {detectedCode ? (
+          <>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                marginBottom: 12,
+              }}
+            >
+              <QrcodeOutlined style={{ fontSize: 18, color: colors.green }} />
+              <span style={{ fontSize: 15, fontWeight: 800, letterSpacing: 0.5 }}>
+                {detectedCode}
+              </span>
+            </div>
+            <Button
+              type="primary"
+              block
+              size="large"
+              loading={submitting}
+              icon={<ArrowUpOutlined />}
+              onClick={() => borrow(detectedCode)}
+              style={{
+                height: 50,
+                fontWeight: 800,
+                background: colors.green,
+                marginBottom: 10,
+              }}
+            >
+              Borrow Tool
+            </Button>
+          </>
+        ) : (
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, textAlign: 'center' }}>
+            Point the camera at the tool&apos;s QR code
+          </div>
+        )}
 
         <Button block onClick={() => setManualOpen(true)} style={{ fontWeight: 600 }}>
           Enter tag number manually
@@ -304,7 +270,7 @@ export default function ScanToolPage() {
           placeholder="e.g. TOOL-MILL-001"
           value={manualCode}
           onChange={(e) => setManualCode(e.target.value)}
-          onPressEnter={() => manualCode.trim() && handleCode(manualCode)}
+          onPressEnter={() => manualCode.trim() && borrow(manualCode)}
           autoFocus
           style={{ marginBottom: 16 }}
         />
@@ -314,29 +280,35 @@ export default function ScanToolPage() {
           size="large"
           loading={submitting}
           disabled={!manualCode.trim()}
-          onClick={() => handleCode(manualCode)}
+          onClick={() => borrow(manualCode)}
         >
-          {intent === 'BORROW' ? 'Borrow' : 'Return'}
+          Borrow
         </Button>
       </Modal>
 
-      <Modal open={Boolean(result)} onCancel={closeResult} footer={null} centered closable={false}>
+      <Modal open={Boolean(result)} onCancel={() => setResult(null)} footer={null} centered closable={false}>
         <div style={{ textAlign: 'center', padding: '16px 0' }}>
           <CheckCircleFilled
             style={{
               fontSize: 64,
-              color: isBorrow ? colors.green : colors.accent,
+              color: colors.green,
               marginBottom: 16,
             }}
           />
           <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: 2, marginBottom: 4 }}>
-            {isBorrow ? 'BORROWED' : 'RETURNED'}
+            BORROWED
           </div>
           <div style={{ fontSize: 16, marginBottom: 4 }}>{result?.toolName}</div>
           <div style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 24 }}>
             {result?.toolCode}
           </div>
-          <Button type="primary" block size="large" style={{ height: 48, fontWeight: 700 }} onClick={closeResult}>
+          <Button
+            type="primary"
+            block
+            size="large"
+            style={{ height: 48, fontWeight: 700 }}
+            onClick={() => setResult(null)}
+          >
             Done — keep scanning
           </Button>
         </div>
