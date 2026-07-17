@@ -26,16 +26,12 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
 function Brand({ collapsed }: { collapsed: boolean }) {
   return (
     <div style={{ padding: '20px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-      <div style={{ fontSize: collapsed ? 13 : 17, fontWeight: 800, letterSpacing: 0.5, color: '#fff', whiteSpace: 'nowrap' }}>
-        {collapsed ? (
-          <>M<span style={{ color: '#3b82f6' }}>L</span></>
-        ) : (
-          <>METAL<span style={{ color: '#3b82f6' }}>LINK</span> ERP</>
-        )}
+      <div style={{ fontSize: collapsed ? 13 : 16, fontWeight: 800, letterSpacing: 0.3, color: '#fff', whiteSpace: 'nowrap' }}>
+        {collapsed ? 'BMSC' : 'Brothers Machine Shop'}
       </div>
       {!collapsed && (
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
-          Brothers Machine Shop
+          Production Management
         </div>
       )}
     </div>

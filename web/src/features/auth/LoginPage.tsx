@@ -58,11 +58,11 @@ export default function LoginPage() {
             textAlign: 'center',
           }}
         >
-          <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: 0.5, color: '#fff' }}>
-            METAL<span style={{ color: '#3b82f6' }}>LINK</span> ERP
+          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 0.3, color: '#fff', lineHeight: 1.3 }}>
+            Brothers Machine Shop
           </div>
           <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', marginTop: 4 }}>
-            Brothers Machine Shop and Services Corporation
+            Production Management System
           </div>
         </div>
 
