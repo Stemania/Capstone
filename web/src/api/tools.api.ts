@@ -9,6 +9,8 @@ export const toolsApi = {
   getQrUrl: (id: string) => `${import.meta.env.VITE_API_BASE_URL || '/api/v1'}/tools/${id}/qr`,
   scan: (code: string, jobOrderId?: string) =>
     apiClient.post<ToolEvent>('/tools/scan', { code, jobOrderId }),
+  myTools: () =>
+    apiClient.get<{ id: string; name: string; code: string; since: string }[]>('/tools/my'),
   listEvents: (params?: { toolId?: string; page?: number; perPage?: number }) =>
     apiClient.get<{ items: ToolEvent[]; total: number; page: number; pages: number }>(
       '/tools/events',

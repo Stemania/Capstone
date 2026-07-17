@@ -6,7 +6,6 @@ import {
   FileTextOutlined,
   TeamOutlined,
   ToolOutlined,
-  ScanOutlined,
   UnorderedListOutlined,
   UserOutlined,
 } from '@ant-design/icons';
@@ -22,7 +21,7 @@ export default function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.lg;
-  const { user, logout, isAdmin, isOfficeStaff, isWorker } = useAuth();
+  const { user, logout, isAdmin, isOfficeStaff } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -39,13 +38,6 @@ export default function AppLayout() {
       { key: '/users', icon: <TeamOutlined />, label: 'Users' },
       { key: '/tools', icon: <ToolOutlined />, label: 'Tools' },
       { key: '/tool-events', icon: <UnorderedListOutlined />, label: 'Tool Logs' },
-    );
-  }
-
-  if (isWorker) {
-    menuItems.push(
-      { key: '/my-assignments', icon: <FileTextOutlined />, label: 'My Assignments' },
-      { key: '/scan', icon: <ScanOutlined />, label: 'Scan Tool' },
     );
   }
 

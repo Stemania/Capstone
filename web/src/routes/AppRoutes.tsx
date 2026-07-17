@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from '../hooks/useAuth';
 import { ProtectedRoute } from './ProtectedRoute';
 import AppLayout from '../layouts/AppLayout';
+import WorkerLayout from '../layouts/WorkerLayout';
+import MyToolsPage from '../features/tool-tracking/MyToolsPage';
 import LoginPage from '../features/auth/LoginPage';
 import JobOrderListPage from '../features/job-orders/JobOrderListPage';
 import JobOrderFormPage from '../features/job-orders/JobOrderFormPage';
@@ -33,13 +35,16 @@ export default function AppRoutes() {
                 <Route path="/tool-events" element={<ToolEventsPage />} />
               </Route>
 
-              <Route element={<ProtectedRoute roles={['PRODUCTION_WORKER']} />}>
+              <Route path="/" element={<Navigate to="/login" replace />} />
+            </Route>
+
+            <Route element={<ProtectedRoute roles={['PRODUCTION_WORKER']} />}>
+              <Route element={<WorkerLayout />}>
                 <Route path="/my-assignments" element={<MyAssignmentsPage />} />
                 <Route path="/my-assignments/:id" element={<AssignmentDetailPage />} />
                 <Route path="/scan" element={<ScanToolPage />} />
+                <Route path="/my-tools" element={<MyToolsPage />} />
               </Route>
-
-              <Route path="/" element={<Navigate to="/login" replace />} />
             </Route>
           </Route>
 

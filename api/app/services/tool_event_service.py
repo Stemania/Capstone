@@ -78,6 +78,44 @@ def scan_tool(code, worker_id, job_order_id=None):
         raise
 
 
+def list_held_tools(worker_id):
+    """Tools currently held by a worker, derived from event history."""
+    from sqlalchemy import func
+
+    latest = (
+        db.session.query(
+            ToolEvent.tool_id,
+            func.max(ToolEvent.created_at).label("latest_at"),
+        )
+        .group_by(ToolEvent.tool_id)
+        .subquery()
+    )
+
+    events = (
+        db.session.query(ToolEvent)
+        .join(
+            latest,
+            (ToolEvent.tool_id == latest.c.tool_id)
+            & (ToolEvent.created_at == latest.c.latest_at),
+        )
+        .filter(
+            ToolEvent.type == ToolEventType.BORROW,
+            ToolEvent.worker_id == worker_id,
+        )
+        .all()
+    )
+
+    return [
+        {
+            "id": e.tool.id,
+            "name": e.tool.name,
+            "code": e.tool.code,
+            "since": e.created_at.isoformat() if e.created_at else None,
+        }
+        for e in events
+    ]
+
+
 def list_tool_events(tool_id=None, page=1, per_page=50):
     query = ToolEvent.query.order_by(ToolEvent.created_at.desc())
     if tool_id:

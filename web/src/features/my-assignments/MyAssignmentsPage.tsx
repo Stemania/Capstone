@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react';
-import { Card, List, Tag, Typography, Spin, Empty } from 'antd';
+import { Spin, Empty } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
-import type { JobOrder, JobOrderStatus } from '../../types';
+import { workerColors } from '../../layouts/WorkerLayout';
+import type { JobOrder } from '../../types';
 
-const { Title, Text } = Typography;
+function isOverdue(job: JobOrder) {
+  return job.status !== 'COMPLETED' && dayjs(job.dueDate).isBefore(dayjs(), 'day');
+}
 
-const statusColors: Record<JobOrderStatus, string> = {
-  UNASSIGNED: 'default',
-  ASSIGNED: 'blue',
-  IN_PROGRESS: 'processing',
-  COMPLETED: 'success',
+const statusLabels: Record<string, { text: string; color: string }> = {
+  ASSIGNED: { text: 'ASSIGNED', color: '#3b82f6' },
+  IN_PROGRESS: { text: 'IN PROGRESS', color: workerColors.green },
+  COMPLETED: { text: 'DONE', color: workerColors.textSecondary },
+  UNASSIGNED: { text: 'UNASSIGNED', color: workerColors.textSecondary },
 };
 
 export default function MyAssignmentsPage() {
@@ -29,36 +32,99 @@ export default function MyAssignmentsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <Spin size="large" style={{ display: 'block', margin: '48px auto' }} />;
+  if (loading) {
+    return <Spin size="large" style={{ display: 'block', margin: '64px auto' }} />;
+  }
+
+  const activeCount = jobs.filter((j) => j.status !== 'COMPLETED').length;
 
   return (
     <div>
-      <Title level={4}>My Assignments</Title>
-      {error && <Text type="danger">{error}</Text>}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
+        <span style={{ fontSize: 44, fontWeight: 800, color: workerColors.green, lineHeight: 1 }}>
+          {activeCount}
+        </span>
+        <span style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.2 }}>
+          job{activeCount === 1 ? '' : 's'} on your
+          <br />
+          bench today
+        </span>
+      </div>
+      <p style={{ color: workerColors.textSecondary, fontSize: 13, marginBottom: 20 }}>
+        Tap a job to open its operations.
+      </p>
+
+      {error && <p style={{ color: workerColors.red }}>{error}</p>}
 
       {jobs.length === 0 ? (
-        <Empty description="No assignments yet" />
+        <Empty description="No assignments yet" style={{ marginTop: 48 }} />
       ) : (
-        <List
-          grid={{ gutter: 16, xs: 1, sm: 1, md: 2, lg: 2 }}
-          dataSource={jobs}
-          renderItem={(job) => (
-            <List.Item>
-              <Card
-                hoverable
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {jobs.map((job) => {
+            const overdue = isOverdue(job);
+            const status = statusLabels[job.status];
+            return (
+              <div
+                key={job.id}
                 onClick={() => navigate(`/my-assignments/${job.id}`)}
-                style={{ width: '100%' }}
+                style={{
+                  background: workerColors.card,
+                  border: `1px solid ${workerColors.cardBorder}`,
+                  borderTop: `3px solid ${overdue ? workerColors.red : status.color}`,
+                  borderRadius: 12,
+                  padding: '14px 16px',
+                  cursor: 'pointer',
+                }}
               >
-                <Title level={5} style={{ marginTop: 0 }}>{job.title}</Title>
-                <Text type="secondary">{job.clientName}</Text>
-                <div style={{ marginTop: 8 }}>
-                  <Tag color={statusColors[job.status]}>{job.status.replace('_', ' ')}</Tag>
-                  <Text> Due: {dayjs(job.dueDate).format('MMM D, YYYY')}</Text>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      letterSpacing: 1,
+                      color: workerColors.textSecondary,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {job.clientName}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: 999,
+                      background: overdue ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)',
+                      color: overdue ? workerColors.red : status.color,
+                    }}
+                  >
+                    {overdue ? 'OVERDUE' : status.text}
+                  </span>
                 </div>
-              </Card>
-            </List.Item>
-          )}
-        />
+
+                <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 10 }}>{job.title}</div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <span
+                    style={{
+                      fontSize: 13,
+                      color: overdue ? workerColors.red : workerColors.textSecondary,
+                      textAlign: 'right',
+                    }}
+                  >
+                    Due {dayjs(job.dueDate).format('MMM D')}
+                    {overdue && (
+                      <>
+                        {' · '}
+                        <strong>running behind</strong>
+                      </>
+                    )}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

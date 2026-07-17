@@ -30,6 +30,15 @@ def create_tool():
     return jsonify(tool.to_dict()), 201
 
 
+@tools_bp.route("/my", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.PRODUCTION_WORKER)
+def my_tools():
+    """Tools whose latest event is a BORROW by the current worker."""
+    tools = te_service.list_held_tools(get_current_user_id())
+    return jsonify(tools)
+
+
 @tools_bp.route("/scan", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.PRODUCTION_WORKER)
