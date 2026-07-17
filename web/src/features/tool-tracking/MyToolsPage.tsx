@@ -146,6 +146,7 @@ export default function MyToolsPage() {
                     border: `1px solid ${colors.cardBorder}`,
                     borderRadius: 14,
                     padding: 14,
+                    minHeight: 96,
                     boxShadow: colors.shadow,
                     display: 'flex',
                     alignItems: 'center',
@@ -154,53 +155,59 @@ export default function MyToolsPage() {
                 >
                   <div
                     style={{
-                      width: 52,
-                      height: 52,
+                      width: 48,
+                      height: 48,
                       borderRadius: 12,
                       background: colors.chipBg,
                       color: colors.accent,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: 22,
+                      fontSize: 20,
                       flexShrink: 0,
                     }}
                   >
                     <ToolOutlined />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 2 }}>
-                      <span style={{ fontWeight: 800, fontSize: 15 }}>{tool.name}</span>
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 700,
-                          padding: '2px 8px',
-                          borderRadius: 999,
-                          background: colors.greenSoft,
-                          color: colors.green,
-                          flexShrink: 0,
-                        }}
-                      >
-                        In Use
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 12, color: colors.textSecondary }}>
-                      {tool.code}
-                    </div>
+                    <div style={{ fontWeight: 800, fontSize: 15 }}>{tool.name}</div>
+                    <div style={{ fontSize: 12, color: colors.textSecondary }}>{tool.code}</div>
                     <div style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>
                       Borrowed {dayjs(tool.since).format('MMM D, h:mm A')}
                     </div>
                   </div>
-                  <Button
-                    type="primary"
-                    danger
-                    loading={returning === tool.id}
-                    onClick={() => handleReturn(tool)}
-                    style={{ fontWeight: 700 }}
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-end',
+                      gap: 8,
+                      flexShrink: 0,
+                    }}
                   >
-                    Return
-                  </Button>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '3px 10px',
+                        borderRadius: 999,
+                        background: colors.greenSoft,
+                        color: colors.green,
+                      }}
+                    >
+                      In Use
+                    </span>
+                    <Button
+                      type="primary"
+                      danger
+                      size="small"
+                      loading={returning === tool.id}
+                      onClick={() => handleReturn(tool)}
+                      style={{ fontWeight: 700, height: 30 }}
+                    >
+                      Return
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -228,6 +235,7 @@ export default function MyToolsPage() {
                     border: `1px solid ${colors.cardBorder}`,
                     borderRadius: 14,
                     padding: 14,
+                    minHeight: 96,
                     boxShadow: colors.shadow,
                     display: 'flex',
                     alignItems: 'center',
@@ -236,22 +244,22 @@ export default function MyToolsPage() {
                 >
                   <div
                     style={{
-                      width: 44,
-                      height: 44,
+                      width: 48,
+                      height: 48,
                       borderRadius: 12,
                       background: colors.chipBg,
                       color: statusColor,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: 18,
+                      fontSize: 20,
                       flexShrink: 0,
                     }}
                   >
                     <ToolOutlined />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{tool.name}</div>
+                    <div style={{ fontWeight: 800, fontSize: 15 }}>{tool.name}</div>
                     <div style={{ fontSize: 12, color: colors.textSecondary }}>{tool.code}</div>
                     {inUse && !heldByMe && tool.custody?.holderName && (
                       <div style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>
@@ -260,19 +268,27 @@ export default function MyToolsPage() {
                       </div>
                     )}
                   </div>
-                  <span
+                  <div
                     style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      padding: '3px 10px',
-                      borderRadius: 999,
-                      background: statusBg,
-                      color: statusColor,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-end',
                       flexShrink: 0,
                     }}
                   >
-                    {statusText}
-                  </span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '3px 10px',
+                        borderRadius: 999,
+                        background: statusBg,
+                        color: statusColor,
+                      }}
+                    >
+                      {statusText}
+                    </span>
+                  </div>
                 </div>
               );
             })}

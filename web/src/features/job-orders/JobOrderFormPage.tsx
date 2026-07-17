@@ -133,13 +133,13 @@ export default function JobOrderFormPage() {
   );
 
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+    <div className="jo-page">
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: 16,
+          marginBottom: 14,
         }}
       >
         <Title level={4} style={{ margin: 0 }}>
@@ -157,17 +157,19 @@ export default function JobOrderFormPage() {
         layout="vertical"
         onFinish={onFinish}
         initialValues={{ operations: [{ name: '' }] }}
-        style={{ marginBottom: 0 }}
+        style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
-        <Row gutter={[20, 16]}>
-          <Col xs={24} lg={13}>
+        <Row gutter={[16, 16]} style={{ flex: 1, minHeight: 0 }}>
+          <Col xs={24} lg={13} className="jo-col">
             <div
               style={{
                 background: '#f8fafc',
                 border: '1px solid #e2e8f0',
                 borderRadius: 12,
-                padding: '16px 18px',
+                padding: 18,
                 height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
               }}
             >
               {sectionTitle('Job Information')}
@@ -204,9 +206,8 @@ export default function JobOrderFormPage() {
                 <Input placeholder="e.g. Hydraulic Cylinder Rod" />
               </Form.Item>
 
-              <Form.Item name="description" label="Description" style={{ marginBottom: 0 }}>
+              <Form.Item name="description" label="Description" className="fill-item">
                 <TextArea
-                  rows={4}
                   placeholder="Notes, tolerances, special instructions (optional)"
                   style={{ resize: 'none' }}
                 />
@@ -214,15 +215,16 @@ export default function JobOrderFormPage() {
             </div>
           </Col>
 
-          <Col xs={24} lg={11}>
+          <Col xs={24} lg={11} className="jo-col">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
               <div
                 style={{
                   background: '#f8fafc',
                   border: '1px solid #e2e8f0',
                   borderRadius: 12,
-                  padding: '16px 18px',
+                  padding: 18,
                   flex: 1,
+                  minHeight: 0,
                   display: 'flex',
                   flexDirection: 'column',
                 }}
@@ -232,7 +234,7 @@ export default function JobOrderFormPage() {
                 <Form.List name="operations">
                   {(fields, { add, remove }) => (
                     <>
-                      <div style={{ flex: 1, maxHeight: 132, overflowY: 'auto', paddingRight: 4, marginBottom: 10 }}>
+                      <div style={{ flex: 1, minHeight: 96, overflowY: 'auto', paddingRight: 4, marginBottom: 10 }}>
                         {fields.map(({ key, name, ...rest }, index) => (
                           <div
                             key={key}
@@ -289,7 +291,7 @@ export default function JobOrderFormPage() {
                   background: '#f8fafc',
                   border: '1px solid #e2e8f0',
                   borderRadius: 12,
-                  padding: '16px 18px',
+                  padding: 18,
                 }}
               >
                 {sectionTitle('Assignment')}
@@ -337,9 +339,10 @@ export default function JobOrderFormPage() {
             display: 'flex',
             justifyContent: 'flex-end',
             gap: 10,
-            marginTop: 16,
-            paddingTop: 16,
+            marginTop: 14,
+            paddingTop: 14,
             borderTop: '1px solid #e2e8f0',
+            flexShrink: 0,
           }}
         >
           <Button onClick={() => navigate('/job-orders')}>Cancel</Button>
