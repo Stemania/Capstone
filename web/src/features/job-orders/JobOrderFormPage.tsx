@@ -229,10 +229,10 @@ export default function JobOrderFormPage() {
               >
                 {sectionTitle('Operations')}
 
-                <div style={{ flex: 1, maxHeight: 132, overflowY: 'auto', paddingRight: 4, marginBottom: 10 }}>
-                  <Form.List name="operations">
-                    {(fields, { remove }) => (
-                      <>
+                <Form.List name="operations">
+                  {(fields, { add, remove }) => (
+                    <>
+                      <div style={{ flex: 1, maxHeight: 132, overflowY: 'auto', paddingRight: 4, marginBottom: 10 }}>
                         {fields.map(({ key, name, ...rest }, index) => (
                           <div
                             key={key}
@@ -275,21 +275,11 @@ export default function JobOrderFormPage() {
                             />
                           </div>
                         ))}
-                      </>
-                    )}
-                  </Form.List>
-                </div>
-
-                <Form.List name="operations">
-                  {(_fields, { add }) => (
-                    <Button
-                      type="dashed"
-                      onClick={() => add()}
-                      block
-                      icon={<PlusOutlined />}
-                    >
-                      Add Operation
-                    </Button>
+                      </div>
+                      <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
+                        Add Operation
+                      </Button>
+                    </>
                   )}
                 </Form.List>
               </div>
