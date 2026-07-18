@@ -61,7 +61,9 @@ export default function AssignmentDetailPage() {
     return (
       <div>
         <WorkerPageHeader title="Job Details" onBack={() => navigate('/my-assignments')} />
-        <Spin size="large" style={{ display: 'block', margin: '64px auto' }} />
+        <div className="page-spinner">
+          <Spin size="large" />
+        </div>
       </div>
     );
   }

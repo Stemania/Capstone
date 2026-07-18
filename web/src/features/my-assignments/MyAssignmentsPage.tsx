@@ -123,7 +123,9 @@ export default function MyAssignmentsPage() {
         />
 
         {loading ? (
-          <Spin size="large" style={{ display: 'block', margin: '48px auto' }} />
+          <div className="page-spinner">
+            <Spin size="large" />
+          </div>
         ) : error ? (
           <p style={{ color: colors.red }}>{error}</p>
         ) : filtered.length === 0 ? (

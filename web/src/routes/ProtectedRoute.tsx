@@ -12,7 +12,7 @@ export function ProtectedRoute({ roles }: ProtectedRouteProps) {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
+      <div className="page-spinner-fullscreen">
         <Spin size="large" />
       </div>
     );

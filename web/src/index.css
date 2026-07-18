@@ -14,6 +14,23 @@ body {
   min-height: 100vh;
 }
 
+.page-spinner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 220px;
+  padding: 48px 16px;
+}
+
+.page-spinner-fullscreen {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 100dvh;
+}
+
 @media (max-width: 768px) {
   .ant-layout-content {
     margin: 8px !important;

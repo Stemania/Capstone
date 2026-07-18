@@ -113,7 +113,11 @@ export default function JobOrderFormPage() {
     }
   };
 
-  if (loading) return <Spin size="large" />;
+  if (loading) return (
+    <div className="page-spinner">
+      <Spin size="large" />
+    </div>
+  );
 
   const sectionTitle = (text: string) => (
     <div

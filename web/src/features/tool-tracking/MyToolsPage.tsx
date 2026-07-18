@@ -132,7 +132,9 @@ export default function MyToolsPage() {
         </div>
 
         {loading ? (
-          <Spin size="large" style={{ display: 'block', margin: '48px auto' }} />
+          <div className="page-spinner">
+            <Spin size="large" />
+          </div>
         ) : tab === 'borrowed' ? (
           filteredTools.length === 0 ? (
             <Empty description="No tools borrowed" style={{ marginTop: 40 }} />
