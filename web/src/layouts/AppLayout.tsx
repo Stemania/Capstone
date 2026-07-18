@@ -7,6 +7,7 @@ import {
   TeamOutlined,
   ToolOutlined,
   UnorderedListOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
@@ -79,13 +80,6 @@ export default function AppLayout() {
       }}
     />
   );
-
-  const initials = user?.fullName
-    ?.split(' ')
-    .map((p) => p[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
 
   return (
     <Layout style={{ height: '100vh', overflow: 'hidden' }}>
@@ -208,14 +202,13 @@ export default function AppLayout() {
                   borderRadius: '50%',
                   background: '#2563eb',
                   color: '#fff',
-                  fontWeight: 700,
-                  fontSize: 13,
+                  fontSize: 16,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
-                {initials}
+                <UserOutlined />
               </div>
               {!isMobile && (
                 <div style={{ lineHeight: 1.2 }}>
