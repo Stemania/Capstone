@@ -1,6 +1,9 @@
 import enum
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
+
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.extensions import db
 
@@ -20,6 +23,12 @@ class JobOrderStatus(enum.Enum):
     COMPLETED = "COMPLETED"
 
 
+class JobPriority(enum.Enum):
+    HIGH = "HIGH"
+    MODERATE = "MODERATE"
+    LOW = "LOW"
+
+
 class JobOrder(db.Model):
     __tablename__ = "job_orders"
 
@@ -33,6 +42,14 @@ class JobOrder(db.Model):
     status = db.Column(
         db.Enum(JobOrderStatus), nullable=False, default=JobOrderStatus.UNASSIGNED, index=True
     )
+    priority = db.Column(
+        db.Enum(JobPriority), nullable=False, default=JobPriority.MODERATE, index=True
+    )
+    quantity = db.Column(db.Numeric(12, 2), nullable=True)
+    unit_of_measure = db.Column(db.String(32), nullable=True)
+    amount = db.Column(db.Numeric(14, 2), nullable=True)
+    # [{ "name": "Mild steel plate", "quantity": 2, "unit": "pcs" }, ...]
+    raw_materials = db.Column(JSONB, nullable=False, default=list)
     assigned_worker_id = db.Column(
         db.String(36), db.ForeignKey("users.id"), nullable=True, index=True
     )
@@ -66,6 +83,11 @@ class JobOrder(db.Model):
         year = self.created_at.year if self.created_at else datetime.now(timezone.utc).year
         short = (self.id or "")[:4].upper()
 
+        def _num(v):
+            if v is None:
+                return None
+            return float(v) if isinstance(v, Decimal) else float(v)
+
         data = {
             "id": self.id,
             "jobNumber": f"JO-{year}-{short}",
@@ -75,6 +97,11 @@ class JobOrder(db.Model):
             "description": self.description,
             "dueDate": self.due_date.isoformat() if self.due_date else None,
             "status": self.status.value,
+            "priority": self.priority.value if self.priority else JobPriority.MODERATE.value,
+            "quantity": _num(self.quantity),
+            "unitOfMeasure": self.unit_of_measure,
+            "amount": _num(self.amount),
+            "rawMaterials": self.raw_materials or [],
             "assignedWorkerId": self.assigned_worker_id,
             "assignedWorkerName": (
                 self.assigned_worker.full_name if self.assigned_worker else None

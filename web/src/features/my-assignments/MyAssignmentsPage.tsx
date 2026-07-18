@@ -8,13 +8,11 @@ import { getErrorMessage } from '../../api/client';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
 import type { JobOrder } from '../../types';
 
-function urgency(job: JobOrder): { label: string; color: string } | null {
-  if (job.status === 'COMPLETED') return null;
-  const days = dayjs(job.dueDate).diff(dayjs(), 'day');
-  if (days < 0) return { label: 'High', color: '#dc2626' };
-  if (days <= 2) return { label: 'High', color: '#d97706' };
-  if (days <= 7) return { label: 'Medium', color: '#d97706' };
-  return { label: 'Low', color: '#16a34a' };
+function priorityMeta(job: JobOrder): { label: string; color: string } {
+  const p = job.priority || 'MODERATE';
+  if (p === 'HIGH') return { label: 'High', color: '#dc2626' };
+  if (p === 'LOW') return { label: 'Low', color: '#16a34a' };
+  return { label: 'Moderate', color: '#d97706' };
 }
 
 export default function MyAssignmentsPage() {
@@ -134,7 +132,7 @@ export default function MyAssignmentsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {filtered.map((job) => {
               const badge = statusBadge(job);
-              const pri = urgency(job);
+              const pri = priorityMeta(job);
               const total = job.opsTotal || 0;
               const done = job.opsCompleted || 0;
               const pct = total ? Math.round((done / total) * 100) : 0;

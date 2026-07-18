@@ -8,6 +8,14 @@ from app.services import job_order_service as jo_service
 job_orders_bp = Blueprint("job_orders", __name__)
 
 
+@job_orders_bp.route("/machines", methods=["GET"])
+@jwt_required()
+def list_machines():
+    from app.constants.machines import MACHINE_CATALOG
+
+    return jsonify(MACHINE_CATALOG)
+
+
 @job_orders_bp.route("", methods=["GET"])
 @jwt_required()
 def list_job_orders():

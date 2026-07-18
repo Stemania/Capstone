@@ -5,6 +5,7 @@ from app.models import (
     Client,
     JobOrder,
     JobOrderStatus,
+    JobPriority,
     Operation,
     OperationStatus,
     Tool,
@@ -87,6 +88,14 @@ def seed_database():
         description="Repair and re-machine drive shaft for conveyor line 3.",
         due_date=date.today() + timedelta(days=7),
         status=JobOrderStatus.ASSIGNED,
+        priority=JobPriority.HIGH,
+        quantity=1,
+        unit_of_measure="lot",
+        amount=31360.00,
+        raw_materials=[
+            {"name": "Drive shaft blank", "quantity": 1, "unit": "pc"},
+            {"name": "Bearing grease", "quantity": 1, "unit": "tube"},
+        ],
         assigned_worker_id=workers[0][0].id,
         created_by_id=office.id,
     )
@@ -96,6 +105,14 @@ def seed_database():
         description="Fabricate 12 custom steel brackets per drawing BR-2024-15.",
         due_date=date.today() + timedelta(days=14),
         status=JobOrderStatus.IN_PROGRESS,
+        priority=JobPriority.MODERATE,
+        quantity=12,
+        unit_of_measure="pcs",
+        amount=26880.00,
+        raw_materials=[
+            {"name": "Mild steel plate 6mm", "quantity": 12, "unit": "pcs"},
+            {"name": "Welding rod E6013", "quantity": 2, "unit": "kg"},
+        ],
         assigned_worker_id=workers[1][0].id,
         created_by_id=office.id,
     )
@@ -105,6 +122,13 @@ def seed_database():
         description="Refurbish pump housing units - milling and finishing required.",
         due_date=date.today() + timedelta(days=21),
         status=JobOrderStatus.ASSIGNED,
+        priority=JobPriority.LOW,
+        quantity=2,
+        unit_of_measure="pcs",
+        amount=15400.00,
+        raw_materials=[
+            {"name": "Cast housing blank", "quantity": 2, "unit": "pcs"},
+        ],
         assigned_worker_id=workers[2][0].id,
         created_by_id=admin.id,
     )
@@ -113,13 +137,34 @@ def seed_database():
     db.session.flush()
 
     ops = [
-        Operation(job_order_id=job1.id, seq=1, name="Milling", status=OperationStatus.PENDING),
-        Operation(job_order_id=job1.id, seq=2, name="Grinding", status=OperationStatus.PENDING),
-        Operation(job_order_id=job2.id, seq=1, name="Welding", status=OperationStatus.COMPLETED),
-        Operation(job_order_id=job2.id, seq=2, name="Grinding", status=OperationStatus.IN_PROGRESS),
-        Operation(job_order_id=job2.id, seq=3, name="Finishing", status=OperationStatus.PENDING),
-        Operation(job_order_id=job3.id, seq=1, name="Milling", status=OperationStatus.PENDING),
-        Operation(job_order_id=job3.id, seq=2, name="CNC Machining", status=OperationStatus.PENDING),
+        Operation(
+            job_order_id=job1.id, seq=1, name="Milling",
+            machines_needed=["MILLING"], status=OperationStatus.PENDING,
+        ),
+        Operation(
+            job_order_id=job1.id, seq=2, name="Grinding",
+            machines_needed=["GRINDING"], status=OperationStatus.PENDING,
+        ),
+        Operation(
+            job_order_id=job2.id, seq=1, name="Welding",
+            machines_needed=[], status=OperationStatus.COMPLETED,
+        ),
+        Operation(
+            job_order_id=job2.id, seq=2, name="Grinding",
+            machines_needed=["GRINDING"], status=OperationStatus.IN_PROGRESS,
+        ),
+        Operation(
+            job_order_id=job2.id, seq=3, name="Finishing",
+            machines_needed=["DRILLING"], status=OperationStatus.PENDING,
+        ),
+        Operation(
+            job_order_id=job3.id, seq=1, name="Milling",
+            machines_needed=["MILLING"], status=OperationStatus.PENDING,
+        ),
+        Operation(
+            job_order_id=job3.id, seq=2, name="Lathe work",
+            machines_needed=["LATHE"], status=OperationStatus.PENDING,
+        ),
     ]
     db.session.add_all(ops)
 

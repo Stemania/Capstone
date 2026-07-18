@@ -1,17 +1,23 @@
 import { useEffect, useState } from 'react';
 import {
-  Form, Input, Button, DatePicker, Select, Typography, Alert, Tag, Spin, Row, Col,
+  Form, Input, InputNumber, Button, DatePicker, Select, Typography, Alert, Tag, Spin, Row, Col,
 } from 'antd';
 import { DeleteOutlined, PlusOutlined, StarFilled } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { clientsApi, jobOrdersApi, workersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
+import { MACHINE_OPTIONS } from '../../types';
 import type { Client, User, WorkerSuggestion } from '../../types';
 import apiClient from '../../api/client';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
+
+const machineSelectOptions = MACHINE_OPTIONS.map((m) => ({
+  value: m.code,
+  label: `${m.name} (${m.units} units)`,
+}));
 
 export default function JobOrderFormPage() {
   const { id } = useParams();
@@ -42,8 +48,18 @@ export default function JobOrderFormPage() {
             title: job.title,
             description: job.description,
             dueDate: dayjs(job.dueDate),
+            priority: job.priority || 'MODERATE',
+            quantity: job.quantity ?? undefined,
+            unitOfMeasure: job.unitOfMeasure || undefined,
+            amount: job.amount ?? undefined,
+            rawMaterials: job.rawMaterials?.length
+              ? job.rawMaterials
+              : [{ name: '', quantity: undefined, unit: '' }],
             assignedWorkerId: job.assignedWorkerId,
-            operations: job.operations?.map((op) => ({ name: op.name })) || [{ name: '' }],
+            operations: job.operations?.map((op) => ({
+              name: op.name,
+              machinesNeeded: op.machinesNeeded || [],
+            })) || [{ name: '', machinesNeeded: [] }],
           });
           if (job.operations?.length) {
             fetchSuggestions(job.operations.map((op) => op.name));
@@ -85,8 +101,13 @@ export default function JobOrderFormPage() {
     title: string;
     description?: string;
     dueDate: dayjs.Dayjs;
+    priority: string;
+    quantity?: number;
+    unitOfMeasure?: string;
+    amount?: number;
+    rawMaterials?: { name: string; quantity?: number; unit?: string }[];
     assignedWorkerId?: string;
-    operations: { name: string }[];
+    operations: { name: string; machinesNeeded?: string[] }[];
   }) => {
     setSubmitting(true);
     setError('');
@@ -95,8 +116,23 @@ export default function JobOrderFormPage() {
       title: values.title,
       description: values.description,
       dueDate: values.dueDate.format('YYYY-MM-DD'),
+      priority: values.priority,
+      quantity: values.quantity ?? null,
+      unitOfMeasure: values.unitOfMeasure || null,
+      amount: values.amount ?? null,
+      rawMaterials: (values.rawMaterials || [])
+        .filter((m) => m.name?.trim())
+        .map((m) => ({
+          name: m.name.trim(),
+          quantity: m.quantity,
+          unit: m.unit || undefined,
+        })),
       assignedWorkerId: values.assignedWorkerId,
-      operations: values.operations.map((op, i) => ({ seq: i + 1, name: op.name })),
+      operations: values.operations.map((op, i) => ({
+        seq: i + 1,
+        name: op.name,
+        machinesNeeded: op.machinesNeeded || [],
+      })),
     };
 
     try {
@@ -113,11 +149,13 @@ export default function JobOrderFormPage() {
     }
   };
 
-  if (loading) return (
-    <div className="page-spinner">
-      <Spin size="large" />
-    </div>
-  );
+  if (loading) {
+    return (
+      <div className="page-spinner">
+        <Spin size="large" />
+      </div>
+    );
+  }
 
   const sectionTitle = (text: string) => (
     <div
@@ -160,7 +198,11 @@ export default function JobOrderFormPage() {
         form={form}
         layout="vertical"
         onFinish={onFinish}
-        initialValues={{ operations: [{ name: '' }] }}
+        initialValues={{
+          priority: 'MODERATE',
+          operations: [{ name: '', machinesNeeded: [] }],
+          rawMaterials: [{ name: '', quantity: undefined, unit: '' }],
+        }}
         style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
         <Row gutter={[16, 16]} style={{ flex: 1, minHeight: 0 }}>
@@ -174,6 +216,7 @@ export default function JobOrderFormPage() {
                 height: '100%',
                 display: 'flex',
                 flexDirection: 'column',
+                overflowY: 'auto',
               }}
             >
               {sectionTitle('Job Information')}
@@ -184,7 +227,7 @@ export default function JobOrderFormPage() {
                     name="clientId"
                     label="Client"
                     rules={[{ required: true }]}
-                    style={{ marginBottom: 14 }}
+                    style={{ marginBottom: 12 }}
                   >
                     <Select
                       showSearch
@@ -199,23 +242,109 @@ export default function JobOrderFormPage() {
                     name="dueDate"
                     label="Due Date"
                     rules={[{ required: true }]}
-                    style={{ marginBottom: 14 }}
+                    style={{ marginBottom: 12 }}
                   >
                     <DatePicker style={{ width: '100%' }} />
                   </Form.Item>
                 </Col>
               </Row>
 
-              <Form.Item name="title" label="Title" rules={[{ required: true }]} style={{ marginBottom: 14 }}>
-                <Input placeholder="e.g. Hydraulic Cylinder Rod" />
+              <Form.Item name="title" label="Title" rules={[{ required: true }]} style={{ marginBottom: 12 }}>
+                <Input placeholder="e.g. Modification of Cyclodrive Base" />
               </Form.Item>
 
-              <Form.Item name="description" label="Description" className="fill-item">
+              <Row gutter={12}>
+                <Col span={8}>
+                  <Form.Item name="quantity" label="Quantity" style={{ marginBottom: 12 }}>
+                    <InputNumber style={{ width: '100%' }} min={0} step={0.01} placeholder="1.00" />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item name="unitOfMeasure" label="Unit" style={{ marginBottom: 12 }}>
+                    <Select
+                      allowClear
+                      placeholder="UM"
+                      options={[
+                        { value: 'pcs', label: 'pcs' },
+                        { value: 'lot', label: 'lot' },
+                        { value: 'set', label: 'set' },
+                        { value: 'kg', label: 'kg' },
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item
+                    name="priority"
+                    label="Priority"
+                    rules={[{ required: true }]}
+                    style={{ marginBottom: 12 }}
+                  >
+                    <Select
+                      options={[
+                        { value: 'HIGH', label: 'High' },
+                        { value: 'MODERATE', label: 'Moderate' },
+                        { value: 'LOW', label: 'Low' },
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Form.Item name="amount" label="Amount (PHP)" style={{ marginBottom: 12 }}>
+                <InputNumber
+                  style={{ width: '100%' }}
+                  min={0}
+                  step={0.01}
+                  placeholder="0.00"
+                />
+              </Form.Item>
+
+              <Form.Item name="description" label="Description" style={{ marginBottom: 12 }}>
                 <TextArea
-                  placeholder="Notes, tolerances, special instructions (optional)"
+                  rows={2}
+                  placeholder="Notes from PO / special instructions (optional)"
                   style={{ resize: 'none' }}
                 />
               </Form.Item>
+
+              {sectionTitle('Raw Materials')}
+              <Form.List name="rawMaterials">
+                {(fields, { add, remove }) => (
+                  <>
+                    {fields.map(({ key, name, ...rest }) => (
+                      <div
+                        key={key}
+                        style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start' }}
+                      >
+                        <Form.Item
+                          {...rest}
+                          name={[name, 'name']}
+                          style={{ flex: 2, marginBottom: 0 }}
+                        >
+                          <Input placeholder="Material name" />
+                        </Form.Item>
+                        <Form.Item {...rest} name={[name, 'quantity']} style={{ width: 90, marginBottom: 0 }}>
+                          <InputNumber style={{ width: '100%' }} min={0} placeholder="Qty" />
+                        </Form.Item>
+                        <Form.Item {...rest} name={[name, 'unit']} style={{ width: 80, marginBottom: 0 }}>
+                          <Input placeholder="Unit" />
+                        </Form.Item>
+                        <Button
+                          type="text"
+                          danger
+                          icon={<DeleteOutlined />}
+                          disabled={fields.length <= 1}
+                          onClick={() => remove(name)}
+                        />
+                      </div>
+                    ))}
+                    <Button type="dashed" onClick={() => add()} block size="small" icon={<PlusOutlined />}>
+                      Add Material
+                    </Button>
+                  </>
+                )}
+              </Form.List>
             </div>
           </Col>
 
@@ -233,56 +362,77 @@ export default function JobOrderFormPage() {
                   flexDirection: 'column',
                 }}
               >
-                {sectionTitle('Operations')}
+                {sectionTitle('Operations & Machines')}
 
                 <Form.List name="operations">
                   {(fields, { add, remove }) => (
                     <>
-                      <div style={{ flex: 1, minHeight: 96, overflowY: 'auto', paddingRight: 4, marginBottom: 10 }}>
+                      <div style={{ flex: 1, minHeight: 120, overflowY: 'auto', paddingRight: 4, marginBottom: 10 }}>
                         {fields.map(({ key, name, ...rest }, index) => (
                           <div
                             key={key}
-                            style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}
+                            style={{
+                              border: '1px solid #e2e8f0',
+                              borderRadius: 10,
+                              padding: 10,
+                              marginBottom: 8,
+                              background: '#fff',
+                            }}
                           >
-                            <span
-                              style={{
-                                width: 26,
-                                height: 26,
-                                borderRadius: 8,
-                                background: '#e2e8f0',
-                                color: '#475569',
-                                fontSize: 12,
-                                fontWeight: 700,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                flexShrink: 0,
-                              }}
-                            >
-                              {index + 1}
-                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                              <span
+                                style={{
+                                  width: 26,
+                                  height: 26,
+                                  borderRadius: 8,
+                                  background: '#e2e8f0',
+                                  color: '#475569',
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {index + 1}
+                              </span>
+                              <Form.Item
+                                {...rest}
+                                name={[name, 'name']}
+                                rules={[{ required: true, message: 'Required' }]}
+                                style={{ flex: 1, marginBottom: 0 }}
+                              >
+                                <Input placeholder="Operation name" onBlur={onOperationsChange} />
+                              </Form.Item>
+                              <Button
+                                type="text"
+                                danger
+                                icon={<DeleteOutlined />}
+                                disabled={fields.length <= 1}
+                                onClick={() => {
+                                  remove(name);
+                                  onOperationsChange();
+                                }}
+                              />
+                            </div>
                             <Form.Item
                               {...rest}
-                              name={[name, 'name']}
-                              rules={[{ required: true, message: 'Operation name required' }]}
-                              style={{ flex: 1, marginBottom: 0 }}
+                              name={[name, 'machinesNeeded']}
+                              style={{ marginBottom: 0 }}
                             >
-                              <Input placeholder="Operation name (e.g. Milling)" onBlur={onOperationsChange} />
+                              <Select
+                                mode="multiple"
+                                allowClear
+                                placeholder="Machines needed"
+                                options={machineSelectOptions}
+                                maxTagCount="responsive"
+                              />
                             </Form.Item>
-                            <Button
-                              type="text"
-                              danger
-                              icon={<DeleteOutlined />}
-                              disabled={fields.length <= 1}
-                              onClick={() => {
-                                remove(name);
-                                onOperationsChange();
-                              }}
-                            />
                           </div>
                         ))}
                       </div>
-                      <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
+                      <Button type="dashed" onClick={() => add({ name: '', machinesNeeded: [] })} block icon={<PlusOutlined />}>
                         Add Operation
                       </Button>
                     </>

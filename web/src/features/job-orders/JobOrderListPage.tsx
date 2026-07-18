@@ -6,7 +6,7 @@ import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
-import type { JobOrder, JobOrderStatus } from '../../types';
+import type { JobOrder, JobOrderStatus, JobPriority } from '../../types';
 
 const statusStyle: Record<JobOrderStatus, { label: string; color: PillColor }> = {
   UNASSIGNED: { label: 'Unassigned', color: 'gray' },
@@ -14,6 +14,17 @@ const statusStyle: Record<JobOrderStatus, { label: string; color: PillColor }> =
   IN_PROGRESS: { label: 'In Progress', color: 'green' },
   COMPLETED: { label: 'Completed', color: 'gray' },
 };
+
+const priorityStyle: Record<JobPriority, { label: string; color: PillColor }> = {
+  HIGH: { label: 'High', color: 'red' },
+  MODERATE: { label: 'Moderate', color: 'amber' },
+  LOW: { label: 'Low', color: 'green' },
+};
+
+function formatAmount(n?: number | null) {
+  if (n == null) return '—';
+  return `₱${Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
 export default function JobOrderListPage() {
   const [jobs, setJobs] = useState<JobOrder[]>([]);
@@ -56,6 +67,29 @@ export default function JobOrderListPage() {
       render: (t: string) => <span style={{ fontWeight: 600 }}>{t}</span>,
     },
     { title: 'Client', dataIndex: 'clientName', key: 'clientName' },
+    {
+      title: 'Qty',
+      key: 'quantity',
+      render: (_: unknown, record: JobOrder) =>
+        record.quantity != null
+          ? `${record.quantity}${record.unitOfMeasure ? ` ${record.unitOfMeasure}` : ''}`
+          : '—',
+    },
+    {
+      title: 'Amount',
+      dataIndex: 'amount',
+      key: 'amount',
+      render: (a: number | null | undefined) => formatAmount(a),
+    },
+    {
+      title: 'Priority',
+      dataIndex: 'priority',
+      key: 'priority',
+      render: (p: JobPriority | undefined) => {
+        const st = priorityStyle[p || 'MODERATE'];
+        return <StatusPill color={st.color}>{st.label}</StatusPill>;
+      },
+    },
     {
       title: 'Due Date',
       dataIndex: 'dueDate',

@@ -1,5 +1,5 @@
 from app.models.client import Client
-from app.models.job_order import JobOrder, JobOrderStatus
+from app.models.job_order import JobOrder, JobOrderStatus, JobPriority
 from app.models.operation import Operation, OperationStatus
 from app.models.tool import Tool
 from app.models.tool_event import ToolEvent, ToolEventType
@@ -13,6 +13,7 @@ __all__ = [
     "Client",
     "JobOrder",
     "JobOrderStatus",
+    "JobPriority",
     "Operation",
     "OperationStatus",
     "Tool",

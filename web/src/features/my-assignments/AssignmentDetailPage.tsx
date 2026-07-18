@@ -151,12 +151,72 @@ export default function AssignmentDetailPage() {
               >
                 {statusLabel}
               </span>
+              {job.priority && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: '3px 10px',
+                    borderRadius: 999,
+                    background:
+                      job.priority === 'HIGH'
+                        ? 'rgba(220,38,38,0.12)'
+                        : job.priority === 'LOW'
+                          ? colors.greenSoft
+                          : 'rgba(217,119,6,0.12)',
+                    color:
+                      job.priority === 'HIGH'
+                        ? colors.red
+                        : job.priority === 'LOW'
+                          ? colors.green
+                          : colors.amber,
+                  }}
+                >
+                  {job.priority === 'HIGH' ? 'High' : job.priority === 'LOW' ? 'Low' : 'Moderate'}
+                </span>
+              )}
               <span style={{ fontSize: 12, color: overdue ? colors.red : colors.textSecondary }}>
                 Due {dayjs(job.dueDate).format('MMM D, YYYY')}
               </span>
             </div>
+            {(job.quantity != null || job.amount != null) && (
+              <div style={{ fontSize: 12, color: colors.textSecondary, marginTop: 8 }}>
+                {job.quantity != null && (
+                  <>
+                    Qty {job.quantity}
+                    {job.unitOfMeasure ? ` ${job.unitOfMeasure}` : ''}
+                  </>
+                )}
+                {job.quantity != null && job.amount != null && ' · '}
+                {job.amount != null &&
+                  `₱${Number(job.amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`}
+              </div>
+            )}
           </div>
         </div>
+
+        {!!job.rawMaterials?.length && (
+          <div
+            style={{
+              background: colors.card,
+              border: `1px solid ${colors.cardBorder}`,
+              borderRadius: 14,
+              padding: 14,
+              marginBottom: 16,
+              boxShadow: colors.shadow,
+            }}
+          >
+            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>Raw Materials</div>
+            {job.rawMaterials.map((m, i) => (
+              <div key={`${m.name}-${i}`} style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 4 }}>
+                {m.name}
+                {(m.quantity != null || m.unit) && (
+                  <> — {[m.quantity, m.unit].filter((x) => x != null && x !== '').join(' ')}</>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 12 }}>Operations</div>
 
@@ -229,6 +289,13 @@ export default function AssignmentDetailPage() {
                       {done ? 'Completed' : active ? 'In Progress' : 'Pending'}
                     </span>
                   </div>
+
+                  {(op.machineNames?.length || op.machinesNeeded?.length) ? (
+                    <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 8 }}>
+                      Machines:{' '}
+                      {(op.machineNames || op.machinesNeeded || []).join(', ')}
+                    </div>
+                  ) : null}
 
                   {(op.startedAt || op.completedAt) && (
                     <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 10 }}>

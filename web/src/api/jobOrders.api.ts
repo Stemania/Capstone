@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { Client, JobOrder, WorkerSuggestion } from '../types';
+import type { Client, JobOrder, MachineInfo, WorkerSuggestion } from '../types';
 
 export const clientsApi = {
   list: (search?: string) =>
@@ -12,14 +12,9 @@ export const jobOrdersApi = {
   list: (status?: string) =>
     apiClient.get<JobOrder[]>('/job-orders', { params: status ? { status } : {} }),
   get: (id: string) => apiClient.get<JobOrder>(`/job-orders/${id}`),
-  create: (data: {
-    clientId: string;
-    title: string;
-    description?: string;
-    dueDate: string;
-    assignedWorkerId?: string;
-    operations: { seq: number; name: string }[];
-  }) => apiClient.post<JobOrder>('/job-orders', data),
+  machines: () => apiClient.get<MachineInfo[]>('/job-orders/machines'),
+  create: (data: Record<string, unknown>) =>
+    apiClient.post<JobOrder>('/job-orders', data),
   update: (id: string, data: Record<string, unknown>) =>
     apiClient.patch<JobOrder>(`/job-orders/${id}`, data),
   reassign: (id: string, assignedWorkerId: string) =>

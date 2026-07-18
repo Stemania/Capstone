@@ -26,13 +26,29 @@ export interface Client {
 }
 
 export type JobOrderStatus = 'UNASSIGNED' | 'ASSIGNED' | 'IN_PROGRESS' | 'COMPLETED';
+export type JobPriority = 'HIGH' | 'MODERATE' | 'LOW';
 export type OperationStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+export type MachineCode = 'LATHE' | 'MILLING' | 'SHAPER' | 'GRINDING' | 'DRILLING';
+
+export interface MachineInfo {
+  code: MachineCode | string;
+  name: string;
+  units: number;
+}
+
+export interface RawMaterial {
+  name: string;
+  quantity?: number;
+  unit?: string;
+}
 
 export interface Operation {
   id: string;
   jobOrderId: string;
   seq: number;
   name: string;
+  machinesNeeded?: string[];
+  machineNames?: string[];
   status: OperationStatus;
   startedAt?: string;
   completedAt?: string;
@@ -47,6 +63,11 @@ export interface JobOrder {
   description?: string;
   dueDate: string;
   status: JobOrderStatus;
+  priority?: JobPriority;
+  quantity?: number | null;
+  unitOfMeasure?: string | null;
+  amount?: number | null;
+  rawMaterials?: RawMaterial[];
   assignedWorkerId?: string;
   assignedWorkerName?: string;
   createdById?: string;
@@ -104,3 +125,11 @@ export interface ApiError {
     message: string;
   };
 }
+
+export const MACHINE_OPTIONS: MachineInfo[] = [
+  { code: 'LATHE', name: 'Lathe', units: 7 },
+  { code: 'MILLING', name: 'Milling', units: 8 },
+  { code: 'SHAPER', name: 'Shaper', units: 1 },
+  { code: 'GRINDING', name: 'Grinding', units: 2 },
+  { code: 'DRILLING', name: 'Drilling', units: 1 },
+];
