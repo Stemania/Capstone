@@ -197,15 +197,15 @@ export default function AppLayout() {
                 gap: 10,
                 cursor: 'pointer',
                 background: 'rgba(255,255,255,0.08)',
-                borderRadius: 12,
-                padding: '6px 12px 6px 6px',
+                borderRadius: 999,
+                padding: '6px 14px 6px 6px',
               }}
             >
               <div
                 style={{
                   width: 34,
                   height: 34,
-                  borderRadius: 10,
+                  borderRadius: '50%',
                   background: '#2563eb',
                   color: '#fff',
                   fontWeight: 700,
