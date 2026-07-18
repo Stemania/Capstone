@@ -88,7 +88,7 @@ export default function AppLayout() {
     .toUpperCase();
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ height: '100vh', overflow: 'hidden' }}>
       {!isMobile && (
       <Sider
         trigger={null}
@@ -97,7 +97,14 @@ export default function AppLayout() {
         breakpoint="lg"
         collapsedWidth={0}
         width={230}
-        style={{ background: NAVY }}
+        style={{
+          background: NAVY,
+          height: '100vh',
+          position: 'sticky',
+          top: 0,
+          left: 0,
+          overflow: 'auto',
+        }}
       >
         <Brand collapsed={collapsed} />
         {menu}
@@ -115,7 +122,14 @@ export default function AppLayout() {
         {menu}
       </Drawer>
 
-      <Layout>
+      <Layout
+        style={{
+          height: '100vh',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
         <Header
           style={{
             padding: '0 20px',
@@ -125,6 +139,7 @@ export default function AppLayout() {
             justifyContent: 'space-between',
             height: 68,
             lineHeight: 'normal',
+            flexShrink: 0,
             borderLeft: isMobile ? 'none' : '1px solid rgba(255,255,255,0.08)',
           }}
         >
@@ -213,19 +228,27 @@ export default function AppLayout() {
             </div>
           </Dropdown>
         </Header>
-        <Content
+        <div
           style={{
-            margin: 16,
-            padding: 20,
-            background: '#fff',
-            borderRadius: 14,
-            border: '1px solid #e2e8f0',
-            boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04)',
-            flex: 'none',
+            flex: 1,
+            minHeight: 0,
+            overflow: 'auto',
+            background: '#f1f5f9',
           }}
         >
-          <Outlet />
-        </Content>
+          <Content
+            style={{
+              margin: 16,
+              padding: 20,
+              background: '#fff',
+              borderRadius: 14,
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04)',
+            }}
+          >
+            <Outlet />
+          </Content>
+        </div>
       </Layout>
     </Layout>
   );
