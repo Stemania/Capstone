@@ -90,3 +90,19 @@ body {
   min-height: 90px;
   resize: none;
 }
+
+/* Add User modal: flush square container, centered with breathing room */
+.add-user-modal .ant-modal-content {
+  padding: 0 !important;
+  border-radius: 0 !important;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.25);
+}
+
+.add-user-modal .ant-modal-body {
+  padding: 0 !important;
+}
+
+.add-user-modal.ant-modal {
+  padding-bottom: 24px;
+}

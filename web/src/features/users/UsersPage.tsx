@@ -172,11 +172,12 @@ export default function UsersPage() {
         onCancel={closeModal}
         footer={null}
         width={560}
+        centered
         destroyOnHidden
+        className="add-user-modal"
         styles={{
           body: { padding: 0 },
         }}
-        style={{ borderRadius: 14, overflow: 'hidden', padding: 0 }}
         closable={false}
       >
         <div
@@ -193,17 +194,18 @@ export default function UsersPage() {
             style={{
               width: 40,
               height: 40,
-              borderRadius: 10,
+              borderRadius: '50%',
               background: '#2563eb',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               fontSize: 18,
+              flexShrink: 0,
             }}
           >
             <UserAddOutlined />
           </div>
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 17, fontWeight: 800 }}>Add User</div>
             <div style={{ fontSize: 12, opacity: 0.65, marginTop: 2 }}>
               Create an account for admin, office staff, or a production worker
@@ -217,10 +219,14 @@ export default function UsersPage() {
               color: '#fff',
               width: 32,
               height: 32,
-              borderRadius: 8,
+              borderRadius: '50%',
               cursor: 'pointer',
               fontSize: 16,
               lineHeight: 1,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
             aria-label="Close"
           >
