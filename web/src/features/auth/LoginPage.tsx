@@ -1,11 +1,22 @@
-import { Form, Input, Button, Alert } from 'antd';
-import { MailOutlined, LockOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Alert, Popover } from 'antd';
+import { MailOutlined, LockOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { getErrorMessage } from '../../api/client';
 
 const NAVY = '#0f1c2e';
+
+const demoContent = (
+  <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.9, minWidth: 220 }}>
+    <div style={{ fontWeight: 700, marginBottom: 4, color: '#0f172a' }}>Demo accounts</div>
+    Admin: admin@bmsc.local / Admin123!
+    <br />
+    Office: office@bmsc.local / Office123!
+    <br />
+    Worker: worker1@bmsc.local / Worker123!
+  </div>
+);
 
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
@@ -38,6 +49,7 @@ export default function LoginPage() {
         justifyContent: 'center',
         background: '#f1f5f9',
         padding: 16,
+        position: 'relative',
       }}
     >
       <div
@@ -45,7 +57,7 @@ export default function LoginPage() {
           width: '100%',
           maxWidth: 420,
           background: '#fff',
-          borderRadius: 16,
+          borderRadius: 0,
           border: '1px solid #e2e8f0',
           boxShadow: '0 4px 16px rgba(15,23,42,0.08)',
           overflow: 'hidden',
@@ -79,7 +91,7 @@ export default function LoginPage() {
               <Input
                 size="large"
                 prefix={<MailOutlined style={{ color: '#94a3b8' }} />}
-                placeholder="admin@bmsc.local"
+                placeholder="Enter your email"
               />
             </Form.Item>
             <Form.Item name="password" label="Password" rules={[{ required: true }]}>
@@ -95,44 +107,30 @@ export default function LoginPage() {
               block
               size="large"
               loading={submitting}
-              style={{ fontWeight: 700, height: 46 }}
+              style={{ fontWeight: 700, height: 46, borderRadius: 0 }}
             >
               Sign In
             </Button>
           </Form>
+        </div>
+      </div>
 
-          <div
+      <div style={{ position: 'absolute', right: 20, bottom: 20 }}>
+        <Popover content={demoContent} trigger="click" placement="topRight">
+          <Button
+            type="default"
+            icon={<InfoCircleOutlined />}
             style={{
-              marginTop: 24,
-              padding: '12px 14px',
-              background: '#f8fafc',
-              border: '1px solid #e2e8f0',
-              borderRadius: 10,
-              fontSize: 12,
-              color: '#64748b',
-              lineHeight: 1.9,
+              borderRadius: 0,
+              fontWeight: 600,
+              color: '#475569',
+              borderColor: '#cbd5e1',
+              background: '#fff',
             }}
           >
-            <span
-              style={{
-                display: 'block',
-                fontWeight: 700,
-                fontSize: 11,
-                letterSpacing: 0.8,
-                textTransform: 'uppercase',
-                color: '#475569',
-                marginBottom: 2,
-              }}
-            >
-              Demo accounts
-            </span>
-            Admin: admin@bmsc.local / Admin123!
-            <br />
-            Office: office@bmsc.local / Office123!
-            <br />
-            Worker: worker1@bmsc.local / Worker123!
-          </div>
-        </div>
+            Demo accounts
+          </Button>
+        </Popover>
       </div>
     </div>
   );
