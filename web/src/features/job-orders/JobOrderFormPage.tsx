@@ -43,7 +43,7 @@ function machineOptionsForRow(
       const remaining = Math.max(0, baseAvailable - (reservedByOthers[m.code] || 0));
       return {
         value: m.code,
-        label: `${m.name} — ${remaining} available of ${m.units}`,
+        label: `${m.name} (${remaining} available)`,
         remaining,
         keep: remaining > 0 || selected.has(m.code),
       };
@@ -380,11 +380,19 @@ export default function JobOrderFormPage() {
                       </div>
                     ))}
                     <Button
-                      type="dashed"
+                      type="default"
                       onClick={() => add()}
                       block
                       icon={<PlusOutlined />}
-                      style={{ height: 40, fontWeight: 600 }}
+                      style={{
+                        height: 44,
+                        paddingTop: 10,
+                        paddingBottom: 10,
+                        fontWeight: 600,
+                        color: '#475569',
+                        borderColor: '#cbd5e1',
+                        borderStyle: 'dashed',
+                      }}
                     >
                       Add Material
                     </Button>
@@ -470,10 +478,12 @@ export default function JobOrderFormPage() {
                               <Select
                                 mode="multiple"
                                 allowClear
-                                placeholder="Available machines only"
+                                showSearch={false}
+                                placeholder="Machine needed"
                                 options={machineOptionsForRow(machines, operations, index)}
                                 maxTagCount="responsive"
                                 notFoundContent="No machines available"
+                                style={{ width: '100%' }}
                               />
                             </Form.Item>
                             <Form.Item name={[name, 'status']} hidden>
