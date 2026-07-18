@@ -34,6 +34,8 @@ export interface MachineInfo {
   code: MachineCode | string;
   name: string;
   units: number;
+  inUse?: number;
+  available?: number;
 }
 
 export interface RawMaterial {

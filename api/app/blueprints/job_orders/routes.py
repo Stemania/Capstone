@@ -11,9 +11,9 @@ job_orders_bp = Blueprint("job_orders", __name__)
 @job_orders_bp.route("/machines", methods=["GET"])
 @jwt_required()
 def list_machines():
-    from app.constants.machines import MACHINE_CATALOG
+    from app.constants.machines import get_machine_availability
 
-    return jsonify(MACHINE_CATALOG)
+    return jsonify(get_machine_availability())
 
 
 @job_orders_bp.route("", methods=["GET"])

@@ -34,6 +34,8 @@ def _update_job_status(job):
 
 
 def start_operation(operation, user_id, user_role, timestamp):
+    from app.constants.machines import assert_machines_available
+
     check_job_access(operation.job_order, user_id, user_role)
 
     if operation.status == OperationStatus.IN_PROGRESS:
@@ -43,6 +45,12 @@ def start_operation(operation, user_id, user_role, timestamp):
         raise AppError(
             "Cannot start a completed operation", "INVALID_TRANSITION", 409
         )
+
+    # Machines become "in use" when an operation starts
+    assert_machines_available(
+        operation.machines_needed or [],
+        exclude_operation_id=operation.id,
+    )
 
     try:
         operation.status = OperationStatus.IN_PROGRESS

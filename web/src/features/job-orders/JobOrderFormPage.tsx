@@ -8,16 +8,49 @@ import dayjs from 'dayjs';
 import { clientsApi, jobOrdersApi, workersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import { MACHINE_OPTIONS } from '../../types';
-import type { Client, User, WorkerSuggestion } from '../../types';
+import type { Client, MachineInfo, User, WorkerSuggestion } from '../../types';
 import apiClient from '../../api/client';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
-const machineSelectOptions = MACHINE_OPTIONS.map((m) => ({
-  value: m.code,
-  label: `${m.name} (${m.units} units)`,
-}));
+type OpFormRow = {
+  name?: string;
+  machinesNeeded?: string[];
+  status?: string;
+};
+
+function machineOptionsForRow(
+  catalog: MachineInfo[],
+  operations: OpFormRow[],
+  rowIndex: number
+) {
+  const reservedByOthers: Record<string, number> = {};
+  operations.forEach((op, i) => {
+    if (i === rowIndex) return;
+    // Only draft/pending ops reserve capacity in the form; in-progress are already in API inUse
+    if (op.status === 'IN_PROGRESS' || op.status === 'COMPLETED') return;
+    (op.machinesNeeded || []).forEach((code) => {
+      reservedByOthers[code] = (reservedByOthers[code] || 0) + 1;
+    });
+  });
+
+  const selected = new Set(operations[rowIndex]?.machinesNeeded || []);
+
+  return catalog
+    .map((m) => {
+      const baseAvailable = m.available ?? m.units;
+      const remaining = Math.max(0, baseAvailable - (reservedByOthers[m.code] || 0));
+      return {
+        value: m.code,
+        label: `${m.name} — ${remaining} available of ${m.units}`,
+        remaining,
+        keep: remaining > 0 || selected.has(m.code),
+      };
+    })
+    .filter((o) => o.keep)
+    .map(({ value, label }) => ({ value, label }));
+}
 
 export default function JobOrderFormPage() {
   const { id } = useParams();
@@ -26,20 +59,26 @@ export default function JobOrderFormPage() {
   const [form] = Form.useForm();
   const [clients, setClients] = useState<Client[]>([]);
   const [workers, setWorkers] = useState<User[]>([]);
+  const [machines, setMachines] = useState<MachineInfo[]>(MACHINE_OPTIONS);
   const [suggestions, setSuggestions] = useState<WorkerSuggestion[]>([]);
   const [loading, setLoading] = useState(isEdit);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  const watchedOps = Form.useWatch('operations', form) as OpFormRow[] | undefined;
+  const operations = watchedOps || [];
+
   useEffect(() => {
     const load = async () => {
       try {
-        const [clientsRes, workersRes] = await Promise.all([
+        const [clientsRes, workersRes, machinesRes] = await Promise.all([
           clientsApi.list(),
           apiClient.get<User[]>('/workers'),
+          jobOrdersApi.machines(),
         ]);
         setClients(clientsRes.data);
         setWorkers(workersRes.data);
+        setMachines(machinesRes.data);
 
         if (isEdit && id) {
           const { data: job } = await jobOrdersApi.get(id);
@@ -59,6 +98,7 @@ export default function JobOrderFormPage() {
             operations: job.operations?.map((op) => ({
               name: op.name,
               machinesNeeded: op.machinesNeeded || [],
+              status: op.status,
             })) || [{ name: '', machinesNeeded: [] }],
           });
           if (job.operations?.length) {
@@ -339,7 +379,13 @@ export default function JobOrderFormPage() {
                         />
                       </div>
                     ))}
-                    <Button type="dashed" onClick={() => add()} block size="small" icon={<PlusOutlined />}>
+                    <Button
+                      type="dashed"
+                      onClick={() => add()}
+                      block
+                      icon={<PlusOutlined />}
+                      style={{ height: 40, fontWeight: 600 }}
+                    >
                       Add Material
                     </Button>
                   </>
@@ -424,10 +470,14 @@ export default function JobOrderFormPage() {
                               <Select
                                 mode="multiple"
                                 allowClear
-                                placeholder="Machines needed"
-                                options={machineSelectOptions}
+                                placeholder="Available machines only"
+                                options={machineOptionsForRow(machines, operations, index)}
                                 maxTagCount="responsive"
+                                notFoundContent="No machines available"
                               />
+                            </Form.Item>
+                            <Form.Item name={[name, 'status']} hidden>
+                              <Input />
                             </Form.Item>
                           </div>
                         ))}
