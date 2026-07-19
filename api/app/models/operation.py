@@ -4,7 +4,6 @@ import uuid
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.extensions import db
-from app.constants.machines import MACHINE_CATALOG
 
 
 def _uuid():
@@ -15,9 +14,6 @@ class OperationStatus(enum.Enum):
     PENDING = "PENDING"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
-
-
-_MACHINE_NAMES = {m["code"]: m["name"] for m in MACHINE_CATALOG}
 
 
 class Operation(db.Model):
@@ -47,6 +43,9 @@ class Operation(db.Model):
     job_order = db.relationship("JobOrder", back_populates="operations")
 
     def to_dict(self):
+        from app.constants.machines import MACHINE_CATALOG
+
+        names = {m["code"]: m["name"] for m in MACHINE_CATALOG}
         codes = self.machines_needed or []
         return {
             "id": self.id,
@@ -54,7 +53,7 @@ class Operation(db.Model):
             "seq": self.seq,
             "name": self.name,
             "machinesNeeded": codes,
-            "machineNames": [_MACHINE_NAMES.get(c, c) for c in codes],
+            "machineNames": [names.get(c, c) for c in codes],
             "status": self.status.value,
             "startedAt": self.started_at.isoformat() if self.started_at else None,
             "completedAt": self.completed_at.isoformat() if self.completed_at else None,

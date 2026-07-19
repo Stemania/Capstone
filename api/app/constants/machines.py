@@ -2,8 +2,6 @@
 
 from collections import Counter
 
-from app.models.operation import Operation, OperationStatus
-
 # Actual shop floor machines at Brothers Machine Shop
 MACHINE_CATALOG = [
     {"code": "LATHE", "name": "Lathe", "units": 7},
@@ -20,6 +18,8 @@ PRIORITY_VALUES = ("HIGH", "MODERATE", "LOW")
 
 def count_machines_in_use(exclude_operation_id=None):
     """Count machine units currently occupied by IN_PROGRESS operations."""
+    from app.models.operation import Operation, OperationStatus
+
     query = Operation.query.filter_by(status=OperationStatus.IN_PROGRESS)
     usage = Counter()
     for op in query.all():
