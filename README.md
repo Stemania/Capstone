@@ -98,8 +98,9 @@ Import `postman/BMSC_API.postman_collection.json` into Postman. Set the `baseUrl
 ## Project Structure
 
 ```
-/api   — Flask REST API
-/web   — React SPA
+/api      — Flask REST API
+/web      — React SPA (PWA) — primary frontend
+/flutter  — Flutter client (parked; ignored in git for now)
 ```
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for module organization and extension points.

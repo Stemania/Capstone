@@ -4,13 +4,29 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+
+# Secrets / env files (keep committed *.example templates)
 .env
+.env.*
+!.env.example
+!**/.env.example
+
+# Local databases
 *.db
+*.sqlite
+*.sqlite3
 
 # Node
 node_modules/
 web/dist/
 web/.env
+web/.env.*
+!web/.env.example
+
+# Build artifacts
+*.apk
+*.aab
+*.ipa
 
 # IDE
 .vscode/
@@ -24,3 +40,10 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Deploy tooling
+.vercel
+
+# Flutter client — parked for now (React is primary). Remove this
+# block and commit flutter/ when/if the mobile client is revived.
+flutter/

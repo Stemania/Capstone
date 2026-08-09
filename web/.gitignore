@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Deploy / secrets (keep .env.example tracked)
+.vercel
+.env
+.env.*
+!.env.example
