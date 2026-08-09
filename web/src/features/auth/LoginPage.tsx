@@ -1,25 +1,35 @@
-import { Form, Input, Button, Alert, Popover } from 'antd';
-import { MailOutlined, LockOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Alert } from 'antd';
+import { MailOutlined, LockOutlined } from '@ant-design/icons';
 import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { getErrorMessage } from '../../api/client';
+import './LoginPage.css';
 
-const NAVY = '#0f1c2e';
-
-const demoContent = (
-  <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.9, minWidth: 220 }}>
-    <div style={{ fontWeight: 700, marginBottom: 4, color: '#0f172a' }}>Demo accounts</div>
-    Admin: admin@bmsc.local / Admin123!
-    <br />
-    Office: office@bmsc.local / Office123!
-    <br />
-    Worker: worker1@bmsc.local / Worker123!
-  </div>
-);
+const DEMO_ACCOUNTS = [
+  {
+    key: 'admin',
+    label: 'Admin',
+    email: 'admin@bmsc.local',
+    password: 'Admin123!',
+  },
+  {
+    key: 'office',
+    label: 'Office Staff',
+    email: 'office@bmsc.local',
+    password: 'Office123!',
+  },
+  {
+    key: 'worker',
+    label: 'Production Worker',
+    email: 'worker1@bmsc.local',
+    password: 'Worker123!',
+  },
+] as const;
 
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
+  const [form] = Form.useForm();
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -27,6 +37,11 @@ export default function LoginPage() {
     const dest = user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/job-orders';
     return <Navigate to={dest} replace />;
   }
+
+  const fillDemo = (email: string, password: string) => {
+    setError('');
+    form.setFieldsValue({ email, password });
+  };
 
   const onFinish = async (values: { email: string; password: string }) => {
     setSubmitting(true);
@@ -41,60 +56,45 @@ export default function LoginPage() {
   };
 
   return (
-    <div
-      style={{
-        minHeight: '100dvh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#f1f5f9',
-        padding: 16,
-        position: 'relative',
-      }}
-    >
-      <div
-        style={{
-          width: '100%',
-          maxWidth: 420,
-          background: '#fff',
-          borderRadius: 0,
-          border: '1px solid #e2e8f0',
-          boxShadow: '0 4px 16px rgba(15,23,42,0.08)',
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            background: NAVY,
-            padding: '28px 32px 24px',
-            textAlign: 'center',
-          }}
-        >
-          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 0.3, color: '#fff', lineHeight: 1.3 }}>
-            Brothers Machine Shop
-          </div>
-          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', marginTop: 4 }}>
-            Production Management System
-          </div>
+    <div className="login-page">
+      <div className="login-page__bg" aria-hidden />
+      <div className="login-page__veil" aria-hidden />
+
+      <div className="login-card">
+        <div className="login-card__header">
+          <div className="login-card__brand">Brothers Machine Shop</div>
+          <div className="login-card__subtitle">Production Management System</div>
         </div>
 
-        <div style={{ padding: 32 }}>
-          <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 2 }}>Welcome back</div>
-          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
-            Sign in to your account to continue
-          </div>
+        <div className="login-card__body">
+          <h1 className="login-card__title">Welcome back</h1>
+          <p className="login-card__lead">Sign in to your account to continue</p>
 
           {error && <Alert type="error" message={error} style={{ marginBottom: 16 }} showIcon />}
 
-          <Form layout="vertical" onFinish={onFinish} autoComplete="off">
-            <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}>
+          <Form
+            form={form}
+            layout="vertical"
+            onFinish={onFinish}
+            autoComplete="off"
+            requiredMark="optional"
+          >
+            <Form.Item
+              name="email"
+              label={<span><span style={{ color: '#dc2626' }}>* </span>Email</span>}
+              rules={[{ required: true, type: 'email' }]}
+            >
               <Input
                 size="large"
                 prefix={<MailOutlined style={{ color: '#94a3b8' }} />}
                 placeholder="Enter your email"
               />
             </Form.Item>
-            <Form.Item name="password" label="Password" rules={[{ required: true }]}>
+            <Form.Item
+              name="password"
+              label={<span><span style={{ color: '#dc2626' }}>* </span>Password</span>}
+              rules={[{ required: true }]}
+            >
               <Input.Password
                 size="large"
                 prefix={<LockOutlined style={{ color: '#94a3b8' }} />}
@@ -107,7 +107,7 @@ export default function LoginPage() {
               block
               size="large"
               loading={submitting}
-              style={{ fontWeight: 700, height: 46, borderRadius: 0 }}
+              className="login-card__submit"
             >
               Sign In
             </Button>
@@ -115,22 +115,21 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <div style={{ position: 'absolute', right: 20, bottom: 20 }}>
-        <Popover content={demoContent} trigger="click" placement="topRight">
-          <Button
-            type="default"
-            icon={<InfoCircleOutlined />}
-            style={{
-              borderRadius: 0,
-              fontWeight: 600,
-              color: '#475569',
-              borderColor: '#cbd5e1',
-              background: '#fff',
-            }}
-          >
-            Demo accounts
-          </Button>
-        </Popover>
+      {/* Temporary test helpers — quick-fill demo credentials */}
+      <div className="login-demo">
+        <div className="login-demo__label">Quick fill (test)</div>
+        <div className="login-demo__buttons">
+          {DEMO_ACCOUNTS.map((account) => (
+            <Button
+              key={account.key}
+              type="default"
+              className="login-demo__btn"
+              onClick={() => fillDemo(account.email, account.password)}
+            >
+              {account.label}
+            </Button>
+          ))}
+        </div>
       </div>
     </div>
   );

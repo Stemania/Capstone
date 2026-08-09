@@ -11,8 +11,10 @@ createRoot(document.getElementById('root')!).render(
         token: {
           colorPrimary: '#2563eb',
           borderRadius: 8,
+          // Same bundled Inter as Flutter (400–800)
           fontFamily:
-            "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+            "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif",
+          fontWeightStrong: 700,
           colorBgLayout: '#f1f5f9',
         },
         components: {

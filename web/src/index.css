@@ -1,3 +1,44 @@
+/* Same Inter family + weights as Flutter (assets/fonts) */
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-ExtraBold.ttf') format('truetype');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -5,8 +46,10 @@
 body {
   margin: 0;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    'Helvetica Neue', Arial, sans-serif;
+    'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+  font-weight: 400;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   background: #f1f5f9;
 }
 
@@ -36,6 +79,53 @@ body {
     margin: 8px !important;
     padding: 16px !important;
   }
+}
+
+/* Center icons when the admin sidebar is folded */
+.ant-layout-sider-collapsed .ant-menu-inline-collapsed > .ant-menu-item,
+.ant-layout-sider-collapsed .ant-menu-inline-collapsed > .ant-menu-submenu > .ant-menu-submenu-title {
+  padding-inline: calc(50% - 14px) !important;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Job order form: taller fields + tighter label gap (closer to Flutter) */
+.jo-form.ant-form-vertical .ant-form-item-label {
+  padding: 0 0 2px !important;
+}
+
+.jo-form.ant-form-vertical .ant-form-item-label > label {
+  height: auto !important;
+  font-weight: 600;
+}
+
+.jo-form .ant-input,
+.jo-form .ant-input-affix-wrapper,
+.jo-form .ant-input-number,
+.jo-form .ant-picker,
+.jo-form .ant-select-single:not(.ant-select-customize-input) .ant-select-selector {
+  min-height: 44px !important;
+}
+
+.jo-form .ant-input-number-input {
+  height: 42px !important;
+}
+
+.jo-form .ant-select-single .ant-select-selector {
+  display: flex !important;
+  align-items: center;
+}
+
+.jo-form .ant-picker {
+  display: flex;
+  align-items: center;
+}
+
+.jo-form textarea.ant-input {
+  min-height: 90px !important;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
 }
 
 /* Job order form: fill viewport on desktop without page scroll */
@@ -105,4 +195,64 @@ body {
 
 .add-user-modal.ant-modal {
   padding-bottom: 24px;
+}
+
+/* Job order list — compact Flutter-like table */
+.jo-list-page {
+  height: 100%;
+}
+
+.jo-list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.jo-list-filter {
+  width: 200px;
+}
+
+.jo-list-table .ant-table {
+  font-family: inherit;
+}
+
+.jo-list-table .ant-table-thead > tr > th {
+  background: #fff !important;
+  color: #64748b !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  padding: 8px 12px 12px !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.jo-list-table .ant-table-tbody > tr > td {
+  padding: 12px !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  vertical-align: middle;
+}
+
+.jo-list-table .ant-table-tbody > tr:last-child > td {
+  border-bottom: none !important;
+}
+
+.jo-list-table .ant-table-tbody > tr:hover > td {
+  background: #f8fafc !important;
+}
+
+.jo-list-table .ant-table-cell-fix-right {
+  background: #fff !important;
+}
+
+.jo-list-table .ant-table-tbody > tr:hover > .ant-table-cell-fix-right {
+  background: #f8fafc !important;
+}
+
+.jo-list-edit-btn {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  height: 32px !important;
+  padding: 0 10px !important;
 }
