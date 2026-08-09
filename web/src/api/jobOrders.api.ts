@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { Client, JobOrder, MachineInfo, User, WorkerSuggestion } from '../types';
+import type { Client, JobOrder, MachineInfo, Operation, User, WorkerSuggestion } from '../types';
 
 export const clientsApi = {
   list: (search?: string) =>
@@ -17,18 +17,35 @@ export const jobOrdersApi = {
     apiClient.post<JobOrder>('/job-orders', data),
   update: (id: string, data: Record<string, unknown>) =>
     apiClient.patch<JobOrder>(`/job-orders/${id}`, data),
-  reassign: (id: string, assignedWorkerId: string) =>
-    apiClient.patch<JobOrder>(`/job-orders/${id}/reassign`, { assignedWorkerId }),
+};
+
+export const operationsApi = {
+  mine: () => apiClient.get<Operation[]>('/operations/mine'),
+  start: (id: string, timestamp?: string) =>
+    apiClient.post<Operation>(`/operations/${id}/start`, { timestamp }),
+  complete: (id: string, timestamp?: string) =>
+    apiClient.post<Operation>(`/operations/${id}/complete`, { timestamp }),
+  assign: (id: string, assignedWorkerId: string) =>
+    apiClient.patch<Operation>(`/operations/${id}/assign`, { assignedWorkerId }),
 };
 
 export const workersApi = {
-  list: (excludeJobId?: string) =>
-    apiClient.get<User[]>('/workers', {
-      params: excludeJobId ? { excludeJobId } : undefined,
-    }),
-  suggest: (operations: string[], excludeJobId?: string) =>
+  list: (params?: {
+    excludeOperationId?: string;
+    scheduledStart?: string;
+    scheduledEnd?: string;
+  }) => apiClient.get<User[]>('/workers', { params }),
+  suggest: (
+    operations: string[],
+    extras?: {
+      excludeJobId?: string;
+      excludeOperationId?: string;
+      scheduledStart?: string;
+      scheduledEnd?: string;
+    }
+  ) =>
     apiClient.post<{ suggestions: WorkerSuggestion[] }>('/workers/suggest', {
       operations,
-      ...(excludeJobId ? { excludeJobId } : {}),
+      ...extras,
     }),
 };

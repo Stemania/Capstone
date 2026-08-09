@@ -20,9 +20,27 @@ const DEMO_ACCOUNTS = [
     password: 'Office123!',
   },
   {
-    key: 'worker',
-    label: 'Production Worker',
+    key: 'worker1',
+    label: 'Juan Dela Cruz',
     email: 'worker1@bmsc.local',
+    password: 'Worker123!',
+  },
+  {
+    key: 'worker2',
+    label: 'Maria Santos',
+    email: 'worker2@bmsc.local',
+    password: 'Worker123!',
+  },
+  {
+    key: 'worker3',
+    label: 'Pedro Reyes',
+    email: 'worker3@bmsc.local',
+    password: 'Worker123!',
+  },
+  {
+    key: 'worker4',
+    label: 'Ana Lopez',
+    email: 'worker4@bmsc.local',
     password: 'Worker123!',
   },
 ] as const;

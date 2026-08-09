@@ -16,10 +16,10 @@ export interface User {
   active: boolean;
   createdAt?: string;
   workerProfile?: WorkerProfile;
-  /** False when assigned to an ASSIGNED / IN_PROGRESS job. */
   available?: boolean;
   activeJobId?: string;
   activeJobTitle?: string;
+  conflictOperationId?: string;
 }
 
 export interface Client {
@@ -31,10 +31,26 @@ export interface Client {
 
 export type JobOrderStatus = 'UNASSIGNED' | 'ASSIGNED' | 'IN_PROGRESS' | 'COMPLETED';
 export type JobPriority = 'HIGH' | 'MODERATE' | 'LOW';
-export type OperationStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+export type JobType = 'FABRICATION' | 'MODIFICATION' | 'REPAIR';
+export type MaterialSource = 'SHOP_PROCURED' | 'CLIENT_SUPPLIED';
+export type PartCondition =
+  | 'RAW_MATERIAL'
+  | 'CLIENT_SUPPLIED_ITEM'
+  | 'BLANK'
+  | 'WORK_IN_PROCESS'
+  | 'MACHINED'
+  | 'HEAT_TREATED'
+  | 'FINISHED';
+export type OperationStatus =
+  | 'PENDING'
+  | 'SCHEDULED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'REWORK';
 export type MachineCode = 'LATHE' | 'MILLING' | 'SHAPER' | 'GRINDING' | 'DRILLING';
 
 export interface MachineInfo {
+  id?: string | null;
   code: MachineCode | string;
   name: string;
   units: number;
@@ -51,13 +67,35 @@ export interface RawMaterial {
 export interface Operation {
   id: string;
   jobOrderId: string;
-  seq: number;
-  name: string;
-  machinesNeeded?: string[];
-  machineNames?: string[];
-  status: OperationStatus;
+  jobTitle?: string;
+  jobNumber?: string;
+  clientName?: string;
+  dueDate?: string;
+  jobPriority?: JobPriority;
+  sequenceNo: number;
+  operationName: string;
+  machineTypeId?: string | null;
+  machineTypeCode?: string | null;
+  machineTypeName?: string | null;
+  machineUnitId?: string | null;
+  machineUnitLabel?: string | null;
+  assignedWorkerId?: string | null;
+  assignedWorkerName?: string | null;
+  estimatedHours?: number | null;
+  scheduledStart?: string | null;
+  scheduledEnd?: string | null;
+  actualStart?: string | null;
+  actualEnd?: string | null;
   startedAt?: string;
   completedAt?: string;
+  status: OperationStatus;
+  reworkOfOperationId?: string | null;
+  notes?: string | null;
+  /** Legacy aliases */
+  seq?: number;
+  name?: string;
+  machinesNeeded?: string[];
+  machineNames?: string[];
 }
 
 export interface JobOrder {
@@ -68,19 +106,24 @@ export interface JobOrder {
   title: string;
   description?: string;
   dueDate: string;
+  clientPoNumber?: string | null;
+  poDate?: string | null;
   status: JobOrderStatus;
   priority?: JobPriority;
+  jobType?: JobType;
+  materialSource?: MaterialSource;
+  partCondition?: PartCondition;
   quantity?: number | null;
   unitOfMeasure?: string | null;
   amount?: number | null;
   rawMaterials?: RawMaterial[];
-  assignedWorkerId?: string;
-  assignedWorkerName?: string;
   createdById?: string;
   createdAt?: string;
   opsCompleted?: number;
   opsTotal?: number;
   nextOperation?: string | null;
+  nextOperationWorkerId?: string | null;
+  nextOperationWorkerName?: string | null;
   operations?: Operation[];
 }
 
@@ -91,6 +134,7 @@ export interface WorkerSuggestion {
   skills: string[];
   score: number;
   matchedSkills: string[];
+  available?: boolean;
 }
 
 export interface Tool {

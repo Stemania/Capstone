@@ -180,12 +180,12 @@ export default function JobOrderListPage() {
       },
     },
     {
-      title: 'Assigned Worker',
-      dataIndex: 'assignedWorkerName',
-      key: 'assignedWorkerName',
+      title: 'Next Worker',
+      dataIndex: 'nextOperationWorkerName',
+      key: 'nextOperationWorkerName',
       width: 150,
       ellipsis: true,
-      render: (v: string | undefined) => (
+      render: (v: string | undefined | null) => (
         <span style={{ fontSize: 14, color: '#0f172a' }}>{v || '—'}</span>
       ),
     },

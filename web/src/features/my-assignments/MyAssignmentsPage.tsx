@@ -3,20 +3,44 @@ import { Spin, Empty, Input } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { jobOrdersApi } from '../../api/jobOrders.api';
+import { operationsApi } from '../../api/operations.api';
 import { getErrorMessage } from '../../api/client';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
-import type { JobOrder } from '../../types';
+import type { Operation } from '../../types';
 
-function priorityMeta(job: JobOrder): { label: string; color: string } {
-  const p = job.priority || 'MODERATE';
+function priorityMeta(priority?: string): { label: string; color: string } {
+  const p = priority || 'MODERATE';
   if (p === 'HIGH') return { label: 'High', color: '#dc2626' };
   if (p === 'LOW') return { label: 'Low', color: '#16a34a' };
   return { label: 'Moderate', color: '#d97706' };
 }
 
+function opStatusBadge(
+  op: Operation,
+  colors: { red: string; accent: string; green: string; greenSoft: string }
+) {
+  const overdue =
+    op.status !== 'COMPLETED' && op.dueDate && dayjs(op.dueDate).isBefore(dayjs(), 'day');
+  if (overdue) {
+    return { text: 'Overdue', bg: 'rgba(220,38,38,0.12)', color: colors.red };
+  }
+  if (op.status === 'IN_PROGRESS') {
+    return { text: 'In Progress', bg: 'rgba(37,99,235,0.12)', color: colors.accent };
+  }
+  if (op.status === 'COMPLETED') {
+    return { text: 'Completed', bg: colors.greenSoft, color: colors.green };
+  }
+  if (op.status === 'SCHEDULED') {
+    return { text: 'Scheduled', bg: 'rgba(37,99,235,0.12)', color: colors.accent };
+  }
+  if (op.status === 'REWORK') {
+    return { text: 'Rework', bg: 'rgba(217,119,6,0.12)', color: '#d97706' };
+  }
+  return { text: 'Pending', bg: 'rgba(37,99,235,0.12)', color: colors.accent };
+}
+
 export default function MyAssignmentsPage() {
-  const [jobs, setJobs] = useState<JobOrder[]>([]);
+  const [operations, setOperations] = useState<Operation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'active' | 'completed'>('active');
@@ -25,46 +49,35 @@ export default function MyAssignmentsPage() {
   const { colors } = useWorkerTheme();
 
   useEffect(() => {
-    jobOrdersApi
-      .list()
-      .then(({ data }) => setJobs(data))
+    operationsApi
+      .mine()
+      .then(({ data }) => setOperations(data))
       .catch((err) => setError(getErrorMessage(err)))
       .finally(() => setLoading(false));
   }, []);
 
-  const assigned = jobs.filter((j) => j.status !== 'COMPLETED');
-  const completed = jobs.filter((j) => j.status === 'COMPLETED');
-  const source = tab === 'active' ? assigned : completed;
+  const active = operations.filter((o) => o.status !== 'COMPLETED');
+  const completed = operations.filter((o) => o.status === 'COMPLETED');
+  const source = tab === 'active' ? active : completed;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return source;
     return source.filter(
-      (j) =>
-        j.title.toLowerCase().includes(q) ||
-        (j.clientName || '').toLowerCase().includes(q) ||
-        (j.jobNumber || '').toLowerCase().includes(q)
+      (o) =>
+        (o.operationName || o.name || '').toLowerCase().includes(q) ||
+        (o.jobTitle || '').toLowerCase().includes(q) ||
+        (o.clientName || '').toLowerCase().includes(q) ||
+        (o.jobNumber || '').toLowerCase().includes(q) ||
+        (o.machineTypeName || '').toLowerCase().includes(q)
     );
   }, [source, query]);
-
-  const statusBadge = (job: JobOrder) => {
-    if (job.status !== 'COMPLETED' && dayjs(job.dueDate).isBefore(dayjs(), 'day')) {
-      return { text: 'Overdue', bg: 'rgba(220,38,38,0.12)', color: colors.red };
-    }
-    if (job.status === 'IN_PROGRESS') {
-      return { text: 'In Progress', bg: 'rgba(37,99,235,0.12)', color: colors.accent };
-    }
-    if (job.status === 'COMPLETED') {
-      return { text: 'Completed', bg: colors.greenSoft, color: colors.green };
-    }
-    return { text: 'Assigned', bg: 'rgba(37,99,235,0.12)', color: colors.accent };
-  };
 
   return (
     <div>
       <WorkerPageHeader
-        title="My Jobs"
-        subtitle="Your assigned production work"
+        title="My Assignments"
+        subtitle="Operations assigned to you"
       />
 
       <div style={{ padding: 16 }}>
@@ -82,7 +95,7 @@ export default function MyAssignmentsPage() {
         >
           {(
             [
-              { key: 'active' as const, label: `Assigned (${assigned.length})` },
+              { key: 'active' as const, label: `Active (${active.length})` },
               { key: 'completed' as const, label: `Completed (${completed.length})` },
             ]
           ).map((t) => (
@@ -110,7 +123,7 @@ export default function MyAssignmentsPage() {
           allowClear
           size="large"
           prefix={<SearchOutlined style={{ color: colors.textSecondary }} />}
-          placeholder="Search job orders..."
+          placeholder="Search operations..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={{
@@ -127,20 +140,21 @@ export default function MyAssignmentsPage() {
         ) : error ? (
           <p style={{ color: colors.red }}>{error}</p>
         ) : filtered.length === 0 ? (
-          <Empty description={query ? 'No matching jobs' : 'No jobs in this list'} style={{ marginTop: 40 }} />
+          <Empty
+            description={query ? 'No matching operations' : 'No operations in this list'}
+            style={{ marginTop: 40 }}
+          />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {filtered.map((job) => {
-              const badge = statusBadge(job);
-              const pri = priorityMeta(job);
-              const total = job.opsTotal || 0;
-              const done = job.opsCompleted || 0;
-              const pct = total ? Math.round((done / total) * 100) : 0;
+            {filtered.map((op) => {
+              const badge = opStatusBadge(op, colors);
+              const pri = priorityMeta(op.jobPriority);
+              const name = op.operationName || op.name || 'Operation';
 
               return (
                 <div
-                  key={job.id}
-                  onClick={() => navigate(`/my-assignments/${job.id}`)}
+                  key={op.id}
+                  onClick={() => navigate(`/my-assignments/${op.jobOrderId}`)}
                   style={{
                     background: colors.card,
                     border: `1px solid ${colors.cardBorder}`,
@@ -150,9 +164,17 @@ export default function MyAssignmentsPage() {
                     boxShadow: colors.shadow,
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 6,
+                    }}
+                  >
                     <span style={{ fontSize: 12, color: colors.textSecondary, fontWeight: 600 }}>
-                      {job.jobNumber || job.id.slice(0, 8).toUpperCase()}
+                      {op.jobNumber || op.jobOrderId.slice(0, 8).toUpperCase()}
+                      {op.sequenceNo != null ? ` · Op ${op.sequenceNo}` : ''}
                     </span>
                     <span
                       style={{
@@ -168,9 +190,10 @@ export default function MyAssignmentsPage() {
                     </span>
                   </div>
 
-                  <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 2 }}>{job.title}</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 2 }}>{name}</div>
                   <div style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 14 }}>
-                    {job.clientName}
+                    {op.jobTitle}
+                    {op.clientName ? ` · ${op.clientName}` : ''}
                   </div>
 
                   <div
@@ -178,67 +201,56 @@ export default function MyAssignmentsPage() {
                       display: 'grid',
                       gridTemplateColumns: '1fr 1fr 1.2fr',
                       gap: 8,
-                      marginBottom: 12,
+                      marginBottom: 10,
                     }}
                   >
                     <div>
-                      <div style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 2 }}>Due Date</div>
-                      <div style={{ fontSize: 13, fontWeight: 700 }}>{dayjs(job.dueDate).format('MMM D')}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 2 }}>Progress</div>
+                      <div style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 2 }}>
+                        Due Date
+                      </div>
                       <div style={{ fontSize: 13, fontWeight: 700 }}>
-                        {done} / {total} ops
+                        {op.dueDate ? dayjs(op.dueDate).format('MMM D') : '—'}
                       </div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 2 }}>Next Operation</div>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 700,
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {job.nextOperation || '—'}
+                      <div style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 2 }}>
+                        Machine
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>
+                        {op.machineTypeName ||
+                          (op.machineNames && op.machineNames[0]) ||
+                          '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 2 }}>
+                        Est. Hours
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>
+                        {op.estimatedHours != null ? op.estimatedHours : '—'}
                       </div>
                     </div>
                   </div>
 
                   <div
                     style={{
-                      height: 6,
-                      borderRadius: 999,
-                      background: colors.chipBg,
-                      overflow: 'hidden',
-                      marginBottom: pri ? 10 : 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: 12,
+                      color: colors.textSecondary,
                     }}
                   >
-                    <div
+                    <span
                       style={{
-                        width: `${pct}%`,
-                        height: '100%',
-                        background: colors.accent,
-                        borderRadius: 999,
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        background: pri.color,
                       }}
                     />
+                    {pri.label} priority
                   </div>
-
-                  {pri && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: colors.textSecondary }}>
-                      <span
-                        style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: '50%',
-                          background: pri.color,
-                        }}
-                      />
-                      {pri.label} priority
-                    </div>
-                  )}
                 </div>
               );
             })}

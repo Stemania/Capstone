@@ -9,12 +9,14 @@ import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { operationsApi } from '../../api/operations.api';
 import { getErrorMessage } from '../../api/client';
+import { useAuth } from '../../hooks/useAuth';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
 import type { JobOrder, Operation } from '../../types';
 
 export default function AssignmentDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { colors } = useWorkerTheme();
   const [job, setJob] = useState<JobOrder | null>(null);
   const [loading, setLoading] = useState(true);
@@ -224,7 +226,20 @@ export default function AssignmentDetailPage() {
           {ops.map((op, index) => {
             const done = op.status === 'COMPLETED';
             const active = op.status === 'IN_PROGRESS';
+            const isMine = op.assignedWorkerId === user?.id;
+            const canStart =
+              isMine &&
+              (op.status === 'PENDING' || op.status === 'SCHEDULED' || op.status === 'REWORK') &&
+              ops.slice(0, index).every((o) => o.status === 'COMPLETED');
             const isLast = index === ops.length - 1;
+            const opName = op.operationName || op.name || 'Operation';
+            const seq = op.sequenceNo ?? op.seq ?? index + 1;
+            const machineLabel =
+              op.machineTypeName ||
+              (op.machineNames && op.machineNames[0]) ||
+              null;
+            const started = op.actualStart || op.startedAt;
+            const completed = op.actualEnd || op.completedAt;
 
             return (
               <div key={op.id} style={{ display: 'flex', gap: 14, position: 'relative' }}>
@@ -262,7 +277,7 @@ export default function AssignmentDetailPage() {
                     border: done || active ? 'none' : `2px solid ${colors.amber}`,
                   }}
                 >
-                  {done ? <CheckCircleFilled /> : op.seq}
+                  {done ? <CheckCircleFilled /> : seq}
                 </div>
 
                 <div
@@ -274,11 +289,11 @@ export default function AssignmentDetailPage() {
                     padding: 14,
                     marginBottom: 12,
                     boxShadow: colors.shadow,
-                    opacity: done ? 0.85 : 1,
+                    opacity: done ? 0.85 : isMine ? 1 : 0.7,
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <span style={{ fontWeight: 800, fontSize: 15 }}>{op.name}</span>
+                    <span style={{ fontWeight: 800, fontSize: 15 }}>{opName}</span>
                     <span
                       style={{
                         fontSize: 11,
@@ -293,26 +308,38 @@ export default function AssignmentDetailPage() {
                         color: done ? colors.green : active ? colors.accent : colors.amber,
                       }}
                     >
-                      {done ? 'Completed' : active ? 'In Progress' : 'Pending'}
+                      {done
+                        ? 'Completed'
+                        : active
+                          ? 'In Progress'
+                          : op.status === 'SCHEDULED'
+                            ? 'Scheduled'
+                            : op.status === 'REWORK'
+                              ? 'Rework'
+                              : 'Pending'}
                     </span>
                   </div>
 
-                  {(op.machineNames?.length || op.machinesNeeded?.length) ? (
+                  {machineLabel ? (
                     <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 8 }}>
-                      Machines:{' '}
-                      {(op.machineNames || op.machinesNeeded || []).join(', ')}
+                      Machine: {machineLabel}
                     </div>
                   ) : null}
 
-                  {(op.startedAt || op.completedAt) && (
-                    <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 10 }}>
-                      {op.startedAt && `Started ${dayjs(op.startedAt).format('MMM D, h:mm A')}`}
-                      {op.completedAt && ` · Done ${dayjs(op.completedAt).format('MMM D, h:mm A')}`}
+                  {!isMine && op.assignedWorkerName && (
+                    <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 8 }}>
+                      Assigned to {op.assignedWorkerName}
                     </div>
                   )}
 
-                  {op.status === 'PENDING' &&
-                    ops.slice(0, index).every((o) => o.status === 'COMPLETED') && (
+                  {(started || completed) && (
+                    <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 10 }}>
+                      {started && `Started ${dayjs(started).format('MMM D, h:mm A')}`}
+                      {completed && ` · Done ${dayjs(completed).format('MMM D, h:mm A')}`}
+                    </div>
+                  )}
+
+                  {canStart && (
                     <Button
                       type="default"
                       block
@@ -324,7 +351,7 @@ export default function AssignmentDetailPage() {
                       Start Operation
                     </Button>
                   )}
-                  {op.status === 'IN_PROGRESS' && (
+                  {isMine && op.status === 'IN_PROGRESS' && (
                     <Button
                       type="primary"
                       block
