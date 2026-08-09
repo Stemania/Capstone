@@ -34,6 +34,7 @@ export const workersApi = {
     excludeOperationId?: string;
     scheduledStart?: string;
     scheduledEnd?: string;
+    machineTypeId?: string;
   }) => apiClient.get<User[]>('/workers', { params }),
   suggest: (
     operations: string[],
@@ -42,6 +43,9 @@ export const workersApi = {
       excludeOperationId?: string;
       scheduledStart?: string;
       scheduledEnd?: string;
+      machineTypeId?: string;
+      operationTypeId?: string;
+      operationName?: string;
     }
   ) =>
     apiClient.post<{ suggestions: WorkerSuggestion[] }>('/workers/suggest', {

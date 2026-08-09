@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Form, Input, InputNumber, Button, DatePicker, Select, Typography, Alert, Tag, Spin, Row, Col,
 } from 'antd';
@@ -6,15 +6,17 @@ import { DeleteOutlined, PlusOutlined, StarFilled } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { clientsApi, jobOrdersApi, workersApi } from '../../api/jobOrders.api';
+import { operationTypesApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import { MACHINE_OPTIONS } from '../../types';
-import type { Client, MachineInfo, User, WorkerSuggestion } from '../../types';
+import type { Client, MachineInfo, OperationType, User, WorkerSuggestion } from '../../types';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
 type OpFormRow = {
   id?: string;
+  operationTypeId?: string;
   operationName?: string;
   machineTypeId?: string;
   assignedWorkerId?: string;
@@ -76,30 +78,89 @@ export default function JobOrderFormPage() {
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const [clients, setClients] = useState<Client[]>([]);
-  const [workers, setWorkers] = useState<User[]>([]);
+  const [rowWorkers, setRowWorkers] = useState<Record<number, User[]>>({});
   const [machines, setMachines] = useState<MachineInfo[]>(MACHINE_OPTIONS);
+  const [operationTypes, setOperationTypes] = useState<OperationType[]>([]);
   const [rowSuggestions, setRowSuggestions] = useState<Record<number, WorkerSuggestion[]>>({});
   const [loading, setLoading] = useState(isEdit);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  /** Ignore stale GET /workers responses when machine type changes quickly */
+  const workerFetchSeq = useRef<Record<number, number>>({});
 
   const watchedOps = Form.useWatch('operations', form) as OpFormRow[] | undefined;
   const operations = watchedOps || [];
 
+  const resolveMachineTypeId = (op?: OpFormRow | null): string | undefined => {
+    if (!op) return undefined;
+    if (op.machineTypeId) return op.machineTypeId;
+    const ot = operationTypes.find((t) => t.id === op.operationTypeId);
+    return ot?.defaultMachineTypeId || undefined;
+  };
+
+  const loadRowWorkers = async (
+    rowIndex: number,
+    machineTypeId?: string | null,
+    clearInvalidAssignment = true
+  ) => {
+    const seq = (workerFetchSeq.current[rowIndex] || 0) + 1;
+    workerFetchSeq.current[rowIndex] = seq;
+    try {
+      const { data } = await workersApi.list(
+        machineTypeId ? { machineTypeId } : undefined
+      );
+      if (workerFetchSeq.current[rowIndex] !== seq) return;
+      setRowWorkers((prev) => ({ ...prev, [rowIndex]: data }));
+      if (clearInvalidAssignment) {
+        const ops = form.getFieldValue('operations') || [];
+        const currentId = ops[rowIndex]?.assignedWorkerId;
+        if (currentId && !data.some((w) => w.id === currentId)) {
+          const next = [...ops];
+          next[rowIndex] = { ...next[rowIndex], assignedWorkerId: undefined };
+          form.setFieldValue('operations', next);
+        }
+      }
+    } catch {
+      if (workerFetchSeq.current[rowIndex] !== seq) return;
+      setRowWorkers((prev) => ({ ...prev, [rowIndex]: [] }));
+    }
+  };
+
+  // Keep dropdown in sync with each row's machine — server-filtered by WorkerSkill
+  const machineKey = operations.map((op) => resolveMachineTypeId(op) || '').join('|');
+  useEffect(() => {
+    if (loading) return;
+    const ops = (form.getFieldValue('operations') as OpFormRow[]) || [];
+    ops.forEach((op, i) => {
+      loadRowWorkers(i, resolveMachineTypeId(op), true);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [machineKey, loading, operationTypes]);
+
   useEffect(() => {
     const load = async () => {
       try {
-        const [clientsRes, workersRes, machinesRes] = await Promise.all([
+        const [clientsRes, machinesRes, typesRes] = await Promise.all([
           clientsApi.list(),
-          workersApi.list(),
           jobOrdersApi.machines(),
+          operationTypesApi.list(),
         ]);
         setClients(clientsRes.data);
-        setWorkers(workersRes.data);
         setMachines(machinesRes.data);
+        setOperationTypes(typesRes.data);
 
         if (isEdit && id) {
           const { data: job } = await jobOrdersApi.get(id);
+          const ops =
+            job.operations?.map((op) => ({
+              id: op.id,
+              operationTypeId: op.operationTypeId || undefined,
+              operationName: op.operationName || op.name,
+              machineTypeId: op.machineTypeId || undefined,
+              assignedWorkerId: op.assignedWorkerId || undefined,
+              estimatedHours: op.estimatedHours ?? undefined,
+              status: op.status,
+            })) || [{ operationTypeId: undefined, operationName: '', machineTypeId: undefined }];
           form.setFieldsValue({
             clientId: job.clientId,
             title: job.title,
@@ -117,14 +178,7 @@ export default function JobOrderFormPage() {
             rawMaterials: job.rawMaterials?.length
               ? job.rawMaterials
               : [{ name: '', quantity: undefined, unit: '' }],
-            operations: job.operations?.map((op) => ({
-              id: op.id,
-              operationName: op.operationName || op.name,
-              machineTypeId: op.machineTypeId || undefined,
-              assignedWorkerId: op.assignedWorkerId || undefined,
-              estimatedHours: op.estimatedHours ?? undefined,
-              status: op.status,
-            })) || [{ operationName: '', machineTypeId: undefined, assignedWorkerId: undefined }],
+            operations: ops,
           });
         }
       } catch (err) {
@@ -136,22 +190,88 @@ export default function JobOrderFormPage() {
     load();
   }, [id, isEdit, form]);
 
-  const fetchRowSuggestion = async (rowIndex: number, operationName?: string) => {
-    const name = (operationName || '').trim();
-    if (!name) {
+  const onOperationTypeChange = (rowIndex: number, typeId: string | undefined) => {
+    const ot = operationTypes.find((t) => t.id === typeId);
+    const ops = form.getFieldValue('operations') || [];
+    const next = [...ops];
+    const machineTypeId = ot?.defaultMachineTypeId || undefined;
+    next[rowIndex] = {
+      ...next[rowIndex],
+      operationTypeId: typeId,
+      operationName: ot?.name || next[rowIndex]?.operationName,
+      machineTypeId,
+      assignedWorkerId: undefined,
+    };
+    form.setFieldValue('operations', next);
+    // Worker list refresh is driven by machineKey useEffect
+    if (ot) {
+      fetchRowSuggestion(rowIndex, {
+        operationTypeId: ot.id,
+        machineTypeId,
+        operationName: ot.name,
+      });
+    } else {
+      setRowSuggestions((prev) => ({ ...prev, [rowIndex]: [] }));
+    }
+  };
+
+  const onMachineTypeChange = (rowIndex: number, machineTypeId: string | undefined) => {
+    const ops = form.getFieldValue('operations') || [];
+    const next = [...ops];
+    // Ignore spurious clears while an operation type still implies a default machine
+    // (Ant Design Select can fire undefined when options/value churn).
+    if (!machineTypeId) {
+      const ot = operationTypes.find((t) => t.id === next[rowIndex]?.operationTypeId);
+      if (ot?.defaultMachineTypeId) {
+        next[rowIndex] = {
+          ...next[rowIndex],
+          machineTypeId: ot.defaultMachineTypeId,
+          assignedWorkerId: undefined,
+        };
+        form.setFieldValue('operations', next);
+        fetchRowSuggestion(rowIndex, {
+          machineTypeId: ot.defaultMachineTypeId,
+          operationTypeId: ot.id,
+          operationName: ot.name,
+        });
+        return;
+      }
+    }
+    next[rowIndex] = {
+      ...next[rowIndex],
+      machineTypeId,
+      assignedWorkerId: undefined,
+    };
+    form.setFieldValue('operations', next);
+    fetchRowSuggestion(rowIndex, {
+      machineTypeId,
+      operationTypeId: next[rowIndex]?.operationTypeId,
+      operationName: next[rowIndex]?.operationName,
+    });
+  };
+
+  const fetchRowSuggestion = async (
+    rowIndex: number,
+    opts?: { operationName?: string; machineTypeId?: string; operationTypeId?: string }
+  ) => {
+    const row = (form.getFieldValue('operations') || [])[rowIndex] || {};
+    const operationTypeId = opts?.operationTypeId || row.operationTypeId;
+    const machineTypeId = opts?.machineTypeId || row.machineTypeId;
+    const operationName = opts?.operationName || row.operationName;
+    if (!operationTypeId && !machineTypeId && !operationName) {
       setRowSuggestions((prev) => ({ ...prev, [rowIndex]: [] }));
       return;
     }
     try {
-      const opId = operations[rowIndex]?.id;
-      const { data } = await workersApi.suggest([name], {
+      const opId = row.id;
+      const { data } = await workersApi.suggest([], {
         excludeJobId: id,
         excludeOperationId: opId,
+        machineTypeId,
+        operationTypeId,
+        operationName,
       });
-      const availableIds = new Set(
-        workers.filter((w) => w.available !== false).map((w) => w.id)
-      );
-      const filtered = data.suggestions.filter((s) => availableIds.has(s.workerId));
+      const filtered = data.suggestions.filter((s) => s.available !== false);
       setRowSuggestions((prev) => ({ ...prev, [rowIndex]: filtered }));
     } catch {
       setRowSuggestions((prev) => ({ ...prev, [rowIndex]: [] }));
@@ -200,9 +320,11 @@ export default function JobOrderFormPage() {
         const mt = machines.find(
           (m) => m.id === op.machineTypeId || m.code === op.machineTypeId
         );
+        const ot = operationTypes.find((t) => t.id === op.operationTypeId);
         return {
           sequenceNo: i + 1,
-          operationName: op.operationName,
+          operationTypeId: op.operationTypeId || null,
+          operationName: op.operationName || ot?.name,
           ...(mt?.id
             ? { machineTypeId: mt.id }
             : { machinesNeeded: mt ? [mt.code] : [] }),
@@ -282,7 +404,7 @@ export default function JobOrderFormPage() {
           priority: 'MODERATE',
           jobType: 'FABRICATION',
           materialSource: 'SHOP_PROCURED',
-          operations: [{ operationName: '', machineTypeId: undefined, assignedWorkerId: undefined }],
+          operations: [{ operationTypeId: undefined, operationName: '', machineTypeId: undefined, assignedWorkerId: undefined }],
           rawMaterials: [{ name: '', quantity: undefined, unit: '' }],
         }}
         style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
@@ -538,6 +660,8 @@ export default function JobOrderFormPage() {
                     <div style={{ flex: 1, minHeight: 120, overflowY: 'auto', paddingRight: 4, marginBottom: 10 }}>
                       {fields.map(({ key, name, ...rest }, index) => {
                         const suggestions = rowSuggestions[index] || [];
+                        const qualifiedWorkers = rowWorkers[index] || [];
+                        const rowMachineId = resolveMachineTypeId(operations[index]);
                         return (
                           <div
                             key={key}
@@ -569,14 +693,23 @@ export default function JobOrderFormPage() {
                               </span>
                               <Form.Item
                                 {...rest}
-                                name={[name, 'operationName']}
+                                name={[name, 'operationTypeId']}
                                 rules={[{ required: true, message: 'Required' }]}
                                 style={{ flex: 1, marginBottom: 0 }}
                               >
-                                <Input
-                                  placeholder="Operation name"
-                                  onBlur={(e) => fetchRowSuggestion(index, e.target.value)}
+                                <Select
+                                  showSearch
+                                  optionFilterProp="label"
+                                  placeholder="Operation type"
+                                  options={operationTypes.map((t) => ({
+                                    value: t.id,
+                                    label: t.name,
+                                  }))}
+                                  onChange={(v) => onOperationTypeChange(index, v)}
                                 />
+                              </Form.Item>
+                              <Form.Item name={[name, 'operationName']} hidden>
+                                <Input />
                               </Form.Item>
                               <Button
                                 type="text"
@@ -585,6 +718,11 @@ export default function JobOrderFormPage() {
                                 disabled={fields.length <= 1}
                                 onClick={() => {
                                   remove(name);
+                                  setRowWorkers((prev) => {
+                                    const next = { ...prev };
+                                    delete next[index];
+                                    return next;
+                                  });
                                   setRowSuggestions((prev) => {
                                     const next = { ...prev };
                                     delete next[index];
@@ -607,6 +745,7 @@ export default function JobOrderFormPage() {
                                     placeholder="Machine type"
                                     options={machineOptionsForRow(machines, operations, index)}
                                     notFoundContent="No machines available"
+                                    onChange={(v) => onMachineTypeChange(index, v)}
                                   />
                                 </Form.Item>
                               </Col>
@@ -619,8 +758,15 @@ export default function JobOrderFormPage() {
                                 >
                                   <Select
                                     allowClear
-                                    placeholder="Assign worker"
-                                    options={workerOptions(workers)}
+                                    placeholder={
+                                      rowMachineId ? 'Qualified workers' : 'Assign worker'
+                                    }
+                                    options={workerOptions(qualifiedWorkers)}
+                                    notFoundContent={
+                                      rowMachineId
+                                        ? 'No workers skilled for this machine'
+                                        : 'No workers'
+                                    }
                                   />
                                 </Form.Item>
                               </Col>
@@ -653,17 +799,21 @@ export default function JobOrderFormPage() {
                                 <Text type="secondary" style={{ fontSize: 11 }}>
                                   Suggest:
                                 </Text>
-                                {suggestions.slice(0, 3).map((s) => (
+                                {suggestions.slice(0, 3).map((s) => {
+                                  const inDropdown = qualifiedWorkers.some((w) => w.id === s.workerId);
+                                  return (
                                   <Tag
                                     key={s.workerId}
                                     icon={s.score > 0 ? <StarFilled /> : undefined}
                                     color={s.score > 0 ? 'gold' : 'default'}
                                     style={{
-                                      cursor: 'pointer',
+                                      cursor: inDropdown ? 'pointer' : 'not-allowed',
                                       marginInlineEnd: 0,
                                       padding: '2px 8px',
+                                      opacity: inDropdown ? 1 : 0.5,
                                     }}
                                     onClick={() => {
+                                      if (!inDropdown) return;
                                       const ops = form.getFieldValue('operations') || [];
                                       const next = [...ops];
                                       next[index] = {
@@ -675,7 +825,8 @@ export default function JobOrderFormPage() {
                                   >
                                     {s.fullName}
                                   </Tag>
-                                ))}
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
@@ -684,13 +835,14 @@ export default function JobOrderFormPage() {
                     </div>
                     <Button
                       type="dashed"
-                      onClick={() =>
+                      onClick={() => {
                         add({
+                          operationTypeId: undefined,
                           operationName: '',
                           machineTypeId: undefined,
                           assignedWorkerId: undefined,
-                        })
-                      }
+                        });
+                      }}
                       block
                       icon={<PlusOutlined />}
                     >

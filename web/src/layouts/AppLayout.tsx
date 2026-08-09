@@ -68,7 +68,10 @@ export default function AppLayout() {
   }
 
   const selectedKey = menuItems.find((item) => location.pathname.startsWith(item.key))?.key || '';
-  const meta = pageMeta[selectedKey] || { title: '', subtitle: '' };
+  const meta =
+    location.pathname.startsWith('/users/') && location.pathname !== '/users'
+      ? { title: 'Worker Profile', subtitle: 'Skills matrix and weekly schedule' }
+      : pageMeta[selectedKey] || { title: '', subtitle: '' };
 
   const menu = (
     <Menu

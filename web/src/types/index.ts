@@ -1,9 +1,38 @@
 export type UserRole = 'ADMIN' | 'OFFICE_STAFF' | 'PRODUCTION_WORKER';
 
-export interface WorkerProfile {
+export interface WorkerSkill {
+  id?: string;
+  workerId?: string;
+  machineTypeId: string;
+  machineTypeCode?: string | null;
+  machineTypeName?: string | null;
+  proficiency: number;
+  isPrimary: boolean;
+}
+
+export interface WorkerSchedule {
+  id?: string;
+  workerId?: string;
+  dayOfWeek: number;
+  startTime?: string | null;
+  endTime?: string | null;
+  isWorking: boolean;
+}
+
+export interface OperationType {
   id: string;
+  code: string;
+  name: string;
+  defaultMachineTypeId?: string | null;
+  defaultMachineTypeCode?: string | null;
+  defaultMachineTypeName?: string | null;
+  active: boolean;
+}
+
+export interface WorkerProfile {
+  id: string | null;
   userId: string;
-  skills: string[];
+  skills: WorkerSkill[] | string[];
   fullName?: string;
   email?: string;
 }
@@ -16,6 +45,8 @@ export interface User {
   active: boolean;
   createdAt?: string;
   workerProfile?: WorkerProfile;
+  skills?: WorkerSkill[];
+  schedules?: WorkerSchedule[];
   available?: boolean;
   activeJobId?: string;
   activeJobTitle?: string;
@@ -74,6 +105,8 @@ export interface Operation {
   jobPriority?: JobPriority;
   sequenceNo: number;
   operationName: string;
+  operationTypeId?: string | null;
+  operationTypeCode?: string | null;
   machineTypeId?: string | null;
   machineTypeCode?: string | null;
   machineTypeName?: string | null;
@@ -135,6 +168,7 @@ export interface WorkerSuggestion {
   score: number;
   matchedSkills: string[];
   available?: boolean;
+  proficiency?: number | null;
 }
 
 export interface Tool {

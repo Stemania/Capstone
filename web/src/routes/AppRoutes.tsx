@@ -10,6 +10,7 @@ import JobOrderFormPage from '../features/job-orders/JobOrderFormPage';
 import MyAssignmentsPage from '../features/my-assignments/MyAssignmentsPage';
 import AssignmentDetailPage from '../features/my-assignments/AssignmentDetailPage';
 import UsersPage from '../features/users/UsersPage';
+import WorkerDetailPage from '../features/users/WorkerDetailPage';
 import ToolsPage from '../features/tool-tracking/ToolsPage';
 import ScanToolPage from '../features/tool-tracking/ScanToolPage';
 
@@ -30,6 +31,7 @@ export default function AppRoutes() {
 
               <Route element={<ProtectedRoute roles={['ADMIN']} />}>
                 <Route path="/users" element={<UsersPage />} />
+                <Route path="/users/:id" element={<WorkerDetailPage />} />
                 <Route path="/tools" element={<ToolsPage />} />
               </Route>
 

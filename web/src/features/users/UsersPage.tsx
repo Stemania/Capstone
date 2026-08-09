@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Table, Button, Modal, Form, Input, Select, Tag, Space, Popconfirm, message, Row, Col,
 } from 'antd';
-import { PlusOutlined, UserAddOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, UserAddOutlined, SearchOutlined, EditOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { usersApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
-import type { User } from '../../types';
+import type { User, WorkerSkill } from '../../types';
 
 const NAVY = '#0f1c2e';
 
@@ -16,22 +17,21 @@ const roleStyle: Record<string, { label: string; color: PillColor }> = {
   PRODUCTION_WORKER: { label: 'Production Worker', color: 'green' },
 };
 
-const skillPresets = [
-  'milling',
-  'lathe',
-  'grinding',
-  'welding',
-  'drilling',
-  'shaper',
-  'cnc',
-  'finishing',
-];
-
 type RoleFilter = 'all' | 'ADMIN' | 'OFFICE_STAFF' | 'PRODUCTION_WORKER';
 type StatusFilter = 'all' | 'active' | 'inactive';
 type SortKey = 'name_asc' | 'name_desc' | 'role_asc';
 
+function skillLabels(user: User): string[] {
+  const fromTop = user.skills || [];
+  const fromProfile = user.workerProfile?.skills || [];
+  const raw = fromTop.length ? fromTop : fromProfile;
+  return raw
+    .map((s) => (typeof s === 'string' ? s : (s as WorkerSkill).machineTypeCode || (s as WorkerSkill).machineTypeName || ''))
+    .filter(Boolean) as string[];
+}
+
 export default function UsersPage() {
+  const navigate = useNavigate();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -41,7 +41,6 @@ export default function UsersPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [sort, setSort] = useState<SortKey>('name_asc');
   const [form] = Form.useForm();
-  const selectedRole = Form.useWatch('role', form);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -84,20 +83,22 @@ export default function UsersPage() {
     password: string;
     fullName: string;
     role: string;
-    skills?: string[];
   }) => {
     setSubmitting(true);
     try {
-      await usersApi.create({
+      const created = await usersApi.create({
         email: values.email,
         password: values.password,
         fullName: values.fullName,
         role: values.role,
-        skills: values.role === 'PRODUCTION_WORKER' ? values.skills : undefined,
       });
       message.success('User created');
       closeModal();
-      fetchUsers();
+      if (values.role === 'PRODUCTION_WORKER') {
+        navigate(`/users/${created.data.id}`);
+      } else {
+        fetchUsers();
+      }
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
@@ -135,10 +136,14 @@ export default function UsersPage() {
     {
       title: 'Skills',
       key: 'skills',
-      render: (_: unknown, record: User) =>
-        record.workerProfile?.skills?.map((s) => (
+      render: (_: unknown, record: User) => {
+        if (record.role !== 'PRODUCTION_WORKER') return '—';
+        const labels = skillLabels(record);
+        if (!labels.length) return <span style={{ color: '#94a3b8' }}>None</span>;
+        return labels.map((s) => (
           <Tag key={s} style={{ borderRadius: 999 }}>{s}</Tag>
-        )),
+        ));
+      },
     },
     {
       title: 'Status',
@@ -151,12 +156,24 @@ export default function UsersPage() {
     {
       title: 'Actions',
       key: 'actions',
-      render: (_: unknown, record: User) =>
-        record.active ? (
-          <Popconfirm title="Deactivate this user?" onConfirm={() => onDeactivate(record.id)}>
-            <Button danger size="small">Deactivate</Button>
-          </Popconfirm>
-        ) : null,
+      render: (_: unknown, record: User) => (
+        <Space>
+          {record.role === 'PRODUCTION_WORKER' && (
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => navigate(`/users/${record.id}`)}
+            >
+              Skills / Schedule
+            </Button>
+          )}
+          {record.active ? (
+            <Popconfirm title="Deactivate this user?" onConfirm={() => onDeactivate(record.id)}>
+              <Button danger size="small">Deactivate</Button>
+            </Popconfirm>
+          ) : null}
+        </Space>
+      ),
     },
   ];
 
@@ -238,6 +255,7 @@ export default function UsersPage() {
         loading={loading}
         locale={{ emptyText: 'No users match your filters' }}
         scroll={{ x: true }}
+        size="small"
       />
 
       <Modal
@@ -281,7 +299,7 @@ export default function UsersPage() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 17, fontWeight: 800 }}>Add User</div>
             <div style={{ fontSize: 12, opacity: 0.65, marginTop: 2 }}>
-              Create an account for admin, office staff, or a production worker
+              Create an account — set worker skills on the detail page after create
             </div>
           </div>
           <button
@@ -355,7 +373,7 @@ export default function UsersPage() {
             name="role"
             label="Role"
             rules={[{ required: true }]}
-            style={{ marginBottom: selectedRole === 'PRODUCTION_WORKER' ? 14 : 4 }}
+            style={{ marginBottom: 4 }}
           >
             <Select
               size="large"
@@ -366,23 +384,6 @@ export default function UsersPage() {
               ]}
             />
           </Form.Item>
-
-          {selectedRole === 'PRODUCTION_WORKER' && (
-            <Form.Item
-              name="skills"
-              label="Skills"
-              extra="Select shop skills used for worker assignment suggestions"
-              style={{ marginBottom: 8 }}
-            >
-              <Select
-                mode="tags"
-                size="large"
-                placeholder="Select or type skills"
-                tokenSeparators={[',']}
-                options={skillPresets.map((s) => ({ value: s, label: s }))}
-              />
-            </Form.Item>
-          )}
         </Form>
 
         <div
