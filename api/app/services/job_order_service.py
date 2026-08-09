@@ -173,7 +173,13 @@ def get_job_order(job_id, user_id, user_role):
 
 
 def _build_operation(job_id, op_data, seq_fallback):
+    from app.models.worker_skill import OperationType
+
+    op_type_id = op_data.get("operationTypeId")
+    op_type = OperationType.query.get(op_type_id) if op_type_id else None
     name = (op_data.get("operationName") or op_data.get("name") or "").strip()
+    if not name and op_type:
+        name = op_type.name
     if not name:
         raise AppError("Each operation requires a name", "VALIDATION_ERROR", 400)
     seq = op_data.get("sequenceNo", op_data.get("seq", seq_fallback))
@@ -194,11 +200,16 @@ def _build_operation(job_id, op_data, seq_fallback):
     except ValueError:
         status = OperationStatus.PENDING
 
+    machine_type_id = _resolve_machine_type_id(op_data)
+    if not machine_type_id and op_type and op_type.default_machine_type_id:
+        machine_type_id = op_type.default_machine_type_id
+
     kwargs = {
         "job_order_id": job_id,
         "sequence_no": int(seq),
         "operation_name": name,
-        "machine_type_id": _resolve_machine_type_id(op_data),
+        "operation_type_id": op_type.id if op_type else op_type_id,
+        "machine_type_id": machine_type_id,
         "machine_unit_id": op_data.get("machineUnitId"),
         "assigned_worker_id": worker_id,
         "estimated_hours": _parse_decimal(op_data.get("estimatedHours"), "estimatedHours"),

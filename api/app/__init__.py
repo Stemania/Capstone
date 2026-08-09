@@ -50,15 +50,23 @@ def _register_blueprints(app):
     from app.blueprints.job_orders.routes import job_orders_bp
     from app.blueprints.operations.routes import operations_bp
     from app.blueprints.tools.routes import tools_bp
+    from app.blueprints.worker_profiles.routes import (
+        calendar_bp,
+        operation_types_bp,
+        worker_profiles_bp,
+    )
 
     prefix = "/api/v1"
     app.register_blueprint(auth_bp, url_prefix=f"{prefix}/auth")
     app.register_blueprint(users_bp, url_prefix=f"{prefix}/users")
     app.register_blueprint(workers_bp, url_prefix=f"{prefix}/workers")
+    app.register_blueprint(worker_profiles_bp, url_prefix=f"{prefix}/workers")
     app.register_blueprint(clients_bp, url_prefix=f"{prefix}/clients")
     app.register_blueprint(job_orders_bp, url_prefix=f"{prefix}/job-orders")
     app.register_blueprint(operations_bp, url_prefix=f"{prefix}/operations")
     app.register_blueprint(tools_bp, url_prefix=f"{prefix}/tools")
+    app.register_blueprint(calendar_bp, url_prefix=f"{prefix}/calendar")
+    app.register_blueprint(operation_types_bp, url_prefix=f"{prefix}/operation-types")
 
 
 def _register_cli(app):

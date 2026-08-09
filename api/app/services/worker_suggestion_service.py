@@ -1,37 +1,109 @@
-import re
-
+from app.models.machine import MachineType
 from app.models.user import User, UserRole
-from app.models.worker_profile import WorkerProfile
+from app.models.worker_skill import OperationType, WorkerSkill
 from app.services.worker_availability import is_worker_available
 
 
-def _tokenize(text):
-    return set(re.findall(r"[a-z0-9]+", text.lower()))
+def _resolve_machine_type_id(
+    *,
+    machine_type_id=None,
+    operation_type_id=None,
+    operation_name=None,
+):
+    if machine_type_id:
+        return machine_type_id
+    if operation_type_id:
+        ot = OperationType.query.get(operation_type_id)
+        if ot and ot.default_machine_type_id:
+            return ot.default_machine_type_id
+    if operation_name:
+        # Fallback: match operation type by name/code
+        ot = OperationType.query.filter(
+            (OperationType.name.ilike(operation_name))
+            | (OperationType.code.ilike(str(operation_name).replace(" ", "_")))
+        ).first()
+        if ot and ot.default_machine_type_id:
+            return ot.default_machine_type_id
+    return None
 
 
-def suggest_workers(operations, exclude_job_id=None, scheduled_start=None, scheduled_end=None, exclude_operation_id=None):
+def suggest_workers(
+    operations=None,
+    exclude_job_id=None,
+    scheduled_start=None,
+    scheduled_end=None,
+    exclude_operation_id=None,
+    machine_type_id=None,
+    operation_type_id=None,
+    operation_name=None,
+):
     """
-    Rank production workers by skill match against operation names.
-    Busy workers (schedule overlap / in-progress) are omitted.
-    `operations` may be a list of names or a single name string.
+    Suggest workers who have a WorkerSkill for the target machine type,
+    ranked by proficiency (desc). Busy workers are omitted.
+
+    `operations` may still be a list of names (takes first) for back-compat.
     """
-    if isinstance(operations, str):
-        op_names = [operations]
-    else:
-        op_names = list(operations or [])
+    if operations and not operation_name:
+        if isinstance(operations, str):
+            operation_name = operations
+        elif isinstance(operations, list) and operations:
+            first = operations[0]
+            if isinstance(first, dict):
+                operation_name = first.get("operationName") or first.get("name")
+                machine_type_id = machine_type_id or first.get("machineTypeId")
+                operation_type_id = operation_type_id or first.get("operationTypeId")
+            else:
+                operation_name = first
 
-    operation_tokens = set()
-    for op_name in op_names:
-        operation_tokens.update(_tokenize(op_name))
+    target_machine_id = _resolve_machine_type_id(
+        machine_type_id=machine_type_id,
+        operation_type_id=operation_type_id,
+        operation_name=operation_name,
+    )
 
-    workers = (
-        User.query.filter_by(role=UserRole.PRODUCTION_WORKER, active=True)
-        .join(WorkerProfile)
+    # No machine required (e.g. welding/checking): suggest any available worker, score 0
+    if not target_machine_id:
+        workers = (
+            User.query.filter_by(role=UserRole.PRODUCTION_WORKER, active=True)
+            .order_by(User.full_name)
+            .all()
+        )
+        suggestions = []
+        for worker in workers:
+            if not is_worker_available(
+                worker.id,
+                start=scheduled_start,
+                end=scheduled_end,
+                exclude_operation_id=exclude_operation_id,
+            ):
+                continue
+            skills = [s.to_dict() for s in (worker.skills or [])]
+            suggestions.append(
+                {
+                    "workerId": worker.id,
+                    "fullName": worker.full_name,
+                    "email": worker.email,
+                    "skills": [s.get("machineTypeCode") for s in skills if s.get("machineTypeCode")],
+                    "score": 0,
+                    "matchedSkills": [],
+                    "proficiency": None,
+                    "available": True,
+                }
+            )
+        return suggestions
+
+    mt = MachineType.query.get(target_machine_id)
+    skill_rows = (
+        WorkerSkill.query.filter_by(machine_type_id=target_machine_id)
+        .order_by(WorkerSkill.proficiency.desc(), WorkerSkill.is_primary.desc())
         .all()
     )
 
     suggestions = []
-    for worker in workers:
+    for skill in skill_rows:
+        worker = skill.worker
+        if not worker or not worker.active or worker.role != UserRole.PRODUCTION_WORKER:
+            continue
         if not is_worker_available(
             worker.id,
             start=scheduled_start,
@@ -39,35 +111,19 @@ def suggest_workers(operations, exclude_job_id=None, scheduled_start=None, sched
             exclude_operation_id=exclude_operation_id,
         ):
             continue
-
-        skills = worker.worker_profile.skills if worker.worker_profile else []
-        skill_tokens = set()
-        for skill in skills:
-            skill_tokens.update(_tokenize(skill))
-
-        matched_skills = []
-        score = 0
-        for skill in skills:
-            skill_lower = skill.lower()
-            for op_name in op_names:
-                if skill_lower in op_name.lower() or any(
-                    t in op_name.lower() for t in _tokenize(skill)
-                ):
-                    if skill not in matched_skills:
-                        matched_skills.append(skill)
-                        score += 1
-
-        overlap = len(skill_tokens & operation_tokens)
-        score += overlap
-
         suggestions.append(
             {
                 "workerId": worker.id,
                 "fullName": worker.full_name,
                 "email": worker.email,
-                "skills": skills,
-                "score": score,
-                "matchedSkills": matched_skills,
+                "skills": [
+                    s.machine_type.code
+                    for s in (worker.skills or [])
+                    if s.machine_type
+                ],
+                "score": int(skill.proficiency),
+                "matchedSkills": [mt.code] if mt else [],
+                "proficiency": skill.proficiency,
                 "available": True,
             }
         )

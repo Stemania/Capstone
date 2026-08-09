@@ -20,7 +20,9 @@ def list_users():
     if active is not None:
         query = query.filter_by(active=active.lower() == "true")
     users = query.order_by(User.full_name).all()
-    return jsonify([u.to_dict(include_profile=True) for u in users])
+    return jsonify(
+        [u.to_dict(include_profile=True, include_skills=True) for u in users]
+    )
 
 
 @users_bp.route("", methods=["POST"])
@@ -40,10 +42,9 @@ def create_user_route():
             "fullName": data["fullName"],
             "role": UserRole(data["role"]),
             "active": data.get("active", True),
-            "skills": data.get("skills"),
         }
     )
-    return jsonify(user.to_dict(include_profile=True)), 201
+    return jsonify(user.to_dict(include_profile=True, include_skills=True)), 201
 
 
 @users_bp.route("/<user_id>", methods=["GET"])
@@ -51,7 +52,9 @@ def create_user_route():
 @require_roles(UserRole.ADMIN)
 def get_user(user_id):
     user = get_user_by_id(user_id)
-    return jsonify(user.to_dict(include_profile=True))
+    return jsonify(
+        user.to_dict(include_profile=True, include_skills=True, include_schedule=True)
+    )
 
 
 @users_bp.route("/<user_id>", methods=["PATCH"])
@@ -71,11 +74,9 @@ def update_user_route(user_id):
         payload["active"] = data["active"]
     if "password" in data:
         payload["password"] = data["password"]
-    if "skills" in data:
-        payload["skills"] = data["skills"]
 
     user = update_user(user, payload)
-    return jsonify(user.to_dict(include_profile=True))
+    return jsonify(user.to_dict(include_profile=True, include_skills=True))
 
 
 @users_bp.route("/<user_id>", methods=["DELETE"])

@@ -1,5 +1,6 @@
 from app.extensions import bcrypt, db
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.models.worker_profile import WorkerProfile
 from app.utils.errors import AppError
 
 
@@ -31,11 +32,24 @@ def create_user(data):
     db.session.add(user)
     db.session.flush()
 
-    if data.get("skills") is not None:
-        from app.models.worker_profile import WorkerProfile
+    if data["role"] == UserRole.PRODUCTION_WORKER or (
+        hasattr(data["role"], "value") and data["role"].value == "PRODUCTION_WORKER"
+    ):
+        db.session.add(WorkerProfile(user_id=user.id))
+        from datetime import time
+        from app.models.worker_skill import WorkerSchedule
 
-        profile = WorkerProfile(user_id=user.id, skills=data["skills"])
-        db.session.add(profile)
+        for dow in range(7):
+            working = dow < 6
+            db.session.add(
+                WorkerSchedule(
+                    worker_id=user.id,
+                    day_of_week=dow,
+                    start_time=time(8, 0) if working else None,
+                    end_time=time(17, 0) if working else None,
+                    is_working=working,
+                )
+            )
 
     db.session.commit()
     return user
@@ -58,14 +72,8 @@ def update_user(user, data):
             "utf-8"
         )
 
-    if "skills" in data:
-        from app.models.worker_profile import WorkerProfile
-
-        if user.worker_profile:
-            user.worker_profile.skills = data["skills"]
-        elif user.role.value == "PRODUCTION_WORKER":
-            profile = WorkerProfile(user_id=user.id, skills=data["skills"])
-            db.session.add(profile)
+    if user.role == UserRole.PRODUCTION_WORKER and not user.worker_profile:
+        db.session.add(WorkerProfile(user_id=user.id))
 
     db.session.commit()
     return user
