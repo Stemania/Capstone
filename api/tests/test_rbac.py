@@ -4,8 +4,8 @@ import pytest
 
 from app.extensions import bcrypt, db
 from app.models.client import Client
-from app.models.job_order import JobOrder, JobOrderStatus
-from app.models.operation import Operation, OperationStatus
+from app.models.job_order import JobOrder, JobOrderStatus, JobType, MaterialSource, PartCondition
+from app.models.operation import JobOperation, OperationStatus
 from app.models.user import User, UserRole
 from app.models.worker_profile import WorkerProfile
 
@@ -72,10 +72,22 @@ def test_worker_cannot_access_other_workers_job(client, app, seeded_users):
             title="Private Job",
             due_date=date(2026, 8, 1),
             status=JobOrderStatus.ASSIGNED,
-            assigned_worker_id=seeded_users["worker2"].id,
+            job_type=JobType.FABRICATION,
+            material_source=MaterialSource.SHOP_PROCURED,
+            part_condition=PartCondition.RAW_MATERIAL,
             created_by_id=seeded_users["office"].id,
         )
         db.session.add(job)
+        db.session.flush()
+        db.session.add(
+            JobOperation(
+                job_order_id=job.id,
+                sequence_no=1,
+                operation_name="Milling",
+                assigned_worker_id=seeded_users["worker2"].id,
+                status=OperationStatus.PENDING,
+            )
+        )
         db.session.commit()
         job_id = job.id
 
@@ -93,12 +105,20 @@ def test_operation_start_is_idempotent(client, app, seeded_users):
             title="Worker Job",
             due_date=date(2026, 8, 1),
             status=JobOrderStatus.ASSIGNED,
-            assigned_worker_id=seeded_users["worker1"].id,
+            job_type=JobType.FABRICATION,
+            material_source=MaterialSource.SHOP_PROCURED,
+            part_condition=PartCondition.RAW_MATERIAL,
             created_by_id=seeded_users["office"].id,
         )
         db.session.add(job)
         db.session.flush()
-        op = Operation(job_order_id=job.id, seq=1, name="Milling", status=OperationStatus.PENDING)
+        op = JobOperation(
+            job_order_id=job.id,
+            sequence_no=1,
+            operation_name="Milling",
+            assigned_worker_id=seeded_users["worker1"].id,
+            status=OperationStatus.PENDING,
+        )
         db.session.add(op)
         db.session.commit()
         op_id = op.id
@@ -113,4 +133,8 @@ def test_operation_start_is_idempotent(client, app, seeded_users):
 
     assert r1.status_code == 200
     assert r2.status_code == 200
-    assert r1.get_json()["startedAt"] == r2.get_json()["startedAt"]
+    body1 = r1.get_json()
+    body2 = r2.get_json()
+    assert (body1.get("actualStart") or body1.get("startedAt")) == (
+        body2.get("actualStart") or body2.get("startedAt")
+    )

@@ -1,18 +1,37 @@
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
+from sqlalchemy.orm import joinedload
+
 from app.extensions import db
-from app.models.job_order import JobOrder, JobOrderStatus, JobPriority
-from app.models.operation import Operation, OperationStatus
+from app.models.job_order import (
+    JobOrder,
+    JobOrderStatus,
+    JobPriority,
+    JobType,
+    MaterialSource,
+    PartCondition,
+)
+from app.models.machine import MachineType
+from app.models.operation import JobOperation, OperationStatus
 from app.models.user import User, UserRole
-from app.constants.machines import VALID_MACHINE_CODES
 from app.utils.errors import AppError
 
 
 def _parse_date(value):
+    if value is None or value == "":
+        return None
     if isinstance(value, str):
         return datetime.strptime(value[:10], "%Y-%m-%d").date()
     return value
+
+
+def _parse_datetime(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
 
 
 def _parse_decimal(value, field_name):
@@ -50,71 +69,151 @@ def _normalize_raw_materials(items):
     return normalized
 
 
-def _normalize_machines(codes):
-    if codes is None:
-        return []
-    if not isinstance(codes, list):
-        raise AppError("machinesNeeded must be a list", "VALIDATION_ERROR", 400)
-    cleaned = []
-    for code in codes:
-        code = str(code).strip().upper()
-        if code not in VALID_MACHINE_CODES:
-            raise AppError(
-                f"Invalid machine '{code}'. Allowed: {', '.join(sorted(VALID_MACHINE_CODES))}",
-                "VALIDATION_ERROR",
-                400,
-            )
-        if code not in cleaned:
-            cleaned.append(code)
-    return cleaned
+def _resolve_machine_type_id(op_data):
+    mid = op_data.get("machineTypeId")
+    if mid:
+        mt = MachineType.query.get(mid)
+        if not mt:
+            raise AppError("Invalid machineTypeId", "VALIDATION_ERROR", 400)
+        return mt.id
+    # Legacy: machinesNeeded: ["MILLING"]
+    codes = op_data.get("machinesNeeded") or []
+    if codes:
+        code = str(codes[0]).strip().upper()
+        mt = MachineType.query.filter_by(code=code).first()
+        if not mt:
+            raise AppError(f"Unknown machine type '{code}'", "VALIDATION_ERROR", 400)
+        return mt.id
+    return None
 
 
-def _validate_worker(worker_id, exclude_job_id=None):
+def _validate_worker(worker_id, start=None, end=None, exclude_operation_id=None):
     worker = User.query.get(worker_id)
     if not worker or worker.role != UserRole.PRODUCTION_WORKER or not worker.active:
         raise AppError("Invalid worker assignment", "VALIDATION_ERROR", 400)
     from app.services.worker_availability import assert_worker_available
 
-    assert_worker_available(worker_id, exclude_job_id=exclude_job_id)
+    assert_worker_available(
+        worker_id,
+        start=start,
+        end=end,
+        exclude_operation_id=exclude_operation_id,
+    )
     return worker
+
+
+def _initial_part_condition(material_source: MaterialSource) -> PartCondition:
+    if material_source == MaterialSource.CLIENT_SUPPLIED:
+        return PartCondition.CLIENT_SUPPLIED_ITEM
+    return PartCondition.RAW_MATERIAL
+
+
+def derive_job_status(job: JobOrder) -> JobOrderStatus:
+    ops = list(job.operations or [])
+    if not ops:
+        return JobOrderStatus.UNASSIGNED
+    if all(op.status == OperationStatus.COMPLETED for op in ops):
+        return JobOrderStatus.COMPLETED
+    if any(
+        op.status in (OperationStatus.IN_PROGRESS, OperationStatus.COMPLETED, OperationStatus.REWORK)
+        for op in ops
+    ):
+        return JobOrderStatus.IN_PROGRESS
+    if any(op.assigned_worker_id for op in ops):
+        return JobOrderStatus.ASSIGNED
+    return JobOrderStatus.UNASSIGNED
+
+
+def advance_part_condition(job: JobOrder):
+    ops = list(job.operations or [])
+    if not ops:
+        return
+    if all(op.status == OperationStatus.COMPLETED for op in ops):
+        job.part_condition = PartCondition.FINISHED
+    elif any(op.status == OperationStatus.COMPLETED for op in ops):
+        job.part_condition = PartCondition.WORK_IN_PROCESS
 
 
 def check_job_access(job_order, user_id, user_role):
     if user_role in (UserRole.ADMIN.value, UserRole.OFFICE_STAFF.value):
         return True
     if user_role == UserRole.PRODUCTION_WORKER.value:
-        if job_order.assigned_worker_id != user_id:
+        has_op = any(op.assigned_worker_id == user_id for op in (job_order.operations or []))
+        if not has_op:
             raise AppError("Access denied", "FORBIDDEN", 403)
         return True
     raise AppError("Access denied", "FORBIDDEN", 403)
 
 
 def list_job_orders(user_id, user_role, status=None):
-    from sqlalchemy.orm import joinedload
-
-    query = JobOrder.query.options(joinedload(JobOrder.operations), joinedload(JobOrder.client))
+    query = JobOrder.query.options(
+        joinedload(JobOrder.operations).joinedload(JobOperation.assigned_worker),
+        joinedload(JobOrder.operations).joinedload(JobOperation.machine_type),
+        joinedload(JobOrder.client),
+    )
     if user_role == UserRole.PRODUCTION_WORKER.value:
-        query = query.filter_by(assigned_worker_id=user_id)
+        query = query.filter(
+            JobOrder.operations.any(JobOperation.assigned_worker_id == user_id)
+        )
     if status:
         query = query.filter_by(status=JobOrderStatus(status))
     return query.order_by(JobOrder.due_date.asc()).all()
 
 
 def get_job_order(job_id, user_id, user_role):
-    job = JobOrder.query.get(job_id)
+    job = JobOrder.query.options(
+        joinedload(JobOrder.operations).joinedload(JobOperation.assigned_worker),
+        joinedload(JobOrder.operations).joinedload(JobOperation.machine_type),
+        joinedload(JobOrder.client),
+    ).get(job_id)
     if not job:
         raise AppError("Job order not found", "NOT_FOUND", 404)
     check_job_access(job, user_id, user_role)
     return job
 
 
+def _build_operation(job_id, op_data, seq_fallback):
+    name = (op_data.get("operationName") or op_data.get("name") or "").strip()
+    if not name:
+        raise AppError("Each operation requires a name", "VALIDATION_ERROR", 400)
+    seq = op_data.get("sequenceNo", op_data.get("seq", seq_fallback))
+    worker_id = op_data.get("assignedWorkerId")
+    start = op_data.get("scheduledStart")
+    end = op_data.get("scheduledEnd")
+    exclude_id = op_data.get("id")
+    if worker_id:
+        _validate_worker(
+            worker_id,
+            start=start,
+            end=end,
+            exclude_operation_id=exclude_id,
+        )
+    status_raw = op_data.get("status", "PENDING")
+    try:
+        status = OperationStatus(status_raw)
+    except ValueError:
+        status = OperationStatus.PENDING
+
+    kwargs = {
+        "job_order_id": job_id,
+        "sequence_no": int(seq),
+        "operation_name": name,
+        "machine_type_id": _resolve_machine_type_id(op_data),
+        "machine_unit_id": op_data.get("machineUnitId"),
+        "assigned_worker_id": worker_id,
+        "estimated_hours": _parse_decimal(op_data.get("estimatedHours"), "estimatedHours"),
+        "scheduled_start": _parse_datetime(start),
+        "scheduled_end": _parse_datetime(end),
+        "status": status,
+        "rework_of_operation_id": op_data.get("reworkOfOperationId"),
+        "notes": op_data.get("notes"),
+    }
+    return JobOperation(**kwargs)
+
+
 def create_job_order(data, created_by_id):
     if not data.get("operations"):
         raise AppError("At least one operation is required", "VALIDATION_ERROR", 400)
-
-    worker_id = data.get("assignedWorkerId")
-    if worker_id:
-        _validate_worker(worker_id)
 
     priority = data.get("priority", "MODERATE")
     try:
@@ -123,35 +222,44 @@ def create_job_order(data, created_by_id):
         raise AppError("priority must be HIGH, MODERATE, or LOW", "VALIDATION_ERROR", 400)
 
     try:
+        job_type = JobType(data.get("jobType", "FABRICATION"))
+    except ValueError:
+        raise AppError("Invalid jobType", "VALIDATION_ERROR", 400)
+    try:
+        material_source = MaterialSource(data.get("materialSource", "SHOP_PROCURED"))
+    except ValueError:
+        raise AppError("Invalid materialSource", "VALIDATION_ERROR", 400)
+
+    try:
         job = JobOrder(
             client_id=data["clientId"],
             title=data["title"],
             description=data.get("description"),
             due_date=_parse_date(data["dueDate"]),
-            status=JobOrderStatus.ASSIGNED if worker_id else JobOrderStatus.UNASSIGNED,
+            client_po_number=(data.get("clientPoNumber") or None),
+            po_date=_parse_date(data.get("poDate")),
+            status=JobOrderStatus.UNASSIGNED,
             priority=priority_enum,
+            job_type=job_type,
+            material_source=material_source,
+            part_condition=_initial_part_condition(material_source),
             quantity=_parse_decimal(data.get("quantity"), "quantity"),
             unit_of_measure=(data.get("unitOfMeasure") or None),
             amount=_parse_decimal(data.get("amount"), "amount"),
             raw_materials=_normalize_raw_materials(data.get("rawMaterials")),
-            assigned_worker_id=worker_id,
             created_by_id=created_by_id,
         )
         db.session.add(job)
         db.session.flush()
 
-        for op_data in data["operations"]:
-            operation = Operation(
-                job_order_id=job.id,
-                seq=op_data["seq"],
-                name=op_data["name"],
-                machines_needed=_normalize_machines(op_data.get("machinesNeeded")),
-                status=OperationStatus.PENDING,
-            )
-            db.session.add(operation)
+        for i, op_data in enumerate(data["operations"], start=1):
+            op = _build_operation(job.id, op_data, i)
+            db.session.add(op)
 
+        db.session.flush()
+        job.status = derive_job_status(job)
         db.session.commit()
-        return job
+        return get_job_order(job.id, created_by_id, UserRole.OFFICE_STAFF.value)
     except AppError:
         db.session.rollback()
         raise
@@ -170,11 +278,30 @@ def update_job_order(job, data):
             job.description = data["description"]
         if "dueDate" in data:
             job.due_date = _parse_date(data["dueDate"])
+        if "clientPoNumber" in data:
+            job.client_po_number = data.get("clientPoNumber") or None
+        if "poDate" in data:
+            job.po_date = _parse_date(data.get("poDate"))
         if "priority" in data:
             try:
                 job.priority = JobPriority(data["priority"])
             except ValueError:
                 raise AppError("priority must be HIGH, MODERATE, or LOW", "VALIDATION_ERROR", 400)
+        if "jobType" in data:
+            try:
+                job.job_type = JobType(data["jobType"])
+            except ValueError:
+                raise AppError("Invalid jobType", "VALIDATION_ERROR", 400)
+        if "materialSource" in data:
+            try:
+                job.material_source = MaterialSource(data["materialSource"])
+            except ValueError:
+                raise AppError("Invalid materialSource", "VALIDATION_ERROR", 400)
+        if "partCondition" in data and data["partCondition"]:
+            try:
+                job.part_condition = PartCondition(data["partCondition"])
+            except ValueError:
+                raise AppError("Invalid partCondition", "VALIDATION_ERROR", 400)
         if "quantity" in data:
             job.quantity = _parse_decimal(data.get("quantity"), "quantity")
         if "unitOfMeasure" in data:
@@ -183,26 +310,20 @@ def update_job_order(job, data):
             job.amount = _parse_decimal(data.get("amount"), "amount")
         if "rawMaterials" in data:
             job.raw_materials = _normalize_raw_materials(data.get("rawMaterials"))
-        if "assignedWorkerId" in data and data["assignedWorkerId"]:
-            _validate_worker(data["assignedWorkerId"], exclude_job_id=job.id)
-            job.assigned_worker_id = data["assignedWorkerId"]
-            if job.status == JobOrderStatus.UNASSIGNED:
-                job.status = JobOrderStatus.ASSIGNED
 
         if "operations" in data:
-            Operation.query.filter_by(job_order_id=job.id).delete()
-            for op_data in data["operations"]:
-                operation = Operation(
-                    job_order_id=job.id,
-                    seq=op_data["seq"],
-                    name=op_data["name"],
-                    machines_needed=_normalize_machines(op_data.get("machinesNeeded")),
-                    status=OperationStatus(op_data.get("status", "PENDING")),
-                )
-                db.session.add(operation)
+            JobOperation.query.filter_by(job_order_id=job.id).delete()
+            for i, op_data in enumerate(data["operations"], start=1):
+                payload = dict(op_data)
+                payload.pop("id", None)
+                op = _build_operation(job.id, payload, i)
+                db.session.add(op)
+            db.session.flush()
 
+        job.status = derive_job_status(job)
+        advance_part_condition(job)
         db.session.commit()
-        return job
+        return get_job_order(job.id, job.created_by_id, UserRole.OFFICE_STAFF.value)
     except AppError:
         db.session.rollback()
         raise
@@ -211,14 +332,20 @@ def update_job_order(job, data):
         raise
 
 
-def reassign_worker(job, worker_id):
-    _validate_worker(worker_id, exclude_job_id=job.id)
+def assign_operation_worker(operation, worker_id):
+    _validate_worker(
+        worker_id,
+        start=operation.scheduled_start,
+        end=operation.scheduled_end,
+        exclude_operation_id=operation.id,
+    )
     try:
-        job.assigned_worker_id = worker_id
-        if job.status == JobOrderStatus.UNASSIGNED:
-            job.status = JobOrderStatus.ASSIGNED
+        operation.assigned_worker_id = worker_id
+        if operation.status == OperationStatus.PENDING:
+            operation.status = OperationStatus.SCHEDULED
+        operation.job_order.status = derive_job_status(operation.job_order)
         db.session.commit()
-        return job
+        return operation
     except Exception:
         db.session.rollback()
         raise

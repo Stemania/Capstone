@@ -35,6 +35,10 @@ def create_app(config_object=None):
     _register_blueprints(app)
     _register_cli(app)
 
+    from app.services.audit_service import register_audit_listeners
+
+    register_audit_listeners()
+
     return app
 
 

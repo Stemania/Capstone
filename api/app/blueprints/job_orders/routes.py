@@ -55,20 +55,6 @@ def update_job_order(job_id):
     return jsonify(job.to_dict(include_operations=True))
 
 
-@job_orders_bp.route("/<job_id>/reassign", methods=["PATCH"])
-@jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
-def reassign_job(job_id):
-    job = jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
-    data = request.get_json() or {}
-    worker_id = data.get("assignedWorkerId")
-    if not worker_id:
-        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "assignedWorkerId required"}}), 400
-
-    job = jo_service.reassign_worker(job, worker_id)
-    return jsonify(job.to_dict(include_operations=True))
-
-
 @job_orders_bp.route("/<job_id>/operations", methods=["GET"])
 @jwt_required()
 def list_operations(job_id):

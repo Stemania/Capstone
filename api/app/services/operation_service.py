@@ -1,9 +1,13 @@
 from datetime import datetime, timezone
 
 from app.extensions import db
-from app.models.job_order import JobOrderStatus
-from app.models.operation import OperationStatus
-from app.services.job_order_service import check_job_access
+from app.models.operation import JobOperation, OperationStatus
+from app.models.user import UserRole
+from app.services.job_order_service import (
+    advance_part_condition,
+    check_job_access,
+    derive_job_status,
+)
 from app.utils.errors import AppError
 
 
@@ -16,27 +20,30 @@ def _parse_timestamp(value):
     return value
 
 
-def _update_job_status(job):
-    ops = job.operations
-    if not ops:
-        return
+def list_my_operations(worker_id):
+    from sqlalchemy.orm import joinedload
+    from app.models.job_order import JobOrder
 
-    any_in_progress = any(op.status == OperationStatus.IN_PROGRESS for op in ops)
-    all_completed = all(op.status == OperationStatus.COMPLETED for op in ops)
-    any_started = any(
-        op.status in (OperationStatus.IN_PROGRESS, OperationStatus.COMPLETED) for op in ops
+    return (
+        JobOperation.query.options(
+            joinedload(JobOperation.job_order).joinedload(JobOrder.client),
+            joinedload(JobOperation.machine_type),
+            joinedload(JobOperation.assigned_worker),
+        )
+        .filter(JobOperation.assigned_worker_id == worker_id)
+        .order_by(JobOperation.sequence_no.asc())
+        .all()
     )
-
-    if all_completed:
-        job.status = JobOrderStatus.COMPLETED
-    elif any_in_progress or any_started:
-        job.status = JobOrderStatus.IN_PROGRESS
 
 
 def start_operation(operation, user_id, user_role, timestamp):
-    from app.constants.machines import assert_machines_available
+    from app.constants.machines import assert_machine_type_available
 
     check_job_access(operation.job_order, user_id, user_role)
+
+    if user_role == UserRole.PRODUCTION_WORKER.value:
+        if operation.assigned_worker_id != user_id:
+            raise AppError("You can only start operations assigned to you", "FORBIDDEN", 403)
 
     if operation.status == OperationStatus.IN_PROGRESS:
         return operation
@@ -46,16 +53,15 @@ def start_operation(operation, user_id, user_role, timestamp):
             "Cannot start a completed operation", "INVALID_TRANSITION", 409
         )
 
-    # Machines become "in use" when an operation starts
-    assert_machines_available(
-        operation.machines_needed or [],
+    assert_machine_type_available(
+        operation.machine_type_id,
         exclude_operation_id=operation.id,
     )
 
     try:
         operation.status = OperationStatus.IN_PROGRESS
-        operation.started_at = _parse_timestamp(timestamp)
-        _update_job_status(operation.job_order)
+        operation.actual_start = _parse_timestamp(timestamp)
+        operation.job_order.status = derive_job_status(operation.job_order)
         db.session.commit()
         return operation
     except Exception:
@@ -66,18 +72,23 @@ def start_operation(operation, user_id, user_role, timestamp):
 def complete_operation(operation, user_id, user_role, timestamp):
     check_job_access(operation.job_order, user_id, user_role)
 
+    if user_role == UserRole.PRODUCTION_WORKER.value:
+        if operation.assigned_worker_id != user_id:
+            raise AppError("You can only complete operations assigned to you", "FORBIDDEN", 403)
+
     if operation.status == OperationStatus.COMPLETED:
         return operation
 
-    if operation.status == OperationStatus.PENDING:
+    if operation.status in (OperationStatus.PENDING, OperationStatus.SCHEDULED):
         raise AppError(
             "Operation must be started before completing", "INVALID_TRANSITION", 409
         )
 
     try:
         operation.status = OperationStatus.COMPLETED
-        operation.completed_at = _parse_timestamp(timestamp)
-        _update_job_status(operation.job_order)
+        operation.actual_end = _parse_timestamp(timestamp)
+        operation.job_order.status = derive_job_status(operation.job_order)
+        advance_part_condition(operation.job_order)
         db.session.commit()
         return operation
     except Exception:
