@@ -69,10 +69,13 @@ def _normalize_machines(codes):
     return cleaned
 
 
-def _validate_worker(worker_id):
+def _validate_worker(worker_id, exclude_job_id=None):
     worker = User.query.get(worker_id)
     if not worker or worker.role != UserRole.PRODUCTION_WORKER or not worker.active:
         raise AppError("Invalid worker assignment", "VALIDATION_ERROR", 400)
+    from app.services.worker_availability import assert_worker_available
+
+    assert_worker_available(worker_id, exclude_job_id=exclude_job_id)
     return worker
 
 
@@ -181,7 +184,7 @@ def update_job_order(job, data):
         if "rawMaterials" in data:
             job.raw_materials = _normalize_raw_materials(data.get("rawMaterials"))
         if "assignedWorkerId" in data and data["assignedWorkerId"]:
-            _validate_worker(data["assignedWorkerId"])
+            _validate_worker(data["assignedWorkerId"], exclude_job_id=job.id)
             job.assigned_worker_id = data["assignedWorkerId"]
             if job.status == JobOrderStatus.UNASSIGNED:
                 job.status = JobOrderStatus.ASSIGNED
@@ -209,7 +212,7 @@ def update_job_order(job, data):
 
 
 def reassign_worker(job, worker_id):
-    _validate_worker(worker_id)
+    _validate_worker(worker_id, exclude_job_id=job.id)
     try:
         job.assigned_worker_id = worker_id
         if job.status == JobOrderStatus.UNASSIGNED:

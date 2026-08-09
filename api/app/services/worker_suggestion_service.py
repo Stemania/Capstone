@@ -2,23 +2,25 @@ import re
 
 from app.models.user import User, UserRole
 from app.models.worker_profile import WorkerProfile
+from app.services.worker_availability import get_busy_workers
 
 
 def _tokenize(text):
     return set(re.findall(r"[a-z0-9]+", text.lower()))
 
 
-def suggest_workers(operations):
+def suggest_workers(operations, exclude_job_id=None):
     """
     Rank production workers by skill match against operation names.
 
+    Busy workers (ASSIGNED / IN_PROGRESS on another job) are omitted.
     The system proposes, the human decides.
-    In the full capstone, this suggestion will later become an automated
-    scheduling algorithm requiring Admin approval.
     """
     operation_tokens = set()
     for op_name in operations:
         operation_tokens.update(_tokenize(op_name))
+
+    busy = get_busy_workers(exclude_job_id=exclude_job_id)
 
     workers = (
         User.query.filter_by(role=UserRole.PRODUCTION_WORKER, active=True)
@@ -28,6 +30,9 @@ def suggest_workers(operations):
 
     suggestions = []
     for worker in workers:
+        if worker.id in busy:
+            continue
+
         skills = worker.worker_profile.skills if worker.worker_profile else []
         skill_tokens = set()
         for skill in skills:
@@ -56,6 +61,7 @@ def suggest_workers(operations):
                 "skills": skills,
                 "score": score,
                 "matchedSkills": matched_skills,
+                "available": True,
             }
         )
 
