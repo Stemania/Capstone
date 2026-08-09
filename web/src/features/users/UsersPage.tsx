@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Table, Button, Modal, Form, Input, Select, Tag, Space, Popconfirm, message, Row, Col,
 } from 'antd';
-import { PlusOutlined, UserAddOutlined } from '@ant-design/icons';
+import { PlusOutlined, UserAddOutlined, SearchOutlined } from '@ant-design/icons';
 import { usersApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
@@ -27,11 +27,19 @@ const skillPresets = [
   'finishing',
 ];
 
+type RoleFilter = 'all' | 'ADMIN' | 'OFFICE_STAFF' | 'PRODUCTION_WORKER';
+type StatusFilter = 'all' | 'active' | 'inactive';
+type SortKey = 'name_asc' | 'name_desc' | 'role_asc';
+
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [query, setQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [sort, setSort] = useState<SortKey>('name_asc');
   const [form] = Form.useForm();
   const selectedRole = Form.useWatch('role', form);
 
@@ -48,6 +56,23 @@ export default function UsersPage() {
   useEffect(() => {
     fetchUsers();
   }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let list = users.filter((u) => {
+      if (q && !`${u.fullName} ${u.email}`.toLowerCase().includes(q)) return false;
+      if (roleFilter !== 'all' && u.role !== roleFilter) return false;
+      if (statusFilter === 'active' && !u.active) return false;
+      if (statusFilter === 'inactive' && u.active) return false;
+      return true;
+    });
+    list = [...list].sort((a, b) => {
+      if (sort === 'name_desc') return b.fullName.localeCompare(a.fullName);
+      if (sort === 'role_asc') return a.role.localeCompare(b.role);
+      return a.fullName.localeCompare(b.fullName);
+    });
+    return list;
+  }, [users, query, roleFilter, statusFilter, sort]);
 
   const closeModal = () => {
     setModalOpen(false);
@@ -154,18 +179,66 @@ export default function UsersPage() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'flex-end' }}>
+      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }} wrap>
+        <Space wrap>
+          <Input
+            allowClear
+            placeholder="Search users..."
+            prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            style={{ width: 220 }}
+          />
+          <Select
+            value={roleFilter}
+            onChange={setRoleFilter}
+            style={{ width: 170 }}
+            options={[
+              { value: 'all', label: 'All roles' },
+              { value: 'ADMIN', label: 'Administrator' },
+              { value: 'OFFICE_STAFF', label: 'Office Staff' },
+              { value: 'PRODUCTION_WORKER', label: 'Production Worker' },
+            ]}
+          />
+          <Select
+            value={statusFilter}
+            onChange={setStatusFilter}
+            style={{ width: 140 }}
+            options={[
+              { value: 'all', label: 'All status' },
+              { value: 'active', label: 'Active' },
+              { value: 'inactive', label: 'Inactive' },
+            ]}
+          />
+          <Select
+            value={sort}
+            onChange={setSort}
+            style={{ width: 140 }}
+            options={[
+              { value: 'name_asc', label: 'Name A–Z' },
+              { value: 'name_desc', label: 'Name Z–A' },
+              { value: 'role_asc', label: 'Role' },
+            ]}
+          />
+        </Space>
         <Button
           type="primary"
           icon={<PlusOutlined />}
           onClick={() => setModalOpen(true)}
-          style={{ fontWeight: 600 }}
+          style={{ height: 32, fontWeight: 600 }}
         >
           Add User
         </Button>
       </Space>
 
-      <Table rowKey="id" columns={columns} dataSource={users} loading={loading} scroll={{ x: true }} />
+      <Table
+        rowKey="id"
+        columns={columns}
+        dataSource={filtered}
+        loading={loading}
+        locale={{ emptyText: 'No users match your filters' }}
+        scroll={{ x: true }}
+      />
 
       <Modal
         open={modalOpen}

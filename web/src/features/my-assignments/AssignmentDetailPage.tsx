@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button, Spin, message } from 'antd';
 import {
-  PlayCircleOutlined,
-  CheckCircleOutlined,
   CheckCircleFilled,
   FileTextOutlined,
 } from '@ant-design/icons';
@@ -87,11 +85,13 @@ export default function AssignmentDetailPage() {
           ? 'Overdue'
           : 'Assigned';
   const statusColor =
-    job.status === 'COMPLETED' || job.status === 'IN_PROGRESS'
+    job.status === 'COMPLETED'
       ? colors.green
-      : overdue
-        ? colors.red
-        : colors.accent;
+      : job.status === 'IN_PROGRESS'
+        ? colors.accent
+        : overdue
+          ? colors.red
+          : colors.accent;
 
   const ops = job.operations || [];
 
@@ -257,9 +257,9 @@ export default function AssignmentDetailPage() {
                       ? colors.green
                       : active
                         ? colors.accent
-                        : colors.chipBg,
-                    color: done || active ? '#fff' : colors.textSecondary,
-                    border: done || active ? 'none' : `2px solid ${colors.cardBorder}`,
+                        : 'rgba(217,119,6,0.15)',
+                    color: done || active ? '#fff' : colors.amber,
+                    border: done || active ? 'none' : `2px solid ${colors.amber}`,
                   }}
                 >
                   {done ? <CheckCircleFilled /> : op.seq}
@@ -283,7 +283,14 @@ export default function AssignmentDetailPage() {
                       style={{
                         fontSize: 11,
                         fontWeight: 700,
-                        color: done ? colors.green : active ? colors.accent : colors.textSecondary,
+                        padding: '3px 10px',
+                        borderRadius: 999,
+                        background: done
+                          ? colors.greenSoft
+                          : active
+                            ? 'rgba(37,99,235,0.12)'
+                            : 'rgba(217,119,6,0.12)',
+                        color: done ? colors.green : active ? colors.accent : colors.amber,
                       }}
                     >
                       {done ? 'Completed' : active ? 'In Progress' : 'Pending'}
@@ -304,17 +311,17 @@ export default function AssignmentDetailPage() {
                     </div>
                   )}
 
-                  {op.status === 'PENDING' && (
+                  {op.status === 'PENDING' &&
+                    ops.slice(0, index).every((o) => o.status === 'COMPLETED') && (
                     <Button
                       type="default"
                       block
                       size="large"
-                      icon={<PlayCircleOutlined />}
                       loading={actionLoading === op.id}
                       onClick={() => runAction(op, 'start')}
                       style={{ height: 44, fontWeight: 700 }}
                     >
-                      Start
+                      Start Operation
                     </Button>
                   )}
                   {op.status === 'IN_PROGRESS' && (
@@ -322,7 +329,6 @@ export default function AssignmentDetailPage() {
                       type="primary"
                       block
                       size="large"
-                      icon={<CheckCircleOutlined />}
                       loading={actionLoading === op.id}
                       onClick={() => runAction(op, 'complete')}
                       style={{ height: 44, fontWeight: 700 }}

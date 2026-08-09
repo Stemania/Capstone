@@ -6,7 +6,6 @@ import {
   FileTextOutlined,
   TeamOutlined,
   ToolOutlined,
-  UnorderedListOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
@@ -21,12 +20,17 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/job-orders': { title: 'Job Orders', subtitle: 'Create and manage production job orders' },
   '/users': { title: 'Users & Roles', subtitle: 'Manage accounts and worker skills' },
   '/tools': { title: 'Tools', subtitle: 'Tool registry and QR codes' },
-  '/tool-events': { title: 'Tool Logs', subtitle: 'Borrow and return history' },
 };
 
 function Brand({ collapsed }: { collapsed: boolean }) {
   return (
-    <div style={{ padding: '20px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+    <div
+      style={{
+        padding: collapsed ? '20px 8px' : '20px 16px',
+        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        textAlign: collapsed ? 'center' : 'left',
+      }}
+    >
       <div style={{ fontSize: collapsed ? 13 : 16, fontWeight: 800, letterSpacing: 0.3, color: '#fff', whiteSpace: 'nowrap' }}>
         {collapsed ? 'BMSC' : 'Brothers Machine Shop'}
       </div>
@@ -60,7 +64,6 @@ export default function AppLayout() {
     menuItems.push(
       { key: '/users', icon: <TeamOutlined />, label: 'Users & Roles' },
       { key: '/tools', icon: <ToolOutlined />, label: 'Tools' },
-      { key: '/tool-events', icon: <UnorderedListOutlined />, label: 'Tool Logs' },
     );
   }
 
@@ -71,6 +74,7 @@ export default function AppLayout() {
     <Menu
       theme="dark"
       mode="inline"
+      inlineCollapsed={collapsed && !isMobile}
       selectedKeys={[selectedKey]}
       items={menuItems}
       style={{ background: 'transparent', border: 'none', padding: '8px' }}
@@ -89,7 +93,7 @@ export default function AppLayout() {
         collapsible
         collapsed={collapsed}
         breakpoint="lg"
-        collapsedWidth={0}
+        collapsedWidth={72}
         width={230}
         style={{
           background: NAVY,

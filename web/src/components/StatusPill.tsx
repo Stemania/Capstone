@@ -10,7 +10,15 @@ const styles: Record<PillColor, { color: string; bg: string }> = {
   gray: { color: '#64748b', bg: '#f1f5f9' },
 };
 
-export default function StatusPill({ color, children }: { color: PillColor; children: ReactNode }) {
+export default function StatusPill({
+  color,
+  children,
+  compact = false,
+}: {
+  color: PillColor;
+  children: ReactNode;
+  compact?: boolean;
+}) {
   const s = styles[color];
   return (
     <span
@@ -18,11 +26,12 @@ export default function StatusPill({ color, children }: { color: PillColor; chil
         display: 'inline-block',
         fontSize: 11,
         fontWeight: 700,
-        padding: '3px 10px',
+        padding: compact ? '3px 8px' : '3px 10px',
         borderRadius: 999,
         background: s.bg,
         color: s.color,
         whiteSpace: 'nowrap',
+        lineHeight: 1.25,
       }}
     >
       {children}

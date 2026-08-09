@@ -11,7 +11,6 @@ import MyAssignmentsPage from '../features/my-assignments/MyAssignmentsPage';
 import AssignmentDetailPage from '../features/my-assignments/AssignmentDetailPage';
 import UsersPage from '../features/users/UsersPage';
 import ToolsPage from '../features/tool-tracking/ToolsPage';
-import ToolEventsPage from '../features/tool-tracking/ToolEventsPage';
 import ScanToolPage from '../features/tool-tracking/ScanToolPage';
 
 export default function AppRoutes() {
@@ -32,7 +31,6 @@ export default function AppRoutes() {
               <Route element={<ProtectedRoute roles={['ADMIN']} />}>
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/tools" element={<ToolsPage />} />
-                <Route path="/tool-events" element={<ToolEventsPage />} />
               </Route>
 
               <Route path="/" element={<Navigate to="/login" replace />} />

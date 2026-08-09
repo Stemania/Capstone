@@ -52,7 +52,7 @@ export default function MyAssignmentsPage() {
       return { text: 'Overdue', bg: 'rgba(220,38,38,0.12)', color: colors.red };
     }
     if (job.status === 'IN_PROGRESS') {
-      return { text: 'In Progress', bg: colors.greenSoft, color: colors.green };
+      return { text: 'In Progress', bg: 'rgba(37,99,235,0.12)', color: colors.accent };
     }
     if (job.status === 'COMPLETED') {
       return { text: 'Completed', bg: colors.greenSoft, color: colors.green };

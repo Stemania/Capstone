@@ -8,8 +8,7 @@ import dayjs from 'dayjs';
 import { clientsApi, jobOrdersApi, workersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import { MACHINE_OPTIONS } from '../../types';
-import type { Client, MachineInfo, User, WorkerSuggestion } from '../../types';
-import apiClient from '../../api/client';
+import type { Client, JobOrder, MachineInfo, User, WorkerSuggestion } from '../../types';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -71,13 +70,35 @@ export default function JobOrderFormPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [clientsRes, workersRes, machinesRes] = await Promise.all([
+        const [clientsRes, workersRes, machinesRes, jobsRes] = await Promise.all([
           clientsApi.list(),
-          apiClient.get<User[]>('/workers'),
+          workersApi.list(id),
           jobOrdersApi.machines(),
+          jobOrdersApi.list(),
         ]);
+        let nextWorkers = workersRes.data;
+        const anyAvailabilityFlag = nextWorkers.some(
+          (w) => w.available === false || Boolean(w.activeJobId)
+        );
+        if (!anyAvailabilityFlag) {
+          const busyIds = new Set(
+            jobsRes.data
+              .filter(
+                (j: JobOrder) =>
+                  j.id !== id &&
+                  (j.status === 'ASSIGNED' || j.status === 'IN_PROGRESS') &&
+                  j.assignedWorkerId
+              )
+              .map((j: JobOrder) => j.assignedWorkerId as string)
+          );
+          nextWorkers = nextWorkers.map((w) => ({
+            ...w,
+            available: !busyIds.has(w.id),
+            activeJobTitle: busyIds.has(w.id) ? 'another job' : undefined,
+          }));
+        }
         setClients(clientsRes.data);
-        setWorkers(workersRes.data);
+        setWorkers(nextWorkers);
         setMachines(machinesRes.data);
 
         if (isEdit && id) {
@@ -102,7 +123,10 @@ export default function JobOrderFormPage() {
             })) || [{ name: '', machinesNeeded: [] }],
           });
           if (job.operations?.length) {
-            fetchSuggestions(job.operations.map((op) => op.name));
+            fetchSuggestions(
+              job.operations.map((op) => op.name),
+              nextWorkers
+            );
           }
         }
       } catch (err) {
@@ -114,17 +138,30 @@ export default function JobOrderFormPage() {
     load();
   }, [id, isEdit, form]);
 
-  const fetchSuggestions = async (operationNames: string[]) => {
+  const isWorkerAvailable = (workerId: string, list: User[] = workers) => {
+    const w = list.find((x) => x.id === workerId);
+    return w ? w.available !== false : false;
+  };
+
+  const fetchSuggestions = async (operationNames: string[], workerList?: User[]) => {
     const names = operationNames.filter(Boolean);
     if (!names.length) {
       setSuggestions([]);
       return;
     }
+    const pool = workerList || workers;
     try {
-      const { data } = await workersApi.suggest(names);
-      setSuggestions(data.suggestions);
-      if (!form.getFieldValue('assignedWorkerId') && data.suggestions.length) {
-        form.setFieldValue('assignedWorkerId', data.suggestions[0].workerId);
+      const { data } = await workersApi.suggest(names, id);
+      const availableIds = new Set(
+        pool.filter((w) => w.available !== false).map((w) => w.id)
+      );
+      const filtered = data.suggestions.filter((s) => availableIds.has(s.workerId));
+      setSuggestions(filtered);
+      const current = form.getFieldValue('assignedWorkerId');
+      if (!current && filtered.length) {
+        form.setFieldValue('assignedWorkerId', filtered[0].workerId);
+      } else if (current && !availableIds.has(current) && !isEdit) {
+        form.setFieldValue('assignedWorkerId', undefined);
       }
     } catch {
       setSuggestions([]);
@@ -237,6 +274,8 @@ export default function JobOrderFormPage() {
       <Form
         form={form}
         layout="vertical"
+        size="large"
+        className="jo-form"
         onFinish={onFinish}
         initialValues={{
           priority: 'MODERATE',
@@ -367,8 +406,17 @@ export default function JobOrderFormPage() {
                         <Form.Item {...rest} name={[name, 'quantity']} style={{ width: 90, marginBottom: 0 }}>
                           <InputNumber style={{ width: '100%' }} min={0} placeholder="Qty" />
                         </Form.Item>
-                        <Form.Item {...rest} name={[name, 'unit']} style={{ width: 80, marginBottom: 0 }}>
-                          <Input placeholder="Unit" />
+                        <Form.Item {...rest} name={[name, 'unit']} style={{ width: 100, marginBottom: 0 }}>
+                          <Select
+                            allowClear
+                            placeholder="Unit"
+                            options={[
+                              { value: 'pcs', label: 'pcs' },
+                              { value: 'lot', label: 'lot' },
+                              { value: 'set', label: 'set' },
+                              { value: 'kg', label: 'kg' },
+                            ]}
+                          />
                         </Form.Item>
                         <Button
                           type="text"
@@ -508,17 +556,68 @@ export default function JobOrderFormPage() {
                   padding: 18,
                 }}
               >
-                {sectionTitle('Assignment')}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    marginBottom: 12,
+                    paddingBottom: 8,
+                    borderBottom: '1px solid #e2e8f0',
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      letterSpacing: 0.8,
+                      textTransform: 'uppercase',
+                      color: '#64748b',
+                    }}
+                  >
+                    Assignment
+                  </span>
+                  <a
+                    href="#suggest-worker"
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: '#2563eb',
+                      textDecoration: 'none',
+                      whiteSpace: 'nowrap',
+                    }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      const ops = form.getFieldValue('operations') || [];
+                      fetchSuggestions(ops.map((o: { name?: string }) => o.name || ''));
+                    }}
+                  >
+                    Suggest worker
+                  </a>
+                </div>
 
                 <Form.Item
                   name="assignedWorkerId"
-                  label="Assign Worker"
-                  rules={[{ required: true }]}
+                  rules={[{ required: true, message: 'Select a worker' }]}
                   style={{ marginBottom: suggestions.length ? 12 : 0 }}
                 >
                   <Select
                     placeholder="Select worker"
-                    options={workers.map((w) => ({ value: w.id, label: w.fullName }))}
+                    options={workers.map((w) => {
+                      const free = w.available !== false;
+                      const title =
+                        !free && w.activeJobTitle && w.activeJobTitle !== 'another job'
+                          ? w.activeJobTitle
+                          : undefined;
+                      return {
+                        value: w.id,
+                        disabled: !free,
+                        label: free
+                          ? w.fullName
+                          : `${w.fullName} (unavailable${title ? ` · ${title}` : ''})`,
+                      };
+                    })}
                   />
                 </Form.Item>
 
@@ -528,18 +627,29 @@ export default function JobOrderFormPage() {
                       Suggested based on operation skills — tap to assign:
                     </Text>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {suggestions.slice(0, 3).map((s) => (
-                        <Tag
-                          key={s.workerId}
-                          icon={s.score > 0 ? <StarFilled /> : undefined}
-                          color={s.score > 0 ? 'gold' : 'default'}
-                          style={{ cursor: 'pointer', marginInlineEnd: 0, padding: '3px 10px' }}
-                          onClick={() => form.setFieldValue('assignedWorkerId', s.workerId)}
-                        >
-                          {s.fullName}
-                          {s.matchedSkills.length > 0 && ` · ${s.matchedSkills.join(', ')}`}
-                        </Tag>
-                      ))}
+                      {suggestions.slice(0, 3).map((s) => {
+                        const free = isWorkerAvailable(s.workerId);
+                        return (
+                          <Tag
+                            key={s.workerId}
+                            icon={s.score > 0 ? <StarFilled /> : undefined}
+                            color={s.score > 0 ? 'gold' : 'default'}
+                            style={{
+                              cursor: free ? 'pointer' : 'not-allowed',
+                              marginInlineEnd: 0,
+                              padding: '3px 10px',
+                              opacity: free ? 1 : 0.5,
+                            }}
+                            onClick={() => {
+                              if (!free) return;
+                              form.setFieldValue('assignedWorkerId', s.workerId);
+                            }}
+                          >
+                            {s.fullName}
+                            {s.matchedSkills.length > 0 && ` · ${s.matchedSkills.join(', ')}`}
+                          </Tag>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

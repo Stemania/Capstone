@@ -1,4 +1,4 @@
-import { ConfigProvider, theme as antdTheme } from 'antd';
+import { ConfigProvider, Dropdown, theme as antdTheme } from 'antd';
 import {
   LogoutOutlined,
   UnorderedListOutlined,
@@ -7,6 +7,7 @@ import {
   SunOutlined,
   MoonOutlined,
   LeftOutlined,
+  DownOutlined,
 } from '@ant-design/icons';
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
@@ -104,6 +105,7 @@ export function WorkerPageHeader({
   right?: ReactNode;
 }) {
   const { colors, mode, toggleMode, logout } = useWorkerTheme();
+  const { user } = useAuth();
 
   return (
     <header
@@ -116,7 +118,7 @@ export function WorkerPageHeader({
         zIndex: 10,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         {onBack && (
           <button
             onClick={onBack}
@@ -128,6 +130,7 @@ export function WorkerPageHeader({
               fontSize: 18,
               padding: '4px 4px 0 0',
               cursor: 'pointer',
+              flexShrink: 0,
             }}
           >
             <LeftOutlined />
@@ -152,26 +155,61 @@ export function WorkerPageHeader({
             borderRadius: 10,
             cursor: 'pointer',
             fontSize: 16,
+            flexShrink: 0,
           }}
         >
           {mode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
         </button>
-        <button
-          onClick={logout}
-          aria-label="Logout"
-          style={{
-            background: 'rgba(255,255,255,0.08)',
-            border: 'none',
-            color: colors.headerText,
-            width: 36,
-            height: 36,
-            borderRadius: 10,
-            cursor: 'pointer',
-            fontSize: 16,
-          }}
-        >
-          <LogoutOutlined />
-        </button>
+        {user?.fullName && (
+          <Dropdown
+            trigger={['click']}
+            placement="bottomRight"
+            menu={{
+              items: [
+                {
+                  key: 'logout',
+                  icon: <LogoutOutlined />,
+                  label: 'Log out',
+                  danger: true,
+                  onClick: logout,
+                },
+              ],
+            }}
+          >
+            <button
+              type="button"
+              style={{
+                maxWidth: 168,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '7px 8px 7px 12px',
+                flexShrink: 0,
+                background: 'rgba(255,255,255,0.1)',
+                border: 'none',
+                borderRadius: 999,
+                color: colors.headerText,
+                cursor: 'pointer',
+              }}
+            >
+              <div style={{ minWidth: 0, textAlign: 'right' }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {user.fullName}
+                </div>
+                <div style={{ fontSize: 11, opacity: 0.7 }}>Worker</div>
+              </div>
+              <DownOutlined style={{ fontSize: 11, opacity: 0.75, flexShrink: 0 }} />
+            </button>
+          </Dropdown>
+        )}
       </div>
     </header>
   );
@@ -200,9 +238,9 @@ export default function WorkerLayout() {
   };
 
   const tabs = [
-    { key: '/my-assignments', label: 'Jobs', icon: <UnorderedListOutlined style={{ fontSize: 22 }} /> },
-    { key: '/scan', label: 'Scan', icon: <QrcodeOutlined style={{ fontSize: 26 }} />, center: true },
-    { key: '/my-tools', label: 'Tools', icon: <ToolOutlined style={{ fontSize: 22 }} /> },
+    { key: '/my-assignments', label: 'Jobs', icon: <UnorderedListOutlined style={{ fontSize: 26 }} /> },
+    { key: '/scan', label: 'Scan Tool', icon: <QrcodeOutlined style={{ fontSize: 28 }} />, center: true },
+    { key: '/my-tools', label: 'Tools', icon: <ToolOutlined style={{ fontSize: 26 }} /> },
   ];
 
   return (
@@ -215,7 +253,8 @@ export default function WorkerLayout() {
             colorBgContainer: colors.card,
             borderRadius: 12,
             fontFamily:
-              "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+              "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif",
+            fontWeightStrong: 700,
           },
         }}
       >
@@ -228,7 +267,7 @@ export default function WorkerLayout() {
             flexDirection: 'column',
           }}
         >
-          <main style={{ flex: 1, paddingBottom: 88, overflowY: 'auto' }}>
+          <main style={{ flex: 1, paddingBottom: 100, overflowY: 'auto' }}>
             <Outlet />
           </main>
 
@@ -240,39 +279,63 @@ export default function WorkerLayout() {
               right: 0,
               display: 'flex',
               justifyContent: 'space-around',
-              alignItems: 'center',
+              alignItems: 'flex-end',
               background: colors.navBg,
               borderTop: `1px solid ${colors.cardBorder}`,
-              padding: '8px 0',
-              paddingBottom: 'calc(8px + env(safe-area-inset-bottom))',
+              padding: '8px 0 10px',
+              paddingBottom: 'calc(10px + env(safe-area-inset-bottom))',
               zIndex: 20,
               boxShadow: mode === 'light' ? '0 -2px 10px rgba(15,23,42,0.04)' : 'none',
+              minHeight: 72,
             }}
           >
             {tabs.map((tab) => {
               const active = location.pathname.startsWith(tab.key);
               if (tab.center) {
                 return (
-                  <button
+                  <div
                     key={tab.key}
-                    onClick={() => navigate(tab.key)}
-                    aria-label={tab.label}
                     style={{
-                      width: 58,
-                      height: 58,
-                      borderRadius: '50%',
-                      marginTop: -26,
-                      border: `3px solid ${colors.navBg}`,
-                      background: colors.accent,
-                      color: '#fff',
                       display: 'flex',
+                      flexDirection: 'column',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
+                      justifyContent: 'flex-end',
+                      width: 88,
+                      position: 'relative',
                     }}
                   >
-                    {tab.icon}
-                  </button>
+                    <button
+                      onClick={() => navigate(tab.key)}
+                      aria-label={tab.label}
+                      style={{
+                        width: 58,
+                        height: 58,
+                        borderRadius: '50%',
+                        position: 'absolute',
+                        top: -28,
+                        border: `3px solid ${colors.navBg}`,
+                        background: colors.accent,
+                        color: '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {tab.icon}
+                    </button>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: active ? 700 : 500,
+                        color: active ? colors.accent : colors.textSecondary,
+                        whiteSpace: 'nowrap',
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      {tab.label}
+                    </span>
+                  </div>
                 );
               }
               return (
@@ -286,15 +349,17 @@ export default function WorkerLayout() {
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
+                    justifyContent: 'flex-end',
                     gap: 2,
                     fontSize: 12,
                     fontWeight: active ? 700 : 500,
                     cursor: 'pointer',
-                    padding: '4px 20px',
+                    padding: '4px 20px 0',
+                    minWidth: 88,
                   }}
                 >
                   {tab.icon}
-                  <span>{tab.label}</span>
+                  <span style={{ lineHeight: 1.2 }}>{tab.label}</span>
                 </button>
               );
             })}

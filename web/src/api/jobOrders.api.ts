@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { Client, JobOrder, MachineInfo, WorkerSuggestion } from '../types';
+import type { Client, JobOrder, MachineInfo, User, WorkerSuggestion } from '../types';
 
 export const clientsApi = {
   list: (search?: string) =>
@@ -22,7 +22,13 @@ export const jobOrdersApi = {
 };
 
 export const workersApi = {
-  list: () => apiClient.get('/workers'),
-  suggest: (operations: string[]) =>
-    apiClient.post<{ suggestions: WorkerSuggestion[] }>('/workers/suggest', { operations }),
+  list: (excludeJobId?: string) =>
+    apiClient.get<User[]>('/workers', {
+      params: excludeJobId ? { excludeJobId } : undefined,
+    }),
+  suggest: (operations: string[], excludeJobId?: string) =>
+    apiClient.post<{ suggestions: WorkerSuggestion[] }>('/workers/suggest', {
+      operations,
+      ...(excludeJobId ? { excludeJobId } : {}),
+    }),
 };

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Input, Modal, message } from 'antd';
 import {
   CheckCircleFilled,
   CameraOutlined,
   ArrowUpOutlined,
+  ArrowDownOutlined,
   QrcodeOutlined,
   SunOutlined,
   MoonOutlined,
@@ -12,10 +13,12 @@ import {
 import { Html5Qrcode } from 'html5-qrcode';
 import { toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
+import { useAuth } from '../../hooks/useAuth';
 import { useWorkerTheme } from '../../layouts/WorkerLayout';
 import type { ToolEvent } from '../../types';
 
 type CameraState = 'starting' | 'scanning' | 'denied';
+type ScanIntent = 'BORROW' | 'RETURN';
 
 const corner = (color: string, pos: React.CSSProperties): React.CSSProperties => ({
   position: 'absolute',
@@ -29,27 +32,134 @@ const corner = (color: string, pos: React.CSSProperties): React.CSSProperties =>
 
 export default function ScanToolPage() {
   const { colors, mode, toggleMode, logout } = useWorkerTheme();
+  const { user } = useAuth();
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const [cameraState, setCameraState] = useState<CameraState>('starting');
   const [detectedCode, setDetectedCode] = useState('');
+  const [detectedName, setDetectedName] = useState<string | null>(null);
+  const [detectedIntent, setDetectedIntent] = useState<ScanIntent | null>(null);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const [lookingUp, setLookingUp] = useState(false);
   const [result, setResult] = useState<ToolEvent | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualCode, setManualCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const lookupSeq = useRef(0);
+  const detectedCodeRef = useRef('');
 
-  const borrow = async (code: string) => {
+  const clearDetected = useCallback(() => {
+    detectedCodeRef.current = '';
+    setDetectedCode('');
+    setDetectedName(null);
+    setDetectedIntent(null);
+    setLookupError(null);
+    setLookingUp(false);
+  }, []);
+
+  const lookupTool = useCallback(
+    async (code: string) => {
+      const seq = ++lookupSeq.current;
+      setLookingUp(true);
+      setLookupError(null);
+      setDetectedName(null);
+      setDetectedIntent(null);
+      try {
+        const { data: tools } = await toolsApi.list();
+        if (seq !== lookupSeq.current || detectedCodeRef.current !== code) return;
+
+        const match = tools.find((t) => t.code.toUpperCase() === code.toUpperCase());
+        if (!match) {
+          setLookupError('Tool not found');
+          setLookingUp(false);
+          return;
+        }
+
+        setDetectedName(match.name);
+        if (!match.custody) {
+          setDetectedIntent('BORROW');
+          setLookupError(null);
+        } else if (match.custody.holderId === user?.id) {
+          setDetectedIntent('RETURN');
+          setLookupError(null);
+        } else {
+          setDetectedIntent(null);
+          setLookupError(
+            `Already borrowed by ${match.custody.holderName || 'another worker'}`
+          );
+        }
+      } catch (err) {
+        if (seq !== lookupSeq.current) return;
+        setLookupError(getErrorMessage(err));
+        setDetectedIntent(null);
+      } finally {
+        if (seq === lookupSeq.current) setLookingUp(false);
+      }
+    },
+    [user?.id]
+  );
+
+  const onCodeDetected = useCallback(
+    (raw: string) => {
+      const code = raw.trim();
+      if (!code || code === detectedCodeRef.current) return;
+      detectedCodeRef.current = code;
+      setDetectedCode(code);
+      void lookupTool(code);
+    },
+    [lookupTool]
+  );
+
+  const submit = async (code: string, intent: ScanIntent) => {
     if (submitting) return;
     setSubmitting(true);
     try {
-      const { data } = await toolsApi.scan(code.trim(), { intent: 'BORROW' });
+      const { data } = await toolsApi.scan(code.trim(), { intent });
       setResult(data);
       setManualOpen(false);
       setManualCode('');
-      setDetectedCode('');
+      clearDetected();
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleManual = async () => {
+    const code = manualCode.trim();
+    if (!code || submitting) return;
+    setManualOpen(false);
+    setManualCode('');
+    detectedCodeRef.current = code;
+    setDetectedCode(code);
+    setLookingUp(true);
+    setLookupError(null);
+    setDetectedName(null);
+    setDetectedIntent(null);
+    try {
+      const { data: tools } = await toolsApi.list();
+      const match = tools.find((t) => t.code.toUpperCase() === code.toUpperCase());
+      if (!match) {
+        setLookupError('Tool not found');
+        message.error('Tool not found');
+        return;
+      }
+      setDetectedName(match.name);
+      if (!match.custody) {
+        await submit(code, 'BORROW');
+      } else if (match.custody.holderId === user?.id) {
+        await submit(code, 'RETURN');
+      } else {
+        setDetectedIntent(null);
+        const msg = `Already borrowed by ${match.custody.holderName || 'another worker'}`;
+        setLookupError(msg);
+        message.error(msg);
+      }
+    } catch (err) {
+      message.error(getErrorMessage(err));
+      setLookupError(getErrorMessage(err));
+    } finally {
+      setLookingUp(false);
     }
   };
 
@@ -62,7 +172,7 @@ export default function ScanToolPage() {
       .start(
         { facingMode: 'environment' },
         { fps: 10, qrbox: { width: 240, height: 240 } },
-        (decodedText) => setDetectedCode(decodedText.trim()),
+        (decodedText) => onCodeDetected(decodedText),
         () => {}
       )
       .then(() => {
@@ -80,7 +190,10 @@ export default function ScanToolPage() {
         }
       });
     };
-  }, []);
+  }, [onCodeDetected]);
+
+  const isReturn = detectedIntent === 'RETURN';
+  const canSubmit = Boolean(detectedIntent) && !submitting && !lookingUp;
 
   return (
     <div
@@ -145,7 +258,7 @@ export default function ScanToolPage() {
         style={{
           position: 'relative',
           width: '100%',
-          height: 'calc(100dvh - 88px - 190px)',
+          height: 'calc(100dvh - 88px - 220px)',
           minHeight: 280,
           overflow: 'hidden',
         }}
@@ -222,7 +335,7 @@ export default function ScanToolPage() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 8,
-                marginBottom: 12,
+                marginBottom: 4,
               }}
             >
               <QrcodeOutlined style={{ fontSize: 18, color: colors.green }} />
@@ -230,22 +343,54 @@ export default function ScanToolPage() {
                 {detectedCode}
               </span>
             </div>
-            <Button
-              type="primary"
-              block
-              size="large"
-              loading={submitting}
-              icon={<ArrowUpOutlined />}
-              onClick={() => borrow(detectedCode)}
-              style={{
-                height: 50,
-                fontWeight: 800,
-                background: colors.green,
-                marginBottom: 10,
-              }}
-            >
-              Borrow Tool
-            </Button>
+            {lookingUp ? (
+              <div style={{ textAlign: 'center', fontSize: 13, color: colors.textSecondary, marginBottom: 12 }}>
+                Looking up tool…
+              </div>
+            ) : detectedName ? (
+              <div
+                style={{
+                  textAlign: 'center',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: colors.textSecondary,
+                  marginBottom: lookupError ? 6 : 12,
+                }}
+              >
+                {detectedName}
+              </div>
+            ) : null}
+            {lookupError && (
+              <div
+                style={{
+                  textAlign: 'center',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: '#dc2626',
+                  marginBottom: 12,
+                }}
+              >
+                {lookupError}
+              </div>
+            )}
+            {canSubmit && (
+              <Button
+                type="primary"
+                block
+                size="large"
+                loading={submitting}
+                icon={isReturn ? <ArrowDownOutlined /> : <ArrowUpOutlined />}
+                onClick={() => detectedIntent && submit(detectedCode, detectedIntent)}
+                style={{
+                  height: 50,
+                  fontWeight: 800,
+                  background: isReturn ? '#2563eb' : colors.green,
+                  marginBottom: 10,
+                }}
+              >
+                {isReturn ? 'Return Tool' : 'Borrow Tool'}
+              </Button>
+            )}
           </>
         ) : (
           <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, textAlign: 'center' }}>
@@ -270,7 +415,7 @@ export default function ScanToolPage() {
           placeholder="e.g. TOOL-MILL-001"
           value={manualCode}
           onChange={(e) => setManualCode(e.target.value)}
-          onPressEnter={() => manualCode.trim() && borrow(manualCode)}
+          onPressEnter={() => void handleManual()}
           autoFocus
           style={{ marginBottom: 16 }}
         />
@@ -278,11 +423,11 @@ export default function ScanToolPage() {
           type="primary"
           block
           size="large"
-          loading={submitting}
+          loading={lookingUp || submitting}
           disabled={!manualCode.trim()}
-          onClick={() => borrow(manualCode)}
+          onClick={() => void handleManual()}
         >
-          Borrow
+          Continue
         </Button>
       </Modal>
 
@@ -296,7 +441,7 @@ export default function ScanToolPage() {
             }}
           />
           <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: 2, marginBottom: 4 }}>
-            BORROWED
+            {result?.type === 'RETURN' ? 'RETURNED' : 'BORROWED'}
           </div>
           <div style={{ fontSize: 16, marginBottom: 4 }}>{result?.toolName}</div>
           <div style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 24 }}>

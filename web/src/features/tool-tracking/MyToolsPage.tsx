@@ -74,8 +74,8 @@ export default function MyToolsPage() {
   return (
     <div>
       <WorkerPageHeader
-        title="My Tools"
-        subtitle="Tools currently in your possession"
+        title="Tool Logs"
+        subtitle="Borrowed tools and shop inventory"
       />
 
       <div style={{ padding: 16 }}>

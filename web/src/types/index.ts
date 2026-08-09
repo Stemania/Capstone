@@ -16,6 +16,10 @@ export interface User {
   active: boolean;
   createdAt?: string;
   workerProfile?: WorkerProfile;
+  /** False when assigned to an ASSIGNED / IN_PROGRESS job. */
+  available?: boolean;
+  activeJobId?: string;
+  activeJobTitle?: string;
 }
 
 export interface Client {
