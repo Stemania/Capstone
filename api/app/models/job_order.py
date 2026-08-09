@@ -29,6 +29,27 @@ class JobPriority(enum.Enum):
     LOW = "LOW"
 
 
+class JobType(enum.Enum):
+    FABRICATION = "FABRICATION"
+    MODIFICATION = "MODIFICATION"
+    REPAIR = "REPAIR"
+
+
+class MaterialSource(enum.Enum):
+    SHOP_PROCURED = "SHOP_PROCURED"
+    CLIENT_SUPPLIED = "CLIENT_SUPPLIED"
+
+
+class PartCondition(enum.Enum):
+    RAW_MATERIAL = "RAW_MATERIAL"
+    CLIENT_SUPPLIED_ITEM = "CLIENT_SUPPLIED_ITEM"
+    BLANK = "BLANK"
+    WORK_IN_PROCESS = "WORK_IN_PROCESS"
+    MACHINED = "MACHINED"
+    HEAT_TREATED = "HEAT_TREATED"
+    FINISHED = "FINISHED"
+
+
 class JobOrder(db.Model):
     __tablename__ = "job_orders"
 
@@ -38,21 +59,35 @@ class JobOrder(db.Model):
     )
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
+    # Client PO "date required" — reused; do not add a separate date_required column.
     due_date = db.Column(db.Date, nullable=False, index=True)
+    client_po_number = db.Column(db.String(100), nullable=True)
+    po_date = db.Column(db.Date, nullable=True)
     status = db.Column(
         db.Enum(JobOrderStatus), nullable=False, default=JobOrderStatus.UNASSIGNED, index=True
     )
     priority = db.Column(
         db.Enum(JobPriority), nullable=False, default=JobPriority.MODERATE, index=True
     )
+    job_type = db.Column(
+        db.Enum(JobType), nullable=False, default=JobType.FABRICATION, index=True
+    )
+    material_source = db.Column(
+        db.Enum(MaterialSource),
+        nullable=False,
+        default=MaterialSource.SHOP_PROCURED,
+    )
+    part_condition = db.Column(
+        db.Enum(PartCondition),
+        nullable=False,
+        default=PartCondition.RAW_MATERIAL,
+        index=True,
+    )
     quantity = db.Column(db.Numeric(12, 2), nullable=True)
     unit_of_measure = db.Column(db.String(32), nullable=True)
     amount = db.Column(db.Numeric(14, 2), nullable=True)
     # [{ "name": "Mild steel plate", "quantity": 2, "unit": "pcs" }, ...]
     raw_materials = db.Column(JSONB, nullable=False, default=list)
-    assigned_worker_id = db.Column(
-        db.String(36), db.ForeignKey("users.id"), nullable=True, index=True
-    )
     created_by_id = db.Column(
         db.String(36), db.ForeignKey("users.id"), nullable=False
     )
@@ -62,24 +97,26 @@ class JobOrder(db.Model):
     )
 
     client = db.relationship("Client", back_populates="job_orders")
-    assigned_worker = db.relationship(
-        "User", back_populates="assigned_job_orders", foreign_keys=[assigned_worker_id]
-    )
     created_by = db.relationship(
         "User", back_populates="created_job_orders", foreign_keys=[created_by_id]
     )
     operations = db.relationship(
-        "Operation",
+        "JobOperation",
         back_populates="job_order",
         cascade="all, delete-orphan",
-        order_by="Operation.seq",
+        order_by="JobOperation.sequence_no",
     )
     tool_events = db.relationship("ToolEvent", back_populates="job_order")
 
     def to_dict(self, include_operations=False):
+        from app.models.operation import OperationStatus
+
         ops = list(self.operations or [])
-        completed = sum(1 for op in ops if op.status.value == "COMPLETED")
-        next_op = next((op for op in ops if op.status.value != "COMPLETED"), None)
+        completed = sum(1 for op in ops if op.status == OperationStatus.COMPLETED)
+        next_op = next(
+            (op for op in ops if op.status != OperationStatus.COMPLETED),
+            None,
+        )
         year = self.created_at.year if self.created_at else datetime.now(timezone.utc).year
         short = (self.id or "")[:4].upper()
 
@@ -96,21 +133,36 @@ class JobOrder(db.Model):
             "title": self.title,
             "description": self.description,
             "dueDate": self.due_date.isoformat() if self.due_date else None,
+            "clientPoNumber": self.client_po_number,
+            "poDate": self.po_date.isoformat() if self.po_date else None,
             "status": self.status.value,
             "priority": self.priority.value if self.priority else JobPriority.MODERATE.value,
+            "jobType": self.job_type.value if self.job_type else JobType.FABRICATION.value,
+            "materialSource": (
+                self.material_source.value
+                if self.material_source
+                else MaterialSource.SHOP_PROCURED.value
+            ),
+            "partCondition": (
+                self.part_condition.value
+                if self.part_condition
+                else PartCondition.RAW_MATERIAL.value
+            ),
             "quantity": _num(self.quantity),
             "unitOfMeasure": self.unit_of_measure,
             "amount": _num(self.amount),
             "rawMaterials": self.raw_materials or [],
-            "assignedWorkerId": self.assigned_worker_id,
-            "assignedWorkerName": (
-                self.assigned_worker.full_name if self.assigned_worker else None
-            ),
             "createdById": self.created_by_id,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
             "opsCompleted": completed,
             "opsTotal": len(ops),
-            "nextOperation": next_op.name if next_op else None,
+            "nextOperation": next_op.operation_name if next_op else None,
+            "nextOperationWorkerId": next_op.assigned_worker_id if next_op else None,
+            "nextOperationWorkerName": (
+                next_op.assigned_worker.full_name
+                if next_op and next_op.assigned_worker
+                else None
+            ),
         }
         if include_operations:
             data["operations"] = [op.to_dict() for op in ops]

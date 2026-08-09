@@ -39,10 +39,10 @@ class User(db.Model):
     created_job_orders = db.relationship(
         "JobOrder", back_populates="created_by", foreign_keys="JobOrder.created_by_id"
     )
-    assigned_job_orders = db.relationship(
-        "JobOrder",
+    assigned_operations = db.relationship(
+        "JobOperation",
         back_populates="assigned_worker",
-        foreign_keys="JobOrder.assigned_worker_id",
+        foreign_keys="JobOperation.assigned_worker_id",
     )
     tool_events = db.relationship("ToolEvent", back_populates="worker")
 

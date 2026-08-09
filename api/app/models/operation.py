@@ -1,9 +1,13 @@
 import enum
 import uuid
-
-from sqlalchemy.dialects.postgresql import JSONB
+from datetime import datetime, timezone
+from decimal import Decimal
 
 from app.extensions import db
+
+
+def _utcnow():
+    return datetime.now(timezone.utc)
 
 
 def _uuid():
@@ -12,14 +16,18 @@ def _uuid():
 
 class OperationStatus(enum.Enum):
     PENDING = "PENDING"
+    SCHEDULED = "SCHEDULED"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
+    REWORK = "REWORK"
 
 
-class Operation(db.Model):
+class JobOperation(db.Model):
+    """Shop-floor operation step within a job order (table: operations)."""
+
     __tablename__ = "operations"
     __table_args__ = (
-        db.UniqueConstraint("job_order_id", "seq", name="uq_operation_job_seq"),
+        db.UniqueConstraint("job_order_id", "sequence_no", name="uq_operation_job_seq"),
         db.Index("ix_operation_job_status", "job_order_id", "status"),
     )
 
@@ -30,31 +38,108 @@ class Operation(db.Model):
         nullable=False,
         index=True,
     )
-    seq = db.Column(db.Integer, nullable=False)
-    name = db.Column(db.String(255), nullable=False)
-    # e.g. ["LATHE", "MILLING"]
-    machines_needed = db.Column(JSONB, nullable=False, default=list)
+    sequence_no = db.Column(db.Integer, nullable=False)
+    operation_name = db.Column(db.String(255), nullable=False)
+    machine_type_id = db.Column(
+        db.String(36),
+        db.ForeignKey("machine_types.id"),
+        nullable=True,
+        index=True,
+    )
+    machine_unit_id = db.Column(
+        db.String(36),
+        db.ForeignKey("machine_units.id"),
+        nullable=True,
+        index=True,
+    )
+    assigned_worker_id = db.Column(
+        db.String(36),
+        db.ForeignKey("users.id"),
+        nullable=True,
+        index=True,
+    )
+    estimated_hours = db.Column(db.Numeric(8, 2), nullable=True)
+    scheduled_start = db.Column(db.DateTime(timezone=True), nullable=True)
+    scheduled_end = db.Column(db.DateTime(timezone=True), nullable=True)
+    actual_start = db.Column(db.DateTime(timezone=True), nullable=True)
+    actual_end = db.Column(db.DateTime(timezone=True), nullable=True)
     status = db.Column(
         db.Enum(OperationStatus), nullable=False, default=OperationStatus.PENDING
     )
-    started_at = db.Column(db.DateTime(timezone=True), nullable=True)
-    completed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    rework_of_operation_id = db.Column(
+        db.String(36),
+        db.ForeignKey("operations.id"),
+        nullable=True,
+        index=True,
+    )
+    notes = db.Column(db.Text, nullable=True)
 
     job_order = db.relationship("JobOrder", back_populates="operations")
+    machine_type = db.relationship("MachineType", back_populates="operations")
+    machine_unit = db.relationship("MachineUnit", back_populates="operations")
+    assigned_worker = db.relationship(
+        "User", back_populates="assigned_operations", foreign_keys=[assigned_worker_id]
+    )
+    rework_of = db.relationship(
+        "JobOperation",
+        remote_side=[id],
+        foreign_keys=[rework_of_operation_id],
+        backref="rework_children",
+    )
 
     def to_dict(self):
-        from app.constants.machines import MACHINE_CATALOG
+        def _num(v):
+            if v is None:
+                return None
+            return float(v) if isinstance(v, Decimal) else float(v)
 
-        names = {m["code"]: m["name"] for m in MACHINE_CATALOG}
-        codes = self.machines_needed or []
+        job = self.job_order
         return {
             "id": self.id,
             "jobOrderId": self.job_order_id,
-            "seq": self.seq,
-            "name": self.name,
-            "machinesNeeded": codes,
-            "machineNames": [names.get(c, c) for c in codes],
+            "jobTitle": job.title if job else None,
+            "jobNumber": (
+                f"JO-{(job.created_at.year if job and job.created_at else datetime.now(timezone.utc).year)}"
+                f"-{(job.id or '')[:4].upper()}"
+                if job
+                else None
+            ),
+            "clientName": job.client.name if job and job.client else None,
+            "dueDate": job.due_date.isoformat() if job and job.due_date else None,
+            "jobPriority": job.priority.value if job and job.priority else None,
+            "sequenceNo": self.sequence_no,
+            "operationName": self.operation_name,
+            "machineTypeId": self.machine_type_id,
+            "machineTypeCode": self.machine_type.code if self.machine_type else None,
+            "machineTypeName": self.machine_type.name if self.machine_type else None,
+            "machineUnitId": self.machine_unit_id,
+            "machineUnitLabel": self.machine_unit.label if self.machine_unit else None,
+            "assignedWorkerId": self.assigned_worker_id,
+            "assignedWorkerName": (
+                self.assigned_worker.full_name if self.assigned_worker else None
+            ),
+            "estimatedHours": _num(self.estimated_hours),
+            "scheduledStart": self.scheduled_start.isoformat() if self.scheduled_start else None,
+            "scheduledEnd": self.scheduled_end.isoformat() if self.scheduled_end else None,
+            "actualStart": self.actual_start.isoformat() if self.actual_start else None,
+            "actualEnd": self.actual_end.isoformat() if self.actual_end else None,
+            # Back-compat aliases used by older worker UI
+            "startedAt": self.actual_start.isoformat() if self.actual_start else None,
+            "completedAt": self.actual_end.isoformat() if self.actual_end else None,
             "status": self.status.value,
-            "startedAt": self.started_at.isoformat() if self.started_at else None,
-            "completedAt": self.completed_at.isoformat() if self.completed_at else None,
+            "reworkOfOperationId": self.rework_of_operation_id,
+            "notes": self.notes,
+            # Legacy-shaped fields for gradual UI migration
+            "seq": self.sequence_no,
+            "name": self.operation_name,
+            "machinesNeeded": (
+                [self.machine_type.code] if self.machine_type else []
+            ),
+            "machineNames": (
+                [self.machine_type.name] if self.machine_type else []
+            ),
         }
+
+
+# Alias for import churn during refactor
+Operation = JobOperation
