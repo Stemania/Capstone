@@ -1,4 +1,3 @@
-import enum
 import uuid
 
 from app.extensions import db
@@ -23,6 +22,8 @@ class MachineType(db.Model):
         order_by="MachineUnit.label",
     )
     operations = db.relationship("JobOperation", back_populates="machine_type")
+    worker_skills = db.relationship("WorkerSkill", back_populates="machine_type")
+    operation_types = db.relationship("OperationType", back_populates="default_machine_type")
 
     def to_dict(self):
         return {

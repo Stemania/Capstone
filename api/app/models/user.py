@@ -36,6 +36,18 @@ class User(db.Model):
     worker_profile = db.relationship(
         "WorkerProfile", back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
+    skills = db.relationship(
+        "WorkerSkill",
+        back_populates="worker",
+        cascade="all, delete-orphan",
+        order_by="WorkerSkill.is_primary.desc()",
+    )
+    schedules = db.relationship(
+        "WorkerSchedule",
+        back_populates="worker",
+        cascade="all, delete-orphan",
+        order_by="WorkerSchedule.day_of_week",
+    )
     created_job_orders = db.relationship(
         "JobOrder", back_populates="created_by", foreign_keys="JobOrder.created_by_id"
     )
@@ -46,7 +58,7 @@ class User(db.Model):
     )
     tool_events = db.relationship("ToolEvent", back_populates="worker")
 
-    def to_dict(self, include_profile=False):
+    def to_dict(self, include_profile=False, include_skills=False, include_schedule=False):
         data = {
             "id": self.id,
             "email": self.email,
@@ -57,4 +69,16 @@ class User(db.Model):
         }
         if include_profile and self.worker_profile:
             data["workerProfile"] = self.worker_profile.to_dict()
+        elif include_profile and self.role == UserRole.PRODUCTION_WORKER:
+            data["workerProfile"] = {
+                "id": None,
+                "userId": self.id,
+                "skills": [s.to_dict() for s in (self.skills or [])],
+                "fullName": self.full_name,
+                "email": self.email,
+            }
+        if include_skills:
+            data["skills"] = [s.to_dict() for s in (self.skills or [])]
+        if include_schedule:
+            data["schedules"] = [s.to_dict() for s in (self.schedules or [])]
         return data

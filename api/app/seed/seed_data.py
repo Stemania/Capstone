@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 
 from app.constants.machines import MACHINE_CATALOG
 from app.extensions import bcrypt, db
@@ -13,6 +13,7 @@ from app.models import (
     MachineUnit,
     MaterialSource,
     OperationStatus,
+    OperationType,
     PartCondition,
     Tool,
     ToolEvent,
@@ -20,7 +21,10 @@ from app.models import (
     User,
     UserRole,
     WorkerProfile,
+    WorkerSchedule,
+    WorkerSkill,
 )
+from app.models.worker_skill import OPERATION_TYPE_SEED, SKILL_TOKEN_TO_MACHINE
 
 
 def _seed_machines():
@@ -43,12 +47,67 @@ def _seed_machines():
     return by_code
 
 
+def _seed_operation_types(machines):
+    if OperationType.query.first():
+        return {ot.code: ot for ot in OperationType.query.all()}
+    by_code = {}
+    for item in OPERATION_TYPE_SEED:
+        mid = machines[item["machine"]].id if item["machine"] and item["machine"] in machines else None
+        ot = OperationType(
+            code=item["code"],
+            name=item["name"],
+            default_machine_type_id=mid,
+            active=True,
+        )
+        db.session.add(ot)
+        by_code[item["code"]] = ot
+    db.session.flush()
+    return by_code
+
+
+def _default_schedule(worker_id):
+    """Mon–Sat 08:00–17:00; Sunday off. day_of_week: 0=Mon … 6=Sun."""
+    rows = []
+    for dow in range(7):
+        working = dow < 6
+        rows.append(
+            WorkerSchedule(
+                worker_id=worker_id,
+                day_of_week=dow,
+                start_time=time(8, 0) if working else None,
+                end_time=time(17, 0) if working else None,
+                is_working=working,
+            )
+        )
+    return rows
+
+
+def _skills_from_tokens(worker_id, tokens, machines):
+    mapped = []
+    for token in tokens:
+        code = SKILL_TOKEN_TO_MACHINE.get(str(token).strip().lower())
+        if code and code in machines and code not in mapped:
+            mapped.append(code)
+    rows = []
+    for i, code in enumerate(mapped):
+        rows.append(
+            WorkerSkill(
+                worker_id=worker_id,
+                machine_type_id=machines[code].id,
+                proficiency=3,
+                is_primary=(i == 0),
+            )
+        )
+    return rows
+
+
 def seed_database():
     if User.query.first():
         print("Database already seeded, skipping.")
         return
 
     machines = _seed_machines()
+    op_types = _seed_operation_types(machines)
 
     admin = User(
         email="admin@bmsc.local",
@@ -65,15 +124,32 @@ def seed_database():
         active=True,
     )
 
+    # Seed: 19 production workers (1–4 real demo names; 5–19 placeholders)
     workers_data = [
         ("worker1@bmsc.local", "Juan Dela Cruz", ["milling", "lathe", "drilling"]),
-        ("worker2@bmsc.local", "Maria Santos", ["welding", "grinding", "finishing"]),
-        ("worker3@bmsc.local", "Pedro Reyes", ["milling", "grinding", "cnc"]),
-        ("worker4@bmsc.local", "Ana Lopez", ["lathe", "welding", "assembly"]),
+        ("worker2@bmsc.local", "Maria Santos", ["grinding", "milling"]),
+        ("worker3@bmsc.local", "Pedro Reyes", ["milling", "grinding"]),
+        ("worker4@bmsc.local", "Ana Lopez", ["lathe", "drilling"]),
+        # --- seed placeholders (flagged) ---
+        ("worker5@bmsc.local", "Seed Worker 05", ["lathe", "milling"]),
+        ("worker6@bmsc.local", "Seed Worker 06", ["milling", "drilling"]),
+        ("worker7@bmsc.local", "Seed Worker 07", ["grinding", "shaper"]),
+        ("worker8@bmsc.local", "Seed Worker 08", ["lathe", "grinding"]),
+        ("worker9@bmsc.local", "Seed Worker 09", ["milling", "shaper"]),
+        ("worker10@bmsc.local", "Seed Worker 10", ["drilling", "lathe"]),
+        ("worker11@bmsc.local", "Seed Worker 11", ["milling"]),
+        ("worker12@bmsc.local", "Seed Worker 12", ["lathe"]),
+        ("worker13@bmsc.local", "Seed Worker 13", ["grinding"]),
+        ("worker14@bmsc.local", "Seed Worker 14", ["shaper", "milling"]),
+        ("worker15@bmsc.local", "Seed Worker 15", ["lathe", "drilling", "milling"]),
+        ("worker16@bmsc.local", "Seed Worker 16", ["milling", "grinding"]),
+        ("worker17@bmsc.local", "Seed Worker 17", ["drilling", "grinding"]),
+        ("worker18@bmsc.local", "Seed Worker 18", ["lathe", "shaper"]),
+        ("worker19@bmsc.local", "Seed Worker 19", ["milling", "lathe", "grinding"]),
     ]
 
     workers = []
-    for email, name, skills in workers_data:
+    for email, name, skill_tokens in workers_data:
         w = User(
             email=email,
             password_hash=bcrypt.generate_password_hash("Worker123!").decode("utf-8"),
@@ -81,13 +157,15 @@ def seed_database():
             role=UserRole.PRODUCTION_WORKER,
             active=True,
         )
-        workers.append((w, skills))
+        workers.append((w, skill_tokens))
 
     db.session.add_all([admin, office] + [w for w, _ in workers])
     db.session.flush()
 
-    for w, skills in workers:
-        db.session.add(WorkerProfile(user_id=w.id, skills=skills))
+    for w, skill_tokens in workers:
+        db.session.add(WorkerProfile(user_id=w.id))
+        db.session.add_all(_skills_from_tokens(w.id, skill_tokens, machines))
+        db.session.add_all(_default_schedule(w.id))
 
     clients = [
         Client(name="ABC Manufacturing", contact="09171234567"),
@@ -179,11 +257,15 @@ def seed_database():
     def mt(code):
         return machines[code].id if code in machines else None
 
+    def ot(code):
+        return op_types[code].id if code in op_types else None
+
     ops = [
         JobOperation(
             job_order_id=job1.id,
             sequence_no=1,
-            operation_name="Milling",
+            operation_name="Teeth Cutting",
+            operation_type_id=ot("TEETH_CUTTING"),
             machine_type_id=mt("MILLING"),
             assigned_worker_id=workers[0][0].id,
             estimated_hours=4,
@@ -192,7 +274,8 @@ def seed_database():
         JobOperation(
             job_order_id=job1.id,
             sequence_no=2,
-            operation_name="Grinding",
+            operation_name="Surface Grinding",
+            operation_type_id=ot("SURFACE_GRINDING"),
             machine_type_id=mt("GRINDING"),
             assigned_worker_id=workers[0][0].id,
             estimated_hours=2,
@@ -202,6 +285,7 @@ def seed_database():
             job_order_id=job2.id,
             sequence_no=1,
             operation_name="Welding",
+            operation_type_id=ot("WELDING"),
             machine_type_id=None,
             assigned_worker_id=workers[1][0].id,
             estimated_hours=6,
@@ -210,7 +294,8 @@ def seed_database():
         JobOperation(
             job_order_id=job2.id,
             sequence_no=2,
-            operation_name="Grinding",
+            operation_name="Surface Grinding",
+            operation_type_id=ot("SURFACE_GRINDING"),
             machine_type_id=mt("GRINDING"),
             assigned_worker_id=workers[1][0].id,
             estimated_hours=3,
@@ -219,7 +304,8 @@ def seed_database():
         JobOperation(
             job_order_id=job2.id,
             sequence_no=3,
-            operation_name="Finishing",
+            operation_name="Drilling",
+            operation_type_id=ot("DRILLING"),
             machine_type_id=mt("DRILLING"),
             assigned_worker_id=workers[1][0].id,
             estimated_hours=2,
@@ -228,7 +314,8 @@ def seed_database():
         JobOperation(
             job_order_id=job3.id,
             sequence_no=1,
-            operation_name="Milling",
+            operation_name="Teeth Cutting",
+            operation_type_id=ot("TEETH_CUTTING"),
             machine_type_id=mt("MILLING"),
             assigned_worker_id=workers[2][0].id,
             estimated_hours=5,
@@ -237,7 +324,8 @@ def seed_database():
         JobOperation(
             job_order_id=job3.id,
             sequence_no=2,
-            operation_name="Lathe work",
+            operation_name="Turning",
+            operation_type_id=ot("TURNING"),
             machine_type_id=mt("LATHE"),
             assigned_worker_id=workers[2][0].id,
             estimated_hours=4,

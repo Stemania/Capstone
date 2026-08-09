@@ -40,6 +40,12 @@ class JobOperation(db.Model):
     )
     sequence_no = db.Column(db.Integer, nullable=False)
     operation_name = db.Column(db.String(255), nullable=False)
+    operation_type_id = db.Column(
+        db.String(36),
+        db.ForeignKey("operation_types.id"),
+        nullable=True,
+        index=True,
+    )
     machine_type_id = db.Column(
         db.String(36),
         db.ForeignKey("machine_types.id"),
@@ -75,6 +81,7 @@ class JobOperation(db.Model):
     notes = db.Column(db.Text, nullable=True)
 
     job_order = db.relationship("JobOrder", back_populates="operations")
+    operation_type = db.relationship("OperationType", back_populates="operations")
     machine_type = db.relationship("MachineType", back_populates="operations")
     machine_unit = db.relationship("MachineUnit", back_populates="operations")
     assigned_worker = db.relationship(
@@ -109,6 +116,8 @@ class JobOperation(db.Model):
             "jobPriority": job.priority.value if job and job.priority else None,
             "sequenceNo": self.sequence_no,
             "operationName": self.operation_name,
+            "operationTypeId": self.operation_type_id,
+            "operationTypeCode": self.operation_type.code if self.operation_type else None,
             "machineTypeId": self.machine_type_id,
             "machineTypeCode": self.machine_type.code if self.machine_type else None,
             "machineTypeName": self.machine_type.name if self.machine_type else None,

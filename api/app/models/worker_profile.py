@@ -1,7 +1,5 @@
 import uuid
 
-from sqlalchemy.dialects.postgresql import JSONB
-
 from app.extensions import db
 
 
@@ -16,15 +14,17 @@ class WorkerProfile(db.Model):
     user_id = db.Column(
         db.String(36), db.ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
     )
-    skills = db.Column(JSONB, nullable=False, default=list)
 
     user = db.relationship("User", back_populates="worker_profile")
 
     def to_dict(self):
+        skills = []
+        if self.user and self.user.skills:
+            skills = [s.to_dict() for s in self.user.skills]
         return {
             "id": self.id,
             "userId": self.user_id,
-            "skills": self.skills or [],
+            "skills": skills,
             "fullName": self.user.full_name if self.user else None,
             "email": self.user.email if self.user else None,
         }
