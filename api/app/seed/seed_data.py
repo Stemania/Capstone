@@ -17,6 +17,7 @@ from app.models import (
     PartCondition,
     ScoringWeight,
     Tool,
+    ToolCategory,
     ToolEvent,
     ToolEventType,
     User,
@@ -25,6 +26,7 @@ from app.models import (
     WorkerSchedule,
     WorkerSkill,
 )
+from decimal import Decimal
 from app.models.scoring_weight import DEFAULT_SCORING_WEIGHTS
 from app.models.worker_skill import OPERATION_TYPE_SEED, SKILL_TOKEN_TO_MACHINE
 
@@ -111,8 +113,78 @@ def _ensure_scoring_weights():
     db.session.flush()
 
 
+def _inventory_catalog():
+    """Client-named item types: one QR per type with stock behind it."""
+    R = ToolCategory.RETURNABLE_TOOL
+    C = ToolCategory.CONSUMABLE
+    return [
+        # Returnable cutting tools
+        ("Drill bit", "INV-DRILL-06", R, "6mm", "pcs", 30, 10),
+        ("Drill bit", "INV-DRILL-08", R, "8mm", "pcs", 28, 10),
+        ("Drill bit", "INV-DRILL-10", R, "10mm", "pcs", 24, 8),
+        ("Drill bit", "INV-DRILL-12", R, "12mm", "pcs", 18, 6),
+        ("End mill", "INV-ENDMILL-10", R, "10mm", "pcs", 16, 5),
+        ("End mill", "INV-ENDMILL-12", R, "12mm", "pcs", 14, 5),
+        ("Tonga tip", "INV-TONGA-STD", R, None, "pcs", 40, 12),
+        ("Center drill", "INV-CENTER-A", R, "A", "pcs", 20, 6),
+        ("Center drill", "INV-CENTER-B", R, "B", "pcs", 16, 5),
+        # Consumables
+        ("Cutting oil", "INV-OIL-CUT", C, None, "litre", 20, 5),
+        ("Lubricant", "INV-LUBE-GEN", C, None, "litre", 12, 4),
+        ("Rugs", "INV-RUG-SHOP", C, None, "pcs", 80, 20),
+        ("Grinding stone", "INV-GRIND-ST", C, None, "pcs", 10, 3),
+        ("Flap disc", "INV-FLAP-115", C, "115mm", "pcs", 36, 12),
+        ("Cutting disc", "INV-CUT-115", C, "115mm", "pcs", 40, 12),
+    ]
+
+
+def _ensure_inventory_catalog():
+    """
+    Replace seeded machine-as-tool rows (duplicates of MachineUnit) with
+    real inventory item types. Safe to re-run: only wipes when legacy codes
+    are present or the catalog is empty.
+    """
+    legacy_codes = {
+        "TOOL-MILL-001",
+        "TOOL-LATH-002",
+        "TOOL-WELD-003",
+        "TOOL-GRND-004",
+        "TOOL-DRL-005",
+        "TOOL-CNC-006",
+        "TOOL-ANGL-007",
+        "TOOL-VISE-008",
+    }
+    has_legacy = Tool.query.filter(Tool.code.in_(legacy_codes)).first() is not None
+    empty = Tool.query.count() == 0
+    if not has_legacy and not empty:
+        return
+
+    ToolEvent.query.delete()
+    Tool.query.delete()
+    db.session.flush()
+
+    tools = []
+    for name, code, category, size, unit, qty, minimum in _inventory_catalog():
+        tools.append(
+            Tool(
+                name=name,
+                code=code,
+                category=category,
+                size_spec=size,
+                unit=unit,
+                quantity_on_hand=Decimal(str(qty)),
+                minimum_stock=Decimal(str(minimum)),
+            )
+        )
+    db.session.add_all(tools)
+    db.session.flush()
+    print(f"Inventory catalog: {len(tools)} item types seeded.")
+    return tools
+
+
 def seed_database():
     _ensure_scoring_weights()
+    inventory_tools = _ensure_inventory_catalog()
     if User.query.first():
         print("Database already seeded, skipping.")
         db.session.commit()
@@ -187,18 +259,7 @@ def seed_database():
     db.session.add_all(clients)
     db.session.flush()
 
-    tools = [
-        Tool(name="Milling Machine A", code="TOOL-MILL-001"),
-        Tool(name="Lathe Machine B", code="TOOL-LATH-002"),
-        Tool(name="Welding Set C", code="TOOL-WELD-003"),
-        Tool(name="Grinder D", code="TOOL-GRND-004"),
-        Tool(name="Drill Press E", code="TOOL-DRL-005"),
-        Tool(name="CNC Router F", code="TOOL-CNC-006"),
-        Tool(name="Angle Grinder G", code="TOOL-ANGL-007"),
-        Tool(name="Bench Vise H", code="TOOL-VISE-008"),
-    ]
-    db.session.add_all(tools)
-    db.session.flush()
+    tools = inventory_tools or _ensure_inventory_catalog()
 
     job1 = JobOrder(
         client_id=clients[0].id,
@@ -347,11 +408,13 @@ def seed_database():
     db.session.add_all(ops)
 
     event = ToolEvent(
-        tool_id=tools[0].id,
+        tool_id=tools[2].id,  # 10mm drill bit
         worker_id=workers[0][0].id,
         type=ToolEventType.BORROW,
+        quantity=Decimal("1"),
         job_order_id=job1.id,
     )
+    tools[2].quantity_on_hand = Decimal(str(tools[2].quantity_on_hand)) - Decimal("1")
     db.session.add(event)
 
     db.session.commit()
