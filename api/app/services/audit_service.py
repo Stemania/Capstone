@@ -5,7 +5,9 @@ from flask_jwt_extended import get_jwt, get_jwt_identity, verify_jwt_in_request
 
 from app.extensions import db
 from app.models.audit_log import AuditLog
+from app.models.client import Client
 from app.models.job_order import JobOrder
+from app.models.notification import NotificationLog
 from app.models.operation import JobOperation
 from app.models.operation_time import MachineDowntime, OperationTimeLog
 from app.models.tool import Tool
@@ -85,7 +87,16 @@ def register_audit_listeners():
         return
     from sqlalchemy import event
 
-    for model in (JobOrder, JobOperation, User, Tool, OperationTimeLog, MachineDowntime):
+    for model in (
+        JobOrder,
+        JobOperation,
+        User,
+        Tool,
+        OperationTimeLog,
+        MachineDowntime,
+        Client,
+        NotificationLog,
+    ):
         event.listen(model, "after_insert", _after_insert)
         event.listen(model, "after_update", _after_update)
         event.listen(model, "after_delete", _after_delete)

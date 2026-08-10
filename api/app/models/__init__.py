@@ -9,6 +9,12 @@ from app.models.job_order import (
     PartCondition,
 )
 from app.models.machine import MachineType, MachineUnit
+from app.models.notification import (
+    NotificationChannel,
+    NotificationLog,
+    NotificationMilestone,
+    NotificationStatus,
+)
 from app.models.operation import JobOperation, Operation, OperationStatus
 from app.models.operation_time import (
     MachineDowntime,
@@ -61,4 +67,8 @@ __all__ = [
     "ToolEvent",
     "ToolEventType",
     "AuditLog",
+    "NotificationLog",
+    "NotificationMilestone",
+    "NotificationChannel",
+    "NotificationStatus",
 ]

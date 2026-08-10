@@ -21,6 +21,7 @@ class JobOrderStatus(enum.Enum):
     ASSIGNED = "ASSIGNED"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
+    DELIVERED = "DELIVERED"
 
 
 class JobPriority(enum.Enum):
@@ -91,6 +92,7 @@ class JobOrder(db.Model):
     created_by_id = db.Column(
         db.String(36), db.ForeignKey("users.id"), nullable=False
     )
+    delivered_at = db.Column(db.DateTime(timezone=True), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
     updated_at = db.Column(
         db.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
@@ -107,6 +109,7 @@ class JobOrder(db.Model):
         order_by="JobOperation.sequence_no",
     )
     tool_events = db.relationship("ToolEvent", back_populates="job_order")
+    notification_logs = db.relationship("NotificationLog", back_populates="job_order")
 
     def to_dict(self, include_operations=False):
         from app.models.operation import OperationStatus
@@ -153,6 +156,7 @@ class JobOrder(db.Model):
             "amount": _num(self.amount),
             "rawMaterials": self.raw_materials or [],
             "createdById": self.created_by_id,
+            "deliveredAt": self.delivered_at.isoformat() if self.delivered_at else None,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
             "opsCompleted": completed,
             "opsTotal": len(ops),
