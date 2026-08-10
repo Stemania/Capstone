@@ -71,6 +71,9 @@ def _register_blueprints(app):
     app.register_blueprint(calendar_bp, url_prefix=f"{prefix}/calendar")
     app.register_blueprint(operation_types_bp, url_prefix=f"{prefix}/operation-types")
     app.register_blueprint(analytics_bp, url_prefix=f"{prefix}/analytics")
+    from app.blueprints.notifications.routes import notifications_bp
+
+    app.register_blueprint(notifications_bp, url_prefix=f"{prefix}/notifications")
 
 
 def _register_cli(app):

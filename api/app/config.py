@@ -30,6 +30,21 @@ class Config:
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173")
 
+    # Notifications — default CONSOLE (no credentials required)
+    NOTIFICATION_EMAIL_PROVIDER = os.getenv("NOTIFICATION_EMAIL_PROVIDER", "console")
+    NOTIFICATION_SMS_PROVIDER = os.getenv("NOTIFICATION_SMS_PROVIDER", "console")
+    SMTP_HOST = os.getenv("SMTP_HOST")
+    SMTP_PORT = os.getenv("SMTP_PORT", "587")
+    SMTP_USER = os.getenv("SMTP_USER")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+    SMTP_FROM = os.getenv("SMTP_FROM")
+    SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true")
+    SEMAPHORE_API_KEY = os.getenv("SEMAPHORE_API_KEY")
+    SEMAPHORE_SENDER = os.getenv("SEMAPHORE_SENDER")
+    TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+    TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+    TWILIO_FROM = os.getenv("TWILIO_FROM")
+
 
 class TestConfig(Config):
     TESTING = True
