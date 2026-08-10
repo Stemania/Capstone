@@ -14,6 +14,10 @@ import WorkerDetailPage from '../features/users/WorkerDetailPage';
 import ToolsPage from '../features/tool-tracking/ToolsPage';
 import ScanToolPage from '../features/tool-tracking/ScanToolPage';
 import ScoringWeightsPage from '../features/settings/ScoringWeightsPage';
+import AnalyticsLayout from '../features/analytics/AnalyticsLayout';
+import AnalyticsOverviewPage from '../features/analytics/AnalyticsOverviewPage';
+import AnalyticsEfficiencyPage from '../features/analytics/AnalyticsEfficiencyPage';
+import AnalyticsDelaysPage from '../features/analytics/AnalyticsDelaysPage';
 
 export default function AppRoutes() {
   return (
@@ -28,6 +32,11 @@ export default function AppRoutes() {
                 <Route path="/job-orders" element={<JobOrderListPage />} />
                 <Route path="/job-orders/new" element={<JobOrderFormPage />} />
                 <Route path="/job-orders/:id/edit" element={<JobOrderFormPage />} />
+                <Route path="/analytics" element={<AnalyticsLayout />}>
+                  <Route index element={<AnalyticsOverviewPage />} />
+                  <Route path="efficiency" element={<AnalyticsEfficiencyPage />} />
+                  <Route path="delays" element={<AnalyticsDelaysPage />} />
+                </Route>
               </Route>
 
               <Route element={<ProtectedRoute roles={['ADMIN']} />}>

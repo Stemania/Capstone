@@ -8,6 +8,7 @@ import {
   ToolOutlined,
   UserOutlined,
   SettingOutlined,
+  BarChartOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
@@ -19,6 +20,10 @@ const NAVY = '#0f1c2e';
 
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/job-orders': { title: 'Job Orders', subtitle: 'Create and manage production job orders' },
+  '/analytics': {
+    title: 'Analytics',
+    subtitle: 'Production efficiency, utilization, and delay diagnostics',
+  },
   '/users': { title: 'Users & Roles', subtitle: 'Manage accounts and worker skills' },
   '/tools': { title: 'Tools', subtitle: 'Tool registry and QR codes' },
   '/settings/scoring-weights': {
@@ -62,6 +67,7 @@ export default function AppLayout() {
   if (isAdmin || isOfficeStaff) {
     menuItems.push(
       { key: '/job-orders', icon: <FileTextOutlined />, label: 'Job Orders' },
+      { key: '/analytics', icon: <BarChartOutlined />, label: 'Analytics' },
     );
   }
 
