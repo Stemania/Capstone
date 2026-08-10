@@ -320,3 +320,132 @@ export const MACHINE_OPTIONS: MachineInfo[] = [
   { code: 'GRINDING', name: 'Grinding', units: 2 },
   { code: 'DRILLING', name: 'Drilling', units: 1 },
 ];
+
+/** Analytics API (Admin / Office) */
+export interface AnalyticsPeriodMeta {
+  period: { from: string; to: string };
+  excludedOperationCount: number;
+}
+
+export interface AnalyticsOverview extends AnalyticsPeriodMeta {
+  jobs: { completed: number; onTime: number; late: number };
+  efficiency: {
+    averageVariancePct: number | null;
+    completedOperationsWithVariance: number;
+  };
+  rework: {
+    count: number;
+    workedHours: number | null;
+    shareOfTotalWorkedHoursPct: number | null;
+  };
+  downtime: { openCount: number };
+  totals: {
+    originalWorkedHours: number | null;
+    reworkWorkedHours: number | null;
+    totalWorkedHours: number | null;
+  };
+}
+
+export interface AnalyticsWorkerRow {
+  workerId: string;
+  workerName: string;
+  operationCount: number;
+  totalEstimatedHours: number | null;
+  totalActualWorkedHours: number | null;
+  averageVariancePct: number | null;
+  onEstimateRatePct: number | null;
+  reworkWorkedHours: number | null;
+}
+
+export interface AnalyticsByWorker extends AnalyticsPeriodMeta {
+  minimumOperationCount: number;
+  workers: AnalyticsWorkerRow[];
+}
+
+export interface AnalyticsOperationTypeRow {
+  operationTypeId: string;
+  operationTypeCode: string;
+  operationTypeName: string;
+  operationCount: number;
+  totalEstimatedHours: number | null;
+  totalActualWorkedHours: number | null;
+  averageVariancePct: number | null;
+  onEstimateRatePct: number | null;
+  reworkWorkedHours: number | null;
+}
+
+export interface AnalyticsByOperationType extends AnalyticsPeriodMeta {
+  minimumOperationCount: number;
+  operationTypes: AnalyticsOperationTypeRow[];
+}
+
+export interface AnalyticsMachineUnitRow {
+  machineUnitId: string;
+  machineUnitLabel: string;
+  machineTypeId: string;
+  machineTypeCode: string | null;
+  operationCount: number;
+  totalEstimatedHours: number | null;
+  totalActualWorkedHours: number | null;
+  averageVariancePct: number | null;
+  onEstimateRatePct: number | null;
+  belowMinimumSample: boolean;
+  reworkWorkedHours: number | null;
+  busySegmentHours: number | null;
+  availableHours: number | null;
+  utilizationPct: number | null;
+}
+
+export interface AnalyticsMachineTypeRow {
+  machineTypeId: string;
+  machineTypeCode: string;
+  machineTypeName: string;
+  activeUnitCount: number;
+  operationCount: number;
+  totalEstimatedHours: number | null;
+  totalActualWorkedHours: number | null;
+  averageVariancePct: number | null;
+  onEstimateRatePct: number | null;
+  belowMinimumSample: boolean;
+  reworkWorkedHours: number | null;
+  busySegmentHours: number | null;
+  availableHours: number | null;
+  utilizationPct: number | null;
+}
+
+export interface AnalyticsByMachine extends AnalyticsPeriodMeta {
+  minimumOperationCount: number;
+  availableHoursPerUnit: number | null;
+  machineTypes: AnalyticsMachineTypeRow[];
+  machineUnits: AnalyticsMachineUnitRow[];
+}
+
+export interface AnalyticsTrendWeek {
+  weekStart: string;
+  operationCount: number;
+  averageVariancePct: number | null;
+}
+
+export interface AnalyticsTrend extends AnalyticsPeriodMeta {
+  weeks: AnalyticsTrendWeek[];
+}
+
+export interface AnalyticsPauseReasonRow {
+  reason: string;
+  occurrenceCount: number;
+  totalPausedHours: number | null;
+}
+
+export interface AnalyticsDowntimeRow {
+  machineUnitId: string;
+  machineUnitLabel: string | null;
+  machineTypeCode: string | null;
+  occurrenceCount: number;
+  totalDowntimeHours: number | null;
+  openCount: number;
+}
+
+export interface AnalyticsDelays extends AnalyticsPeriodMeta {
+  pauseReasons: AnalyticsPauseReasonRow[];
+  machineDowntime: AnalyticsDowntimeRow[];
+}
