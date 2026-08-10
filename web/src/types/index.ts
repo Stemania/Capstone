@@ -274,30 +274,128 @@ export interface WorkerSuggestion {
   reason?: string;
 }
 
+export type ToolCategory = 'RETURNABLE_TOOL' | 'CONSUMABLE';
+
+export interface ToolHolder {
+  holderId: string;
+  holderName: string | null;
+  quantity: number;
+  since: string | null;
+}
+
 export interface Tool {
   id: string;
   name: string;
   code: string;
+  category: ToolCategory;
+  unit: string;
+  quantityOnHand: number;
+  minimumStock: number | null;
+  sizeSpec: string | null;
+  lowStock: boolean;
   createdAt?: string;
+  myOutstanding?: number | null;
+  holders?: ToolHolder[];
   custody?: {
     holderId: string;
-    holderName: string;
-    since: string;
+    holderName: string | null;
+    since: string | null;
+    quantity?: number;
   } | null;
 }
 
-export type ToolEventType = 'BORROW' | 'RETURN';
+export type ToolEventType = 'BORROW' | 'RETURN' | 'ISSUE' | 'ADJUST';
 
 export interface ToolEvent {
   id: string;
   toolId: string;
   toolName?: string;
   toolCode?: string;
+  toolCategory?: ToolCategory | null;
+  toolSizeSpec?: string | null;
+  quantityOnHandAfter?: number | null;
   workerId: string;
   workerName?: string;
   type: ToolEventType;
+  quantity: number;
+  reason?: string | null;
   jobOrderId?: string;
   createdAt: string;
+}
+
+export interface InventoryPurchaseSuggestion {
+  toolId: string;
+  name: string;
+  code: string;
+  category: ToolCategory;
+  sizeSpec: string | null;
+  unit: string;
+  quantityOnHand: number | null;
+  minimumStock: number | null;
+  suggestedOrderQuantity: number | null;
+  recentConsumptionQuantity: number | null;
+  consumptionPerWorkingDay: number | null;
+  lookbackWorkingDays: number;
+}
+
+export interface InventoryPurchaseSuggestions {
+  label: string;
+  description: string;
+  period: { from: string; to: string };
+  workingDaysInSample: number;
+  itemCount: number;
+  items: InventoryPurchaseSuggestion[];
+}
+
+export interface InventoryUsageByWorker {
+  period: { from: string; to: string };
+  workingDaysInPeriod: number;
+  byWorkerItem: {
+    workerId: string;
+    workerName: string | null;
+    toolId: string;
+    toolName: string | null;
+    toolCode: string | null;
+    category: ToolCategory | null;
+    sizeSpec: string | null;
+    unit: string | null;
+    eventCount: number;
+    issueQuantity: number | null;
+    borrowQuantity: number | null;
+    returnQuantity: number | null;
+    netConsumptionQuantity: number | null;
+  }[];
+  outstandingUnreturned: {
+    workerId: string;
+    workerName: string | null;
+    totalOutstandingQuantity: number | null;
+    items: {
+      toolId: string;
+      toolName: string;
+      toolCode: string;
+      quantity: number | null;
+    }[];
+  }[];
+}
+
+export interface InventoryUsageByItem {
+  period: { from: string; to: string };
+  workingDaysInPeriod: number;
+  items: {
+    toolId: string;
+    name: string;
+    code: string;
+    category: ToolCategory;
+    sizeSpec: string | null;
+    unit: string;
+    quantityOnHand: number | null;
+    minimumStock: number | null;
+    lowStock: boolean;
+    issueQuantity: number | null;
+    borrowQuantity: number | null;
+    consumptionQuantity: number | null;
+    consumptionPerWorkingDay: number | null;
+  }[];
 }
 
 export interface LoginResponse {
