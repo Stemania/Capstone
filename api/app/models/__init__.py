@@ -10,6 +10,12 @@ from app.models.job_order import (
 )
 from app.models.machine import MachineType, MachineUnit
 from app.models.operation import JobOperation, Operation, OperationStatus
+from app.models.operation_time import (
+    MachineDowntime,
+    OperationPauseReason,
+    OperationTimeEvent,
+    OperationTimeLog,
+)
 from app.models.tool import Tool
 from app.models.tool_event import ToolEvent, ToolEventType
 from app.models.user import User, UserRole
@@ -44,6 +50,10 @@ __all__ = [
     "JobOperation",
     "Operation",
     "OperationStatus",
+    "OperationTimeLog",
+    "OperationTimeEvent",
+    "OperationPauseReason",
+    "MachineDowntime",
     "MachineType",
     "MachineUnit",
     "Tool",

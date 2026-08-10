@@ -49,6 +49,12 @@ class MachineUnit(db.Model):
 
     machine_type = db.relationship("MachineType", back_populates="machine_units")
     operations = db.relationship("JobOperation", back_populates="machine_unit")
+    downtimes = db.relationship(
+        "MachineDowntime",
+        back_populates="machine_unit",
+        cascade="all, delete-orphan",
+        order_by="MachineDowntime.started_at",
+    )
 
     def to_dict(self):
         return {

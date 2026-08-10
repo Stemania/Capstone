@@ -69,6 +69,9 @@ class JobOperation(db.Model):
     scheduled_end = db.Column(db.DateTime(timezone=True), nullable=True)
     actual_start = db.Column(db.DateTime(timezone=True), nullable=True)
     actual_end = db.Column(db.DateTime(timezone=True), nullable=True)
+    actual_worked_hours = db.Column(db.Numeric(10, 4), nullable=True)
+    variance_hours = db.Column(db.Numeric(10, 4), nullable=True)
+    variance_pct = db.Column(db.Numeric(10, 4), nullable=True)
     status = db.Column(
         db.Enum(OperationStatus), nullable=False, default=OperationStatus.PENDING
     )
@@ -78,6 +81,7 @@ class JobOperation(db.Model):
         nullable=True,
         index=True,
     )
+    rework_reason = db.Column(db.Text, nullable=True)
     notes = db.Column(db.Text, nullable=True)
 
     job_order = db.relationship("JobOrder", back_populates="operations")
@@ -92,6 +96,12 @@ class JobOperation(db.Model):
         remote_side=[id],
         foreign_keys=[rework_of_operation_id],
         backref="rework_children",
+    )
+    time_logs = db.relationship(
+        "OperationTimeLog",
+        back_populates="operation",
+        cascade="all, delete-orphan",
+        order_by="OperationTimeLog.event_at",
     )
 
     def to_dict(self):
@@ -133,12 +143,18 @@ class JobOperation(db.Model):
             "segments": self._derived_segments(),
             "actualStart": self.actual_start.isoformat() if self.actual_start else None,
             "actualEnd": self.actual_end.isoformat() if self.actual_end else None,
+            "actualWorkedHours": _num(self.actual_worked_hours),
+            "varianceHours": _num(self.variance_hours),
+            "variancePct": _num(self.variance_pct),
             # Back-compat aliases used by older worker UI
             "startedAt": self.actual_start.isoformat() if self.actual_start else None,
             "completedAt": self.actual_end.isoformat() if self.actual_end else None,
             "status": self.status.value,
             "reworkOfOperationId": self.rework_of_operation_id,
+            "reworkReason": self.rework_reason,
             "notes": self.notes,
+            "timeLogs": [log.to_dict() for log in (self.time_logs or [])],
+            "isPaused": self._is_paused(),
             # Legacy-shaped fields for gradual UI migration
             "seq": self.sequence_no,
             "name": self.operation_name,
@@ -149,6 +165,14 @@ class JobOperation(db.Model):
                 [self.machine_type.name] if self.machine_type else []
             ),
         }
+
+    def _is_paused(self):
+        logs = list(self.time_logs or [])
+        if not logs:
+            return False
+        last = logs[-1]
+        return last.event.value == "PAUSE" if last.event else False
+
 
     def _derived_segments(self):
         if not self.scheduled_start or not self.scheduled_end or not self.assigned_worker_id:
