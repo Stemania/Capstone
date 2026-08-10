@@ -12,29 +12,28 @@ tools_bp = Blueprint("tools", __name__)
 
 @tools_bp.route("", methods=["GET"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.PRODUCTION_WORKER)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF, UserRole.PRODUCTION_WORKER)
 def list_tools():
     tools = Tool.query.order_by(Tool.name).all()
-    return jsonify([t.to_dict(include_custody=True) for t in tools])
+    worker_id = get_current_user_id()
+    return jsonify(
+        [t.to_dict(include_custody=True, worker_id=worker_id) for t in tools]
+    )
 
 
 @tools_bp.route("", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def create_tool():
     data = request.get_json() or {}
-    if not data.get("name"):
-        raise AppError("Name is required", "VALIDATION_ERROR", 400)
-
-    tool = te_service.create_tool(data["name"], data.get("code"))
-    return jsonify(tool.to_dict()), 201
+    tool = te_service.create_tool(data)
+    return jsonify(tool.to_dict(include_custody=True)), 201
 
 
 @tools_bp.route("/my", methods=["GET"])
 @jwt_required()
 @require_roles(UserRole.PRODUCTION_WORKER)
 def my_tools():
-    """Tools whose latest event is a BORROW by the current worker."""
     tools = te_service.list_held_tools(get_current_user_id())
     return jsonify(tools)
 
@@ -66,14 +65,18 @@ def scan_tool():
         raise AppError("Tool code is required", "VALIDATION_ERROR", 400)
 
     event = te_service.scan_tool(
-        code, get_current_user_id(), data.get("jobOrderId"), data.get("intent")
+        code,
+        get_current_user_id(),
+        data.get("jobOrderId"),
+        data.get("intent"),
+        data.get("quantity"),
     )
     return jsonify(event.to_dict()), 201
 
 
 @tools_bp.route("/events", methods=["GET"])
 @jwt_required()
-@require_roles(UserRole.ADMIN)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def list_events():
     tool_id = request.args.get("toolId")
     page = request.args.get("page", 1, type=int)
@@ -91,7 +94,7 @@ def list_events():
 
 @tools_bp.route("/<tool_id>", methods=["GET"])
 @jwt_required()
-@require_roles(UserRole.ADMIN)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def get_tool(tool_id):
     tool = Tool.query.get(tool_id)
     if not tool:
@@ -101,7 +104,7 @@ def get_tool(tool_id):
 
 @tools_bp.route("/<tool_id>/qr", methods=["GET"])
 @jwt_required()
-@require_roles(UserRole.ADMIN)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def get_tool_qr(tool_id):
     tool = Tool.query.get(tool_id)
     if not tool:
@@ -113,9 +116,28 @@ def get_tool_qr(tool_id):
 
 @tools_bp.route("/<tool_id>/custody", methods=["GET"])
 @jwt_required()
-@require_roles(UserRole.ADMIN)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def get_custody(tool_id):
     tool = Tool.query.get(tool_id)
     if not tool:
         raise AppError("Tool not found", "NOT_FOUND", 404)
-    return jsonify({"custody": te_service.get_current_custody(tool_id)})
+    return jsonify(
+        {
+            "custody": te_service.get_current_custody(tool_id),
+            "holders": te_service.list_outstanding_holders(tool_id),
+        }
+    )
+
+
+@tools_bp.route("/<tool_id>/adjust", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def adjust_stock(tool_id):
+    data = request.get_json() or {}
+    event = te_service.adjust_stock(
+        tool_id,
+        get_current_user_id(),
+        data.get("quantity"),
+        data.get("reason"),
+    )
+    return jsonify(event.to_dict()), 201
