@@ -1,9 +1,14 @@
+from decimal import Decimal, InvalidOperation
+
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 
+from app.extensions import db
 from app.middleware.rbac import require_roles
+from app.models.scoring_weight import ScoringWeight
 from app.models.user import User, UserRole
 from app.models.worker_skill import WorkerSkill
+from app.services.scoring_service import WEIGHT_KEYS, load_scoring_weights, validate_weights_sum
 from app.services.worker_availability import get_busy_workers
 from app.services.worker_suggestion_service import suggest_workers
 
@@ -58,7 +63,7 @@ def suggest():
             {"error": {"code": "VALIDATION_ERROR", "message": "operations or machineTypeId required"}}
         ), 400
 
-    suggestions = suggest_workers(
+    result = suggest_workers(
         operations,
         exclude_job_id=data.get("excludeJobId"),
         scheduled_start=data.get("scheduledStart"),
@@ -68,4 +73,79 @@ def suggest():
         operation_type_id=operation_type_id,
         operation_name=operation_name,
     )
-    return jsonify({"suggestions": suggestions})
+    return jsonify(result)
+
+
+@workers_bp.route("/scoring-weights", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN)
+def get_scoring_weights():
+    weights = load_scoring_weights()
+    rows = {row.key: row.to_dict() for row in ScoringWeight.query.all()}
+    return jsonify(
+        {
+            "weights": weights,
+            "items": [rows.get(k) or {"key": k, "value": weights[k]} for k in WEIGHT_KEYS],
+        }
+    )
+
+
+@workers_bp.route("/scoring-weights", methods=["PUT"])
+@jwt_required()
+@require_roles(UserRole.ADMIN)
+def update_scoring_weights():
+    data = request.get_json() or {}
+    incoming = data.get("weights") or data
+    parsed = {}
+    for key in WEIGHT_KEYS:
+        if key not in incoming:
+            return jsonify(
+                {
+                    "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": f"Missing weight '{key}'",
+                    }
+                }
+            ), 400
+        try:
+            parsed[key] = Decimal(str(incoming[key]))
+        except (InvalidOperation, TypeError, ValueError):
+            return jsonify(
+                {
+                    "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": f"Invalid weight value for '{key}'",
+                    }
+                }
+            ), 400
+        if parsed[key] < 0 or parsed[key] > 1:
+            return jsonify(
+                {
+                    "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": f"Weight '{key}' must be between 0 and 1",
+                    }
+                }
+            ), 400
+
+    ok, total = validate_weights_sum({k: float(v) for k, v in parsed.items()})
+    if not ok:
+        return jsonify(
+            {
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": f"Weights must sum to 1.0 (got {total:.4f})",
+                }
+            }
+        ), 400
+
+    for key, value in parsed.items():
+        row = ScoringWeight.query.filter_by(key=key).first()
+        if row:
+            row.value = value
+        else:
+            db.session.add(ScoringWeight(key=key, value=value))
+    db.session.commit()
+
+    weights = load_scoring_weights()
+    return jsonify({"weights": weights})
