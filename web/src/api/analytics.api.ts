@@ -4,7 +4,10 @@ import type {
   AnalyticsByOperationType,
   AnalyticsByWorker,
   AnalyticsDelays,
+  AnalyticsDemandCapacity,
   AnalyticsOverview,
+  AnalyticsSalesForecast,
+  AnalyticsSalesSummary,
   AnalyticsTrend,
 } from '../types';
 
@@ -29,4 +32,10 @@ export const analyticsApi = {
     apiClient.get<AnalyticsTrend>('/analytics/efficiency/trend', { params }),
   delays: (params?: AnalyticsDateParams) =>
     apiClient.get<AnalyticsDelays>('/analytics/delays', { params }),
+  salesSummary: (params?: AnalyticsDateParams) =>
+    apiClient.get<AnalyticsSalesSummary>('/analytics/sales/summary', { params }),
+  salesForecast: (params?: AnalyticsDateParams) =>
+    apiClient.get<AnalyticsSalesForecast>('/analytics/sales/forecast', { params }),
+  demandCapacity: (params?: AnalyticsDateParams) =>
+    apiClient.get<AnalyticsDemandCapacity>('/analytics/demand/capacity', { params }),
 };

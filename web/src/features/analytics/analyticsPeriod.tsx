@@ -64,3 +64,11 @@ export function formatInt(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return '—';
   return String(Math.round(value));
 }
+
+export function formatMoney(value: number | null | undefined, digits = 0): string {
+  if (value == null || Number.isNaN(value)) return '—';
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}

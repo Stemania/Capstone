@@ -449,3 +449,93 @@ export interface AnalyticsDelays extends AnalyticsPeriodMeta {
   pauseReasons: AnalyticsPauseReasonRow[];
   machineDowntime: AnalyticsDowntimeRow[];
 }
+
+export interface AnalyticsSalesMonthRow {
+  month: string;
+  jobCount: number;
+  amount: number | null;
+  partialPeriod: boolean;
+  workingDaysCovered: number;
+}
+
+export interface AnalyticsSalesClientRow {
+  clientId: string;
+  clientName: string | null;
+  jobCount: number;
+  amount: number | null;
+  averageJobValue: number | null;
+}
+
+export interface AnalyticsSalesJobTypeRow {
+  jobType: string;
+  jobCount: number;
+  amount: number | null;
+}
+
+export interface AnalyticsSalesSummary {
+  period: { from: string; to: string };
+  workingDaysInPeriod: number;
+  completedJobCount: number;
+  totalAmount: number | null;
+  byMonth: AnalyticsSalesMonthRow[];
+  byClient: AnalyticsSalesClientRow[];
+  byJobType: AnalyticsSalesJobTypeRow[];
+}
+
+export interface AnalyticsPipelineMonthRow {
+  month: string;
+  jobCount: number;
+  amount: number | null;
+}
+
+export interface AnalyticsCommittedPipeline {
+  label: string;
+  description: string;
+  totalAmount: number | null;
+  jobCount: number;
+  byExpectedCompletionMonth: AnalyticsPipelineMonthRow[];
+}
+
+export interface AnalyticsProjectedRevenue {
+  label: string;
+  description: string;
+  sampleCompletedJobs: number;
+  sampleWorkingDays: number;
+  sampleWeeks: number;
+  revenuePerWorkingDay: number | null;
+  horizonWeeks: number;
+  horizon: { from: string; to: string };
+  horizonWorkingDays: number;
+  projectedAmount: number | null;
+  thinSampleNote?: string;
+}
+
+export interface AnalyticsSalesForecast {
+  period: { from: string; to: string };
+  workingDaysInSample: number;
+  sampleWeeks: number;
+  thinSample: boolean;
+  committedPipeline: AnalyticsCommittedPipeline;
+  projectedRevenue: AnalyticsProjectedRevenue;
+}
+
+export interface AnalyticsCapacityTypeRow {
+  machineTypeId: string;
+  machineTypeCode: string;
+  machineTypeName: string | null;
+  activeUnitCount: number;
+  availableHours: number | null;
+  scheduledLoadHours: number | null;
+  projectedLoadPct: number | null;
+  above80Pct: boolean;
+}
+
+export interface AnalyticsDemandCapacity {
+  horizon: { from: string; to: string };
+  horizonWorkingDays: number;
+  availableHoursPerUnit: number | null;
+  scheduledOperationsInHorizon: number;
+  thinSample: boolean;
+  thinSampleNote?: string;
+  machineTypes: AnalyticsCapacityTypeRow[];
+}
