@@ -228,6 +228,9 @@ export default function MyAssignmentsPage() {
                       </div>
                       <div style={{ fontSize: 13, fontWeight: 700 }}>
                         {op.estimatedHours != null ? op.estimatedHours : '—'}
+                        {op.actualWorkedHours != null
+                          ? ` · worked ${op.actualWorkedHours}`
+                          : ''}
                       </div>
                     </div>
                   </div>

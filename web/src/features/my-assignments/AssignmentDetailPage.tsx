@@ -11,7 +11,45 @@ import { operationsApi } from '../../api/operations.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
-import type { JobOrder, Operation } from '../../types';
+import type { JobOrder, Operation, OperationPauseReason } from '../../types';
+
+const PAUSE_REASONS: { value: OperationPauseReason; label: string }[] = [
+  { value: 'END_OF_SHIFT', label: 'End of shift' },
+  { value: 'BREAK', label: 'Break' },
+  { value: 'MACHINE_DOWN', label: 'Machine down' },
+  { value: 'WAITING_MATERIAL', label: 'Waiting for material' },
+  { value: 'WAITING_PRIOR_OPERATION', label: 'Waiting on prior operation' },
+  { value: 'OTHER', label: 'Other' },
+];
+
+function workedSecondsSoFar(op: Operation, nowMs: number): number {
+  const logs = [...(op.timeLogs || [])].sort(
+    (a, b) => dayjs(a.eventAt).valueOf() - dayjs(b.eventAt).valueOf()
+  );
+  let total = 0;
+  let open: number | null = null;
+  for (const log of logs) {
+    const t = dayjs(log.eventAt).valueOf();
+    if (log.event === 'START' || log.event === 'RESUME') {
+      if (open == null) open = t;
+    } else if (log.event === 'PAUSE' || log.event === 'COMPLETE') {
+      if (open != null && t > open) total += t - open;
+      open = null;
+    }
+  }
+  if (open != null && !op.isPaused) total += Math.max(0, nowMs - open);
+  return total;
+}
+
+function formatElapsed(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
 
 export default function AssignmentDetailPage() {
   const { id } = useParams();
@@ -21,6 +59,8 @@ export default function AssignmentDetailPage() {
   const [job, setJob] = useState<JobOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [pauseForOp, setPauseForOp] = useState<Operation | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const fetchJob = async () => {
     if (!id) return;
@@ -39,16 +79,47 @@ export default function AssignmentDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const runAction = async (op: Operation, action: 'start' | 'complete') => {
+  useEffect(() => {
+    const hasActive = (job?.operations || []).some(
+      (op) => op.status === 'IN_PROGRESS' && !op.isPaused
+    );
+    if (!hasActive) return;
+    const t = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [job]);
+
+  const runAction = async (
+    op: Operation,
+    action: 'start' | 'complete' | 'resume',
+  ) => {
     setActionLoading(op.id);
     try {
+      const ts = new Date().toISOString();
       if (action === 'start') {
-        await operationsApi.start(op.id, new Date().toISOString());
+        await operationsApi.start(op.id, ts);
         message.success('Operation started');
+      } else if (action === 'resume') {
+        await operationsApi.resume(op.id, ts);
+        message.success('Operation resumed');
       } else {
-        await operationsApi.complete(op.id, new Date().toISOString());
+        await operationsApi.complete(op.id, ts);
         message.success('Operation completed');
       }
+      await fetchJob();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const confirmPause = async (reason: OperationPauseReason) => {
+    if (!pauseForOp) return;
+    setActionLoading(pauseForOp.id);
+    try {
+      await operationsApi.pause(pauseForOp.id, reason, undefined, new Date().toISOString());
+      message.success('Operation paused');
+      setPauseForOp(null);
       await fetchJob();
     } catch (err) {
       message.error(getErrorMessage(err));
@@ -310,13 +381,15 @@ export default function AssignmentDetailPage() {
                     >
                       {done
                         ? 'Completed'
-                        : active
-                          ? 'In Progress'
-                          : op.status === 'SCHEDULED'
-                            ? 'Scheduled'
-                            : op.status === 'REWORK'
-                              ? 'Rework'
-                              : 'Pending'}
+                        : active && op.isPaused
+                          ? 'Paused'
+                          : active
+                            ? 'In Progress'
+                            : op.status === 'SCHEDULED'
+                              ? 'Scheduled'
+                              : op.status === 'REWORK'
+                                ? 'Rework'
+                                : 'Pending'}
                     </span>
                   </div>
 
@@ -339,6 +412,20 @@ export default function AssignmentDetailPage() {
                     </div>
                   )}
 
+                  {isMine && active && (
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: colors.accent }}>
+                      Worked {formatElapsed(workedSecondsSoFar(op, nowMs))}
+                      {op.isPaused ? ' (paused)' : ''}
+                    </div>
+                  )}
+
+                  {op.actualWorkedHours != null && done && (
+                    <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 10 }}>
+                      Worked {op.actualWorkedHours}h
+                      {op.estimatedHours != null ? ` / est. ${op.estimatedHours}h` : ''}
+                    </div>
+                  )}
+
                   {canStart && (
                     <Button
                       type="default"
@@ -351,23 +438,99 @@ export default function AssignmentDetailPage() {
                       Start Operation
                     </Button>
                   )}
-                  {isMine && op.status === 'IN_PROGRESS' && (
-                    <Button
-                      type="primary"
-                      block
-                      size="large"
-                      loading={actionLoading === op.id}
-                      onClick={() => runAction(op, 'complete')}
-                      style={{ height: 44, fontWeight: 700 }}
-                    >
-                      Mark Complete
-                    </Button>
+                  {isMine && active && !op.isPaused && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <Button
+                        type="default"
+                        block
+                        size="large"
+                        loading={actionLoading === op.id}
+                        onClick={() => setPauseForOp(op)}
+                        style={{ height: 44, fontWeight: 700 }}
+                      >
+                        Pause
+                      </Button>
+                      <Button
+                        type="primary"
+                        block
+                        size="large"
+                        loading={actionLoading === op.id}
+                        onClick={() => runAction(op, 'complete')}
+                        style={{ height: 44, fontWeight: 700 }}
+                      >
+                        Mark Complete
+                      </Button>
+                    </div>
+                  )}
+                  {isMine && active && op.isPaused && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <Button
+                        type="primary"
+                        block
+                        size="large"
+                        loading={actionLoading === op.id}
+                        onClick={() => runAction(op, 'resume')}
+                        style={{ height: 44, fontWeight: 700 }}
+                      >
+                        Resume
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>
             );
           })}
         </div>
+
+        {pauseForOp && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(15,23,42,0.45)',
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'flex-end',
+              justifyContent: 'center',
+            }}
+            onClick={() => setPauseForOp(null)}
+          >
+            <div
+              style={{
+                width: '100%',
+                maxWidth: 480,
+                background: colors.card,
+                borderTopLeftRadius: 16,
+                borderTopRightRadius: 16,
+                padding: '16px 16px 24px',
+                boxShadow: colors.shadow,
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>Pause reason</div>
+              <div style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 12 }}>
+                Why are you pausing {pauseForOp.operationName || 'this operation'}?
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {PAUSE_REASONS.map((r) => (
+                  <Button
+                    key={r.value}
+                    block
+                    size="large"
+                    loading={actionLoading === pauseForOp.id}
+                    onClick={() => confirmPause(r.value)}
+                    style={{ height: 44, fontWeight: 700, textAlign: 'left' }}
+                  >
+                    {r.label}
+                  </Button>
+                ))}
+                <Button block size="large" onClick={() => setPauseForOp(null)} style={{ height: 44 }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {job.description && (
           <div
