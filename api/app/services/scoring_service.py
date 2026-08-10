@@ -7,8 +7,9 @@ from datetime import datetime, time, timedelta, timezone
 
 from app.models.operation import JobOperation, OperationStatus
 from app.models.scoring_weight import DEFAULT_SCORING_WEIGHTS, ScoringWeight
-from app.models.worker_skill import CalendarExceptionType, WorkCalendarException, WorkerSchedule
+from app.models.worker_skill import WorkCalendarException, WorkerSchedule
 from app.extensions import db
+from app.services.schedule_calendar import effective_hours_for_date
 from app.services.worker_availability import _parse_dt, _windows_overlap, list_worker_operations
 
 logger = logging.getLogger(__name__)
@@ -58,63 +59,6 @@ def score_skill(proficiency=None, is_primary=False):
     return raw, f"proficiency {int(proficiency)}{primary_note}", False
 
 
-def _combine_intervals(base_start, base_end, extra_start, extra_end):
-    """Merge two time intervals on the same day; None means empty."""
-    intervals = []
-    if base_start is not None and base_end is not None and base_start < base_end:
-        intervals.append((base_start, base_end))
-    if extra_start is not None and extra_end is not None and extra_start < extra_end:
-        intervals.append((extra_start, extra_end))
-    if not intervals:
-        return None, None
-    intervals.sort()
-    merged_start, merged_end = intervals[0]
-    for s, e in intervals[1:]:
-        if s <= merged_end:
-            merged_end = max(merged_end, e)
-        else:
-            # Disjoint: keep span covering both for containment checks
-            merged_start = min(merged_start, s)
-            merged_end = max(merged_end, e)
-    return merged_start, merged_end
-
-
-def _effective_hours_for_date(worker_id, on_date, schedule_by_dow, exceptions_by_date):
-    """
-    Return (start_time, end_time, is_working) for a calendar date,
-    applying WorkerSchedule + WorkCalendarException.
-    """
-    dow = on_date.weekday()  # 0=Mon … 6=Sun
-    sched = schedule_by_dow.get(dow)
-    exc = exceptions_by_date.get(on_date)
-
-    if exc and exc.type == CalendarExceptionType.HOLIDAY_NO_WORK:
-        return None, None, False
-
-    base_working = bool(sched and sched.is_working and sched.start_time and sched.end_time)
-    base_start = sched.start_time if base_working else None
-    base_end = sched.end_time if base_working else None
-
-    if exc and exc.type in (
-        CalendarExceptionType.OVERTIME,
-        CalendarExceptionType.SPECIAL_WORKING_DAY,
-    ):
-        if exc.start_time and exc.end_time:
-            if base_working:
-                start, end = _combine_intervals(
-                    base_start, base_end, exc.start_time, exc.end_time
-                )
-                return start, end, True
-            return exc.start_time, exc.end_time, True
-        if not base_working:
-            # Special day without hours: treat as full shop day
-            return time(8, 0), time(17, 0), True
-
-    if base_working:
-        return base_start, base_end, True
-    return None, None, False
-
-
 def _window_vs_hours(window_start, window_end, day_start_t, day_end_t, on_date):
     """
     Classify how much of the window on `on_date` falls inside working hours.
@@ -152,7 +96,10 @@ def score_availability(
     """
     Returns (score, reason fragment, used_default).
     No proposed window → neutral 0.5 (default, disclosed).
+    Compares derived working segments (not overnight envelopes).
     """
+    from app.services.schedule_calendar import derive_working_segments
+
     start = _parse_dt(scheduled_start)
     end = _parse_dt(scheduled_end)
 
@@ -163,21 +110,16 @@ def score_availability(
             True,
         )
 
-    if operations is None:
-        operations = list_worker_operations(
-            worker_id, exclude_operation_id=exclude_operation_id
-        )
-    for op in operations:
-        if _windows_overlap(start, end, op.scheduled_start, op.scheduled_end):
-            label = op.operation_name or "another operation"
-            return 0.0, f"conflicts with '{label}'", False
-
     if schedules is None:
         schedules = WorkerSchedule.query.filter_by(worker_id=worker_id).all()
     schedule_by_dow = {s.day_of_week: s for s in schedules}
 
-    d0 = start.date()
-    d1 = (end - timedelta(microseconds=1)).date() if end.time() == time.min else end.date()
+    from app.services.schedule_calendar import utc_to_shop
+
+    shop_start = utc_to_shop(start)
+    shop_end = utc_to_shop(end)
+    d0 = shop_start.date()
+    d1 = shop_end.date()
     if exceptions is None:
         exceptions = WorkCalendarException.query.filter(
             WorkCalendarException.date >= d0,
@@ -185,18 +127,49 @@ def score_availability(
         ).all()
     exceptions_by_date = {e.date: e for e in exceptions}
 
-    day_statuses = []
-    cur = d0
-    while cur <= d1:
-        day_start_t, day_end_t, is_working = _effective_hours_for_date(
-            worker_id, cur, schedule_by_dow, exceptions_by_date
+    proposed_segments = derive_working_segments(
+        start, end, schedule_by_dow, exceptions_by_date
+    )
+    if not proposed_segments:
+        return 0.0, "outside working hours", False
+
+    if operations is None:
+        operations = list_worker_operations(
+            worker_id, exclude_operation_id=exclude_operation_id
         )
-        if not is_working:
-            day_start_t, day_end_t = None, None
-        status = _window_vs_hours(start, end, day_start_t, day_end_t, cur)
-        if status != "none":
-            day_statuses.append(status)
-        cur += timedelta(days=1)
+    for op in operations:
+        if not op.scheduled_start or not op.scheduled_end:
+            continue
+        op_segments = derive_working_segments(
+            op.scheduled_start,
+            op.scheduled_end,
+            schedule_by_dow,
+            exceptions_by_date,
+        )
+        for a_start, a_end in proposed_segments:
+            for b_start, b_end in op_segments:
+                if _windows_overlap(a_start, a_end, b_start, b_end):
+                    label = op.operation_name or "another operation"
+                    return 0.0, f"conflicts with '{label}'", False
+
+    day_statuses = []
+    for seg_start, seg_end in proposed_segments:
+        seg_shop_start = utc_to_shop(seg_start)
+        seg_shop_end = utc_to_shop(seg_end)
+        cur = seg_shop_start.date()
+        last = seg_shop_end.date()
+        while cur <= last:
+            day_start_t, day_end_t, is_working = effective_hours_for_date(
+                cur, schedule_by_dow, exceptions_by_date
+            )
+            if not is_working:
+                day_start_t, day_end_t = None, None
+            status = _window_vs_hours(
+                seg_shop_start, seg_shop_end, day_start_t, day_end_t, cur
+            )
+            if status != "none":
+                day_statuses.append(status)
+            cur += timedelta(days=1)
 
     if not day_statuses:
         return 0.0, "outside working hours", False

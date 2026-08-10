@@ -1,9 +1,10 @@
 """Unit tests for weighted worker scoring components."""
 
-from datetime import datetime, time, timezone
+from datetime import date, time
 from types import SimpleNamespace
 
 from app.models.scoring_weight import DEFAULT_SCORING_WEIGHTS
+from app.services.schedule_calendar import shop_local_to_utc
 from app.services.scoring_service import (
     score_availability,
     score_efficiency,
@@ -11,6 +12,21 @@ from app.services.scoring_service import (
     score_workload,
     validate_weights_sum,
 )
+
+
+def _mon_sat_schedules():
+    rows = []
+    for dow in range(7):
+        working = dow < 6
+        rows.append(
+            SimpleNamespace(
+                day_of_week=dow,
+                is_working=working,
+                start_time=time(8, 0) if working else None,
+                end_time=time(17, 0) if working else None,
+            )
+        )
+    return rows
 
 
 def test_default_weights_sum_to_one():
@@ -48,26 +64,18 @@ def test_availability_no_window_is_neutral_default():
 
 
 def test_availability_conflict_is_zero():
-    start = datetime(2026, 8, 10, 9, 0, tzinfo=timezone.utc)
-    end = datetime(2026, 8, 10, 12, 0, tzinfo=timezone.utc)
+    start = shop_local_to_utc(date(2026, 8, 10), time(9, 0))
+    end = shop_local_to_utc(date(2026, 8, 10), time(12, 0))
     op = SimpleNamespace(
         scheduled_start=start,
         scheduled_end=end,
         operation_name="Turning",
     )
-    schedules = [
-        SimpleNamespace(
-            day_of_week=0,  # Monday
-            is_working=True,
-            start_time=time(8, 0),
-            end_time=time(17, 0),
-        )
-    ]
     score, reason, used_default = score_availability(
         "w1",
         scheduled_start=start,
         scheduled_end=end,
-        schedules=schedules,
+        schedules=_mon_sat_schedules(),
         exceptions=[],
         operations=[op],
     )
@@ -77,22 +85,30 @@ def test_availability_conflict_is_zero():
 
 
 def test_availability_inside_hours():
-    # 2026-08-10 is a Monday
-    start = datetime(2026, 8, 10, 9, 0, tzinfo=timezone.utc)
-    end = datetime(2026, 8, 10, 11, 0, tzinfo=timezone.utc)
-    schedules = [
-        SimpleNamespace(
-            day_of_week=0,
-            is_working=True,
-            start_time=time(8, 0),
-            end_time=time(17, 0),
-        )
-    ]
+    start = shop_local_to_utc(date(2026, 8, 10), time(9, 0))
+    end = shop_local_to_utc(date(2026, 8, 10), time(11, 0))
     score, reason, used_default = score_availability(
         "w1",
         scheduled_start=start,
         scheduled_end=end,
-        schedules=schedules,
+        schedules=_mon_sat_schedules(),
+        exceptions=[],
+        operations=[],
+    )
+    assert score == 1.0
+    assert "free" in reason
+    assert used_default is False
+
+
+def test_availability_multi_day_placement_not_penalized():
+    """Envelope spans overnight; derived segments are all inside → score 1.0."""
+    start = shop_local_to_utc(date(2026, 8, 10), time(14, 0))
+    end = shop_local_to_utc(date(2026, 8, 11), time(11, 0))
+    score, reason, used_default = score_availability(
+        "w1",
+        scheduled_start=start,
+        scheduled_end=end,
+        schedules=_mon_sat_schedules(),
         exceptions=[],
         operations=[],
     )

@@ -130,6 +130,7 @@ class JobOperation(db.Model):
             "estimatedHours": _num(self.estimated_hours),
             "scheduledStart": self.scheduled_start.isoformat() if self.scheduled_start else None,
             "scheduledEnd": self.scheduled_end.isoformat() if self.scheduled_end else None,
+            "segments": self._derived_segments(),
             "actualStart": self.actual_start.isoformat() if self.actual_start else None,
             "actualEnd": self.actual_end.isoformat() if self.actual_end else None,
             # Back-compat aliases used by older worker UI
@@ -148,6 +149,27 @@ class JobOperation(db.Model):
                 [self.machine_type.name] if self.machine_type else []
             ),
         }
+
+    def _derived_segments(self):
+        if not self.scheduled_start or not self.scheduled_end or not self.assigned_worker_id:
+            return []
+        from app.services.schedule_calendar import (
+            derive_working_segments,
+            load_calendar_exceptions,
+            load_worker_schedule_maps,
+            serialize_segments,
+            utc_to_shop,
+        )
+
+        start = self.scheduled_start
+        end = self.scheduled_end
+        schedule_by_dow = load_worker_schedule_maps(self.assigned_worker_id)
+        exceptions = load_calendar_exceptions(
+            utc_to_shop(start).date(), utc_to_shop(end).date()
+        )
+        return serialize_segments(
+            derive_working_segments(start, end, schedule_by_dow, exceptions)
+        )
 
 
 # Alias for import churn during refactor
