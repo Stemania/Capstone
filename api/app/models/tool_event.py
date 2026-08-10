@@ -1,6 +1,7 @@
 import enum
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from app.extensions import db
 
@@ -13,9 +14,17 @@ def _uuid():
     return str(uuid.uuid4())
 
 
+def _num(v):
+    if v is None:
+        return None
+    return float(v)
+
+
 class ToolEventType(enum.Enum):
     BORROW = "BORROW"
     RETURN = "RETURN"
+    ISSUE = "ISSUE"
+    ADJUST = "ADJUST"
 
 
 class ToolEvent(db.Model):
@@ -30,6 +39,8 @@ class ToolEvent(db.Model):
         db.String(36), db.ForeignKey("users.id"), nullable=False, index=True
     )
     type = db.Column(db.Enum(ToolEventType), nullable=False)
+    quantity = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("1"))
+    reason = db.Column(db.String(255), nullable=True)
     job_order_id = db.Column(
         db.String(36), db.ForeignKey("job_orders.id"), nullable=True
     )
@@ -45,9 +56,14 @@ class ToolEvent(db.Model):
             "toolId": self.tool_id,
             "toolName": self.tool.name if self.tool else None,
             "toolCode": self.tool.code if self.tool else None,
+            "toolCategory": self.tool.category.value if self.tool and self.tool.category else None,
+            "toolSizeSpec": self.tool.size_spec if self.tool else None,
+            "quantityOnHandAfter": _num(self.tool.quantity_on_hand) if self.tool else None,
             "workerId": self.worker_id,
             "workerName": self.worker.full_name if self.worker else None,
             "type": self.type.value,
+            "quantity": _num(self.quantity),
+            "reason": self.reason,
             "jobOrderId": self.job_order_id,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }

@@ -16,7 +16,7 @@ from app.models.operation_time import (
     OperationTimeEvent,
     OperationTimeLog,
 )
-from app.models.tool import Tool
+from app.models.tool import Tool, ToolCategory
 from app.models.tool_event import ToolEvent, ToolEventType
 from app.models.user import User, UserRole
 from app.models.worker_profile import WorkerProfile
@@ -57,6 +57,7 @@ __all__ = [
     "MachineType",
     "MachineUnit",
     "Tool",
+    "ToolCategory",
     "ToolEvent",
     "ToolEventType",
     "AuditLog",
