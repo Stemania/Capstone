@@ -271,8 +271,7 @@ export default function JobOrderFormPage() {
         operationTypeId,
         operationName,
       });
-      const filtered = data.suggestions.filter((s) => s.available !== false);
-      setRowSuggestions((prev) => ({ ...prev, [rowIndex]: filtered }));
+      setRowSuggestions((prev) => ({ ...prev, [rowIndex]: data.suggestions || [] }));
     } catch {
       setRowSuggestions((prev) => ({ ...prev, [rowIndex]: [] }));
     }
@@ -794,41 +793,74 @@ export default function JobOrderFormPage() {
                               <Input />
                             </Form.Item>
 
-                            {suggestions.length > 0 && (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                                <Text type="secondary" style={{ fontSize: 11 }}>
-                                  Suggest:
+                            {suggestions.length > 0 && (() => {
+                              const qualified = suggestions.filter((s) => s.qualified !== false);
+                              const unqualified = suggestions.filter((s) => s.qualified === false);
+                              const topId = qualified[0]?.workerId;
+                              return (
+                              <div style={{ marginTop: 4 }}>
+                                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
+                                  Ranked suggestions (click to assign — not auto-selected)
                                 </Text>
-                                {suggestions.slice(0, 3).map((s) => {
-                                  const inDropdown = qualifiedWorkers.some((w) => w.id === s.workerId);
-                                  return (
-                                  <Tag
-                                    key={s.workerId}
-                                    icon={s.score > 0 ? <StarFilled /> : undefined}
-                                    color={s.score > 0 ? 'gold' : 'default'}
-                                    style={{
-                                      cursor: inDropdown ? 'pointer' : 'not-allowed',
-                                      marginInlineEnd: 0,
-                                      padding: '2px 8px',
-                                      opacity: inDropdown ? 1 : 0.5,
-                                    }}
-                                    onClick={() => {
-                                      if (!inDropdown) return;
-                                      const ops = form.getFieldValue('operations') || [];
-                                      const next = [...ops];
-                                      next[index] = {
-                                        ...next[index],
-                                        assignedWorkerId: s.workerId,
-                                      };
-                                      form.setFieldValue('operations', next);
-                                    }}
-                                  >
-                                    {s.fullName}
-                                  </Tag>
-                                  );
-                                })}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                  {qualified.slice(0, 5).map((s) => {
+                                    const inDropdown = qualifiedWorkers.some((w) => w.id === s.workerId);
+                                    const isTop = s.workerId === topId;
+                                    return (
+                                      <div
+                                        key={s.workerId}
+                                        onClick={() => {
+                                          if (!inDropdown) return;
+                                          const ops = form.getFieldValue('operations') || [];
+                                          const next = [...ops];
+                                          next[index] = {
+                                            ...next[index],
+                                            assignedWorkerId: s.workerId,
+                                          };
+                                          form.setFieldValue('operations', next);
+                                        }}
+                                        style={{
+                                          cursor: inDropdown ? 'pointer' : 'not-allowed',
+                                          opacity: inDropdown ? 1 : 0.55,
+                                          padding: '6px 10px',
+                                          borderRadius: 6,
+                                          border: isTop ? '1.5px solid #c9a227' : '1px solid #e8e8e8',
+                                          background: isTop ? '#fffbeb' : '#fafafa',
+                                        }}
+                                      >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                          {isTop && <StarFilled style={{ color: '#c9a227', fontSize: 12 }} />}
+                                          <Text strong style={{ fontSize: 12 }}>{s.fullName}</Text>
+                                          <Tag color={isTop ? 'gold' : 'default'} style={{ margin: 0, fontSize: 11 }}>
+                                            {(s.score * 100).toFixed(0)}%
+                                          </Tag>
+                                        </div>
+                                        {s.reason && (
+                                          <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+                                            {s.reason}
+                                          </Text>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                                {unqualified.length > 0 && (
+                                  <details style={{ marginTop: 8 }}>
+                                    <summary style={{ fontSize: 11, color: '#8c8c8c', cursor: 'pointer' }}>
+                                      Unqualified ({unqualified.length})
+                                    </summary>
+                                    <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                      {unqualified.slice(0, 8).map((s) => (
+                                        <Text key={s.workerId} type="secondary" style={{ fontSize: 11 }}>
+                                          {s.fullName} — {s.reason || 'not qualified'}
+                                        </Text>
+                                      ))}
+                                    </div>
+                                  </details>
+                                )}
                               </div>
-                            )}
+                              );
+                            })()}
                           </div>
                         );
                       })}

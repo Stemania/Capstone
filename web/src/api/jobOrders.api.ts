@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { Client, JobOrder, MachineInfo, Operation, User, WorkerSuggestion } from '../types';
+import type { Client, JobOrder, MachineInfo, Operation, ScoringWeights, User, WorkerSuggestion } from '../types';
 
 export const clientsApi = {
   list: (search?: string) =>
@@ -48,8 +48,15 @@ export const workersApi = {
       operationName?: string;
     }
   ) =>
-    apiClient.post<{ suggestions: WorkerSuggestion[] }>('/workers/suggest', {
-      operations,
-      ...extras,
-    }),
+    apiClient.post<{ suggestions: WorkerSuggestion[]; weights: ScoringWeights }>(
+      '/workers/suggest',
+      {
+        operations,
+        ...extras,
+      }
+    ),
+  getScoringWeights: () =>
+    apiClient.get<{ weights: ScoringWeights }>('/workers/scoring-weights'),
+  updateScoringWeights: (weights: ScoringWeights) =>
+    apiClient.put<{ weights: ScoringWeights }>('/workers/scoring-weights', { weights }),
 };

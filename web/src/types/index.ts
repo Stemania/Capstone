@@ -160,6 +160,20 @@ export interface JobOrder {
   operations?: Operation[];
 }
 
+export interface ScoringComponents {
+  skill: number;
+  availability: number;
+  workload: number;
+  efficiency: number;
+}
+
+export interface ScoringWeights {
+  skill: number;
+  availability: number;
+  workload: number;
+  efficiency: number;
+}
+
 export interface WorkerSuggestion {
   workerId: string;
   fullName: string;
@@ -169,6 +183,9 @@ export interface WorkerSuggestion {
   matchedSkills: string[];
   available?: boolean;
   proficiency?: number | null;
+  qualified?: boolean;
+  components?: ScoringComponents;
+  reason?: string;
 }
 
 export interface Tool {

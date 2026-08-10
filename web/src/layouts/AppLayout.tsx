@@ -7,6 +7,7 @@ import {
   TeamOutlined,
   ToolOutlined,
   UserOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
@@ -20,6 +21,10 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/job-orders': { title: 'Job Orders', subtitle: 'Create and manage production job orders' },
   '/users': { title: 'Users & Roles', subtitle: 'Manage accounts and worker skills' },
   '/tools': { title: 'Tools', subtitle: 'Tool registry and QR codes' },
+  '/settings/scoring-weights': {
+    title: 'Scoring Weights',
+    subtitle: 'Tune how worker recommendations are ranked',
+  },
 };
 
 function Brand({ collapsed }: { collapsed: boolean }) {
@@ -64,6 +69,7 @@ export default function AppLayout() {
     menuItems.push(
       { key: '/users', icon: <TeamOutlined />, label: 'Users & Roles' },
       { key: '/tools', icon: <ToolOutlined />, label: 'Tools' },
+      { key: '/settings/scoring-weights', icon: <SettingOutlined />, label: 'Scoring Weights' },
     );
   }
 

@@ -13,6 +13,7 @@ import UsersPage from '../features/users/UsersPage';
 import WorkerDetailPage from '../features/users/WorkerDetailPage';
 import ToolsPage from '../features/tool-tracking/ToolsPage';
 import ScanToolPage from '../features/tool-tracking/ScanToolPage';
+import ScoringWeightsPage from '../features/settings/ScoringWeightsPage';
 
 export default function AppRoutes() {
   return (
@@ -33,6 +34,7 @@ export default function AppRoutes() {
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/users/:id" element={<WorkerDetailPage />} />
                 <Route path="/tools" element={<ToolsPage />} />
+                <Route path="/settings/scoring-weights" element={<ScoringWeightsPage />} />
               </Route>
 
               <Route path="/" element={<Navigate to="/login" replace />} />
