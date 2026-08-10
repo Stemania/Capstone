@@ -3,6 +3,7 @@ import { Table, Button, Typography, Select } from 'antd';
 import { PlusOutlined, EditOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
+import { scheduleFlagStyle } from '../../utils/shopTime';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
@@ -118,16 +119,29 @@ export default function JobOrderListPage() {
       key: 'dueDate',
       width: 112,
       render: (d: string, record: JobOrder) => {
-        const overdue = record.status !== 'COMPLETED' && dayjs(d).isBefore(dayjs(), 'day');
+        const flag = record.scheduleFlag;
+        const st = flag ? scheduleFlagStyle[flag] : null;
         return (
           <span
             style={{
-              fontSize: 13,
-              color: overdue ? '#dc2626' : '#0f172a',
-              fontWeight: overdue ? 600 : 400,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 12,
+              fontWeight: 600,
+              padding: '2px 8px',
+              borderRadius: 6,
+              color: st ? st.color : '#475569',
+              background: st ? st.bg : '#f1f5f9',
+              border: st ? `1px solid ${st.border}` : '1px solid #e2e8f0',
             }}
           >
             {dayjs(d).format('MMM D, YYYY')}
+            {flag && (
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>
+                {flag}
+              </span>
+            )}
           </span>
         );
       },

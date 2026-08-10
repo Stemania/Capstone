@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Form, Input, InputNumber, Button, DatePicker, Select, Typography, Alert, Tag, Spin, Row, Col,
 } from 'antd';
+import { CalendarOutlined } from '@ant-design/icons';
 import { DeleteOutlined, PlusOutlined, StarFilled } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -9,7 +10,18 @@ import { clientsApi, jobOrdersApi, workersApi } from '../../api/jobOrders.api';
 import { operationTypesApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import { MACHINE_OPTIONS } from '../../types';
-import type { Client, MachineInfo, OperationType, User, WorkerSuggestion } from '../../types';
+import ScheduleProposalPanel from './ScheduleProposalPanel';
+import ScheduleWeekView from './ScheduleWeekView';
+import type {
+  Client,
+  MachineInfo,
+  MachineUnitInfo,
+  OperationType,
+  ProposedOperation,
+  ScheduleWarning,
+  User,
+  WorkerSuggestion,
+} from '../../types';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -19,8 +31,11 @@ type OpFormRow = {
   operationTypeId?: string;
   operationName?: string;
   machineTypeId?: string;
+  machineUnitId?: string;
   assignedWorkerId?: string;
   estimatedHours?: number;
+  scheduledStart?: string;
+  scheduledEnd?: string;
   status?: string;
 };
 
@@ -82,9 +97,19 @@ export default function JobOrderFormPage() {
   const [machines, setMachines] = useState<MachineInfo[]>(MACHINE_OPTIONS);
   const [operationTypes, setOperationTypes] = useState<OperationType[]>([]);
   const [rowSuggestions, setRowSuggestions] = useState<Record<number, WorkerSuggestion[]>>({});
+  const [machineUnits, setMachineUnits] = useState<MachineUnitInfo[]>([]);
+  const [scheduleOps, setScheduleOps] = useState<ProposedOperation[] | null>(null);
+  const [scheduleMeta, setScheduleMeta] = useState<{
+    projectedCompletion?: string | null;
+    scheduleFlag?: 'GREEN' | 'AMBER' | 'RED' | null;
+  } | null>(null);
+  const [scheduleApplied, setScheduleApplied] = useState(false);
+  const [scheduleWarnings, setScheduleWarnings] = useState<Record<number, ScheduleWarning[]>>({});
+  const [proposing, setProposing] = useState(false);
   const [loading, setLoading] = useState(isEdit);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [refWarnings, setRefWarnings] = useState<string[]>([]);
   /** Ignore stale GET /workers responses when machine type changes quickly */
   const workerFetchSeq = useRef<Record<number, number>>({});
 
@@ -139,17 +164,32 @@ export default function JobOrderFormPage() {
 
   useEffect(() => {
     const load = async () => {
-      try {
-        const [clientsRes, machinesRes, typesRes] = await Promise.all([
-          clientsApi.list(),
-          jobOrdersApi.machines(),
-          operationTypesApi.list(),
-        ]);
-        setClients(clientsRes.data);
-        setMachines(machinesRes.data);
-        setOperationTypes(typesRes.data);
+      setError('');
+      setRefWarnings([]);
 
-        if (isEdit && id) {
+      const settled = await Promise.allSettled([
+        clientsApi.list(),
+        jobOrdersApi.machines(),
+        operationTypesApi.list(),
+        jobOrdersApi.machineUnits(),
+      ]);
+      const labels = ['clients', 'machines', 'operation types', 'machine units'] as const;
+      const warnings: string[] = [];
+      settled.forEach((result, i) => {
+        if (result.status === 'fulfilled') {
+          const data = result.value.data;
+          if (i === 0) setClients(data as Client[]);
+          else if (i === 1) setMachines(data as MachineInfo[]);
+          else if (i === 2) setOperationTypes(data as OperationType[]);
+          else setMachineUnits(data as MachineUnitInfo[]);
+        } else {
+          warnings.push(`Could not load ${labels[i]}`);
+        }
+      });
+      setRefWarnings(warnings);
+
+      if (isEdit && id) {
+        try {
           const { data: job } = await jobOrdersApi.get(id);
           const ops =
             job.operations?.map((op) => ({
@@ -159,6 +199,9 @@ export default function JobOrderFormPage() {
               machineTypeId: op.machineTypeId || undefined,
               assignedWorkerId: op.assignedWorkerId || undefined,
               estimatedHours: op.estimatedHours ?? undefined,
+              machineUnitId: op.machineUnitId || undefined,
+              scheduledStart: op.scheduledStart || undefined,
+              scheduledEnd: op.scheduledEnd || undefined,
               status: op.status,
             })) || [{ operationTypeId: undefined, operationName: '', machineTypeId: undefined }];
           form.setFieldsValue({
@@ -180,12 +223,12 @@ export default function JobOrderFormPage() {
               : [{ name: '', quantity: undefined, unit: '' }],
             operations: ops,
           });
+        } catch (err) {
+          setError(getErrorMessage(err));
         }
-      } catch (err) {
-        setError(getErrorMessage(err));
-      } finally {
-        setLoading(false);
       }
+
+      setLoading(false);
     };
     load();
   }, [id, isEdit, form]);
@@ -277,6 +320,119 @@ export default function JobOrderFormPage() {
     }
   };
 
+  const buildOperationsPayload = (ops: OpFormRow[]) =>
+    ops.map((op, i) => {
+      const mt = machines.find(
+        (m) => m.id === op.machineTypeId || m.code === op.machineTypeId
+      );
+      const ot = operationTypes.find((t) => t.id === op.operationTypeId);
+      return {
+        id: op.id,
+        sequenceNo: i + 1,
+        operationTypeId: op.operationTypeId || null,
+        operationName: op.operationName || ot?.name,
+        ...(mt?.id
+          ? { machineTypeId: mt.id }
+          : { machinesNeeded: mt ? [mt.code] : [] }),
+        assignedWorkerId: op.assignedWorkerId || null,
+        estimatedHours: op.estimatedHours ?? null,
+        machineUnitId: op.machineUnitId || null,
+        scheduledStart: op.scheduledStart || null,
+        scheduledEnd: op.scheduledEnd || null,
+        status: op.status || 'PENDING',
+      };
+    });
+
+  const runValidateSchedule = async (ops: ProposedOperation[]) => {
+    const dueDate = form.getFieldValue('dueDate');
+    if (!dueDate) return;
+    try {
+      const { data } = await jobOrdersApi.validateSchedule({
+        dueDate: dueDate.format('YYYY-MM-DD'),
+        operations: ops.map((op) => ({
+          sequenceNo: op.sequenceNo,
+          operationName: op.operationName,
+          assignedWorkerId: op.assignedWorkerId,
+          machineTypeId: op.machineTypeId,
+          machineUnitId: op.machineUnitId,
+          scheduledStart: op.scheduledStart,
+          scheduledEnd: op.scheduledEnd,
+        })),
+      });
+      const bySeq: Record<number, ScheduleWarning[]> = {};
+      for (const w of data.warnings || []) {
+        bySeq[w.sequenceNo] = [...(bySeq[w.sequenceNo] || []), w];
+      }
+      setScheduleWarnings(bySeq);
+      if (data.projectedCompletion) {
+        setScheduleMeta((prev) => ({
+          ...prev,
+          projectedCompletion: data.projectedCompletion,
+          scheduleFlag: data.scheduleFlag ?? prev?.scheduleFlag ?? null,
+        }));
+      }
+    } catch {
+      setScheduleWarnings({});
+    }
+  };
+
+  const handleProposeSchedule = async () => {
+    setProposing(true);
+    setError('');
+    setScheduleApplied(false);
+    try {
+      const values = form.getFieldsValue();
+      const opsPayload = buildOperationsPayload(values.operations || []);
+      const dueDate = values.dueDate?.format('YYYY-MM-DD');
+      if (!dueDate) {
+        setError('Set a date required before proposing a schedule.');
+        return;
+      }
+      const { data } = isEdit && id
+        ? await jobOrdersApi.proposeSchedule(id, { operations: opsPayload })
+        : await jobOrdersApi.proposeDraftSchedule({
+            dueDate,
+            excludeJobId: id,
+            operations: opsPayload,
+          });
+      setScheduleOps(data.operations);
+      setScheduleMeta({
+        projectedCompletion: data.projectedCompletion,
+        scheduleFlag: data.scheduleFlag,
+      });
+      setScheduleWarnings({});
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setProposing(false);
+    }
+  };
+
+  const handleApplySchedule = () => {
+    if (!scheduleOps) return;
+    const ops = [...(form.getFieldValue('operations') || [])];
+    for (const proposed of scheduleOps) {
+      const idx = proposed.sequenceNo - 1;
+      if (idx < 0 || idx >= ops.length || !proposed.scheduled) continue;
+      ops[idx] = {
+        ...ops[idx],
+        scheduledStart: proposed.scheduledStart || undefined,
+        scheduledEnd: proposed.scheduledEnd || undefined,
+        machineUnitId: proposed.machineUnitId || undefined,
+        status: ops[idx].status === 'PENDING' ? 'SCHEDULED' : ops[idx].status,
+      };
+    }
+    form.setFieldValue('operations', ops);
+    setScheduleApplied(true);
+  };
+
+  const handleScheduleOpChange = (sequenceNo: number, patch: Partial<ProposedOperation>) => {
+    setScheduleOps((prev) =>
+      (prev || []).map((op) => (op.sequenceNo === sequenceNo ? { ...op, ...patch } : op))
+    );
+    setScheduleApplied(false);
+  };
+
   const onFinish = async (values: {
     clientId: string;
     title: string;
@@ -315,23 +471,7 @@ export default function JobOrderFormPage() {
           quantity: m.quantity,
           unit: m.unit || undefined,
         })),
-      operations: values.operations.map((op, i) => {
-        const mt = machines.find(
-          (m) => m.id === op.machineTypeId || m.code === op.machineTypeId
-        );
-        const ot = operationTypes.find((t) => t.id === op.operationTypeId);
-        return {
-          sequenceNo: i + 1,
-          operationTypeId: op.operationTypeId || null,
-          operationName: op.operationName || ot?.name,
-          ...(mt?.id
-            ? { machineTypeId: mt.id }
-            : { machinesNeeded: mt ? [mt.code] : [] }),
-          assignedWorkerId: op.assignedWorkerId || null,
-          estimatedHours: op.estimatedHours ?? null,
-          status: op.status || 'PENDING',
-        };
-      }),
+      operations: buildOperationsPayload(values.operations),
     };
 
     try {
@@ -374,7 +514,7 @@ export default function JobOrderFormPage() {
   );
 
   return (
-    <div className="jo-page">
+    <div className={`jo-page${scheduleOps ? ' jo-page--with-schedule' : ''}`}>
       <div
         style={{
           display: 'flex',
@@ -392,6 +532,14 @@ export default function JobOrderFormPage() {
       </div>
 
       {error && <Alert type="error" message={error} style={{ marginBottom: 12 }} showIcon />}
+      {refWarnings.length > 0 && (
+        <Alert
+          type="warning"
+          message={refWarnings.join(' · ')}
+          style={{ marginBottom: 12 }}
+          showIcon
+        />
+      )}
 
       <Form
         form={form}
@@ -408,7 +556,14 @@ export default function JobOrderFormPage() {
         }}
         style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
-        <Row gutter={[16, 16]} style={{ flex: 1, minHeight: 0 }}>
+        <Row
+          gutter={[16, 16]}
+          style={
+            scheduleOps
+              ? { flex: '0 0 auto' }
+              : { flex: 1, minHeight: 0 }
+          }
+        >
           <Col xs={24} lg={11} className="jo-col">
             <div
               style={{
@@ -653,6 +808,17 @@ export default function JobOrderFormPage() {
             >
               {sectionTitle('Operations')}
 
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+                <Button
+                  icon={<CalendarOutlined />}
+                  loading={proposing}
+                  onClick={handleProposeSchedule}
+                  style={{ fontWeight: 600 }}
+                >
+                  Propose Schedule
+                </Button>
+              </div>
+
               <Form.List name="operations">
                 {(fields, { add, remove }) => (
                   <>
@@ -886,6 +1052,31 @@ export default function JobOrderFormPage() {
             </div>
           </Col>
         </Row>
+
+        {scheduleOps && (
+          <div style={{ marginTop: 16, flexShrink: 0 }}>
+            <ScheduleProposalPanel
+              operations={scheduleOps}
+              projectedCompletion={scheduleMeta?.projectedCompletion}
+              scheduleFlag={scheduleMeta?.scheduleFlag}
+              scheduleApplied={scheduleApplied}
+              warningsBySeq={scheduleWarnings}
+              onChangeOp={handleScheduleOpChange}
+              onBlurValidate={() => scheduleOps && runValidateSchedule(scheduleOps)}
+              onApply={handleApplySchedule}
+            />
+            <div style={{ marginTop: 14, overflowX: 'auto' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 8 }}>
+                WEEK VIEW
+              </div>
+              <ScheduleWeekView
+                jobTitle={form.getFieldValue('title') || 'Job order'}
+                operations={scheduleOps}
+                machineUnits={machineUnits}
+              />
+            </div>
+          </div>
+        )}
 
         <div
           style={{

@@ -95,6 +95,13 @@ export interface RawMaterial {
   unit?: string;
 }
 
+export type ScheduleFlag = 'GREEN' | 'AMBER' | 'RED';
+
+export interface ScheduleSegment {
+  start: string;
+  end: string;
+}
+
 export interface Operation {
   id: string;
   jobOrderId: string;
@@ -117,6 +124,7 @@ export interface Operation {
   estimatedHours?: number | null;
   scheduledStart?: string | null;
   scheduledEnd?: string | null;
+  segments?: ScheduleSegment[];
   actualStart?: string | null;
   actualEnd?: string | null;
   startedAt?: string;
@@ -129,6 +137,55 @@ export interface Operation {
   name?: string;
   machinesNeeded?: string[];
   machineNames?: string[];
+}
+
+export interface MachineUnitInfo {
+  id: string;
+  machineTypeId: string;
+  machineTypeCode?: string | null;
+  machineTypeName?: string | null;
+  label: string;
+  active?: boolean;
+}
+
+export interface ProposedOperation {
+  id?: string | null;
+  sequenceNo: number;
+  operationName?: string;
+  assignedWorkerId?: string | null;
+  machineTypeId?: string | null;
+  machineUnitId?: string | null;
+  machineUnitLabel?: string | null;
+  estimatedHours?: number;
+  estimatedHoursDefaulted?: boolean;
+  scheduledStart?: string | null;
+  scheduledEnd?: string | null;
+  segments?: ScheduleSegment[];
+  scheduled: boolean;
+  message?: string | null;
+  placeableHours?: number | null;
+  requiredHours?: number | null;
+}
+
+export interface ScheduleProposeResult {
+  proposed: boolean;
+  anchor?: string;
+  horizonDays?: number;
+  projectedCompletion?: string | null;
+  scheduleFlag?: ScheduleFlag | null;
+  operations: ProposedOperation[];
+}
+
+export interface ScheduleWarning {
+  sequenceNo: number;
+  code: string;
+  message: string;
+}
+
+export interface ScheduleValidateResult {
+  warnings: ScheduleWarning[];
+  projectedCompletion?: string | null;
+  scheduleFlag?: ScheduleFlag | null;
 }
 
 export interface JobOrder {
@@ -158,6 +215,8 @@ export interface JobOrder {
   nextOperationWorkerId?: string | null;
   nextOperationWorkerName?: string | null;
   operations?: Operation[];
+  projectedCompletion?: string | null;
+  scheduleFlag?: ScheduleFlag | null;
 }
 
 export interface ScoringComponents {

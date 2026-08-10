@@ -1,5 +1,16 @@
 import apiClient from './client';
-import type { Client, JobOrder, MachineInfo, Operation, ScoringWeights, User, WorkerSuggestion } from '../types';
+import type {
+  Client,
+  JobOrder,
+  MachineInfo,
+  MachineUnitInfo,
+  Operation,
+  ScheduleProposeResult,
+  ScheduleValidateResult,
+  ScoringWeights,
+  User,
+  WorkerSuggestion,
+} from '../types';
 
 export const clientsApi = {
   list: (search?: string) =>
@@ -13,6 +24,13 @@ export const jobOrdersApi = {
     apiClient.get<JobOrder[]>('/job-orders', { params: status ? { status } : {} }),
   get: (id: string) => apiClient.get<JobOrder>(`/job-orders/${id}`),
   machines: () => apiClient.get<MachineInfo[]>('/job-orders/machines'),
+  machineUnits: () => apiClient.get<MachineUnitInfo[]>('/job-orders/machine-units'),
+  proposeSchedule: (jobId: string, body?: Record<string, unknown>) =>
+    apiClient.post<ScheduleProposeResult>(`/job-orders/${jobId}/schedule/propose`, body || {}),
+  proposeDraftSchedule: (body: Record<string, unknown>) =>
+    apiClient.post<ScheduleProposeResult>('/job-orders/schedule/propose', body),
+  validateSchedule: (body: Record<string, unknown>) =>
+    apiClient.post<ScheduleValidateResult>('/job-orders/schedule/validate', body),
   create: (data: Record<string, unknown>) =>
     apiClient.post<JobOrder>('/job-orders', data),
   update: (id: string, data: Record<string, unknown>) =>
