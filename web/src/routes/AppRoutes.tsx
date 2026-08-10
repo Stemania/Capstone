@@ -1,4 +1,6 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Spin } from 'antd';
 import { AuthProvider } from '../hooks/useAuth';
 import { ProtectedRoute } from './ProtectedRoute';
 import AppLayout from '../layouts/AppLayout';
@@ -14,10 +16,28 @@ import WorkerDetailPage from '../features/users/WorkerDetailPage';
 import ToolsPage from '../features/tool-tracking/ToolsPage';
 import ScanToolPage from '../features/tool-tracking/ScanToolPage';
 import ScoringWeightsPage from '../features/settings/ScoringWeightsPage';
-import AnalyticsLayout from '../features/analytics/AnalyticsLayout';
-import AnalyticsOverviewPage from '../features/analytics/AnalyticsOverviewPage';
-import AnalyticsEfficiencyPage from '../features/analytics/AnalyticsEfficiencyPage';
-import AnalyticsDelaysPage from '../features/analytics/AnalyticsDelaysPage';
+
+const AnalyticsLayout = lazy(() => import('../features/analytics/AnalyticsLayout'));
+const AnalyticsOverviewPage = lazy(() => import('../features/analytics/AnalyticsOverviewPage'));
+const AnalyticsEfficiencyPage = lazy(() => import('../features/analytics/AnalyticsEfficiencyPage'));
+const AnalyticsDelaysPage = lazy(() => import('../features/analytics/AnalyticsDelaysPage'));
+const AnalyticsSalesPage = lazy(() => import('../features/analytics/AnalyticsSalesPage'));
+const AnalyticsForecastPage = lazy(() => import('../features/analytics/AnalyticsForecastPage'));
+const AnalyticsCapacityPage = lazy(() => import('../features/analytics/AnalyticsCapacityPage'));
+
+function AnalyticsSuspense({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense
+      fallback={
+        <div style={{ padding: 48, textAlign: 'center' }}>
+          <Spin size="large" />
+        </div>
+      }
+    >
+      {children}
+    </Suspense>
+  );
+}
 
 export default function AppRoutes() {
   return (
@@ -32,10 +52,20 @@ export default function AppRoutes() {
                 <Route path="/job-orders" element={<JobOrderListPage />} />
                 <Route path="/job-orders/new" element={<JobOrderFormPage />} />
                 <Route path="/job-orders/:id/edit" element={<JobOrderFormPage />} />
-                <Route path="/analytics" element={<AnalyticsLayout />}>
+                <Route
+                  path="/analytics"
+                  element={
+                    <AnalyticsSuspense>
+                      <AnalyticsLayout />
+                    </AnalyticsSuspense>
+                  }
+                >
                   <Route index element={<AnalyticsOverviewPage />} />
                   <Route path="efficiency" element={<AnalyticsEfficiencyPage />} />
                   <Route path="delays" element={<AnalyticsDelaysPage />} />
+                  <Route path="sales" element={<AnalyticsSalesPage />} />
+                  <Route path="forecast" element={<AnalyticsForecastPage />} />
+                  <Route path="capacity" element={<AnalyticsCapacityPage />} />
                 </Route>
               </Route>
 

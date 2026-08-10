@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { DatePicker, Segmented } from 'antd';
+import { Suspense, useMemo, useState } from 'react';
+import { DatePicker, Segmented, Spin } from 'antd';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import {
@@ -12,6 +12,9 @@ const TABS = [
   { label: 'Overview', value: '/analytics' },
   { label: 'Efficiency', value: '/analytics/efficiency' },
   { label: 'Delays', value: '/analytics/delays' },
+  { label: 'Sales', value: '/analytics/sales' },
+  { label: 'Forecast', value: '/analytics/forecast' },
+  { label: 'Capacity', value: '/analytics/capacity' },
 ];
 
 export default function AnalyticsLayout() {
@@ -22,6 +25,9 @@ export default function AnalyticsLayout() {
   const active = useMemo(() => {
     if (location.pathname.startsWith('/analytics/efficiency')) return '/analytics/efficiency';
     if (location.pathname.startsWith('/analytics/delays')) return '/analytics/delays';
+    if (location.pathname.startsWith('/analytics/sales')) return '/analytics/sales';
+    if (location.pathname.startsWith('/analytics/forecast')) return '/analytics/forecast';
+    if (location.pathname.startsWith('/analytics/capacity')) return '/analytics/capacity';
     return '/analytics';
   }, [location.pathname]);
 
@@ -56,7 +62,15 @@ export default function AnalyticsLayout() {
             size="large"
           />
         </div>
-        <Outlet />
+        <Suspense
+          fallback={
+            <div style={{ padding: 48, textAlign: 'center' }}>
+              <Spin size="large" />
+            </div>
+          }
+        >
+          <Outlet />
+        </Suspense>
       </div>
     </AnalyticsPeriodProvider>
   );

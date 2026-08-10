@@ -22,7 +22,7 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/job-orders': { title: 'Job Orders', subtitle: 'Create and manage production job orders' },
   '/analytics': {
     title: 'Analytics',
-    subtitle: 'Production efficiency, utilization, and delay diagnostics',
+    subtitle: 'Production efficiency, sales summary, and demand forecasts',
   },
   '/users': { title: 'Users & Roles', subtitle: 'Manage accounts and worker skills' },
   '/tools': { title: 'Tools', subtitle: 'Tool registry and QR codes' },
