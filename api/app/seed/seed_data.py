@@ -15,6 +15,7 @@ from app.models import (
     OperationStatus,
     OperationType,
     PartCondition,
+    ScoringWeight,
     Tool,
     ToolEvent,
     ToolEventType,
@@ -24,6 +25,7 @@ from app.models import (
     WorkerSchedule,
     WorkerSkill,
 )
+from app.models.scoring_weight import DEFAULT_SCORING_WEIGHTS
 from app.models.worker_skill import OPERATION_TYPE_SEED, SKILL_TOKEN_TO_MACHINE
 
 
@@ -101,9 +103,19 @@ def _skills_from_tokens(worker_id, tokens, machines):
     return rows
 
 
+def _ensure_scoring_weights():
+    if ScoringWeight.query.first():
+        return
+    for key, value in DEFAULT_SCORING_WEIGHTS.items():
+        db.session.add(ScoringWeight(key=key, value=value))
+    db.session.flush()
+
+
 def seed_database():
+    _ensure_scoring_weights()
     if User.query.first():
         print("Database already seeded, skipping.")
+        db.session.commit()
         return
 
     machines = _seed_machines()
