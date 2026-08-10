@@ -52,9 +52,7 @@ export default function AppRoutes() {
                 <Route path="/job-orders" element={<JobOrderListPage />} />
                 <Route path="/job-orders/new" element={<JobOrderFormPage />} />
                 <Route path="/job-orders/:id/edit" element={<JobOrderFormPage />} />
-                <Route
-                  path="/analytics"
-                  element={
+                <Route path="/analytics" element={
                     <AnalyticsSuspense>
                       <AnalyticsLayout />
                     </AnalyticsSuspense>
@@ -67,12 +65,12 @@ export default function AppRoutes() {
                   <Route path="forecast" element={<AnalyticsForecastPage />} />
                   <Route path="capacity" element={<AnalyticsCapacityPage />} />
                 </Route>
+                <Route path="/tools" element={<ToolsPage />} />
               </Route>
 
               <Route element={<ProtectedRoute roles={['ADMIN']} />}>
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/users/:id" element={<WorkerDetailPage />} />
-                <Route path="/tools" element={<ToolsPage />} />
                 <Route path="/settings/scoring-weights" element={<ScoringWeightsPage />} />
               </Route>
 

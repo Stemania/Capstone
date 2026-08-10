@@ -25,7 +25,7 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
     subtitle: 'Production efficiency, sales summary, and demand forecasts',
   },
   '/users': { title: 'Users & Roles', subtitle: 'Manage accounts and worker skills' },
-  '/tools': { title: 'Tools', subtitle: 'Tool registry and QR codes' },
+  '/tools': { title: 'Inventory', subtitle: 'Stock levels, QR codes, and usage' },
   '/settings/scoring-weights': {
     title: 'Scoring Weights',
     subtitle: 'Tune how worker recommendations are ranked',
@@ -68,13 +68,13 @@ export default function AppLayout() {
     menuItems.push(
       { key: '/job-orders', icon: <FileTextOutlined />, label: 'Job Orders' },
       { key: '/analytics', icon: <BarChartOutlined />, label: 'Analytics' },
+      { key: '/tools', icon: <ToolOutlined />, label: 'Inventory' },
     );
   }
 
   if (isAdmin) {
     menuItems.push(
       { key: '/users', icon: <TeamOutlined />, label: 'Users & Roles' },
-      { key: '/tools', icon: <ToolOutlined />, label: 'Tools' },
       { key: '/settings/scoring-weights', icon: <SettingOutlined />, label: 'Scoring Weights' },
     );
   }
