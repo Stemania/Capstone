@@ -9,6 +9,8 @@ import {
   UserOutlined,
   SettingOutlined,
   BarChartOutlined,
+  BellOutlined,
+  ContactsOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
@@ -20,6 +22,14 @@ const NAVY = '#0f1c2e';
 
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/job-orders': { title: 'Job Orders', subtitle: 'Create and manage production job orders' },
+  '/clients': {
+    title: 'Clients',
+    subtitle: 'Register clients and notification contacts (no portal login)',
+  },
+  '/notifications': {
+    title: 'Notifications',
+    subtitle: 'Client milestone messages — sent, skipped, and failed',
+  },
   '/analytics': {
     title: 'Analytics',
     subtitle: 'Production efficiency, sales summary, and demand forecasts',
@@ -67,6 +77,8 @@ export default function AppLayout() {
   if (isAdmin || isOfficeStaff) {
     menuItems.push(
       { key: '/job-orders', icon: <FileTextOutlined />, label: 'Job Orders' },
+      { key: '/clients', icon: <ContactsOutlined />, label: 'Clients' },
+      { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
       { key: '/analytics', icon: <BarChartOutlined />, label: 'Analytics' },
       { key: '/tools', icon: <ToolOutlined />, label: 'Inventory' },
     );

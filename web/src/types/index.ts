@@ -57,10 +57,19 @@ export interface Client {
   id: string;
   name: string;
   contact?: string;
+  email?: string | null;
+  mobileNumber?: string | null;
+  notifyByEmail?: boolean;
+  notifyBySms?: boolean;
   createdAt?: string;
 }
 
-export type JobOrderStatus = 'UNASSIGNED' | 'ASSIGNED' | 'IN_PROGRESS' | 'COMPLETED';
+export type JobOrderStatus =
+  | 'UNASSIGNED'
+  | 'ASSIGNED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'DELIVERED';
 export type JobPriority = 'HIGH' | 'MODERATE' | 'LOW';
 export type JobType = 'FABRICATION' | 'MODIFICATION' | 'REPAIR';
 export type MaterialSource = 'SHOP_PROCURED' | 'CLIENT_SUPPLIED';
@@ -235,6 +244,7 @@ export interface JobOrder {
   amount?: number | null;
   rawMaterials?: RawMaterial[];
   createdById?: string;
+  deliveredAt?: string | null;
   createdAt?: string;
   opsCompleted?: number;
   opsTotal?: number;
@@ -244,6 +254,33 @@ export interface JobOrder {
   operations?: Operation[];
   projectedCompletion?: string | null;
   scheduleFlag?: ScheduleFlag | null;
+}
+
+export type NotificationMilestone =
+  | 'JOB_RECEIVED'
+  | 'JOB_STARTED'
+  | 'JOB_COMPLETED'
+  | 'JOB_DELIVERED';
+
+export type NotificationChannel = 'EMAIL' | 'SMS';
+
+export type NotificationStatus = 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED';
+
+export interface NotificationLog {
+  id: string;
+  jobOrderId: string;
+  jobNumber?: string | null;
+  jobTitle?: string | null;
+  clientId: string;
+  clientName?: string | null;
+  milestone: NotificationMilestone;
+  channel: NotificationChannel;
+  recipient: string;
+  messageBody: string;
+  status: NotificationStatus;
+  errorMessage?: string | null;
+  sentAt?: string | null;
+  createdAt?: string | null;
 }
 
 export interface ScoringComponents {

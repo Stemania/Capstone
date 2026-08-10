@@ -16,6 +16,8 @@ import WorkerDetailPage from '../features/users/WorkerDetailPage';
 import ToolsPage from '../features/tool-tracking/ToolsPage';
 import ScanToolPage from '../features/tool-tracking/ScanToolPage';
 import ScoringWeightsPage from '../features/settings/ScoringWeightsPage';
+import ClientsPage from '../features/clients/ClientsPage';
+import NotificationsPage from '../features/notifications/NotificationsPage';
 
 const AnalyticsLayout = lazy(() => import('../features/analytics/AnalyticsLayout'));
 const AnalyticsOverviewPage = lazy(() => import('../features/analytics/AnalyticsOverviewPage'));
@@ -66,6 +68,8 @@ export default function AppRoutes() {
                   <Route path="capacity" element={<AnalyticsCapacityPage />} />
                 </Route>
                 <Route path="/tools" element={<ToolsPage />} />
+                <Route path="/clients" element={<ClientsPage />} />
+                <Route path="/notifications" element={<NotificationsPage />} />
               </Route>
 
               <Route element={<ProtectedRoute roles={['ADMIN']} />}>

@@ -15,8 +15,25 @@ import type {
 export const clientsApi = {
   list: (search?: string) =>
     apiClient.get<Client[]>('/clients', { params: search ? { search } : {} }),
-  create: (data: { name: string; contact?: string }) =>
-    apiClient.post<Client>('/clients', data),
+  create: (data: {
+    name: string;
+    contact?: string;
+    email?: string;
+    mobileNumber?: string;
+    notifyByEmail?: boolean;
+    notifyBySms?: boolean;
+  }) => apiClient.post<Client>('/clients', data),
+  update: (
+    id: string,
+    data: {
+      name?: string;
+      contact?: string;
+      email?: string;
+      mobileNumber?: string;
+      notifyByEmail?: boolean;
+      notifyBySms?: boolean;
+    }
+  ) => apiClient.patch<Client>(`/clients/${id}`, data),
 };
 
 export const jobOrdersApi = {
@@ -35,6 +52,7 @@ export const jobOrdersApi = {
     apiClient.post<JobOrder>('/job-orders', data),
   update: (id: string, data: Record<string, unknown>) =>
     apiClient.patch<JobOrder>(`/job-orders/${id}`, data),
+  deliver: (id: string) => apiClient.post<JobOrder>(`/job-orders/${id}/deliver`),
 };
 
 export const operationsApi = {
