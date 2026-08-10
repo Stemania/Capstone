@@ -62,13 +62,59 @@ from app.models.worker_skill import (
     WorkCalendarException,
     WorkerSkill,
 )
+from app.services.job_order_service import _parse_datetime
 from app.services.operation_service import recompute_variance
 from app.services.schedule_calendar import shop_local_to_utc, shop_now
+from app.services.schedule_service import propose_schedule
 
 TAG = "HIST-SEED"
 PO_PREFIX = f"{TAG}-"
-CLIENT_NAME = f"{TAG} Analytics Client"
 JOB_TITLE_PREFIX = f"[{TAG}]"
+
+# Uneven client mix (~half of jobs on two dominant manufacturing accounts).
+# Names are prefixed with TAG so --wipe removes them via Client.name LIKE 'HIST-SEED%'.
+CLIENT_PROFILES = [
+    {
+        "key": "tosoh",
+        "display": "Tosoh Polyvin Corporation",
+        "jobs": 14,
+        "profile": "manufacturing",
+    },
+    {
+        "key": "sidc",
+        "display": "SIDC",
+        "jobs": 12,
+        "profile": "manufacturing",
+    },
+    {
+        "key": "sanitary",
+        "display": "Sanitary Care",
+        "jobs": 8,
+        "profile": "manufacturing",
+    },
+    {
+        "key": "revery",
+        "display": "Revery Construction",
+        "jobs": 7,
+        "profile": "construction",
+    },
+    {
+        "key": "mmv",
+        "display": "MMV Builders",
+        "jobs": 5,
+        "profile": "construction",
+    },
+    {
+        "key": "aboitiz",
+        "display": "Aboitiz",
+        "jobs": 4,
+        "profile": "mixed",
+    },
+]
+
+
+def _client_seed_name(display: str) -> str:
+    return f"{TAG} {display}"
 
 # ~50 jobs / 8 weeks ≈ 6.25/week
 TARGET_JOBS = 50
@@ -88,6 +134,27 @@ ROUTINGS = [
     ["TURNING", "THREADING", "CHECKING"],
     ["SLOTTING", "DRILLING", "KEYWAY"],
     ["BLANKING", "TURNING", "SURFACE_GRINDING", "HEAT_TREATMENT", "CHECKING"],
+]
+
+# Open pipeline: Lathe/Milling dominate absolute hours; KEYWAY/SPLINE/DRILLING
+# appear often enough that single-unit types become bottlenecks from modest load.
+OPEN_PIPELINE_ROUTINGS = [
+    # Milling-forward (most absolute hours land here via volume × unit count)
+    ["TEETH_CUTTING", "SLOTTING", "GROOVING", "DRILLING", "CHECKING"],
+    ["TEETH_CUTTING", "SLOTTING", "GROOVING", "KEYWAY", "CHECKING"],
+    ["BLANKING", "TEETH_CUTTING", "SLOTTING", "GROOVING", "CHECKING"],
+    ["TEETH_CUTTING", "SLOTTING", "DRILLING", "SPLINE", "CHECKING"],
+    ["GROOVING", "SLOTTING", "TEETH_CUTTING", "SURFACE_GRINDING", "CHECKING"],
+    ["BLANKING", "TEETH_CUTTING", "SLOTTING", "KEYWAY", "CHECKING"],
+    ["TEETH_CUTTING", "SLOTTING", "GROOVING", "DRILLING", "KEYWAY"],
+    # Lathe-forward (Blanking / Turning / Facing / Threading)
+    ["BLANKING", "TURNING", "FACING", "THREADING", "CHECKING"],
+    ["BLANKING", "TURNING", "FACING", "DRILLING", "CHECKING"],
+    ["TURNING", "FACING", "THREADING", "KEYWAY", "CHECKING"],
+    ["BLANKING", "TURNING", "KEYWAY", "DRILLING", "CHECKING"],
+    ["TURNING", "FACING", "TEETH_CUTTING", "SLOTTING", "CHECKING"],
+    ["BLANKING", "TURNING", "FACING", "SPLINE", "CHECKING"],
+    ["BLANKING", "TURNING", "FACING", "THREADING", "DRILLING"],
 ]
 
 JOB_TITLES = [
@@ -231,7 +298,7 @@ def _assert_skill_coverage(catalog):
     machine_workers = catalog["machine_workers"]
     missing = []
     used_machine_codes = set()
-    for route in ROUTINGS:
+    for route in list(ROUTINGS) + list(OPEN_PIPELINE_ROUTINGS):
         for code in route:
             ot = op_types[code]
             if not ot.default_machine_type_id:
@@ -505,20 +572,82 @@ def _emit_segments_with_shifts(op, worker_id, segments, starting_event_done=Fals
     return last_end
 
 
-def _ensure_client():
-    client = Client.query.filter_by(name=CLIENT_NAME).first()
-    if not client:
-        client = Client(name=CLIENT_NAME, contact="hist-seed@local")
-        db.session.add(client)
-        db.session.flush()
-    return client
+def _ensure_clients():
+    """Create or reuse the six HIST-SEED clients. Returns list aligned with CLIENT_PROFILES."""
+    clients = []
+    for profile in CLIENT_PROFILES:
+        name = _client_seed_name(profile["display"])
+        client = Client.query.filter_by(name=name).first()
+        if not client:
+            client = Client(name=name, contact=f"{profile['key']}@hist-seed.local")
+            db.session.add(client)
+            db.session.flush()
+        clients.append(client)
+    return clients
 
 
-def _job_type_mix(rng: random.Random):
+def _job_slots_for_clients(clients, rng: random.Random):
+    """Build a shuffled list of (client, profile_meta) length TARGET_JOBS."""
+    assert sum(p["jobs"] for p in CLIENT_PROFILES) == TARGET_JOBS
+    slots = []
+    for client, profile in zip(clients, CLIENT_PROFILES):
+        for _ in range(profile["jobs"]):
+            slots.append((client, profile))
+    rng.shuffle(slots)
+    return slots
+
+
+def _job_type_mix_for_profile(profile_kind: str, rng: random.Random):
+    """
+    Construction → mostly FABRICATION / shop-procured.
+    Manufacturing → MODIFICATION / REPAIR on client-supplied items.
+    Mixed → balanced.
+    """
     roll = rng.random()
-    if roll < 0.70:
-        return JobType.FABRICATION, MaterialSource.SHOP_PROCURED, PartCondition.RAW_MATERIAL
-    if roll < 0.85:
+    if profile_kind == "construction":
+        if roll < 0.82:
+            return (
+                JobType.FABRICATION,
+                MaterialSource.SHOP_PROCURED,
+                PartCondition.RAW_MATERIAL,
+            )
+        if roll < 0.92:
+            return (
+                JobType.MODIFICATION,
+                MaterialSource.CLIENT_SUPPLIED,
+                PartCondition.CLIENT_SUPPLIED_ITEM,
+            )
+        return (
+            JobType.REPAIR,
+            MaterialSource.CLIENT_SUPPLIED,
+            PartCondition.CLIENT_SUPPLIED_ITEM,
+        )
+    if profile_kind == "manufacturing":
+        if roll < 0.55:
+            return (
+                JobType.MODIFICATION,
+                MaterialSource.CLIENT_SUPPLIED,
+                PartCondition.CLIENT_SUPPLIED_ITEM,
+            )
+        if roll < 0.85:
+            return (
+                JobType.REPAIR,
+                MaterialSource.CLIENT_SUPPLIED,
+                PartCondition.CLIENT_SUPPLIED_ITEM,
+            )
+        return (
+            JobType.FABRICATION,
+            MaterialSource.SHOP_PROCURED,
+            PartCondition.RAW_MATERIAL,
+        )
+    # mixed
+    if roll < 0.45:
+        return (
+            JobType.FABRICATION,
+            MaterialSource.SHOP_PROCURED,
+            PartCondition.RAW_MATERIAL,
+        )
+    if roll < 0.75:
         return (
             JobType.MODIFICATION,
             MaterialSource.CLIENT_SUPPLIED,
@@ -531,12 +660,167 @@ def _job_type_mix(rng: random.Random):
     )
 
 
+def _amount_for_profile(profile_kind: str, rng: random.Random) -> Decimal:
+    """Construction jobs skew larger; manufacturing mid-range; mixed between."""
+    if profile_kind == "construction":
+        # 40k–95k in 1k steps
+        return Decimal(str(rng.randint(40, 95) * 1000))
+    if profile_kind == "manufacturing":
+        return Decimal(str(rng.randint(8, 55) * 1000))
+    return Decimal(str(rng.randint(15, 70) * 1000))
+
+
+def _sample_raw_materials(rng: random.Random, material_source: MaterialSource) -> list:
+    """Shop-procured jobs get bill-of-materials lines; client-supplied often empty."""
+    if material_source == MaterialSource.CLIENT_SUPPLIED and rng.random() < 0.55:
+        return []
+    pool = [
+        ("Mild steel plate", "pcs"),
+        ("Mild steel round bar", "pcs"),
+        ("Stainless steel 304", "pcs"),
+        ("Cast iron blank", "pcs"),
+        ("Bronze bushing stock", "pcs"),
+        ("Welding electrode E6013", "kg"),
+        ("Cutting fluid", "L"),
+    ]
+    n = rng.randint(1, 3)
+    picks = rng.sample(pool, min(n, len(pool)))
+    return [
+        {
+            "name": name,
+            "quantity": rng.choice([1, 2, 3, 4, 6, 8, 10, 12]),
+            "unit": unit,
+        }
+        for name, unit in picks
+    ]
+
+
+def _pick_open_pipeline_route(rng: random.Random) -> list:
+    """Prefer milling- and lathe-heavy routes; keep KEYWAY/SPLINE/DRILLING common."""
+    milling_heavy = [
+        r
+        for r in OPEN_PIPELINE_ROUTINGS
+        if sum(1 for c in r if c in ("TEETH_CUTTING", "SLOTTING", "GROOVING")) >= 2
+    ]
+    lathe_heavy = [r for r in OPEN_PIPELINE_ROUTINGS if r not in milling_heavy]
+    pool = milling_heavy if rng.random() < 0.60 else lathe_heavy
+    route = list(rng.choice(pool or OPEN_PIPELINE_ROUTINGS))
+    # Bottleneck steps: enough for high single-unit util, not the whole shop
+    has_shaper = any(c in ("KEYWAY", "SPLINE") for c in route)
+    has_drill = "DRILLING" in route
+    insert_at = len(route) - 1 if route and route[-1] == "CHECKING" else len(route)
+    if not has_shaper and rng.random() < 0.40:
+        route.insert(insert_at, rng.choice(["KEYWAY", "SPLINE"]))
+        insert_at += 1
+    if not has_drill and rng.random() < 0.50:
+        route.insert(insert_at, "DRILLING")
+    # Extra milling pass on some lathe-led jobs (shop volume on the mill bank)
+    milling_codes = ("TEETH_CUTTING", "SLOTTING", "GROOVING")
+    milling_count = sum(1 for c in route if c in milling_codes)
+    if milling_count < 2 and rng.random() < 0.45:
+        route.insert(
+            insert_at,
+            rng.choice(["TEETH_CUTTING", "SLOTTING", "GROOVING"]),
+        )
+    return route
+
+
+def _scale_open_pipeline_hours(open_jobs, machines, rng: random.Random):
+    """
+    Keep each op on its routing machine type; only scale remaining hours so
+    Lathe/Milling carry the largest absolute load while single-unit types
+    (SHAPER, DRILLING) reach high utilization from fewer ops.
+    """
+    # Per-op hour bands for work still to schedule (4-week horizon ~216h/unit).
+    hour_bands = {
+        "LATHE": (9, 13),
+        "MILLING": (14, 18),
+        "SHAPER": (12, 15),
+        "DRILLING": (12, 15),
+        "GRINDING": (5, 9),
+    }
+    id_to_code = {m.id: code for code, m in machines.items()}
+    for job in open_jobs:
+        for op in job.operations:
+            if op.status not in (
+                OperationStatus.PENDING,
+                OperationStatus.IN_PROGRESS,
+                OperationStatus.SCHEDULED,
+            ):
+                continue
+            code = id_to_code.get(op.machine_type_id)
+            lo, hi = hour_bands.get(code, (4, 8))
+            op.estimated_hours = Decimal(str(rng.randint(lo, hi)))
+            # Let propose_schedule pick the unit
+            op.machine_unit_id = None
+
+
+def _schedule_open_jobs(created_jobs, catalog, machines, rng: random.Random) -> dict:
+    """
+    Run propose_schedule on ASSIGNED / IN_PROGRESS jobs and persist windows.
+    Returns counts for the seed summary.
+    """
+    open_jobs = [
+        j
+        for j in created_jobs
+        if j.status in (JobOrderStatus.ASSIGNED, JobOrderStatus.IN_PROGRESS)
+    ]
+    open_jobs.sort(key=lambda j: (j.due_date, j.id))
+    _scale_open_pipeline_hours(open_jobs, machines, rng)
+    db.session.flush()
+
+    scheduled_ops = 0
+    failed_ops = 0
+    for job in open_jobs:
+        ops = sorted(job.operations, key=lambda o: o.sequence_no)
+        # Ensure workers on every schedulable op before proposing
+        for op in ops:
+            if op.status == OperationStatus.COMPLETED:
+                continue
+            if op.assigned_worker_id:
+                continue
+            mt_code = None
+            if op.machine_type_id:
+                mt = next(
+                    (m for m in machines.values() if m.id == op.machine_type_id),
+                    None,
+                )
+                mt_code = mt.code if mt else None
+            op.assigned_worker_id = _pick_worker(catalog, mt_code, rng)
+
+        db.session.flush()
+        result = propose_schedule(ops, job.due_date, exclude_job_id=job.id)
+        by_id = {r["id"]: r for r in result.get("operations") or [] if r.get("id")}
+        for op in ops:
+            if op.status == OperationStatus.COMPLETED:
+                continue
+            row = by_id.get(op.id)
+            if not row or not row.get("scheduled"):
+                failed_ops += 1
+                continue
+            op.scheduled_start = _parse_datetime(row.get("scheduledStart"))
+            op.scheduled_end = _parse_datetime(row.get("scheduledEnd"))
+            if row.get("machineUnitId"):
+                op.machine_unit_id = row["machineUnitId"]
+            if op.status == OperationStatus.PENDING:
+                op.status = OperationStatus.SCHEDULED
+            scheduled_ops += 1
+        # Flush so the next job's propose_schedule sees these bookings
+        db.session.flush()
+
+    return {
+        "openJobs": len(open_jobs),
+        "scheduledOps": scheduled_ops,
+        "failedOps": failed_ops,
+    }
+
+
 def _status_for_index(i: int, total: int) -> JobOrderStatus:
-    # Most completed; a few in progress; a few assigned-but-not-started
-    # (JobOrder has no PENDING — ops stay PENDING on ASSIGNED jobs).
-    if i >= total - 3:
+    # Larger open pipeline so Lathe/Milling absolute hours are visible in the
+    # 4-week capacity window (~10 ASSIGNED + ~14 IN_PROGRESS).
+    if i >= total - 10:
         return JobOrderStatus.ASSIGNED
-    if i >= total - 7:
+    if i >= total - 24:
         return JobOrderStatus.IN_PROGRESS
     return JobOrderStatus.COMPLETED
 
@@ -546,7 +830,8 @@ def seed_history():
     catalog = _load_catalog()
     _assert_skill_coverage(catalog)
     tendencies = _build_worker_tendencies(catalog, rng)
-    client = _ensure_client()
+    clients = _ensure_clients()
+    client_slots = _job_slots_for_clients(clients, rng)
     creator = catalog["creator"]
     op_types = catalog["op_types"]
     machines = catalog["machines"]
@@ -594,20 +879,30 @@ def seed_history():
     unit_rr = defaultdict(int)
 
     for idx, job_day in enumerate(job_days):
-        route = rng.choice(ROUTINGS)
-        # Trim to 2–5 ops (routings may be longer)
-        n_ops = rng.randint(2, min(5, len(route)))
-        route = route[:n_ops]
-
-        job_type, material, part_cond = _job_type_mix(rng)
+        client, client_profile = client_slots[idx]
         status = _status_for_index(idx, TARGET_JOBS)
+        if status == JobOrderStatus.COMPLETED:
+            route = rng.choice(ROUTINGS)
+            n_ops = rng.randint(2, min(5, len(route)))
+            route = route[:n_ops]
+        else:
+            # Full open-pipeline routes so Lathe/Milling volume is visible
+            route = _pick_open_pipeline_route(rng)
+            n_ops = len(route)
+
+        job_type, material, part_cond = _job_type_mix_for_profile(
+            client_profile["profile"], rng
+        )
         title = f"{JOB_TITLE_PREFIX} {rng.choice(JOB_TITLES)} #{idx + 1:02d}"
         po = f"{PO_PREFIX}{job_day.strftime('%Y%m%d')}-{idx + 1:03d}"
 
         job = JobOrder(
             client_id=client.id,
             title=title,
-            description=f"{TAG} synthetic history for analytics. Routing: {' -> '.join(route)}",
+            description=(
+                f"{TAG} synthetic history for analytics. "
+                f"Client={client_profile['display']}. Routing: {' -> '.join(route)}"
+            ),
             due_date=job_day + timedelta(days=rng.randint(3, 14)),
             client_po_number=po,
             po_date=job_day - timedelta(days=rng.randint(1, 5)),
@@ -620,8 +915,8 @@ def seed_history():
             part_condition=part_cond,
             quantity=Decimal(str(rng.choice([1, 2, 4, 6, 12]))),
             unit_of_measure=rng.choice(["pcs", "lot", "set"]),
-            amount=Decimal(str(rng.randint(5, 80) * 1000)),
-            raw_materials=[{"name": "Mild steel", "quantity": 1, "unit": "pc"}],
+            amount=_amount_for_profile(client_profile["profile"], rng),
+            raw_materials=_sample_raw_materials(rng, material),
             created_by_id=creator.id,
             created_at=shop_local_to_utc(job_day, time(7, 30)),
         )
@@ -665,14 +960,18 @@ def seed_history():
             if status == JobOrderStatus.ASSIGNED:
                 op_status = OperationStatus.PENDING
             elif status == JobOrderStatus.IN_PROGRESS:
-                if seq < n_ops:
+                # Leave most of the route still to run (capacity forecast demo)
+                complete_through = max(1, n_ops // 3)
+                if seq <= complete_through:
                     op_status = OperationStatus.COMPLETED
-                else:
+                elif seq == complete_through + 1:
                     op_status = (
                         OperationStatus.IN_PROGRESS
                         if rng.random() < 0.7
                         else OperationStatus.PENDING
                     )
+                else:
+                    op_status = OperationStatus.PENDING
             else:
                 op_status = OperationStatus.COMPLETED
 
@@ -838,6 +1137,9 @@ def seed_history():
             else:
                 job.due_date = completed_at + timedelta(days=rng.randint(0, 7))
 
+    # Schedule open pipeline via live propose_schedule (capacity forecast demo)
+    schedule_stats = _schedule_open_jobs(created_jobs, catalog, machines, rng)
+
     # Machine downtimes: handful closed + 1–2 open
     all_units = [u for units in catalog["units_by_type"].values() for u in units]
     if all_units:
@@ -918,8 +1220,72 @@ def seed_history():
             f"variance_pct range:  min={min(pcts):.1f}%  "
             f"median={sorted(pcts)[len(pcts) // 2]:.1f}%  max={max(pcts):.1f}%"
         )
-    print("Idempotent tag:      client_po_number / notes / downtime note = HIST-SEED")
+    print("Idempotent tag:      client_po_number / notes / downtime note / client name = HIST-SEED")
+    print(
+        f"Open jobs scheduled: {schedule_stats['openJobs']} jobs, "
+        f"{schedule_stats['scheduledOps']} ops placed, "
+        f"{schedule_stats['failedOps']} failed"
+    )
+    # Client mix for revenue analytics
+    from sqlalchemy import func as sa_func
 
+    client_rows = (
+        db.session.query(
+            Client.name,
+            sa_func.count(JobOrder.id),
+            sa_func.coalesce(sa_func.sum(JobOrder.amount), 0),
+        )
+        .join(JobOrder, JobOrder.client_id == Client.id)
+        .filter(JobOrder.client_po_number.like(f"{PO_PREFIX}%"))
+        .group_by(Client.name)
+        .order_by(sa_func.sum(JobOrder.amount).desc())
+        .all()
+    )
+    print("Clients:")
+    for name, n, revenue in client_rows:
+        print(f"  {n:2d} jobs  revenue={float(revenue):,.0f}  {name}")
+
+    # Capacity demo: projected load next 4 weeks (mirrors demand/capacity math)
+    horizon_from = today
+    horizon_to = today + timedelta(days=27)
+    h_start = shop_local_to_utc(horizon_from, time(0, 0))
+    h_end = shop_local_to_utc(horizon_to, time(23, 59))
+    avail_days = sum(
+        1
+        for i in range((horizon_to - horizon_from).days + 1)
+        if (horizon_from + timedelta(days=i)).weekday() < 6
+    )
+    avail_per_unit = avail_days * 9.0
+    open_scheduled = (
+        JobOperation.query.join(JobOrder)
+        .filter(
+            JobOrder.client_po_number.like(f"{PO_PREFIX}%"),
+            JobOrder.status != JobOrderStatus.COMPLETED,
+            JobOperation.scheduled_start.isnot(None),
+            JobOperation.scheduled_end.isnot(None),
+            JobOperation.scheduled_start < h_end,
+            JobOperation.scheduled_end > h_start,
+            JobOperation.status != OperationStatus.COMPLETED,
+        )
+        .all()
+    )
+    load_by_type = defaultdict(float)
+    for op in open_scheduled:
+        if op.machine_type_id:
+            load_by_type[op.machine_type_id] += float(op.estimated_hours or 0)
+    print(f"Capacity horizon:    {horizon_from} -> {horizon_to} ({avail_days} workdays, {avail_per_unit:.0f}h/unit)")
+    print("projectedLoadPct by machine type:")
+    for code in sorted(machines.keys()):
+        mt = machines[code]
+        n_units = len(catalog["units_by_type"].get(code) or [])
+        avail = avail_per_unit * n_units
+        load = load_by_type.get(mt.id, 0.0)
+        pct = (load / avail * 100.0) if avail else 0.0
+        flag = "  ABOVE80" if pct >= 80 else ""
+        print(
+            f"  {code:10s}  units={n_units}  load={load:6.1f}h  "
+            f"avail={avail:7.1f}h  projectedLoadPct={pct:5.1f}%{flag}"
+        )
 
 def main():
     parser = argparse.ArgumentParser(description="Seed HIST-SEED analytics history (local only).")
