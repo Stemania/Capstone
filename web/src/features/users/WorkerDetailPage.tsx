@@ -7,7 +7,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { usersApi, workerProfileApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
-import type { MachineInfo, User, WorkerSchedule, WorkerSkill } from '../../types';
+import type { User, WorkerSchedule, WorkerSkill } from '../../types';
 
 const { Title, Text } = Typography;
 
@@ -35,7 +35,6 @@ export default function WorkerDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
-  const [machines, setMachines] = useState<MachineInfo[]>([]);
   const [skillRows, setSkillRows] = useState<SkillRow[]>([]);
   const [schedule, setSchedule] = useState<WorkerSchedule[]>(defaultSchedule());
   const [loading, setLoading] = useState(true);
@@ -54,7 +53,6 @@ export default function WorkerDetailPage() {
           workerProfileApi.getSchedule(id).catch(() => ({ data: [] as WorkerSchedule[] })),
         ]);
         setUser(userRes.data);
-        setMachines(machinesRes.data);
 
         const existing = new Map(
           (skillsRes.data || []).map((s) => [s.machineTypeId, s])
