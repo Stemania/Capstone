@@ -109,6 +109,8 @@ def _initial_part_condition(material_source: MaterialSource) -> PartCondition:
 
 
 def derive_job_status(job: JobOrder) -> JobOrderStatus:
+    if job.status == JobOrderStatus.DELIVERED or job.delivered_at:
+        return JobOrderStatus.DELIVERED
     ops = list(job.operations or [])
     if not ops:
         return JobOrderStatus.UNASSIGNED
@@ -271,7 +273,43 @@ def create_job_order(data, created_by_id):
         db.session.flush()
         job.status = derive_job_status(job)
         db.session.commit()
+        from app.models.notification import NotificationMilestone
+        from app.services.notification_service import safe_notify_job_milestone
+
+        safe_notify_job_milestone(job.id, NotificationMilestone.JOB_RECEIVED)
         return get_job_order(job.id, created_by_id, UserRole.OFFICE_STAFF.value)
+    except AppError:
+        db.session.rollback()
+        raise
+    except Exception:
+        db.session.rollback()
+        raise
+
+
+def mark_job_delivered(job):
+    """Office marks the job delivered / ready for pickup. Fires JOB_DELIVERED."""
+    from app.models.notification import NotificationMilestone
+    from app.services.notification_service import safe_notify_job_milestone
+
+    if job.status == JobOrderStatus.DELIVERED or job.delivered_at:
+        return job
+
+    ops = list(job.operations or [])
+    if not ops or not all(op.status == OperationStatus.COMPLETED for op in ops):
+        raise AppError(
+            "All operations must be complete before delivery",
+            "INVALID_TRANSITION",
+            409,
+        )
+
+    try:
+        from datetime import datetime, timezone
+
+        job.status = JobOrderStatus.DELIVERED
+        job.delivered_at = datetime.now(timezone.utc)
+        db.session.commit()
+        safe_notify_job_milestone(job.id, NotificationMilestone.JOB_DELIVERED)
+        return job
     except AppError:
         db.session.rollback()
         raise

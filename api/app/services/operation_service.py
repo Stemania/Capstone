@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from app.extensions import db
+from app.models.job_order import JobOrderStatus
 from app.models.operation import JobOperation, OperationStatus
 from app.models.operation_time import (
     MachineDowntime,
@@ -154,6 +155,8 @@ def start_operation(operation, user_id, user_role, timestamp):
         _assert_unit_not_down(operation.machine_unit_id)
 
     ts = _parse_timestamp(timestamp)
+    job = operation.job_order
+    before_status = job.status
     try:
         operation.status = OperationStatus.IN_PROGRESS
         if not operation.actual_start:
@@ -164,8 +167,16 @@ def start_operation(operation, user_id, user_role, timestamp):
             OperationTimeEvent.START,
             ts,
         )
-        operation.job_order.status = derive_job_status(operation.job_order)
+        job.status = derive_job_status(job)
         db.session.commit()
+        if (
+            before_status != JobOrderStatus.IN_PROGRESS
+            and job.status == JobOrderStatus.IN_PROGRESS
+        ):
+            from app.models.notification import NotificationMilestone
+            from app.services.notification_service import safe_notify_job_milestone
+
+            safe_notify_job_milestone(job.id, NotificationMilestone.JOB_STARTED)
         return operation
     except Exception:
         db.session.rollback()
@@ -272,6 +283,8 @@ def complete_operation(operation, user_id, user_role, timestamp):
         )
 
     ts = _parse_timestamp(timestamp)
+    job = operation.job_order
+    before_status = job.status
     try:
         if not operation.actual_start:
             operation.actual_start = ts
@@ -286,9 +299,17 @@ def complete_operation(operation, user_id, user_role, timestamp):
         # Refresh relationship for variance calc
         db.session.flush()
         recompute_variance(operation)
-        operation.job_order.status = derive_job_status(operation.job_order)
-        advance_part_condition(operation.job_order)
+        job.status = derive_job_status(job)
+        advance_part_condition(job)
         db.session.commit()
+        if (
+            before_status != JobOrderStatus.COMPLETED
+            and job.status == JobOrderStatus.COMPLETED
+        ):
+            from app.models.notification import NotificationMilestone
+            from app.services.notification_service import safe_notify_job_milestone
+
+            safe_notify_job_milestone(job.id, NotificationMilestone.JOB_COMPLETED)
         return operation
     except Exception:
         db.session.rollback()
