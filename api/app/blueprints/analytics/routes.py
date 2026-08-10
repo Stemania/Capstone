@@ -93,3 +93,51 @@ def delays():
             to_s=request.args.get("to"),
         )
     )
+
+
+@analytics_bp.route("/sales/summary", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def sales_summary():
+    return jsonify(
+        analytics.sales_summary(
+            from_s=request.args.get("from"),
+            to_s=request.args.get("to"),
+        )
+    )
+
+
+@analytics_bp.route("/sales/forecast", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def sales_forecast():
+    return jsonify(
+        analytics.sales_forecast(
+            from_s=request.args.get("from"),
+            to_s=request.args.get("to"),
+        )
+    )
+
+
+@analytics_bp.route("/demand/materials", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def demand_materials():
+    return jsonify(
+        analytics.demand_materials(
+            from_s=request.args.get("from"),
+            to_s=request.args.get("to"),
+        )
+    )
+
+
+@analytics_bp.route("/demand/capacity", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def demand_capacity():
+    return jsonify(
+        analytics.demand_capacity(
+            from_s=request.args.get("from"),
+            to_s=request.args.get("to"),
+        )
+    )

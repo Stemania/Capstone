@@ -708,6 +708,388 @@ def delays(from_s=None, to_s=None):
     return payload
 
 
+# --- Sales / demand forecasting (read-only) ---
+
+FORECAST_HORIZON_WEEKS = 4
+THIN_SAMPLE_WEEKS = 8
+CAPACITY_LOAD_FLAG_PCT = 80.0
+
+
+def _working_days_inclusive(d_from: date, d_to: date) -> int:
+    if d_to < d_from:
+        return 0
+    n = 0
+    d = d_from
+    while d <= d_to:
+        if d.weekday() < 6:
+            n += 1
+        d += timedelta(days=1)
+    return n
+
+
+def _month_bounds(year: int, month: int) -> tuple[date, date]:
+    import calendar
+
+    last = calendar.monthrange(year, month)[1]
+    return date(year, month, 1), date(year, month, last)
+
+
+def month_partial_flags(period_from: date, period_to: date, year: int, month: int):
+    """
+    Flag a calendar month as partial when the analytics period does not cover
+    the full month. Returns (partialPeriod, workingDaysCovered).
+    """
+    month_start, month_end = _month_bounds(year, month)
+    cover_start = max(period_from, month_start)
+    cover_end = min(period_to, month_end)
+    if cover_end < cover_start:
+        return True, 0
+    partial = cover_start > month_start or cover_end < month_end
+    return partial, _working_days_inclusive(cover_start, cover_end)
+
+
+def _job_completion_shop_date(job: JobOrder) -> date | None:
+    ends = [
+        o.actual_end
+        for o in (job.operations or [])
+        if o.actual_end and o.status == OperationStatus.COMPLETED
+    ]
+    if not ends:
+        return None
+    return max(ends).astimezone(SHOP_TZ).date()
+
+
+def _expected_completion_shop_date(job: JobOrder) -> date:
+    ends = [o.scheduled_end for o in (job.operations or []) if o.scheduled_end]
+    if ends:
+        return max(ends).astimezone(SHOP_TZ).date()
+    return job.due_date
+
+
+def _completed_jobs_in_period(period_from: date, period_to: date):
+    jobs = (
+        JobOrder.query.filter(JobOrder.status == JobOrderStatus.COMPLETED)
+        .all()
+    )
+    out = []
+    for job in jobs:
+        done = _job_completion_shop_date(job)
+        if done is None:
+            continue
+        if period_from <= done <= period_to:
+            out.append((job, done))
+    return out
+
+
+def sales_summary(from_s=None, to_s=None):
+    period_from, period_to, _start_utc, _end_utc = _parse_period(from_s, to_s)
+    completed = _completed_jobs_in_period(period_from, period_to)
+
+    by_month = defaultdict(lambda: {"amount": 0.0, "jobCount": 0})
+    by_client = defaultdict(lambda: {"amount": 0.0, "jobCount": 0, "name": None})
+    by_job_type = defaultdict(lambda: {"amount": 0.0, "jobCount": 0})
+
+    for job, done in completed:
+        amt = float(job.amount or 0)
+        key = f"{done.year:04d}-{done.month:02d}"
+        by_month[key]["amount"] += amt
+        by_month[key]["jobCount"] += 1
+        cid = job.client_id
+        by_client[cid]["amount"] += amt
+        by_client[cid]["jobCount"] += 1
+        by_client[cid]["name"] = job.client.name if job.client else None
+        jt = job.job_type.value if job.job_type else "UNKNOWN"
+        by_job_type[jt]["amount"] += amt
+        by_job_type[jt]["jobCount"] += 1
+
+    months = []
+    for key in sorted(by_month.keys()):
+        year, month = int(key[:4]), int(key[5:7])
+        partial, wd = month_partial_flags(period_from, period_to, year, month)
+        row = by_month[key]
+        months.append(
+            {
+                "month": key,
+                "jobCount": row["jobCount"],
+                "amount": _num(row["amount"], 2),
+                "partialPeriod": partial,
+                "workingDaysCovered": wd,
+            }
+        )
+
+    clients = []
+    for cid, row in by_client.items():
+        n = row["jobCount"]
+        clients.append(
+            {
+                "clientId": cid,
+                "clientName": row["name"],
+                "jobCount": n,
+                "amount": _num(row["amount"], 2),
+                "averageJobValue": _num(row["amount"] / n, 2) if n else None,
+            }
+        )
+    clients.sort(key=lambda r: -(r["amount"] or 0))
+
+    job_types = []
+    for jt, row in sorted(by_job_type.items()):
+        job_types.append(
+            {
+                "jobType": jt,
+                "jobCount": row["jobCount"],
+                "amount": _num(row["amount"], 2),
+            }
+        )
+
+    total_amount = sum(float(j.amount or 0) for j, _ in completed)
+    payload = {
+        "period": {"from": period_from.isoformat(), "to": period_to.isoformat()},
+        "workingDaysInPeriod": _working_days_inclusive(period_from, period_to),
+        "completedJobCount": len(completed),
+        "totalAmount": _num(total_amount, 2),
+        "byMonth": months,
+        "byClient": clients,
+        "byJobType": job_types,
+    }
+    return payload
+
+
+def sales_forecast(from_s=None, to_s=None):
+    period_from, period_to, _start_utc, _end_utc = _parse_period(from_s, to_s)
+    working_days = _working_days_inclusive(period_from, period_to)
+    sample_weeks = round(working_days / 6.0, 1) if working_days else 0.0
+    thin_sample = sample_weeks < THIN_SAMPLE_WEEKS
+
+    # Committed pipeline: accepted but not delivered (fact)
+    pipeline_jobs = JobOrder.query.filter(
+        JobOrder.status != JobOrderStatus.COMPLETED
+    ).all()
+    by_exp_month = defaultdict(lambda: {"amount": 0.0, "jobCount": 0})
+    pipeline_total = 0.0
+    for job in pipeline_jobs:
+        amt = float(job.amount or 0)
+        pipeline_total += amt
+        exp = _expected_completion_shop_date(job)
+        key = f"{exp.year:04d}-{exp.month:02d}"
+        by_exp_month[key]["amount"] += amt
+        by_exp_month[key]["jobCount"] += 1
+
+    committed = {
+        "label": "committedPipeline",
+        "description": (
+            "Accepted jobs not yet delivered (fact, not a forecast). "
+            "Grouped by expected completion from scheduled_end when present, "
+            "otherwise due_date."
+        ),
+        "totalAmount": _num(pipeline_total, 2),
+        "jobCount": len(pipeline_jobs),
+        "byExpectedCompletionMonth": [
+            {
+                "month": key,
+                "jobCount": by_exp_month[key]["jobCount"],
+                "amount": _num(by_exp_month[key]["amount"], 2),
+            }
+            for key in sorted(by_exp_month.keys())
+        ],
+    }
+
+    completed = _completed_jobs_in_period(period_from, period_to)
+    completed_revenue = sum(float(j.amount or 0) for j, _ in completed)
+    revenue_per_day = (
+        completed_revenue / working_days if working_days > 0 else None
+    )
+    today = shop_now().date()
+    horizon_from = today
+    horizon_to = today + timedelta(days=FORECAST_HORIZON_WEEKS * 7 - 1)
+    horizon_wd = _working_days_inclusive(horizon_from, horizon_to)
+    projected_amount = (
+        revenue_per_day * horizon_wd if revenue_per_day is not None else None
+    )
+
+    projected = {
+        "label": "projectedRevenue",
+        "description": (
+            "Estimate only: trailing average of completed revenue per working day "
+            f"over the sample period, extended across the next {FORECAST_HORIZON_WEEKS} weeks. "
+            "Not equivalent to committed pipeline."
+        ),
+        "sampleCompletedJobs": len(completed),
+        "sampleWorkingDays": working_days,
+        "sampleWeeks": sample_weeks,
+        "revenuePerWorkingDay": _num(revenue_per_day, 2),
+        "horizonWeeks": FORECAST_HORIZON_WEEKS,
+        "horizon": {
+            "from": horizon_from.isoformat(),
+            "to": horizon_to.isoformat(),
+        },
+        "horizonWorkingDays": horizon_wd,
+        "projectedAmount": _num(projected_amount, 2),
+    }
+    if thin_sample:
+        projected["thinSampleNote"] = (
+            f"Sample covers only {sample_weeks} weeks of working days "
+            f"(threshold {THIN_SAMPLE_WEEKS}); treat the projection as illustrative."
+        )
+
+    return {
+        "period": {"from": period_from.isoformat(), "to": period_to.isoformat()},
+        "workingDaysInSample": working_days,
+        "sampleWeeks": sample_weeks,
+        "thinSample": thin_sample,
+        "committedPipeline": committed,
+        "projectedRevenue": projected,
+    }
+
+
+def demand_materials(from_s=None, to_s=None):
+    period_from, period_to, _start_utc, _end_utc = _parse_period(from_s, to_s)
+    working_days = _working_days_inclusive(period_from, period_to)
+
+    def _agg_materials(jobs):
+        # key: (name, unit) -> qty, job ids
+        buckets = defaultdict(lambda: {"quantity": 0.0, "jobIds": set()})
+        for job in jobs:
+            for line in job.raw_materials or []:
+                name = (line.get("name") or "").strip()
+                if not name:
+                    continue
+                unit = (line.get("unit") or "").strip() or None
+                try:
+                    qty = float(line.get("quantity") or 0)
+                except (TypeError, ValueError):
+                    qty = 0.0
+                key = (name, unit)
+                buckets[key]["quantity"] += qty
+                buckets[key]["jobIds"].add(job.id)
+        rows = []
+        for (name, unit), st in buckets.items():
+            rows.append(
+                {
+                    "name": name,
+                    "unit": unit,
+                    "quantity": _num(st["quantity"], 2),
+                    "jobCount": len(st["jobIds"]),
+                }
+            )
+        rows.sort(key=lambda r: (-(r["quantity"] or 0), r["name"]))
+        return rows
+
+    pipeline_jobs = JobOrder.query.filter(
+        JobOrder.status != JobOrderStatus.COMPLETED
+    ).all()
+    completed = [j for j, _ in _completed_jobs_in_period(period_from, period_to)]
+
+    pipeline_rows = _agg_materials(pipeline_jobs)
+    hist_rows = _agg_materials(completed)
+    for row in hist_rows:
+        row["perWorkingDay"] = (
+            _num((row["quantity"] or 0) / working_days, 4) if working_days else None
+        )
+
+    return {
+        "period": {"from": period_from.isoformat(), "to": period_to.isoformat()},
+        "workingDaysInSample": working_days,
+        "pipelineJobCount": len(pipeline_jobs),
+        "pipelineMaterials": pipeline_rows,
+        "historicalConsumption": {
+            "description": (
+                "Materials listed on completed jobs in the sample period "
+                "(not a purchase forecast)."
+            ),
+            "completedJobCount": len(completed),
+            "materials": hist_rows,
+        },
+    }
+
+
+def capacity_type_rows(active_types, units_by_type, load_by_type, available_per_unit):
+    """
+    Build per-type capacity rows.
+    availableHours = availableHoursPerUnit * activeUnitCount (same rule as by-machine).
+    """
+    rows = []
+    for mt in active_types:
+        n = len(units_by_type.get(mt.id) or [])
+        avail = available_per_unit * n
+        load = float(load_by_type.get(mt.id, 0.0) or 0.0)
+        pct = (load / avail * 100.0) if avail > 0 else None
+        rows.append(
+            {
+                "machineTypeId": mt.id,
+                "machineTypeCode": mt.code,
+                "machineTypeName": getattr(mt, "name", None),
+                "activeUnitCount": n,
+                "availableHours": _num(avail, 2),
+                "scheduledLoadHours": _num(load, 2),
+                "projectedLoadPct": _num(pct, 2) if pct is not None else None,
+                "above80Pct": bool(pct is not None and pct >= CAPACITY_LOAD_FLAG_PCT),
+            }
+        )
+    return rows
+
+
+def demand_capacity(from_s=None, to_s=None):
+    """
+    Next-4-weeks load vs available hours × active unit count.
+    Optional from/to are ignored for the horizon (fixed forward window) but
+    accepted for API symmetry; sample metadata still uses shop 'today'.
+    """
+    _ = from_s, to_s  # horizon is always forward-looking
+    today = shop_now().date()
+    horizon_from = today
+    horizon_to = today + timedelta(days=FORECAST_HORIZON_WEEKS * 7 - 1)
+    horizon_wd = _working_days_inclusive(horizon_from, horizon_to)
+    available_per_unit = float(horizon_wd * 9)
+    start_utc = shop_local_to_utc(horizon_from, time(0, 0))
+    end_utc = shop_local_to_utc(horizon_to + timedelta(days=1), time(0, 0))
+
+    active_types = MachineType.query.order_by(MachineType.code).all()
+    active_units = MachineUnit.query.filter_by(active=True).all()
+    units_by_type = defaultdict(list)
+    for u in active_units:
+        units_by_type[u.machine_type_id].append(u)
+
+    scheduled_ops = (
+        JobOperation.query.join(JobOrder)
+        .filter(
+            JobOrder.status != JobOrderStatus.COMPLETED,
+            JobOperation.status != OperationStatus.COMPLETED,
+            JobOperation.scheduled_start.isnot(None),
+            JobOperation.scheduled_end.isnot(None),
+            JobOperation.scheduled_start < end_utc,
+            JobOperation.scheduled_end > start_utc,
+        )
+        .all()
+    )
+    load_by_type = defaultdict(float)
+    for op in scheduled_ops:
+        if op.machine_type_id:
+            load_by_type[op.machine_type_id] += float(op.estimated_hours or 0)
+
+    thin = len(scheduled_ops) == 0
+    machine_types = capacity_type_rows(
+        active_types, units_by_type, load_by_type, available_per_unit
+    )
+
+    payload = {
+        "horizon": {
+            "from": horizon_from.isoformat(),
+            "to": horizon_to.isoformat(),
+        },
+        "horizonWorkingDays": horizon_wd,
+        "availableHoursPerUnit": _num(available_per_unit, 2),
+        "scheduledOperationsInHorizon": len(scheduled_ops),
+        "thinSample": thin,
+        "machineTypes": machine_types,
+    }
+    if thin:
+        payload["thinSampleNote"] = (
+            "No scheduled operations in the next 4 weeks; "
+            "projected load is zero until operations have scheduled windows."
+        )
+    return payload
+
+
 # --- Pure helpers for unit tests ---
 
 def average_variance_pct(operations):

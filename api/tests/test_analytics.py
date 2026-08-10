@@ -1,14 +1,16 @@
 """Unit tests for analytics aggregations."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.services.analytics_service import (
+    CAPACITY_LOAD_FLAG_PCT,
     average_variance_pct,
     filter_by_min_ops,
+    month_partial_flags,
     split_worked_hours,
     type_utilization_pct,
     utilization_from_segments,
@@ -97,3 +99,133 @@ def test_type_level_utilization_is_mean_of_units_and_never_over_100():
     inflated = sum(busy) / available * 100
     assert inflated > type_util
     assert inflated == pytest.approx(type_util * len(busy))
+
+
+def test_partial_months_flagged_for_seeded_range():
+    """Seeded analytics window 2026-06-16..2026-08-11: Jun/Aug partial, Jul full."""
+    period_from = date(2026, 6, 16)
+    period_to = date(2026, 8, 11)
+    jun_partial, jun_wd = month_partial_flags(period_from, period_to, 2026, 6)
+    jul_partial, jul_wd = month_partial_flags(period_from, period_to, 2026, 7)
+    aug_partial, aug_wd = month_partial_flags(period_from, period_to, 2026, 8)
+    assert jun_partial is True
+    assert aug_partial is True
+    assert jul_partial is False
+    assert jun_wd > 0 and aug_wd > 0
+    assert jul_wd > jun_wd and jul_wd > aug_wd
+
+
+def test_committed_pipeline_excludes_completed_jobs():
+    from app.models.job_order import JobOrderStatus
+    from app.services import analytics_service as svc
+
+    completed = SimpleNamespace(
+        id="c1",
+        status=JobOrderStatus.COMPLETED,
+        amount=999,
+        due_date=date(2026, 8, 1),
+        operations=[],
+    )
+    open_job = SimpleNamespace(
+        id="o1",
+        status=JobOrderStatus.IN_PROGRESS,
+        amount=1000,
+        due_date=date(2026, 8, 20),
+        operations=[
+            SimpleNamespace(
+                scheduled_end=datetime(2026, 8, 25, 9, 0, tzinfo=timezone.utc)
+            )
+        ],
+        client=None,
+    )
+
+    mock_job = MagicMock()
+    mock_job.query.filter.return_value.all.return_value = [open_job]
+
+    with (
+        patch.object(svc, "JobOrder", mock_job),
+        patch.object(
+            svc,
+            "_completed_jobs_in_period",
+            return_value=[(completed, date(2026, 7, 1))],
+        ),
+        patch.object(
+            svc,
+            "_parse_period",
+            return_value=(date(2026, 6, 16), date(2026, 8, 11), None, None),
+        ),
+        patch.object(
+            svc, "shop_now", return_value=SimpleNamespace(date=lambda: date(2026, 8, 11))
+        ),
+    ):
+        result = svc.sales_forecast()
+
+    assert result["committedPipeline"]["jobCount"] == 1
+    assert result["committedPipeline"]["totalAmount"] == 1000.0
+    assert result["committedPipeline"]["label"] == "committedPipeline"
+    assert "fact" in result["committedPipeline"]["description"].lower()
+    # Projection states sample size separately from pipeline
+    assert result["projectedRevenue"]["sampleCompletedJobs"] == 1
+    assert result["projectedRevenue"]["sampleWorkingDays"] == result["workingDaysInSample"]
+    assert result["projectedRevenue"]["label"] == "projectedRevenue"
+    assert "estimate" in result["projectedRevenue"]["description"].lower()
+
+
+def test_projection_states_sample_size_and_thin_flag():
+    from app.services import analytics_service as svc
+
+    mock_job = MagicMock()
+    mock_job.query.filter.return_value.all.return_value = []
+
+    with (
+        patch.object(svc, "JobOrder", mock_job),
+        patch.object(svc, "_completed_jobs_in_period", return_value=[]),
+        patch.object(
+            svc,
+            "_parse_period",
+            return_value=(date(2026, 8, 1), date(2026, 8, 7), None, None),
+        ),
+        patch.object(
+            svc, "shop_now", return_value=SimpleNamespace(date=lambda: date(2026, 8, 11))
+        ),
+    ):
+        result = svc.sales_forecast()
+
+    assert result["thinSample"] is True
+    assert result["sampleWeeks"] < 8
+    assert "thinSampleNote" in result["projectedRevenue"]
+    assert result["projectedRevenue"]["sampleWorkingDays"] == result["workingDaysInSample"]
+
+
+def test_capacity_load_uses_unit_count_adjusted_available_hours():
+    from app.services.analytics_service import capacity_type_rows
+
+    mt_shaper = SimpleNamespace(id="t1", code="SHAPER", name="Shaper")
+    mt_lathe = SimpleNamespace(id="t2", code="LATHE", name="Lathe")
+    units_by_type = {
+        "t1": [SimpleNamespace(id="u1")],
+        "t2": [SimpleNamespace(id="u2"), SimpleNamespace(id="u3")],
+    }
+    # 180h on SHAPER (1 unit) → ~83% of 216; 200h on LATHE (2 units) → ~46% of 432
+    load_by_type = {"t1": 180.0, "t2": 200.0}
+    available_per_unit = 216.0
+
+    rows = capacity_type_rows(
+        [mt_shaper, mt_lathe], units_by_type, load_by_type, available_per_unit
+    )
+    by_code = {r["machineTypeCode"]: r for r in rows}
+
+    assert by_code["SHAPER"]["activeUnitCount"] == 1
+    assert by_code["SHAPER"]["availableHours"] == 216.0
+    assert by_code["SHAPER"]["projectedLoadPct"] == pytest.approx(180 / 216 * 100, rel=1e-3)
+    assert by_code["SHAPER"]["above80Pct"] is True
+    assert by_code["SHAPER"]["projectedLoadPct"] >= CAPACITY_LOAD_FLAG_PCT
+
+    assert by_code["LATHE"]["activeUnitCount"] == 2
+    assert by_code["LATHE"]["availableHours"] == 432.0  # 216 * 2, not 216
+    assert by_code["LATHE"]["projectedLoadPct"] == pytest.approx(200 / 432 * 100, rel=1e-3)
+    assert by_code["LATHE"]["above80Pct"] is False
+    # Wrong denominator (ignore unit count) would falsely flag LATHE
+    wrong = 200 / 216 * 100
+    assert wrong > CAPACITY_LOAD_FLAG_PCT
+    assert by_code["LATHE"]["projectedLoadPct"] < CAPACITY_LOAD_FLAG_PCT
