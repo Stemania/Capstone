@@ -4,6 +4,7 @@ from flask_jwt_extended import jwt_required
 from app.middleware.rbac import get_current_user_id, get_current_user_role, require_roles
 from app.models.user import UserRole
 from app.services import job_order_service as jo_service
+from app.services.schedule_service import propose_schedule, validate_schedule
 
 job_orders_bp = Blueprint("job_orders", __name__)
 
@@ -14,6 +15,20 @@ def list_machines():
     from app.constants.machines import get_machine_availability
 
     return jsonify(get_machine_availability())
+
+
+@job_orders_bp.route("/machine-units", methods=["GET"])
+@jwt_required()
+def list_machine_units():
+    from app.models.machine import MachineUnit
+
+    units = (
+        MachineUnit.query.filter_by(active=True)
+        .join(MachineUnit.machine_type)
+        .order_by(MachineUnit.machine_type_id, MachineUnit.label)
+        .all()
+    )
+    return jsonify([u.to_dict() for u in units])
 
 
 @job_orders_bp.route("", methods=["GET"])
@@ -60,3 +75,59 @@ def update_job_order(job_id):
 def list_operations(job_id):
     job = jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
     return jsonify([op.to_dict() for op in job.operations])
+
+
+@job_orders_bp.route("/<job_id>/schedule/propose", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def propose_job_schedule(job_id):
+    job = jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
+    data = request.get_json() or {}
+    operations = data.get("operations")
+    if operations is not None:
+        ops = operations
+    else:
+        ops = list(job.operations)
+    result = propose_schedule(
+        ops,
+        job.due_date,
+        exclude_job_id=job.id,
+        anchor_utc=jo_service._parse_datetime(data.get("anchor")) if data.get("anchor") else None,
+    )
+    return jsonify(result)
+
+
+@job_orders_bp.route("/schedule/propose", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def propose_draft_schedule():
+    data = request.get_json() or {}
+    if not data.get("operations"):
+        return jsonify(
+            {"error": {"code": "VALIDATION_ERROR", "message": "operations is required"}}
+        ), 400
+    due = jo_service._parse_date(data.get("dueDate"))
+    if not due:
+        return jsonify(
+            {"error": {"code": "VALIDATION_ERROR", "message": "dueDate is required"}}
+        ), 400
+    result = propose_schedule(
+        data["operations"],
+        due,
+        exclude_job_id=data.get("excludeJobId"),
+        anchor_utc=jo_service._parse_datetime(data.get("anchor")) if data.get("anchor") else None,
+    )
+    return jsonify(result)
+
+
+@job_orders_bp.route("/schedule/validate", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def validate_job_schedule():
+    data = request.get_json() or {}
+    if not data.get("operations"):
+        return jsonify(
+            {"error": {"code": "VALIDATION_ERROR", "message": "operations is required"}}
+        ), 400
+    due = jo_service._parse_date(data.get("dueDate")) if data.get("dueDate") else None
+    return jsonify(validate_schedule(data["operations"], due_date=due))

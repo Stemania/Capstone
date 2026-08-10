@@ -166,4 +166,14 @@ class JobOrder(db.Model):
         }
         if include_operations:
             data["operations"] = [op.to_dict() for op in ops]
+        scheduled_ends = [op.scheduled_end for op in ops if op.scheduled_end]
+        if scheduled_ends:
+            from app.services.schedule_service import compute_schedule_flag
+
+            projected = max(scheduled_ends)
+            data["projectedCompletion"] = projected.isoformat()
+            data["scheduleFlag"] = compute_schedule_flag(projected, self.due_date)
+        else:
+            data["projectedCompletion"] = None
+            data["scheduleFlag"] = None
         return data
