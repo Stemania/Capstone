@@ -47,6 +47,8 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Main bundle includes Ant Design + Recharts; allow precache above default 2 MiB.
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,ico,svg,png,woff2}'],
         runtimeCaching: [
           {
