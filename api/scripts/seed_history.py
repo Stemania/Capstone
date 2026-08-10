@@ -73,7 +73,7 @@ JOB_TITLE_PREFIX = f"[{TAG}]"
 # ~50 jobs / 8 weeks ≈ 6.25/week
 TARGET_JOBS = 50
 HISTORY_WEEKS = 8
-REWORK_RATE = 0.08
+REWORK_RATE = 0.15
 RNG_SEED = 20260810
 
 
@@ -589,6 +589,7 @@ def seed_history():
     created_ops = []
     rework_count = 0
     variance_ops = 0
+    pending_rework_budget = 2
 
     unit_rr = defaultdict(int)
 
@@ -606,7 +607,7 @@ def seed_history():
         job = JobOrder(
             client_id=client.id,
             title=title,
-            description=f"{TAG} synthetic history for analytics. Routing: {' → '.join(route)}",
+            description=f"{TAG} synthetic history for analytics. Routing: {' -> '.join(route)}",
             due_date=job_day + timedelta(days=rng.randint(3, 14)),
             client_po_number=po,
             po_date=job_day - timedelta(days=rng.randint(1, 5)),
@@ -727,7 +728,8 @@ def seed_history():
                     complete=False,
                 )
 
-        # ~8% of completed jobs: rework one completed op (original stays COMPLETED)
+        # ~8% of completed jobs: rework one completed op (original stays COMPLETED).
+        # Most follow-ons are remachined (COMPLETED, shorter); leave a couple PENDING.
         if status == JobOrderStatus.COMPLETED and rng.random() < REWORK_RATE:
             candidates = [
                 o for o in ops_for_job if o.status == OperationStatus.COMPLETED
@@ -736,16 +738,44 @@ def seed_history():
                 original = rng.choice(candidates)
                 reason = rng.choice(REWORK_REASONS)
                 original.rework_reason = reason
+
+                leave_pending = (
+                    pending_rework_budget > 0
+                    and rework_count >= 2
+                    and rng.random() < 0.55
+                )
+                if leave_pending:
+                    pending_rework_budget -= 1
+
+                mt_code = None
+                if original.machine_type_id:
+                    mt = next(
+                        (
+                            m
+                            for m in machines.values()
+                            if m.id == original.machine_type_id
+                        ),
+                        None,
+                    )
+                    mt_code = mt.code if mt else None
+
+                worker_id = _pick_worker(catalog, mt_code, rng)
+                unit = _pick_unit(catalog, mt_code, rng)
+
                 follow = JobOperation(
                     job_order_id=job.id,
                     sequence_no=max(o.sequence_no for o in ops_for_job) + 1,
                     operation_name=original.operation_name,
                     operation_type_id=original.operation_type_id,
                     machine_type_id=original.machine_type_id,
-                    machine_unit_id=None,
-                    assigned_worker_id=None,
+                    machine_unit_id=unit.id if unit and not leave_pending else None,
+                    assigned_worker_id=worker_id if not leave_pending else None,
                     estimated_hours=original.estimated_hours,
-                    status=OperationStatus.PENDING,
+                    status=(
+                        OperationStatus.PENDING
+                        if leave_pending
+                        else OperationStatus.COMPLETED
+                    ),
                     rework_of_operation_id=original.id,
                     rework_reason=reason,
                     notes=f"{TAG} rework",
@@ -755,7 +785,58 @@ def seed_history():
                 created_ops.append(follow)
                 ops_for_job.append(follow)
                 rework_count += 1
-                job.status = JobOrderStatus.IN_PROGRESS
+
+                if leave_pending:
+                    job.status = JobOrderStatus.IN_PROGRESS
+                else:
+                    # Remachine: typically shorter than the original estimate
+                    est_h = float(original.estimated_hours or 2)
+                    rework_hours = max(0.5, est_h * rng.uniform(0.25, 0.55))
+                    rework_day = cursor_day
+                    if original.actual_end:
+                        end_shop = original.actual_end.astimezone(ZoneInfo("Asia/Manila"))
+                        rework_day = end_shop.date() + timedelta(days=rng.randint(0, 2))
+                    start_t = time(rng.choice([8, 9, 10]), rng.choice([0, 15, 30]))
+                    _build_time_chain(
+                        follow,
+                        worker_id,
+                        rework_day,
+                        start_t,
+                        rework_hours,
+                        rng,
+                        complete=True,
+                    )
+                    db.session.flush()
+                    db.session.refresh(follow)
+                    recompute_variance(follow)
+                    if follow.variance_pct is not None:
+                        variance_ops += 1
+                    job.status = JobOrderStatus.COMPLETED
+
+    # Explicit on-time / late mix for completed jobs (~22% late)
+    completed_for_due = [
+        j for j in created_jobs if j.status == JobOrderStatus.COMPLETED
+    ]
+    if completed_for_due:
+        n_late = max(1, int(round(len(completed_for_due) * 0.22)))
+        late_jobs = set(rng.sample(completed_for_due, min(n_late, len(completed_for_due))))
+        slight_n = max(1, len(late_jobs) // 2)
+        slight_jobs = set(rng.sample(list(late_jobs), min(slight_n, len(late_jobs))))
+        for job in completed_for_due:
+            ends = [
+                o.actual_end
+                for o in job.operations
+                if o.actual_end and o.status == OperationStatus.COMPLETED
+            ]
+            if not ends:
+                continue
+            completed_at = max(ends).astimezone(ZoneInfo("Asia/Manila")).date()
+            if job in slight_jobs:
+                job.due_date = completed_at - timedelta(days=rng.randint(1, 2))
+            elif job in late_jobs:
+                job.due_date = completed_at - timedelta(days=rng.randint(7, 14))
+            else:
+                job.due_date = completed_at + timedelta(days=rng.randint(0, 7))
 
     # Machine downtimes: handful closed + 1–2 open
     all_units = [u for units in catalog["units_by_type"].values() for u in units]
