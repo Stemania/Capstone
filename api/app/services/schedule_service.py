@@ -125,6 +125,13 @@ def _load_external_bookings(exclude_job_id=None, exclude_operation_ids=None):
             worker_busy.setdefault(op.assigned_worker_id, []).extend(intervals)
         if op.machine_unit_id:
             machine_busy.setdefault(op.machine_unit_id, []).extend(intervals)
+
+    # Open machine downtimes block units for scheduling
+    from app.services.operation_service import open_downtime_intervals_by_unit
+
+    for unit_id, intervals in open_downtime_intervals_by_unit().items():
+        machine_busy.setdefault(unit_id, []).extend(intervals)
+
     return worker_busy, machine_busy
 
 

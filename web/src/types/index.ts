@@ -95,6 +95,27 @@ export interface RawMaterial {
   unit?: string;
 }
 
+export type OperationTimeEvent = 'START' | 'PAUSE' | 'RESUME' | 'COMPLETE';
+
+export type OperationPauseReason =
+  | 'END_OF_SHIFT'
+  | 'BREAK'
+  | 'MACHINE_DOWN'
+  | 'WAITING_MATERIAL'
+  | 'WAITING_PRIOR_OPERATION'
+  | 'OTHER';
+
+export interface OperationTimeLog {
+  id: string;
+  operationId: string;
+  workerId: string;
+  workerName?: string | null;
+  event: OperationTimeEvent;
+  eventAt: string;
+  reason?: OperationPauseReason | null;
+  note?: string | null;
+}
+
 export type ScheduleFlag = 'GREEN' | 'AMBER' | 'RED';
 
 export interface ScheduleSegment {
@@ -127,11 +148,17 @@ export interface Operation {
   segments?: ScheduleSegment[];
   actualStart?: string | null;
   actualEnd?: string | null;
+  actualWorkedHours?: number | null;
+  varianceHours?: number | null;
+  variancePct?: number | null;
   startedAt?: string;
   completedAt?: string;
   status: OperationStatus;
   reworkOfOperationId?: string | null;
+  reworkReason?: string | null;
   notes?: string | null;
+  timeLogs?: OperationTimeLog[];
+  isPaused?: boolean;
   /** Legacy aliases */
   seq?: number;
   name?: string;

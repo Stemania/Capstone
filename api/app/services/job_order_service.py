@@ -164,6 +164,7 @@ def get_job_order(job_id, user_id, user_role):
     job = JobOrder.query.options(
         joinedload(JobOrder.operations).joinedload(JobOperation.assigned_worker),
         joinedload(JobOrder.operations).joinedload(JobOperation.machine_type),
+        joinedload(JobOrder.operations).joinedload(JobOperation.time_logs),
         joinedload(JobOrder.client),
     ).get(job_id)
     if not job:

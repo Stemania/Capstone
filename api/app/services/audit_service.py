@@ -7,6 +7,7 @@ from app.extensions import db
 from app.models.audit_log import AuditLog
 from app.models.job_order import JobOrder
 from app.models.operation import JobOperation
+from app.models.operation_time import MachineDowntime, OperationTimeLog
 from app.models.tool import Tool
 from app.models.user import User
 
@@ -84,7 +85,7 @@ def register_audit_listeners():
         return
     from sqlalchemy import event
 
-    for model in (JobOrder, JobOperation, User, Tool):
+    for model in (JobOrder, JobOperation, User, Tool, OperationTimeLog, MachineDowntime):
         event.listen(model, "after_insert", _after_insert)
         event.listen(model, "after_update", _after_update)
         event.listen(model, "after_delete", _after_delete)
