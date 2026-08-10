@@ -70,6 +70,15 @@ def update_job_order(job_id):
     return jsonify(job.to_dict(include_operations=True))
 
 
+@job_orders_bp.route("/<job_id>/deliver", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def deliver_job_order(job_id):
+    job = jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
+    job = jo_service.mark_job_delivered(job)
+    return jsonify(job.to_dict(include_operations=True))
+
+
 @job_orders_bp.route("/<job_id>/operations", methods=["GET"])
 @jwt_required()
 def list_operations(job_id):

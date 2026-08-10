@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Table, Button, Typography, Select } from 'antd';
-import { PlusOutlined, EditOutlined } from '@ant-design/icons';
+import { Table, Button, Typography, Select, Space, message } from 'antd';
+import { PlusOutlined, EditOutlined, CheckOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { scheduleFlagStyle } from '../../utils/shopTime';
@@ -14,6 +14,7 @@ const statusStyle: Record<JobOrderStatus, { label: string; color: PillColor }> =
   ASSIGNED: { label: 'Assigned', color: 'blue' },
   IN_PROGRESS: { label: 'In Progress', color: 'blue' },
   COMPLETED: { label: 'Completed', color: 'green' },
+  DELIVERED: { label: 'Delivered', color: 'green' },
 };
 
 const priorityStyle: Record<JobPriority, { label: string; color: PillColor }> = {
@@ -187,7 +188,10 @@ export default function JobOrderListPage() {
       key: 'status',
       width: 104,
       render: (s: JobOrderStatus, record: JobOrder) => {
-        const overdue = s !== 'COMPLETED' && dayjs(record.dueDate).isBefore(dayjs(), 'day');
+        const overdue =
+          s !== 'COMPLETED' &&
+          s !== 'DELIVERED' &&
+          dayjs(record.dueDate).isBefore(dayjs(), 'day');
         if (overdue) return <StatusPill color="red" compact>Overdue</StatusPill>;
         const st = statusStyle[s];
         return <StatusPill color={st.color} compact>{st.label}</StatusPill>;
@@ -207,19 +211,35 @@ export default function JobOrderListPage() {
       title: 'Actions',
       key: 'actions',
       fixed: 'right' as const,
-      width: 88,
+      width: 168,
       render: (_: unknown, record: JobOrder) => (
-        <Button
-          size="small"
-          icon={<EditOutlined />}
-          className="jo-list-edit-btn"
-          onClick={(e) => {
-            e.stopPropagation();
-            navigate(`/job-orders/${record.id}/edit`);
-          }}
-        >
-          Edit
-        </Button>
+        <Space size={4} onClick={(e) => e.stopPropagation()}>
+          {record.status === 'COMPLETED' && (
+            <Button
+              size="small"
+              icon={<CheckOutlined />}
+              onClick={async () => {
+                try {
+                  await jobOrdersApi.deliver(record.id);
+                  message.success('Marked delivered');
+                  fetchJobs();
+                } catch (err) {
+                  message.error(getErrorMessage(err));
+                }
+              }}
+            >
+              Deliver
+            </Button>
+          )}
+          <Button
+            size="small"
+            icon={<EditOutlined />}
+            className="jo-list-edit-btn"
+            onClick={() => navigate(`/job-orders/${record.id}/edit`)}
+          >
+            Edit
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -238,6 +258,7 @@ export default function JobOrderListPage() {
             { value: 'ASSIGNED', label: 'Assigned' },
             { value: 'IN_PROGRESS', label: 'In Progress' },
             { value: 'COMPLETED', label: 'Completed' },
+            { value: 'DELIVERED', label: 'Delivered' },
           ]}
         />
         <Button
