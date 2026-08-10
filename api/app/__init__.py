@@ -50,6 +50,7 @@ def _register_blueprints(app):
     from app.blueprints.job_orders.routes import job_orders_bp
     from app.blueprints.operations.routes import operations_bp
     from app.blueprints.tools.routes import tools_bp
+    from app.blueprints.inventory.routes import inventory_bp
     from app.blueprints.analytics.routes import analytics_bp
     from app.blueprints.worker_profiles.routes import (
         calendar_bp,
@@ -66,6 +67,7 @@ def _register_blueprints(app):
     app.register_blueprint(job_orders_bp, url_prefix=f"{prefix}/job-orders")
     app.register_blueprint(operations_bp, url_prefix=f"{prefix}/operations")
     app.register_blueprint(tools_bp, url_prefix=f"{prefix}/tools")
+    app.register_blueprint(inventory_bp, url_prefix=f"{prefix}/inventory")
     app.register_blueprint(calendar_bp, url_prefix=f"{prefix}/calendar")
     app.register_blueprint(operation_types_bp, url_prefix=f"{prefix}/operation-types")
     app.register_blueprint(analytics_bp, url_prefix=f"{prefix}/analytics")
