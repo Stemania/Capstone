@@ -34,7 +34,7 @@ function opStatusBadge(
     return { text: 'Scheduled', bg: 'rgba(37,99,235,0.12)', color: colors.accent };
   }
   if (op.status === 'REWORK') {
-    return { text: 'Rework', bg: 'rgba(217,119,6,0.12)', color: '#d97706' };
+    return { text: 'Redo', bg: 'rgba(217,119,6,0.12)', color: '#d97706' };
   }
   return { text: 'Pending', bg: 'rgba(37,99,235,0.12)', color: colors.accent };
 }
@@ -141,7 +141,13 @@ export default function MyAssignmentsPage() {
           <p style={{ color: colors.red }}>{error}</p>
         ) : filtered.length === 0 ? (
           <Empty
-            description={query ? 'No matching operations' : 'No operations in this list'}
+            description={
+              query
+                ? 'No matching assignments'
+                : tab === 'completed'
+                  ? 'No finished assignments yet'
+                  : 'No active assignments yet'
+            }
             style={{ marginTop: 40 }}
           />
         ) : (
@@ -224,7 +230,7 @@ export default function MyAssignmentsPage() {
                     </div>
                     <div>
                       <div style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 2 }}>
-                        Est. Hours
+                        Target hours
                       </div>
                       <div style={{ fontSize: 13, fontWeight: 700 }}>
                         {op.estimatedHours != null ? op.estimatedHours : '—'}

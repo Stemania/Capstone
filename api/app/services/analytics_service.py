@@ -909,9 +909,9 @@ def sales_forecast(from_s=None, to_s=None):
     projected = {
         "label": "projectedRevenue",
         "description": (
-            "Estimate only: trailing average of completed revenue per working day "
-            f"over the sample period, extended across the next {FORECAST_HORIZON_WEEKS} weeks. "
-            "Not equivalent to committed pipeline."
+            "Rough guess from recent finished jobs: average income per shop day, "
+            f"carried forward for the next {FORECAST_HORIZON_WEEKS} weeks. "
+            "Not the same as accepted jobs still open."
         ),
         "sampleCompletedJobs": len(completed),
         "sampleWorkingDays": working_days,
@@ -927,8 +927,8 @@ def sales_forecast(from_s=None, to_s=None):
     }
     if thin_sample:
         projected["thinSampleNote"] = (
-            f"Sample covers only {sample_weeks} weeks of working days "
-            f"(threshold {THIN_SAMPLE_WEEKS}); treat the projection as illustrative."
+            f"Only {sample_weeks} weeks of shop days so far "
+            f"(we like at least {THIN_SAMPLE_WEEKS}). This guess is rough."
         )
 
     return {
@@ -1085,7 +1085,7 @@ def demand_capacity(from_s=None, to_s=None):
     if thin:
         payload["thinSampleNote"] = (
             "No scheduled operations in the next 4 weeks; "
-            "projected load is zero until operations have scheduled windows."
+            "expected workload is zero until open operations have scheduled times."
         )
     return payload
 

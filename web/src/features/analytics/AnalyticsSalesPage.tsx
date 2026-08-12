@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Spin, Table, Typography, message } from 'antd';
+import { Button, Spin, Table, Typography, message } from 'antd';
+import { DownloadOutlined } from '@ant-design/icons';
 import {
   Bar,
   BarChart,
@@ -15,6 +16,7 @@ import {
 import { analyticsApi } from '../../api/analytics.api';
 import { getErrorMessage } from '../../api/client';
 import type { AnalyticsSalesSummary } from '../../types';
+import { exportCsv } from '../../utils/csvExport';
 import { SummaryCard } from './AnalyticsChrome';
 import { formatInt, formatMoney, useAnalyticsPeriod } from './analyticsPeriod';
 
@@ -62,7 +64,7 @@ export default function AnalyticsSalesPage() {
     <div>
       <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 16 }}>
         Period {data.period.from} → {data.period.to} · {data.workingDaysInPeriod} working days ·
-        completed revenue only.
+        income from finished jobs only.
       </Text>
 
       <div
@@ -74,7 +76,7 @@ export default function AnalyticsSalesPage() {
         }}
       >
         <SummaryCard
-          label="Completed revenue"
+          label="Finished-job income"
           value={formatMoney(data.totalAmount)}
           hint={`${formatInt(data.completedJobCount)} jobs`}
         />
@@ -86,7 +88,7 @@ export default function AnalyticsSalesPage() {
         <SummaryCard
           label="Clients"
           value={formatInt(data.byClient.length)}
-          hint="with completed jobs"
+          hint="with finished jobs"
         />
       </div>
 
@@ -116,7 +118,7 @@ function MonthSection({ data }: { data: AnalyticsSalesSummary }) {
   return (
     <section style={{ marginBottom: 28 }}>
       <Title level={5} style={{ marginTop: 0, marginBottom: 8, color: '#0f1c2e' }}>
-        Revenue by month
+        Income by month
       </Title>
       <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
         Solid navy = full month in period. Hatched blue = partial month (working-day count on the
@@ -159,7 +161,7 @@ function MonthSection({ data }: { data: AnalyticsSalesSummary }) {
               tick={AXIS}
               tickFormatter={(v) => formatMoney(v, 0)}
               width={72}
-              label={{ value: 'Revenue', angle: -90, position: 'insideLeft', style: AXIS }}
+              label={{ value: 'Income', angle: -90, position: 'insideLeft', style: AXIS }}
             />
             <Tooltip
               contentStyle={{ fontSize: 13 }}
@@ -168,7 +170,7 @@ function MonthSection({ data }: { data: AnalyticsSalesSummary }) {
                 const suffix = row?.partial
                   ? ` (partial · ${row.workingDays} working days)`
                   : '';
-                return [`${formatMoney(value)}${suffix}`, 'Revenue'];
+                return [`${formatMoney(value)}${suffix}`, 'Income'];
               }}
               labelFormatter={(label) => String(label)}
             />
@@ -179,7 +181,7 @@ function MonthSection({ data }: { data: AnalyticsSalesSummary }) {
                 { value: 'Partial month', type: 'square', color: PARTIAL, id: 'partial' },
               ]}
             />
-            <Bar dataKey="amount" name="Revenue" barSize={40} radius={[3, 3, 0, 0]}>
+            <Bar dataKey="amount" name="Income" barSize={40} radius={[3, 3, 0, 0]}>
               {rows.map((row) => (
                 <Cell
                   key={row.month}
@@ -216,7 +218,7 @@ function ClientSection({ data }: { data: AnalyticsSalesSummary }) {
   return (
     <section style={{ marginBottom: 28 }}>
       <Title level={5} style={{ marginTop: 0, marginBottom: 8, color: '#0f1c2e' }}>
-        Revenue by client
+        Income by client
       </Title>
       <div
         style={{
@@ -239,13 +241,13 @@ function ClientSection({ data }: { data: AnalyticsSalesSummary }) {
               type="number"
               tick={AXIS}
               tickFormatter={(v) => formatMoney(v, 0)}
-              label={{ value: 'Revenue', position: 'insideBottom', offset: -2, style: AXIS }}
+              label={{ value: 'Income', position: 'insideBottom', offset: -2, style: AXIS }}
               height={40}
             />
             <YAxis type="category" dataKey="name" width={150} tick={{ ...AXIS, fontSize: 12 }} />
             <Tooltip
               contentStyle={{ fontSize: 13 }}
-              formatter={(value: number) => [formatMoney(value), 'Revenue']}
+              formatter={(value: number) => [formatMoney(value), 'Income']}
             />
             <Bar dataKey="amount" fill={FULL} barSize={16} radius={[0, 3, 3, 0]}>
               <LabelList
@@ -267,7 +269,7 @@ function ClientSection({ data }: { data: AnalyticsSalesSummary }) {
           { title: 'Client', dataIndex: 'name' },
           { title: 'Jobs', dataIndex: 'jobCount', width: 72, align: 'right' },
           {
-            title: 'Revenue',
+            title: 'Income',
             dataIndex: 'amount',
             width: 120,
             align: 'right',
@@ -282,6 +284,30 @@ function ClientSection({ data }: { data: AnalyticsSalesSummary }) {
           },
         ]}
       />
+      <Button
+        className="no-print"
+        size="small"
+        icon={<DownloadOutlined />}
+        style={{ marginTop: 8 }}
+        onClick={() =>
+          exportCsv(
+            `sales-by-client-${data.period.from}_${data.period.to}.csv`,
+            data.byClient,
+            [
+              { key: 'client', header: 'Client', value: (r) => r.clientName },
+              { key: 'jobs', header: 'JobCount', value: (r) => r.jobCount },
+              { key: 'amount', header: 'Amount', value: (r) => r.amount },
+              {
+                key: 'avg',
+                header: 'AverageJobValue',
+                value: (r) => r.averageJobValue,
+              },
+            ]
+          )
+        }
+      >
+        Export CSV
+      </Button>
     </section>
   );
 }
@@ -291,6 +317,11 @@ function JobTypeSection({ data }: { data: AnalyticsSalesSummary }) {
     () =>
       data.byJobType.map((j) => ({
         ...j,
+        jobTypeLabel:
+          ({ FABRICATION: 'Fabrication', MODIFICATION: 'Modification', REPAIR: 'Repair' } as Record<
+            string,
+            string
+          >)[j.jobType] || j.jobType,
         amount: j.amount ?? 0,
       })),
     [data.byJobType],
@@ -299,7 +330,7 @@ function JobTypeSection({ data }: { data: AnalyticsSalesSummary }) {
   return (
     <section style={{ marginBottom: 8 }}>
       <Title level={5} style={{ marginTop: 0, marginBottom: 8, color: '#0f1c2e' }}>
-        Revenue by job type
+        Income by job type
       </Title>
       <div
         style={{
@@ -314,16 +345,16 @@ function JobTypeSection({ data }: { data: AnalyticsSalesSummary }) {
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={rows} margin={{ top: 12, right: 16, left: 8, bottom: 8 }}>
             <CartesianGrid stroke={GRID} strokeDasharray="3 3" />
-            <XAxis dataKey="jobType" tick={AXIS} />
+            <XAxis dataKey="jobTypeLabel" tick={AXIS} />
             <YAxis
               tick={AXIS}
               tickFormatter={(v) => formatMoney(v, 0)}
               width={72}
-              label={{ value: 'Revenue', angle: -90, position: 'insideLeft', style: AXIS }}
+              label={{ value: 'Income', angle: -90, position: 'insideLeft', style: AXIS }}
             />
             <Tooltip
               contentStyle={{ fontSize: 13 }}
-              formatter={(value: number) => [formatMoney(value), 'Revenue']}
+              formatter={(value: number) => [formatMoney(value), 'Income']}
             />
             <Bar dataKey="amount" fill={JOB_TYPE} barSize={48} radius={[3, 3, 0, 0]}>
               <LabelList
@@ -342,10 +373,10 @@ function JobTypeSection({ data }: { data: AnalyticsSalesSummary }) {
         rowKey="jobType"
         dataSource={rows}
         columns={[
-          { title: 'Job type', dataIndex: 'jobType' },
+          { title: 'Job type', dataIndex: 'jobTypeLabel' },
           { title: 'Jobs', dataIndex: 'jobCount', width: 80, align: 'right' },
           {
-            title: 'Revenue',
+            title: 'Income',
             dataIndex: 'amount',
             width: 140,
             align: 'right',

@@ -92,7 +92,8 @@ export default apiClient;
 export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
     const data = error.response?.data as { error?: { message?: string } };
-    return data?.error?.message || error.message;
+    const apiMsg = data?.error?.message || error.message;
+    if (apiMsg) return apiMsg;
   }
-  return 'An unexpected error occurred';
+  return 'Something went wrong. Please try again, or ask the office if it keeps happening.';
 }

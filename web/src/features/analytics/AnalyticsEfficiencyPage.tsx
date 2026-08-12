@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Segmented, Spin, Table, Typography, message } from 'antd';
+import { Button, Segmented, Spin, Table, Typography, message } from 'antd';
+import { DownloadOutlined } from '@ant-design/icons';
 import {
   Bar,
   BarChart,
@@ -19,8 +20,15 @@ import type {
   AnalyticsByOperationType,
   AnalyticsByWorker,
 } from '../../types';
+import { exportCsv } from '../../utils/csvExport';
 import { AnalyticsPeriodNote } from './AnalyticsChrome';
-import { formatInt, formatPct, useAnalyticsPeriod } from './analyticsPeriod';
+import {
+  formatHours,
+  formatInt,
+  formatPct,
+  formatPctVsTarget,
+  useAnalyticsPeriod,
+} from './analyticsPeriod';
 
 const { Title, Text } = Typography;
 
@@ -124,7 +132,7 @@ function VarianceBarChart({
   }, [rows]);
 
   if (!rows.length) {
-    return <Text type="secondary">No rows meet the minimum operation threshold.</Text>;
+    return <Text type="secondary">Not enough finished operations yet for this chart.</Text>;
   }
 
   return (
@@ -150,7 +158,7 @@ function VarianceBarChart({
             tick={AXIS}
             tickFormatter={(v) => `${v}%`}
             label={{
-              value: 'Average variance % (faster ← 0 → slower)',
+              value: 'Difference from target % (faster ← 0 → slower)',
               position: 'insideBottom',
               offset: -2,
               style: AXIS,
@@ -167,11 +175,11 @@ function VarianceBarChart({
           <ReferenceLine x={0} stroke="#0f1c2e" strokeWidth={1.5} />
           <Tooltip
             contentStyle={{ fontSize: 13 }}
-            formatter={(value: number) => [`${value.toFixed(1)}%`, 'Avg variance']}
+            formatter={(value: number) => [formatPctVsTarget(value), 'Difference from target']}
             labelFormatter={(label, payload) => {
               const row = payload?.[0]?.payload;
               if (!row) return String(label);
-              return `${row.name} · ${row.ops} ops · on-estimate ${row.onEst}`;
+              return `${row.name} · ${row.ops} finished operations · finished close to target ${row.onEst}`;
             }}
           />
           <Bar dataKey="variance" name={nameKey} barSize={16} radius={[0, 3, 3, 0]}>
@@ -185,15 +193,15 @@ function VarianceBarChart({
             <LabelList
               dataKey="variance"
               position="right"
-              formatter={(v: number) => `${v > 0 ? '+' : ''}${v.toFixed(0)}%`}
+              formatter={(v: number) => formatPctVsTarget(v, 0)}
               style={{ fontSize: 11, fill: '#334155' }}
             />
           </Bar>
         </BarChart>
       </ResponsiveContainer>
       <div style={{ fontSize: 12, color: '#64748b', padding: '0 8px 4px' }}>
-        <span style={{ color: FAST, fontWeight: 600 }}>Blue</span> = under estimate (faster).{' '}
-        <span style={{ color: SLOW, fontWeight: 600 }}>Amber</span> = over estimate (slower).
+        <span style={{ color: FAST, fontWeight: 600 }}>Blue</span> = under target (faster).{' '}
+        <span style={{ color: SLOW, fontWeight: 600 }}>Amber</span> = over target (slower).
         Zero is the vertical reference line.
       </div>
     </div>
@@ -207,13 +215,13 @@ function WorkerSection({ data }: { data: AnalyticsByWorker }) {
       name: w.workerName,
       variance: w.averageVariancePct as number,
       ops: w.operationCount,
-      onEst: formatPct(w.onEstimateRatePct).replace('+', ''),
+      onEst: formatPct(w.onEstimateRatePct),
     }));
 
   return (
     <div>
       <Title level={5} style={{ marginTop: 0, color: '#0f1c2e' }}>
-        Average variance by worker
+        Average difference from target by worker
       </Title>
       <VarianceBarChart
         rows={rows}
@@ -228,30 +236,73 @@ function WorkerSection({ data }: { data: AnalyticsByWorker }) {
         dataSource={data.workers}
         columns={[
           { title: 'Worker', dataIndex: 'workerName' },
-          { title: 'Ops', dataIndex: 'operationCount', width: 72, align: 'right' },
+          { title: 'Finished operations', dataIndex: 'operationCount', width: 120, align: 'right' },
           {
-            title: 'Avg variance',
+            title: 'Difference from target',
             dataIndex: 'averageVariancePct',
-            width: 120,
+            width: 170,
+            align: 'right',
+            render: (v: number | null) => formatPctVsTarget(v),
+          },
+          {
+            title: 'Finished close to target',
+            dataIndex: 'onEstimateRatePct',
+            width: 170,
             align: 'right',
             render: (v: number | null) => formatPct(v),
           },
           {
-            title: 'On-estimate rate',
-            dataIndex: 'onEstimateRatePct',
-            width: 130,
-            align: 'right',
-            render: (v: number | null) => formatPct(v).replace('+', ''),
-          },
-          {
-            title: 'Actual worked h',
+            title: 'Hours worked',
             dataIndex: 'totalActualWorkedHours',
             width: 120,
             align: 'right',
-            render: (v: number | null) => (v == null ? '—' : v.toFixed(1)),
+            render: (v: number | null) => formatHours(v),
           },
         ]}
       />
+      <Button
+        className="no-print"
+        size="small"
+        icon={<DownloadOutlined />}
+        style={{ marginTop: 8 }}
+        onClick={() =>
+          exportCsv(
+            `efficiency-by-worker-${data.period.from}_${data.period.to}.csv`,
+            data.workers,
+            [
+              { key: 'workerName', header: 'Worker', value: (r) => r.workerName },
+              { key: 'ops', header: 'FinishedOperations', value: (r) => r.operationCount },
+              {
+                key: 'est',
+                header: 'TargetHours',
+                value: (r) => r.totalEstimatedHours,
+              },
+              {
+                key: 'act',
+                header: 'HoursWorked',
+                value: (r) => r.totalActualWorkedHours,
+              },
+              {
+                key: 'var',
+                header: 'DifferenceFromTargetPct',
+                value: (r) => r.averageVariancePct,
+              },
+              {
+                key: 'onEst',
+                header: 'FinishedCloseToTargetPct',
+                value: (r) => r.onEstimateRatePct,
+              },
+              {
+                key: 'rework',
+                header: 'RedoHours',
+                value: (r) => r.reworkWorkedHours,
+              },
+            ]
+          )
+        }
+      >
+        Export CSV
+      </Button>
     </div>
   );
 }
@@ -263,13 +314,13 @@ function OperationTypeSection({ data }: { data: AnalyticsByOperationType }) {
       name: o.operationTypeName,
       variance: o.averageVariancePct as number,
       ops: o.operationCount,
-      onEst: formatPct(o.onEstimateRatePct).replace('+', ''),
+      onEst: formatPct(o.onEstimateRatePct),
     }));
 
   return (
     <div>
       <Title level={5} style={{ marginTop: 0, color: '#0f1c2e' }}>
-        Average variance by operation type
+        Average difference from target by operation type
       </Title>
       <VarianceBarChart
         rows={rows}
@@ -285,23 +336,66 @@ function OperationTypeSection({ data }: { data: AnalyticsByOperationType }) {
         columns={[
           { title: 'Operation type', dataIndex: 'operationTypeName' },
           { title: 'Code', dataIndex: 'operationTypeCode', width: 140 },
-          { title: 'Ops', dataIndex: 'operationCount', width: 72, align: 'right' },
+          { title: 'Finished operations', dataIndex: 'operationCount', width: 120, align: 'right' },
           {
-            title: 'Avg variance',
+            title: 'Difference from target',
             dataIndex: 'averageVariancePct',
-            width: 120,
+            width: 170,
+            align: 'right',
+            render: (v: number | null) => formatPctVsTarget(v),
+          },
+          {
+            title: 'Finished close to target',
+            dataIndex: 'onEstimateRatePct',
+            width: 170,
             align: 'right',
             render: (v: number | null) => formatPct(v),
           },
-          {
-            title: 'On-estimate rate',
-            dataIndex: 'onEstimateRatePct',
-            width: 130,
-            align: 'right',
-            render: (v: number | null) => formatPct(v).replace('+', ''),
-          },
         ]}
       />
+      <Button
+        className="no-print"
+        size="small"
+        icon={<DownloadOutlined />}
+        style={{ marginTop: 8 }}
+        onClick={() =>
+          exportCsv(
+            `efficiency-by-operation-type-${data.period.from}_${data.period.to}.csv`,
+            data.operationTypes,
+            [
+              {
+                key: 'name',
+                header: 'OperationType',
+                value: (r) => r.operationTypeName,
+              },
+              { key: 'code', header: 'Code', value: (r) => r.operationTypeCode },
+              { key: 'ops', header: 'FinishedOperations', value: (r) => r.operationCount },
+              {
+                key: 'est',
+                header: 'TargetHours',
+                value: (r) => r.totalEstimatedHours,
+              },
+              {
+                key: 'act',
+                header: 'HoursWorked',
+                value: (r) => r.totalActualWorkedHours,
+              },
+              {
+                key: 'var',
+                header: 'DifferenceFromTargetPct',
+                value: (r) => r.averageVariancePct,
+              },
+              {
+                key: 'onEst',
+                header: 'FinishedCloseToTargetPct',
+                value: (r) => r.onEstimateRatePct,
+              },
+            ]
+          )
+        }
+      >
+        Export CSV
+      </Button>
     </div>
   );
 }
@@ -321,8 +415,8 @@ function MachineSection({ data }: { data: AnalyticsByMachine }) {
         ops: u.operationCount,
         below: u.belowMinimumSample,
         varianceLabel: u.belowMinimumSample
-          ? 'insufficient data'
-          : formatPct(u.averageVariancePct),
+          ? 'Not enough finished operations yet'
+          : formatPctVsTarget(u.averageVariancePct),
       }));
   }, [data.machineUnits]);
 
@@ -339,11 +433,15 @@ function MachineSection({ data }: { data: AnalyticsByMachine }) {
   return (
     <div>
       <Title level={5} style={{ marginTop: 0, color: '#0f1c2e' }}>
-        Utilization by machine unit
+        Machine usage by unit
       </Title>
       <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 13 }}>
-        Utilization uses working segments over shop hours × units — not wall-clock span.
-        Type totals: {data.machineTypes.map((t) => `${t.machineTypeCode} ${formatPct(t.utilizationPct).replace('+', '')}`).join(' · ')}.
+        Machine usage is based on time the machine was actually working during shop hours — not
+        calendar time alone. By type:{' '}
+        {data.machineTypes
+          .map((t) => `${t.machineTypeCode} ${formatPct(t.utilizationPct)}`)
+          .join(' · ')}
+        .
       </Text>
 
       {byType.map(([type, rows]) => (
@@ -374,11 +472,11 @@ function MachineSection({ data }: { data: AnalyticsByMachine }) {
                 <YAxis type="category" dataKey="name" width={110} tick={AXIS} />
                 <Tooltip
                   contentStyle={{ fontSize: 13 }}
-                  formatter={(value: number) => [`${value.toFixed(1)}%`, 'Utilization']}
+                  formatter={(value: number) => [`${value.toFixed(1)}%`, 'Machine usage']}
                   labelFormatter={(label, payload) => {
                     const row = payload?.[0]?.payload;
                     return row
-                      ? `${row.name} · ${row.ops} ops · variance: ${row.varianceLabel}`
+                      ? `${row.name} · ${row.ops} finished operations · difference from target: ${row.varianceLabel}`
                       : String(label);
                   }}
                 />
@@ -405,33 +503,69 @@ function MachineSection({ data }: { data: AnalyticsByMachine }) {
           { title: 'Unit', dataIndex: 'machineUnitLabel' },
           { title: 'Type', dataIndex: 'machineTypeCode', width: 100 },
           {
-            title: 'Ops',
+            title: 'Finished operations',
             dataIndex: 'operationCount',
-            width: 64,
+            width: 120,
             align: 'right',
             render: (v: number) => formatInt(v),
           },
           {
-            title: 'Utilization',
+            title: 'Machine usage',
             dataIndex: 'utilizationPct',
-            width: 110,
+            width: 120,
             align: 'right',
-            render: (v: number | null) => formatPct(v).replace('+', ''),
+            render: (v: number | null) => formatPct(v),
           },
           {
-            title: 'Avg variance',
+            title: 'Difference from target',
             dataIndex: 'averageVariancePct',
-            width: 140,
+            width: 180,
             align: 'right',
             render: (v: number | null, row) =>
               row.belowMinimumSample ? (
-                <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>insufficient data</span>
+                <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>
+                  Not enough finished operations yet
+                </span>
               ) : (
-                formatPct(v)
+                formatPctVsTarget(v)
               ),
           },
         ]}
       />
+      <Button
+        className="no-print"
+        size="small"
+        icon={<DownloadOutlined />}
+        style={{ marginTop: 8 }}
+        onClick={() =>
+          exportCsv(
+            `efficiency-by-machine-${data.period.from}_${data.period.to}.csv`,
+            data.machineUnits,
+            [
+              { key: 'unit', header: 'Unit', value: (r) => r.machineUnitLabel },
+              { key: 'type', header: 'Type', value: (r) => r.machineTypeCode },
+              { key: 'ops', header: 'FinishedOperations', value: (r) => r.operationCount },
+              {
+                key: 'util',
+                header: 'MachineUsagePct',
+                value: (r) => r.utilizationPct,
+              },
+              {
+                key: 'var',
+                header: 'DifferenceFromTargetPct',
+                value: (r) => (r.belowMinimumSample ? null : r.averageVariancePct),
+              },
+              {
+                key: 'below',
+                header: 'NotEnoughFinishedOperations',
+                value: (r) => (r.belowMinimumSample ? 'yes' : 'no'),
+              },
+            ]
+          )
+        }
+      >
+        Export CSV
+      </Button>
     </div>
   );
 }

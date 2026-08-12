@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Form, Input, InputNumber, Button, DatePicker, Select, Typography, Alert, Tag, Spin, Row, Col, Modal, message,
+  Form, Input, InputNumber, Button, DatePicker, Select, Typography, Alert, Tag, Spin, Row, Col,
 } from 'antd';
 import { CalendarOutlined } from '@ant-design/icons';
 import { DeleteOutlined, PlusOutlined, StarFilled } from '@ant-design/icons';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { clientsApi, jobOrdersApi, workersApi } from '../../api/jobOrders.api';
-import { operationsApi } from '../../api/operations.api';
 import { operationTypesApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import { MACHINE_OPTIONS } from '../../types';
@@ -17,7 +16,6 @@ import type {
   Client,
   MachineInfo,
   MachineUnitInfo,
-  Operation,
   OperationType,
   ProposedOperation,
   ScheduleWarning,
@@ -112,8 +110,6 @@ export default function JobOrderFormPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [refWarnings, setRefWarnings] = useState<string[]>([]);
-  const [savedOperations, setSavedOperations] = useState<Operation[]>([]);
-  const [reworkLoading, setReworkLoading] = useState<string | null>(null);
   /** Ignore stale GET /workers responses when machine type changes quickly */
   const workerFetchSeq = useRef<Record<number, number>>({});
 
@@ -195,7 +191,6 @@ export default function JobOrderFormPage() {
       if (isEdit && id) {
         try {
           const { data: job } = await jobOrdersApi.get(id);
-          setSavedOperations(job.operations || []);
           const ops =
             job.operations?.map((op) => ({
               id: op.id,
@@ -431,42 +426,6 @@ export default function JobOrderFormPage() {
     setScheduleApplied(true);
   };
 
-  const handleSendRework = (op: Operation) => {
-    let reason = '';
-    Modal.confirm({
-      title: `Send “${op.operationName}” for rework`,
-      content: (
-        <Input.TextArea
-          rows={3}
-          placeholder="Reason for rework"
-          onChange={(e) => {
-            reason = e.target.value;
-          }}
-        />
-      ),
-      okText: 'Create rework operation',
-      onOk: async () => {
-        if (!reason.trim()) {
-          message.error('Reason is required');
-          return Promise.reject();
-        }
-        setReworkLoading(op.id);
-        try {
-          await operationsApi.rework(op.id, reason.trim());
-          if (id) {
-            const { data: job } = await jobOrdersApi.get(id);
-            setSavedOperations(job.operations || []);
-          }
-        } catch (err) {
-          message.error(getErrorMessage(err));
-          return Promise.reject();
-        } finally {
-          setReworkLoading(null);
-        }
-      },
-    });
-  };
-
   const handleScheduleOpChange = (sequenceNo: number, patch: Partial<ProposedOperation>) => {
     setScheduleOps((prev) =>
       (prev || []).map((op) => (op.sequenceNo === sequenceNo ? { ...op, ...patch } : op))
@@ -521,7 +480,7 @@ export default function JobOrderFormPage() {
       } else {
         await jobOrdersApi.create(payload);
       }
-      navigate('/job-orders');
+      navigate(isEdit && id ? `/job-orders/${id}` : '/job-orders');
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -567,9 +526,19 @@ export default function JobOrderFormPage() {
         <Title level={4} style={{ margin: 0 }}>
           {isEdit ? 'Edit Job Order' : 'New Job Order'}
         </Title>
-        <Text type="secondary" style={{ fontSize: 13 }}>
-          Fields marked <span style={{ color: '#dc2626' }}>*</span> are required
-        </Text>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          {isEdit && id && (
+            <>
+              <Link to={`/job-orders/${id}`} style={{ fontSize: 13, fontWeight: 600 }}>
+                ← View job order
+              </Link>
+              <Button onClick={() => navigate(`/job-orders/${id}/print`)}>Print</Button>
+            </>
+          )}
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            Fields marked <span style={{ color: '#dc2626' }}>*</span> are required
+          </Text>
+        </div>
       </div>
 
       {error && <Alert type="error" message={error} style={{ marginBottom: 12 }} showIcon />}
@@ -700,7 +669,7 @@ export default function JobOrderFormPage() {
               </Row>
 
               {isEdit && (
-                <Form.Item name="partCondition" label="Part Condition" style={{ marginBottom: 12 }}>
+                <Form.Item name="partCondition" label="Stage of the part" style={{ marginBottom: 12 }}>
                   <Select
                     disabled
                     options={[
@@ -981,13 +950,13 @@ export default function JobOrderFormPage() {
                                   {...rest}
                                   name={[name, 'estimatedHours']}
                                   style={{ marginBottom: 8 }}
-                                  label={<span style={{ fontSize: 12 }}>Hours</span>}
+                                  label={<span style={{ fontSize: 12 }}>Target hours</span>}
                                 >
                                   <InputNumber
                                     style={{ width: '100%' }}
                                     min={0}
                                     step={0.5}
-                                    placeholder="0"
+                                    placeholder="Target"
                                   />
                                 </Form.Item>
                               </Col>
@@ -1090,73 +1059,6 @@ export default function JobOrderFormPage() {
                   </>
                 )}
               </Form.List>
-
-              {isEdit && savedOperations.length > 0 && (
-                <div style={{ marginTop: 16 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 8 }}>
-                    TIMING & VARIANCE
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {savedOperations.map((op) => {
-                      const est = op.estimatedHours;
-                      const worked = op.actualWorkedHours;
-                      const variance = op.varianceHours;
-                      return (
-                        <div
-                          key={op.id}
-                          style={{
-                            border: '1px solid #e2e8f0',
-                            borderRadius: 8,
-                            padding: 10,
-                            background: '#fff',
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-                            <Text strong style={{ fontSize: 12 }}>
-                              #{op.sequenceNo} {op.operationName}
-                              {op.reworkOfOperationId ? ' (rework)' : ''}
-                            </Text>
-                            <Tag style={{ margin: 0 }}>{op.status}</Tag>
-                          </div>
-                          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>
-                            Est. {est != null ? `${est}h` : '—'}
-                            {' · '}
-                            Worked {worked != null ? `${worked}h` : '—'}
-                            {' · '}
-                            Variance{' '}
-                            {variance != null
-                              ? `${variance > 0 ? '+' : ''}${variance}h${
-                                  op.variancePct != null ? ` (${op.variancePct.toFixed(1)}%)` : ''
-                                }`
-                              : '—'}
-                          </div>
-                          {(op.timeLogs || []).length > 0 && (
-                            <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                              {(op.timeLogs || []).map((log) => (
-                                <span key={log.id} style={{ marginRight: 8 }}>
-                                  {log.event}
-                                  {log.reason ? `/${log.reason}` : ''}{' '}
-                                  {dayjs(log.eventAt).format('MMM D HH:mm')}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          {op.status === 'COMPLETED' && (
-                            <Button
-                              size="small"
-                              style={{ marginTop: 8 }}
-                              loading={reworkLoading === op.id}
-                              onClick={() => handleSendRework(op)}
-                            >
-                              Send for rework
-                            </Button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </div>
           </Col>
         </Row>
@@ -1197,7 +1099,9 @@ export default function JobOrderFormPage() {
             flexShrink: 0,
           }}
         >
-          <Button onClick={() => navigate('/job-orders')}>Cancel</Button>
+          <Button onClick={() => navigate(isEdit && id ? `/job-orders/${id}` : '/job-orders')}>
+            Cancel
+          </Button>
           <Button type="primary" htmlType="submit" loading={submitting} style={{ fontWeight: 600, minWidth: 160 }}>
             {isEdit ? 'Save Changes' : 'Create Job Order'}
           </Button>

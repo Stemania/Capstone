@@ -266,3 +266,151 @@ body {
   height: 32px !important;
   padding: 0 10px !important;
 }
+
+/* —— Reports / job order print —— */
+.report-row-low-stock td {
+  background: #fff7ed !important;
+}
+
+.jo-print-page {
+  background: #e2e8f0;
+  min-height: 100vh;
+}
+
+.jo-print-sheet {
+  background: #fff;
+  max-width: 210mm;
+  margin: 0 auto 24px;
+  padding: 14mm 14mm 12mm;
+  color: #0f172a;
+  font-size: 11px;
+  line-height: 1.35;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+}
+
+.jo-print-letterhead {
+  text-align: center;
+  border-bottom: 2px solid #0f1c2e;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+
+.jo-print-shop-name {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.jo-print-shop-line {
+  font-size: 10px;
+  color: #334155;
+}
+
+.jo-print-title {
+  font-size: 13px;
+  font-weight: 800;
+  margin: 6px 0 8px;
+  text-align: center;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.jo-print-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 16px;
+  margin-bottom: 8px;
+}
+
+.jo-print-block {
+  margin-bottom: 6px;
+}
+
+.jo-print-h2 {
+  font-size: 11px;
+  font-weight: 700;
+  margin: 10px 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #cbd5e1;
+  padding-bottom: 2px;
+}
+
+.jo-print-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  margin-bottom: 6px;
+}
+
+.jo-print-table th,
+.jo-print-table td {
+  border: 1px solid #cbd5e1;
+  padding: 3px 5px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.jo-print-table th {
+  background: #f8fafc;
+  font-weight: 700;
+}
+
+.jo-print-signatures {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.jo-print-sig {
+  text-align: center;
+  font-size: 10px;
+}
+
+.jo-print-sig-line {
+  border-bottom: 1px solid #0f172a;
+  height: 28px;
+  margin-bottom: 4px;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  .jo-print-page {
+    background: #fff !important;
+  }
+
+  .jo-print-sheet {
+    box-shadow: none !important;
+    margin: 0 !important;
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  .report-page .ant-card,
+  .report-page .ant-table-wrapper {
+    break-inside: avoid;
+  }
+
+  /* Hide app chrome when printing reports inside AppLayout */
+  .ant-layout-sider,
+  .ant-layout-header,
+  .report-toolbar {
+    display: none !important;
+  }
+
+  .ant-layout,
+  .ant-layout-content {
+    background: #fff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+}

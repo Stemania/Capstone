@@ -14,13 +14,17 @@ export function AnalyticsPeriodNote({
   excludedOperationCount: number;
   minimumOperationCount?: number;
 }) {
+  const excluded = excludedOperationCount;
   return (
     <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 16 }}>
-      Period {from} → {to}. {excludedOperationCount} completed operation
-      {excludedOperationCount === 1 ? '' : 's'} without an estimate{' '}
-      {excludedOperationCount === 1 ? 'is' : 'are'} excluded from variance metrics
+      Period {from} → {to}.{' '}
+      {excluded === 0
+        ? 'All finished operations in this period had a target time.'
+        : `${excluded} finished operation${excluded === 1 ? '' : 's'} had no target time and ${
+            excluded === 1 ? 'was' : 'were'
+          } not counted`}
       {minimumOperationCount != null
-        ? `; averages require at least ${minimumOperationCount} operations (minOps)`
+        ? `. Averages need at least ${minimumOperationCount} finished operations — fewer than that shows counts only`
         : ''}
       .
     </Text>

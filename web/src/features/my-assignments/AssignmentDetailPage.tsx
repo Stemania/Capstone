@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button, Spin, message } from 'antd';
-import {
-  CheckCircleFilled,
-  FileTextOutlined,
-} from '@ant-design/icons';
+import { CheckCircleFilled, FileTextOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
@@ -252,17 +249,10 @@ export default function AssignmentDetailPage() {
                 Due {dayjs(job.dueDate).format('MMM D, YYYY')}
               </span>
             </div>
-            {(job.quantity != null || job.amount != null) && (
+            {job.quantity != null && (
               <div style={{ fontSize: 12, color: colors.textSecondary, marginTop: 8 }}>
-                {job.quantity != null && (
-                  <>
-                    Qty {job.quantity}
-                    {job.unitOfMeasure ? ` ${job.unitOfMeasure}` : ''}
-                  </>
-                )}
-                {job.quantity != null && job.amount != null && ' · '}
-                {job.amount != null &&
-                  `₱${Number(job.amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`}
+                Qty {job.quantity}
+                {job.unitOfMeasure ? ` ${job.unitOfMeasure}` : ''}
               </div>
             )}
           </div>
@@ -388,7 +378,7 @@ export default function AssignmentDetailPage() {
                             : op.status === 'SCHEDULED'
                               ? 'Scheduled'
                               : op.status === 'REWORK'
-                                ? 'Rework'
+                                ? 'Redo'
                                 : 'Pending'}
                     </span>
                   </div>
@@ -422,7 +412,7 @@ export default function AssignmentDetailPage() {
                   {op.actualWorkedHours != null && done && (
                     <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 10 }}>
                       Worked {op.actualWorkedHours}h
-                      {op.estimatedHours != null ? ` / est. ${op.estimatedHours}h` : ''}
+                      {op.estimatedHours != null ? ` / target ${op.estimatedHours}h` : ''}
                     </div>
                   )}
 

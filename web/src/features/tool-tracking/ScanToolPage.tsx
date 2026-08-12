@@ -6,8 +6,7 @@ import {
   ArrowUpOutlined,
   ArrowDownOutlined,
   QrcodeOutlined,
-  SunOutlined,
-  MoonOutlined,
+  CalendarOutlined,
   LogoutOutlined,
 } from '@ant-design/icons';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -15,6 +14,7 @@ import { toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
 import { useWorkerTheme } from '../../layouts/WorkerLayout';
 import type { Tool, ToolEvent } from '../../types';
+import { useNavigate } from 'react-router-dom';
 
 type CameraState = 'starting' | 'scanning' | 'denied';
 type ScanIntent = 'BORROW' | 'RETURN' | 'ISSUE';
@@ -30,7 +30,8 @@ const corner = (color: string, pos: React.CSSProperties): React.CSSProperties =>
 });
 
 export default function ScanToolPage() {
-  const { colors, mode, toggleMode, logout } = useWorkerTheme();
+  const { colors, logout } = useWorkerTheme();
+  const navigate = useNavigate();
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const [cameraState, setCameraState] = useState<CameraState>('starting');
   const [detectedCode, setDetectedCode] = useState('');
@@ -236,7 +237,9 @@ export default function ScanToolPage() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
-            onClick={toggleMode}
+            type="button"
+            onClick={() => navigate('/schedule')}
+            aria-label="Schedule"
             style={{
               background: 'rgba(255,255,255,0.12)',
               border: 'none',
@@ -245,12 +248,17 @@ export default function ScanToolPage() {
               height: 36,
               borderRadius: 10,
               cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
-            {mode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+            <CalendarOutlined />
           </button>
           <button
+            type="button"
             onClick={logout}
+            aria-label="Log out"
             style={{
               background: 'rgba(255,255,255,0.12)',
               border: 'none',
@@ -368,7 +376,7 @@ export default function ScanToolPage() {
                     .join(' · ')}
                 </div>
                 <div style={{ fontSize: 13, fontWeight: 700, marginTop: 4 }}>
-                  On hand: {detectedTool.quantityOnHand} {detectedTool.unit}
+                  In stock: {detectedTool.quantityOnHand} {detectedTool.unit}
                   {detectedTool.myOutstanding
                     ? ` · You hold ${detectedTool.myOutstanding}`
                     : ''}
@@ -480,7 +488,7 @@ export default function ScanToolPage() {
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 24 }}>
             Qty {result?.quantity}
             {result?.quantityOnHandAfter != null
-              ? ` · ${result.quantityOnHandAfter} left on hand`
+              ? ` · ${result.quantityOnHandAfter} left in stock`
               : ''}
           </div>
           <Button

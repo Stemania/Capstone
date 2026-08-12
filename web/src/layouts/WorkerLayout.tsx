@@ -1,13 +1,13 @@
-import { ConfigProvider, Dropdown, theme as antdTheme } from 'antd';
+import { ConfigProvider, Modal, Popover, theme as antdTheme } from 'antd';
 import {
   LogoutOutlined,
   UnorderedListOutlined,
   QrcodeOutlined,
   ToolOutlined,
-  SunOutlined,
-  MoonOutlined,
+  CalendarOutlined,
   LeftOutlined,
   DownOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
@@ -33,26 +33,6 @@ export interface WorkerPalette {
   inputBg: string;
 }
 
-const darkPalette: WorkerPalette = {
-  bg: '#0b1526',
-  card: '#13223a',
-  cardBorder: '#1e3251',
-  navBg: '#0f1c2e',
-  headerBg: '#0f1c2e',
-  headerText: '#ffffff',
-  accent: '#3b82f6',
-  accentSoft: '#60a5fa',
-  green: '#22c55e',
-  greenSoft: 'rgba(34,197,94,0.15)',
-  amber: '#f59e0b',
-  red: '#ef4444',
-  text: '#ffffff',
-  textSecondary: '#94a3b8',
-  chipBg: 'rgba(255,255,255,0.06)',
-  shadow: 'none',
-  inputBg: '#13223a',
-};
-
 const lightPalette: WorkerPalette = {
   bg: '#f1f5f9',
   card: '#ffffff',
@@ -73,19 +53,13 @@ const lightPalette: WorkerPalette = {
   inputBg: '#ffffff',
 };
 
-type WorkerMode = 'dark' | 'light';
-
 interface WorkerThemeValue {
   colors: WorkerPalette;
-  mode: WorkerMode;
-  toggleMode: () => void;
   logout: () => void;
 }
 
 const WorkerThemeContext = createContext<WorkerThemeValue>({
   colors: lightPalette,
-  mode: 'light',
-  toggleMode: () => {},
   logout: () => {},
 });
 
@@ -98,14 +72,100 @@ export function WorkerPageHeader({
   subtitle,
   onBack,
   right,
+  showSchedule = true,
 }: {
   title: string;
   subtitle?: string;
   onBack?: () => void;
   right?: ReactNode;
+  /** Schedule shortcut in the old dark-mode slot. Hide on the schedule page itself. */
+  showSchedule?: boolean;
 }) {
-  const { colors, mode, toggleMode, logout } = useWorkerTheme();
+  const { colors, logout } = useWorkerTheme();
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const onSchedule = location.pathname.startsWith('/schedule');
+  const [accountOpen, setAccountOpen] = useState(false);
+
+  const accountPanel = (
+    <div style={{ width: 240, padding: '4px 2px 2px' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '10px 8px 14px',
+          borderBottom: '1px solid #e2e8f0',
+          marginBottom: 10,
+        }}
+      >
+        <div
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: '50%',
+            background: '#0f1c2e',
+            color: '#fff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 20,
+            flexShrink: 0,
+          }}
+        >
+          <UserOutlined />
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 15,
+              fontWeight: 700,
+              color: '#0f172a',
+              lineHeight: 1.25,
+              wordBreak: 'break-word',
+            }}
+          >
+            {user?.fullName}
+          </div>
+          <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>Worker</div>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          setAccountOpen(false);
+          Modal.confirm({
+            title: 'Log out?',
+            content: 'You will need to sign in again to see your jobs.',
+            okText: 'Log out',
+            okButtonProps: { danger: true },
+            cancelText: 'Stay signed in',
+            centered: true,
+            onOk: () => logout(),
+          });
+        }}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          padding: '11px 12px',
+          border: 'none',
+          borderRadius: 10,
+          background: '#dc2626',
+          color: '#fff',
+          fontSize: 14,
+          fontWeight: 700,
+          cursor: 'pointer',
+        }}
+      >
+        <LogoutOutlined />
+        Log out
+      </button>
+    </div>
+  );
 
   return (
     <header
@@ -143,37 +203,44 @@ export function WorkerPageHeader({
           )}
         </div>
         {right}
-        <button
-          onClick={toggleMode}
-          aria-label="Toggle theme"
-          style={{
-            background: 'rgba(255,255,255,0.08)',
-            border: 'none',
-            color: colors.headerText,
-            width: 36,
-            height: 36,
-            borderRadius: 10,
-            cursor: 'pointer',
-            fontSize: 16,
-            flexShrink: 0,
-          }}
-        >
-          {mode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
-        </button>
+        {showSchedule && !onSchedule && (
+          <button
+            type="button"
+            onClick={() => navigate('/schedule')}
+            aria-label="Schedule"
+            title="Schedule"
+            style={{
+              background: 'rgba(255,255,255,0.08)',
+              border: 'none',
+              color: colors.headerText,
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              cursor: 'pointer',
+              fontSize: 16,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <CalendarOutlined />
+          </button>
+        )}
         {user?.fullName && (
-          <Dropdown
-            trigger={['click']}
+          <Popover
+            trigger="click"
             placement="bottomRight"
-            menu={{
-              items: [
-                {
-                  key: 'logout',
-                  icon: <LogoutOutlined />,
-                  label: 'Log out',
-                  danger: true,
-                  onClick: logout,
-                },
-              ],
+            open={accountOpen}
+            onOpenChange={setAccountOpen}
+            arrow={{ pointAtCenter: true }}
+            content={accountPanel}
+            styles={{
+              container: {
+                padding: 12,
+                borderRadius: 14,
+                boxShadow: '0 8px 28px rgba(15,23,42,0.18)',
+              },
             }}
           >
             <button
@@ -186,7 +253,7 @@ export function WorkerPageHeader({
                 padding: '7px 8px 7px 12px',
                 flexShrink: 0,
                 background: 'rgba(255,255,255,0.1)',
-                border: 'none',
+                border: accountOpen ? '1px solid rgba(255,255,255,0.35)' : '1px solid transparent',
                 borderRadius: 999,
                 color: colors.headerText,
                 cursor: 'pointer',
@@ -208,7 +275,7 @@ export function WorkerPageHeader({
               </div>
               <DownOutlined style={{ fontSize: 11, opacity: 0.75, flexShrink: 0 }} />
             </button>
-          </Dropdown>
+          </Popover>
         )}
       </div>
     </header>
@@ -219,18 +286,8 @@ export default function WorkerLayout() {
   const { logout: authLogout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [mode, setMode] = useState<WorkerMode>(
-    () => (localStorage.getItem('workerTheme') as WorkerMode) || 'light'
-  );
-
-  const colors = mode === 'dark' ? darkPalette : lightPalette;
+  const colors = lightPalette;
   const isScan = location.pathname.startsWith('/scan');
-
-  const toggleMode = () => {
-    const next = mode === 'dark' ? 'light' : 'dark';
-    setMode(next);
-    localStorage.setItem('workerTheme', next);
-  };
 
   const logout = () => {
     authLogout();
@@ -238,16 +295,29 @@ export default function WorkerLayout() {
   };
 
   const tabs = [
-    { key: '/my-assignments', label: 'Jobs', icon: <UnorderedListOutlined style={{ fontSize: 26 }} /> },
-    { key: '/scan', label: 'Scan Tool', icon: <QrcodeOutlined style={{ fontSize: 28 }} />, center: true },
-    { key: '/my-tools', label: 'Tools', icon: <ToolOutlined style={{ fontSize: 26 }} /> },
+    {
+      key: '/my-assignments',
+      label: 'Jobs',
+      icon: <UnorderedListOutlined style={{ fontSize: 24 }} />,
+    },
+    {
+      key: '/scan',
+      label: 'Scan',
+      icon: <QrcodeOutlined style={{ fontSize: 28 }} />,
+      center: true,
+    },
+    {
+      key: '/my-tools',
+      label: 'Tools',
+      icon: <ToolOutlined style={{ fontSize: 24 }} />,
+    },
   ];
 
   return (
-    <WorkerThemeContext.Provider value={{ colors, mode, toggleMode, logout }}>
+    <WorkerThemeContext.Provider value={{ colors, logout }}>
       <ConfigProvider
         theme={{
-          algorithm: mode === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+          algorithm: antdTheme.defaultAlgorithm,
           token: {
             colorPrimary: colors.accent,
             colorBgContainer: colors.card,
@@ -278,19 +348,26 @@ export default function WorkerLayout() {
               left: 0,
               right: 0,
               display: 'flex',
-              justifyContent: 'space-around',
+              justifyContent: 'center',
               alignItems: 'flex-end',
+              gap: 72,
               background: colors.navBg,
               borderTop: `1px solid ${colors.cardBorder}`,
-              padding: '8px 0 10px',
-              paddingBottom: 'calc(10px + env(safe-area-inset-bottom))',
+              padding: '6px 24px',
+              paddingBottom: 'calc(6px + env(safe-area-inset-bottom))',
               zIndex: 20,
-              boxShadow: mode === 'light' ? '0 -2px 10px rgba(15,23,42,0.04)' : 'none',
-              minHeight: 72,
+              boxShadow: '0 -2px 10px rgba(15,23,42,0.04)',
+              height: 'calc(56px + env(safe-area-inset-bottom))',
+              overflow: 'visible',
             }}
           >
             {tabs.map((tab) => {
-              const active = location.pathname.startsWith(tab.key);
+              const active =
+                tab.key === '/my-assignments'
+                  ? location.pathname.startsWith('/my-assignments') ||
+                    location.pathname.startsWith('/job-orders/')
+                  : location.pathname.startsWith(tab.key);
+
               if (tab.center) {
                 return (
                   <div
@@ -300,19 +377,26 @@ export default function WorkerLayout() {
                       flexDirection: 'column',
                       alignItems: 'center',
                       justifyContent: 'flex-end',
-                      width: 88,
+                      width: 72,
+                      height: '100%',
                       position: 'relative',
+                      overflow: 'visible',
+                      paddingBottom: 2,
+                      flexShrink: 0,
                     }}
                   >
                     <button
+                      type="button"
                       onClick={() => navigate(tab.key)}
                       aria-label={tab.label}
                       style={{
-                        width: 58,
-                        height: 58,
+                        width: 56,
+                        height: 56,
                         borderRadius: '50%',
                         position: 'absolute',
-                        top: -28,
+                        bottom: 22,
+                        left: '50%',
+                        transform: 'translateX(-50%)',
                         border: `3px solid ${colors.navBg}`,
                         background: colors.accent,
                         color: '#fff',
@@ -320,17 +404,21 @@ export default function WorkerLayout() {
                         alignItems: 'center',
                         justifyContent: 'center',
                         cursor: 'pointer',
+                        boxShadow: '0 4px 12px rgba(37,99,235,0.35)',
+                        zIndex: 2,
                       }}
                     >
                       {tab.icon}
                     </button>
                     <span
                       style={{
-                        fontSize: 12,
+                        fontSize: 11,
                         fontWeight: active ? 700 : 500,
                         color: active ? colors.accent : colors.textSecondary,
                         whiteSpace: 'nowrap',
                         lineHeight: 1.2,
+                        position: 'relative',
+                        zIndex: 1,
                       }}
                     >
                       {tab.label}
@@ -338,9 +426,11 @@ export default function WorkerLayout() {
                   </div>
                 );
               }
+
               return (
                 <button
                   key={tab.key}
+                  type="button"
                   onClick={() => navigate(tab.key)}
                   style={{
                     background: 'none',
@@ -351,11 +441,13 @@ export default function WorkerLayout() {
                     alignItems: 'center',
                     justifyContent: 'flex-end',
                     gap: 2,
-                    fontSize: 12,
+                    fontSize: 11,
                     fontWeight: active ? 700 : 500,
                     cursor: 'pointer',
-                    padding: '4px 20px 0',
-                    minWidth: 88,
+                    padding: '4px 12px 2px',
+                    height: '100%',
+                    minWidth: 64,
+                    flexShrink: 0,
                   }}
                 >
                   {tab.icon}

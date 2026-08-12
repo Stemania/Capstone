@@ -146,7 +146,7 @@ export default function MyToolsPage() {
           </div>
         ) : tab === 'borrowed' ? (
           filteredTools.length === 0 ? (
-            <Empty description="Nothing outstanding" style={{ marginTop: 40 }} />
+            <Empty description="No tools or items still out with you" style={{ marginTop: 40 }} />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {filteredTools.map((tool) => (
@@ -202,7 +202,7 @@ export default function MyToolsPage() {
             </div>
           )
         ) : filteredAllTools.length === 0 ? (
-          <Empty description="No items found" style={{ marginTop: 40 }} />
+          <Empty description="No inventory items match your search" style={{ marginTop: 40 }} />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {filteredAllTools.map((tool) => {

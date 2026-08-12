@@ -10,11 +10,11 @@ import {
 
 const TABS = [
   { label: 'Overview', value: '/analytics' },
-  { label: 'Efficiency', value: '/analytics/efficiency' },
+  { label: 'Performance', value: '/analytics/efficiency' },
   { label: 'Delays', value: '/analytics/delays' },
   { label: 'Sales', value: '/analytics/sales' },
-  { label: 'Forecast', value: '/analytics/forecast' },
-  { label: 'Capacity', value: '/analytics/capacity' },
+  { label: 'What’s coming', value: '/analytics/forecast' },
+  { label: 'Machine load', value: '/analytics/capacity' },
 ];
 
 export default function AnalyticsLayout() {

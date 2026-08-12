@@ -72,8 +72,10 @@ def _register_blueprints(app):
     app.register_blueprint(operation_types_bp, url_prefix=f"{prefix}/operation-types")
     app.register_blueprint(analytics_bp, url_prefix=f"{prefix}/analytics")
     from app.blueprints.notifications.routes import notifications_bp
+    from app.blueprints.schedule.routes import schedule_bp
 
     app.register_blueprint(notifications_bp, url_prefix=f"{prefix}/notifications")
+    app.register_blueprint(schedule_bp, url_prefix=f"{prefix}/schedule")
 
 
 def _register_cli(app):

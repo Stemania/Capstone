@@ -9,8 +9,9 @@ import {
   UserOutlined,
   SettingOutlined,
   BarChartOutlined,
-  BellOutlined,
+  CalendarOutlined,
   ContactsOutlined,
+  FileSearchOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
@@ -24,21 +25,25 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/job-orders': { title: 'Job Orders', subtitle: 'Create and manage production job orders' },
   '/clients': {
     title: 'Clients',
-    subtitle: 'Register clients and notification contacts (no portal login)',
+    subtitle: 'Register clients and contacts for job update messages (no portal login)',
   },
-  '/notifications': {
-    title: 'Notifications',
-    subtitle: 'Client milestone messages — sent, skipped, and failed',
+  '/schedule': {
+    title: 'Schedule',
+    subtitle: 'Shop-wide production schedule by machine and worker',
+  },
+  '/reports': {
+    title: 'Reports',
+    subtitle: 'Printable production performance, inventory, and worker reports',
   },
   '/analytics': {
     title: 'Analytics',
-    subtitle: 'Production efficiency, sales summary, and demand forecasts',
+    subtitle: 'How the shop is doing — time, sales, and what is coming',
   },
   '/users': { title: 'Users & Roles', subtitle: 'Manage accounts and worker skills' },
   '/tools': { title: 'Inventory', subtitle: 'Stock levels, QR codes, and usage' },
   '/settings/scoring-weights': {
-    title: 'Scoring Weights',
-    subtitle: 'Tune how worker recommendations are ranked',
+    title: 'Worker ranking',
+    subtitle: 'Set how skill, availability, workload, and past performance matter',
   },
 };
 
@@ -77,8 +82,9 @@ export default function AppLayout() {
   if (isAdmin || isOfficeStaff) {
     menuItems.push(
       { key: '/job-orders', icon: <FileTextOutlined />, label: 'Job Orders' },
+      { key: '/schedule', icon: <CalendarOutlined />, label: 'Schedule' },
       { key: '/clients', icon: <ContactsOutlined />, label: 'Clients' },
-      { key: '/notifications', icon: <BellOutlined />, label: 'Notifications' },
+      { key: '/reports', icon: <FileSearchOutlined />, label: 'Reports' },
       { key: '/analytics', icon: <BarChartOutlined />, label: 'Analytics' },
       { key: '/tools', icon: <ToolOutlined />, label: 'Inventory' },
     );
@@ -87,15 +93,17 @@ export default function AppLayout() {
   if (isAdmin) {
     menuItems.push(
       { key: '/users', icon: <TeamOutlined />, label: 'Users & Roles' },
-      { key: '/settings/scoring-weights', icon: <SettingOutlined />, label: 'Scoring Weights' },
+      { key: '/settings/scoring-weights', icon: <SettingOutlined />, label: 'Worker ranking' },
     );
   }
 
   const selectedKey = menuItems.find((item) => location.pathname.startsWith(item.key))?.key || '';
   const meta =
     location.pathname.startsWith('/users/') && location.pathname !== '/users'
-      ? { title: 'Worker Profile', subtitle: 'Skills matrix and weekly schedule' }
-      : pageMeta[selectedKey] || { title: '', subtitle: '' };
+      ? { title: 'Worker Profile', subtitle: 'Skills and weekly schedule' }
+      : /^\/job-orders\/[^/]+$/.test(location.pathname)
+        ? { title: 'Job Order', subtitle: 'View details, time taken, and notifications' }
+        : pageMeta[selectedKey] || { title: '', subtitle: '' };
 
   const menu = (
     <Menu

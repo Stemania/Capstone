@@ -26,6 +26,15 @@ const OPEN = '#b45309';
 const CLOSED = '#0f1c2e';
 
 function reasonLabel(reason: string) {
+  const map: Record<string, string> = {
+    END_OF_SHIFT: 'End of shift',
+    BREAK: 'Break',
+    MACHINE_DOWN: 'Machine down',
+    WAITING_MATERIAL: 'Waiting for material',
+    WAITING_PRIOR_OPERATION: 'Waiting on prior operation',
+    OTHER: 'Other',
+  };
+  if (map[reason]) return map[reason];
   return reason
     .split('_')
     .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
@@ -88,8 +97,8 @@ export default function AnalyticsDelaysPage() {
       />
 
       <Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 13 }}>
-        Diagnostic view: pause reasons and machine downtime explain why jobs ran long —
-        not only that variance was positive.
+        Pause reasons and machine breakdowns show why jobs ran long — not only that they finished
+        over target.
       </Text>
 
       <Title level={5} style={{ marginTop: 0, color: '#0f1c2e' }}>
@@ -182,15 +191,16 @@ export default function AnalyticsDelaysPage() {
       />
 
       <Title level={5} style={{ color: '#0f1c2e' }}>
-        Machine downtime by unit
+        Machine breakdown by unit
       </Title>
       <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
-        <span style={{ color: OPEN, fontWeight: 600 }}>Amber</span> = unit has open downtime.{' '}
+        <span style={{ color: OPEN, fontWeight: 600 }}>Amber</span> = unit still has an open
+        breakdown.{' '}
         <span style={{ color: CLOSED, fontWeight: 600 }}>Navy</span> = closed only. Open rows
-        also show an OPEN tag in the table.
+        also show a Still down tag in the table.
       </div>
       {downtimeRows.length === 0 ? (
-        <Text type="secondary">No downtime records overlapping this period.</Text>
+        <Text type="secondary">No machine breakdown records overlapping this period.</Text>
       ) : (
         <div
           style={{
@@ -213,7 +223,7 @@ export default function AnalyticsDelaysPage() {
                 type="number"
                 tick={AXIS}
                 label={{
-                  value: 'Downtime hours',
+                  value: 'Machine breakdown hours',
                   position: 'insideBottom',
                   offset: -2,
                   style: AXIS,
@@ -223,16 +233,19 @@ export default function AnalyticsDelaysPage() {
               <YAxis type="category" dataKey="name" width={120} tick={AXIS} />
               <Tooltip
                 contentStyle={{ fontSize: 13 }}
-                formatter={(value: number) => [`${Number(value).toFixed(1)} h`, 'Downtime hours']}
+                formatter={(value: number) => [
+                  `${Number(value).toFixed(1)} h`,
+                  'Machine breakdown hours',
+                ]}
                 labelFormatter={(label, payload) => {
                   const row = payload?.[0]?.payload as
                     | { name: string; open: boolean; type?: string | null }
                     | undefined;
                   if (!row) return String(label);
-                  return `${row.name}${row.open ? ' · OPEN' : ''} · ${row.type || ''}`;
+                  return `${row.name}${row.open ? ' · still down' : ''} · ${row.type || ''}`;
                 }}
               />
-              <Bar dataKey="hours" name="Downtime hours" barSize={16}>
+              <Bar dataKey="hours" name="Machine breakdown hours" barSize={16}>
                 {downtimeRows.map((r) => (
                   <Cell key={r.name} fill={r.open ? OPEN : CLOSED} />
                 ))}
@@ -260,7 +273,7 @@ export default function AnalyticsDelaysPage() {
             render: (label: string | null, row) => (
               <span>
                 {label || row.machineUnitId.slice(0, 8)}{' '}
-                {row.openCount > 0 ? <Tag color="orange">OPEN</Tag> : null}
+                {row.openCount > 0 ? <Tag color="orange">Still down</Tag> : null}
               </span>
             ),
           },
@@ -272,14 +285,14 @@ export default function AnalyticsDelaysPage() {
             align: 'right',
           },
           {
-            title: 'Downtime hours',
+            title: 'Machine breakdown hours',
             dataIndex: 'totalDowntimeHours',
-            width: 130,
+            width: 170,
             align: 'right',
             render: (v: number | null) => (v == null ? '—' : `${v.toFixed(1)} h`),
           },
           {
-            title: 'Open',
+            title: 'Still down',
             dataIndex: 'openCount',
             width: 72,
             align: 'right',

@@ -76,6 +76,11 @@ def _operation_booking_envelope(op: JobOperation) -> tuple[datetime, datetime] |
     return None
 
 
+def operation_working_segments(op: JobOperation) -> list[tuple[datetime, datetime]]:
+    """Public alias: derived working segments for one operation (never overnight gaps)."""
+    return _busy_intervals_for_operation(op)
+
+
 def _busy_intervals_for_operation(op: JobOperation) -> list[tuple[datetime, datetime]]:
     """Worker/machine busy pieces for one op — derived segments, never overnight gaps."""
     envelope = _operation_booking_envelope(op)

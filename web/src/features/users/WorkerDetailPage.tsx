@@ -185,7 +185,7 @@ export default function WorkerDetailPage() {
       ),
     },
     {
-      title: 'Proficiency (1–5)',
+      title: 'Skill level (1–5)',
       key: 'proficiency',
       width: 160,
       render: (_: unknown, row: SkillRow, index: number) => (
@@ -314,7 +314,7 @@ export default function WorkerDetailPage() {
         {user.fullName}
       </Title>
       <Text type="secondary" style={{ display: 'block', marginBottom: 20 }}>
-        {user.email} · Production worker skill matrix & weekly schedule
+        {user.email} · Production worker skills and weekly schedule
         {primaryCount > 1 ? ' · (only one primary skill kept on save)' : ''}
       </Text>
 
@@ -336,7 +336,7 @@ export default function WorkerDetailPage() {
           }}
         >
           <span style={{ fontWeight: 700, fontSize: 13, letterSpacing: 0.4, textTransform: 'uppercase', color: '#64748b' }}>
-            Skill matrix
+            Skills
           </span>
           <Button type="primary" loading={savingSkills} onClick={saveSkills} style={{ fontWeight: 600 }}>
             Save skills

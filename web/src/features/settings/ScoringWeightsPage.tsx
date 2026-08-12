@@ -9,10 +9,22 @@ const { Title, Text, Paragraph } = Typography;
 const NAVY = '#0f1c2e';
 
 const LABELS: Record<keyof ScoringWeights, { title: string; hint: string }> = {
-  skill: { title: 'Skill', hint: 'Machine proficiency match' },
-  availability: { title: 'Availability', hint: 'Schedule fit and conflicts' },
-  workload: { title: 'Workload', hint: 'Current-week estimated hours' },
-  efficiency: { title: 'Efficiency', hint: 'Estimated vs actual on past ops' },
+  skill: {
+    title: 'Skill level fit',
+    hint: 'How well the worker’s skill level matches the machine for this operation',
+  },
+  availability: {
+    title: 'Availability',
+    hint: 'Whether the worker is free in the needed time window without schedule clashes',
+  },
+  workload: {
+    title: 'How busy they already are',
+    hint: 'How many target hours the worker already has this week',
+  },
+  efficiency: {
+    title: 'Past performance',
+    hint: 'How close their finished operations usually land to target hours',
+  },
 };
 
 export default function ScoringWeightsPage() {
@@ -55,14 +67,14 @@ export default function ScoringWeightsPage() {
         Number(values.workload) +
         Number(values.efficiency);
       if (Math.abs(total - 1) > 0.0001) {
-        message.error(`Weights must sum to 1.0 (currently ${total.toFixed(4)})`);
+        message.error(`The four factors must add up to 1.0 (currently ${total.toFixed(4)})`);
         return;
       }
       setSaving(true);
       const { data } = await workersApi.updateScoringWeights(values);
       form.setFieldsValue(data.weights);
       recalcSum(data.weights);
-      message.success('Scoring weights saved');
+      message.success('Worker ranking saved');
     } catch (err) {
       if (err && typeof err === 'object' && 'errorFields' in err) return;
       message.error(getErrorMessage(err));
@@ -84,11 +96,12 @@ export default function ScoringWeightsPage() {
   return (
     <div style={{ maxWidth: 560 }}>
       <Title level={4} style={{ marginTop: 0, color: NAVY }}>
-        Recommendation Weights
+        Worker ranking
       </Title>
       <Paragraph type="secondary" style={{ marginBottom: 20 }}>
-        These weights control how workers are ranked when suggesting an assignee.
-        They must always sum to 1.0. Changes apply to the next suggestion request.
+        When the shop suggests who should take an operation, these four factors decide the order of the
+        shortlist. Raise a factor to put more weight on it; lower it to care less. The four numbers
+        must always add up to 1.0. Changes apply the next time you ask for a suggestion.
       </Paragraph>
 
       {!sumOk && (
@@ -96,7 +109,7 @@ export default function ScoringWeightsPage() {
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
-          message={`Weights currently sum to ${sum.toFixed(4)} — must equal 1.0 to save`}
+          message={`Factors currently add up to ${sum.toFixed(4)} — they must equal 1.0 before you can save`}
         />
       )}
 
@@ -126,7 +139,7 @@ export default function ScoringWeightsPage() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 8 }}>
           <Text>
-            Sum:{' '}
+            Total:{' '}
             <Text strong style={{ color: sumOk ? '#389e0d' : '#cf1322' }}>
               {sum.toFixed(4)}
             </Text>
@@ -138,7 +151,7 @@ export default function ScoringWeightsPage() {
             disabled={!sumOk}
             style={{ background: NAVY, borderColor: NAVY }}
           >
-            Save weights
+            Save ranking
           </Button>
         </div>
       </Form>

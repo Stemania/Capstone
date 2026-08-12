@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Table, Button, Typography, Select, Space, message } from 'antd';
-import { PlusOutlined, EditOutlined, CheckOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, CheckOutlined, PrinterOutlined, EyeOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { scheduleFlagStyle } from '../../utils/shopTime';
@@ -211,9 +211,16 @@ export default function JobOrderListPage() {
       title: 'Actions',
       key: 'actions',
       fixed: 'right' as const,
-      width: 168,
+      width: 260,
       render: (_: unknown, record: JobOrder) => (
         <Space size={4} onClick={(e) => e.stopPropagation()}>
+          <Button
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => navigate(`/job-orders/${record.id}`)}
+          >
+            View
+          </Button>
           {record.status === 'COMPLETED' && (
             <Button
               size="small"
@@ -231,6 +238,13 @@ export default function JobOrderListPage() {
               Deliver
             </Button>
           )}
+          <Button
+            size="small"
+            icon={<PrinterOutlined />}
+            onClick={() => navigate(`/job-orders/${record.id}/print`)}
+          >
+            Print
+          </Button>
           <Button
             size="small"
             icon={<EditOutlined />}
@@ -285,10 +299,10 @@ export default function JobOrderListPage() {
         dataSource={jobs}
         loading={loading}
         pagination={false}
-        locale={{ emptyText: 'No job orders found' }}
+        locale={{ emptyText: 'No job orders match your filters yet' }}
         scroll={{ x: 1450 }}
         onRow={(record) => ({
-          onClick: () => navigate(`/job-orders/${record.id}/edit`),
+          onClick: () => navigate(`/job-orders/${record.id}`),
           style: { cursor: 'pointer' },
         })}
       />

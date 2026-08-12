@@ -15,7 +15,12 @@ import { analyticsApi } from '../../api/analytics.api';
 import { getErrorMessage } from '../../api/client';
 import type { AnalyticsOverview, AnalyticsTrend } from '../../types';
 import { AnalyticsPeriodNote, SummaryCard } from './AnalyticsChrome';
-import { formatInt, formatPct, useAnalyticsPeriod } from './analyticsPeriod';
+import {
+  formatDifferenceFromTarget,
+  formatInt,
+  formatPct,
+  useAnalyticsPeriod,
+} from './analyticsPeriod';
 
 const { Title } = Typography;
 
@@ -90,34 +95,34 @@ export default function AnalyticsOverviewPage() {
         }}
       >
         <SummaryCard
-          label="Jobs completed"
+          label="Jobs finished"
           value={formatInt(overview.jobs.completed)}
-          hint={`${overview.jobs.onTime} on time · ${overview.jobs.late} late`}
+          hint={`${overview.jobs.onTime} on time · ${overview.jobs.late} late vs date required`}
         />
         <SummaryCard
-          label="On-time rate"
-          value={formatPct(onTimeRate, 0).replace('+', '')}
-          hint="vs date required"
+          label="Finished on time"
+          value={formatPct(onTimeRate, 0)}
+          hint="Share of finished jobs that met the date required"
         />
         <SummaryCard
-          label="Avg variance"
-          value={formatPct(overview.efficiency.averageVariancePct)}
-          hint={`${overview.efficiency.completedOperationsWithVariance} ops with estimate`}
+          label="Average difference from target"
+          value={formatDifferenceFromTarget(null, overview.efficiency.averageVariancePct)}
+          hint={`${overview.efficiency.completedOperationsWithVariance} finished operations that had a target time`}
         />
         <SummaryCard
-          label="Rework share"
-          value={formatPct(overview.rework.shareOfTotalWorkedHoursPct).replace('+', '')}
-          hint={`${formatInt(overview.rework.count)} follow-ons · ${formatNumHours(overview.rework.workedHours)}h`}
+          label="Redo share of hours"
+          value={formatPct(overview.rework.shareOfTotalWorkedHoursPct)}
+          hint={`${formatInt(overview.rework.count)} redo jobs · ${formatNumHours(overview.rework.workedHours)} h`}
         />
         <SummaryCard
-          label="Open downtime"
+          label="Machines broken down now"
           value={formatInt(overview.downtime.openCount)}
-          hint="machine units currently down"
+          hint="Machine units currently stopped for breakdown"
         />
       </div>
 
       <Title level={5} style={{ marginTop: 0, marginBottom: 8, color: '#0f1c2e' }}>
-        Weekly variance trend
+        Weekly difference from target
       </Title>
       <div
         style={{
@@ -136,21 +141,25 @@ export default function AnalyticsOverviewPage() {
               yAxisId="var"
               tick={AXIS}
               tickFormatter={(v) => `${v}%`}
-              label={{ value: 'Avg variance %', angle: -90, position: 'insideLeft', style: AXIS }}
+              label={{ value: 'Percent vs target', angle: -90, position: 'insideLeft', style: AXIS }}
               width={64}
             />
             <YAxis
               yAxisId="ops"
               orientation="right"
               tick={AXIS}
-              label={{ value: 'Operations', angle: 90, position: 'insideRight', style: AXIS }}
+              label={{ value: 'Finished operations', angle: 90, position: 'insideRight', style: AXIS }}
               width={56}
             />
             <Tooltip
               contentStyle={{ fontSize: 13 }}
               formatter={(value: number, name: string) => {
-                if (name === 'variance') return [`${value?.toFixed?.(1) ?? '—'}%`, 'Avg variance'];
-                if (name === 'operations') return [value, 'Operations'];
+                if (name === 'variance')
+                  return [
+                    formatDifferenceFromTarget(null, value),
+                    'Average difference from target',
+                  ];
+                if (name === 'operations') return [value, 'Finished operations'];
                 return [value, name];
               }}
               labelFormatter={(_, payload) =>
@@ -159,7 +168,16 @@ export default function AnalyticsOverviewPage() {
                   : ''
               }
             />
-            <Legend wrapperStyle={{ fontSize: 13 }} />
+            <Legend
+              wrapperStyle={{ fontSize: 13 }}
+              formatter={(value) =>
+                value === 'variance'
+                  ? 'Average difference from target'
+                  : value === 'operations'
+                    ? 'Finished operations'
+                    : value
+              }
+            />
             <Bar
               yAxisId="ops"
               dataKey="operations"
@@ -182,7 +200,8 @@ export default function AnalyticsOverviewPage() {
         </ResponsiveContainer>
       </div>
       <div style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>
-        Bars = operation count (sample size). Line = average variance % (null weeks omitted from the line).
+        Bars show how many operations finished that week. The line shows how far those operations ran from
+        their target time. Weeks with no target times are left blank on the line.
       </div>
     </div>
   );

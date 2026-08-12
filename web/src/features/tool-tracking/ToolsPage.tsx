@@ -14,7 +14,7 @@ import {
   Alert,
   message,
 } from 'antd';
-import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, DownloadOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { inventoryApi, toolsApi } from '../../api/tools.api';
 import StatusPill from '../../components/StatusPill';
@@ -26,6 +26,7 @@ import type {
   ToolCategory,
 } from '../../types';
 import apiClient, { getErrorMessage } from '../../api/client';
+import { exportCsv } from '../../utils/csvExport';
 
 type StockFilter = 'all' | 'low' | 'ok';
 type SortKey = 'name_asc' | 'stock_asc' | 'stock_desc';
@@ -179,7 +180,7 @@ export default function ToolsPage() {
         ),
     },
     {
-      title: 'On hand',
+      title: 'In stock',
       key: 'stock',
       width: 120,
       align: 'right' as const,
@@ -190,9 +191,9 @@ export default function ToolsPage() {
       ),
     },
     {
-      title: 'Minimum',
+      title: 'Reorder level',
       dataIndex: 'minimumStock',
-      width: 90,
+      width: 110,
       align: 'right' as const,
       render: (v: number | null, r: Tool) => (v == null ? '—' : `${v} ${r.unit}`),
     },
@@ -247,7 +248,7 @@ export default function ToolsPage() {
         onChange={(v) => setTab(v as PageTab)}
         options={[
           { label: 'Stock', value: 'stock' },
-          { label: 'Purchase suggestions', value: 'suggestions' },
+          { label: 'Items to buy', value: 'suggestions' },
           { label: 'Usage', value: 'usage' },
         ]}
       />
@@ -295,14 +296,44 @@ export default function ToolsPage() {
                 ]}
               />
             </Space>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => setModalOpen(true)}
-              style={{ height: 32, fontWeight: 600 }}
-            >
-              Add item
-            </Button>
+            <Space>
+              <Button
+                icon={<DownloadOutlined />}
+                onClick={() =>
+                  exportCsv('inventory-stock.csv', filtered, [
+                    { key: 'name', header: 'Name', value: (r) => r.name },
+                    { key: 'code', header: 'Code', value: (r) => r.code },
+                    { key: 'category', header: 'Category', value: (r) => r.category },
+                    { key: 'unit', header: 'Unit', value: (r) => r.unit },
+                    {
+                      key: 'onHand',
+                      header: 'QuantityOnHand',
+                      value: (r) => r.quantityOnHand,
+                    },
+                    {
+                      key: 'min',
+                      header: 'MinimumStock',
+                      value: (r) => r.minimumStock,
+                    },
+                    {
+                      key: 'low',
+                      header: 'LowStock',
+                      value: (r) => (r.lowStock ? 'yes' : 'no'),
+                    },
+                  ])
+                }
+              >
+                Export CSV
+              </Button>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => setModalOpen(true)}
+                style={{ height: 32, fontWeight: 600 }}
+              >
+                Add item
+              </Button>
+            </Space>
           </Space>
 
           <Table
@@ -312,7 +343,7 @@ export default function ToolsPage() {
             dataSource={filtered}
             loading={loading}
             rowClassName={(r) => (r.lowStock ? 'inventory-low-stock' : '')}
-            locale={{ emptyText: 'No items match your filters' }}
+            locale={{ emptyText: 'No inventory items match your filters yet' }}
             scroll={{ x: true }}
           />
         </>
@@ -324,7 +355,7 @@ export default function ToolsPage() {
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
-            message="Suggestions for Office review — not automatic orders"
+            message="Suggestions for Office to review — nothing is ordered automatically"
             description={suggestions?.description}
           />
           <Table
@@ -332,7 +363,7 @@ export default function ToolsPage() {
             rowKey="toolId"
             loading={!suggestions}
             dataSource={suggestions?.items || []}
-            locale={{ emptyText: 'No items are currently at or below minimum stock' }}
+            locale={{ emptyText: 'No items are at or below reorder level right now' }}
             columns={[
               {
                 title: 'Item',
@@ -346,13 +377,13 @@ export default function ToolsPage() {
                 ),
               },
               {
-                title: 'On hand',
+                title: 'In stock',
                 dataIndex: 'quantityOnHand',
                 align: 'right',
                 render: (v: number, r) => `${v} ${r.unit}`,
               },
               {
-                title: 'Minimum',
+                title: 'Reorder level',
                 dataIndex: 'minimumStock',
                 align: 'right',
                 render: (v: number, r) => `${v} ${r.unit}`,
@@ -402,7 +433,7 @@ export default function ToolsPage() {
             rowKey="workerId"
             loading={usageLoading}
             dataSource={usageWorker?.outstandingUnreturned || []}
-            locale={{ emptyText: 'No outstanding returnables' }}
+            locale={{ emptyText: 'No returnable tools still out with workers' }}
             columns={[
               { title: 'Worker', dataIndex: 'workerName' },
               {
@@ -480,7 +511,7 @@ export default function ToolsPage() {
                 render: (v: number | null) => (v == null ? '—' : v.toFixed(3)),
               },
               {
-                title: 'On hand',
+                title: 'In stock',
                 dataIndex: 'quantityOnHand',
                 align: 'right',
                 render: (v: number, r) => (
@@ -524,13 +555,13 @@ export default function ToolsPage() {
             </Form.Item>
             <Form.Item
               name="quantityOnHand"
-              label="Qty on hand"
+              label="In stock"
               rules={[{ required: true }]}
               style={{ flex: 1 }}
             >
               <InputNumber min={0} style={{ width: '100%' }} />
             </Form.Item>
-            <Form.Item name="minimumStock" label="Minimum" style={{ flex: 1 }}>
+            <Form.Item name="minimumStock" label="Reorder level" style={{ flex: 1 }}>
               <InputNumber min={0} style={{ width: '100%' }} />
             </Form.Item>
           </Space>
@@ -555,7 +586,7 @@ export default function ToolsPage() {
             <InputNumber style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="reason" label="Reason" rules={[{ required: true }]}>
-            <Input.TextArea rows={2} placeholder="Required for audit trail" />
+            <Input.TextArea rows={2} placeholder="Required — why you’re changing the count" />
           </Form.Item>
           <Button type="primary" htmlType="submit" block>
             Save adjustment

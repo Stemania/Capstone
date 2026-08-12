@@ -39,7 +39,7 @@ function FlagBadge({ flag }: { flag: ScheduleFlag | null | undefined }) {
         border: `1px solid ${st.border}`,
       }}
     >
-      {flag} · {st.label}
+      {st.label}
     </span>
   );
 }
@@ -71,7 +71,7 @@ export default function ScheduleProposalPanel({
         <FlagBadge flag={scheduleFlag} />
         {projectedCompletion && (
           <Text type="secondary" style={{ fontSize: 12 }}>
-            Projected completion:{' '}
+            Expected completion:{' '}
             <Text strong style={{ color: NAVY }}>
               {formatShopDateTime(projectedCompletion)}
             </Text>
@@ -106,7 +106,7 @@ export default function ScheduleProposalPanel({
                 </Text>
                 {op.estimatedHoursDefaulted && (
                   <Tag color="default" style={{ margin: 0, fontSize: 11 }}>
-                    1.0h assumed (no estimate given)
+                    1.0h assumed (no target hours given)
                   </Tag>
                 )}
                 {op.machineUnitLabel && (

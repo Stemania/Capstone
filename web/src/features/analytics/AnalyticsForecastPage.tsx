@@ -60,9 +60,9 @@ export default function AnalyticsForecastPage() {
   return (
     <div>
       <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
-        Sample window {data.period.from} → {data.period.to} · {data.workingDaysInSample}{' '}
-        working days ({data.sampleWeeks} weeks). Committed pipeline and projected revenue are
-        separate figures — not interchangeable.
+        Looking at jobs from {data.period.from} → {data.period.to} · {data.workingDaysInSample}{' '}
+        shop days ({data.sampleWeeks} weeks). Accepted jobs not yet delivered and estimated income
+        are separate figures — do not mix them.
       </Text>
 
       {data.thinSample ? (
@@ -70,10 +70,9 @@ export default function AnalyticsForecastPage() {
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
-          message="Thin sample — treat the projection as illustrative"
+          message="Not enough jobs yet — treat this guess as a rough guide"
           description={
-            projected.thinSampleNote ||
-            `Only ${data.sampleWeeks} weeks of working days in the sample (threshold 8). The trailing-average estimate is less reliable.`
+            `Only ${data.sampleWeeks} weeks of shop days so far (we like at least 8). This guess is rough.`
           }
         />
       ) : null}
@@ -100,10 +99,10 @@ export default function AnalyticsForecastPage() {
           Fact — not a forecast
         </div>
         <Title level={5} style={{ marginTop: 0, marginBottom: 6, color: '#0f1c2e' }}>
-          Committed pipeline
+          Accepted jobs not yet delivered
         </Title>
         <Text style={{ display: 'block', marginBottom: 12, fontSize: 13, color: '#334155' }}>
-          {pipeline.description}
+          Jobs the shop has already accepted that are still open — money on the books, not a guess.
         </Text>
         <div
           style={{
@@ -164,10 +163,11 @@ export default function AnalyticsForecastPage() {
           Estimate only
         </div>
         <Title level={5} style={{ marginTop: 0, marginBottom: 6, color: '#0f1c2e' }}>
-          Projected revenue
+          Estimated income
         </Title>
         <Text style={{ display: 'block', marginBottom: 12, fontSize: 13, color: '#334155' }}>
-          {projected.description}
+          Rough guess from recent finished jobs: average income per shop day, carried forward for
+          the next few weeks. Not the same as accepted jobs still open.
         </Text>
 
         <div
@@ -180,16 +180,16 @@ export default function AnalyticsForecastPage() {
             color: '#0f1c2e',
           }}
         >
-          <SampleChip label="Sample jobs" value={formatInt(projected.sampleCompletedJobs)} />
+          <SampleChip label="Finished jobs used" value={formatInt(projected.sampleCompletedJobs)} />
           <SampleChip
-            label="Sample working days"
+            label="Shop days used"
             value={formatInt(projected.sampleWorkingDays)}
           />
-          <SampleChip label="Sample weeks" value={String(projected.sampleWeeks)} />
-          <SampleChip label="Data window" value={`${data.period.from} → ${data.period.to}`} />
+          <SampleChip label="Weeks used" value={String(projected.sampleWeeks)} />
+          <SampleChip label="Looked at" value={`${data.period.from} → ${data.period.to}`} />
           <SampleChip
-            label="Horizon"
-            value={`${projected.horizon.from} → ${projected.horizon.to} (${projected.horizonWorkingDays} workdays)`}
+            label="Looking ahead"
+            value={`${projected.horizon.from} → ${projected.horizon.to} (${projected.horizonWorkingDays} shop days)`}
           />
         </div>
 
@@ -201,14 +201,14 @@ export default function AnalyticsForecastPage() {
           }}
         >
           <SummaryCard
-            label="Projected amount (estimate)"
+            label="Estimated income"
             value={formatMoney(projected.projectedAmount)}
-            hint={`Trailing avg ${formatMoney(projected.revenuePerWorkingDay)}/working day × ${projected.horizonWorkingDays} days`}
+            hint={`About ${formatMoney(projected.revenuePerWorkingDay)} per shop day × ${projected.horizonWorkingDays} days`}
           />
           <SummaryCard
-            label="Revenue per working day"
+            label="Income per shop day"
             value={formatMoney(projected.revenuePerWorkingDay)}
-            hint={`From ${formatInt(projected.sampleCompletedJobs)} completed jobs`}
+            hint={`From ${formatInt(projected.sampleCompletedJobs)} finished jobs`}
           />
         </div>
       </section>
@@ -246,7 +246,7 @@ function PipelineMonthChart({
   if (!chartRows.length) {
     return (
       <Text type="secondary" style={{ fontSize: 13 }}>
-        No open jobs in the committed pipeline.
+        No accepted jobs waiting to be delivered.
       </Text>
     );
   }
@@ -283,7 +283,7 @@ function PipelineMonthChart({
           />
           <Tooltip
             contentStyle={{ fontSize: 13 }}
-            formatter={(value: number) => [formatMoney(value), 'Committed amount']}
+            formatter={(value: number) => [formatMoney(value), 'Amount']}
             labelFormatter={(label, payload) => {
               const jobs = payload?.[0]?.payload?.jobs;
               return jobs != null ? `${label} · ${jobs} jobs` : String(label);
@@ -291,7 +291,7 @@ function PipelineMonthChart({
           />
           <Bar
             dataKey="amount"
-            name="Committed"
+            name="Accepted jobs"
             fill={COMMITTED}
             barSize={36}
             radius={[3, 3, 0, 0]}

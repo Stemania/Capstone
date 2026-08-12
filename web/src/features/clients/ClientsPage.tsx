@@ -134,7 +134,7 @@ export default function ClientsPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
         <Typography.Text type="secondary">
-          Register client contact details for job milestone notifications. No client portal or login.
+          Register client contact details for job update messages. No client portal or login.
         </Typography.Text>
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
           Register client

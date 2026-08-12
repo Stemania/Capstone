@@ -78,9 +78,9 @@ export default function AnalyticsCapacityPage() {
   return (
     <div>
       <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
-        Forward horizon {data.horizon.from} → {data.horizon.to} · {data.horizonWorkingDays}{' '}
-        working days · {formatNum(data.availableHoursPerUnit, 0)}h available per unit. Load uses
-        scheduled operations on open jobs; available hours = shop hours × active unit count.
+        Looking ahead {data.horizon.from} → {data.horizon.to} · {data.horizonWorkingDays} shop
+        days · {formatNum(data.availableHoursPerUnit, 0)}h available per machine. Hours booked use
+        scheduled operations on open jobs; available hours = shop hours × machines that are up.
       </Text>
 
       {data.thinSample ? (
@@ -88,11 +88,8 @@ export default function AnalyticsCapacityPage() {
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
-          message="No scheduled operations in this horizon"
-          description={
-            data.thinSampleNote ||
-            'Projected load is zero until open operations have scheduled windows.'
-          }
+          message="No scheduled operations in this time window"
+          description="Expected workload is zero until open operations have scheduled times."
         />
       ) : null}
 
@@ -105,31 +102,32 @@ export default function AnalyticsCapacityPage() {
         }}
       >
         <SummaryCard
-          label="Scheduled ops in horizon"
+          label="Scheduled operations ahead"
           value={formatInt(data.scheduledOperationsInHorizon)}
         />
         <SummaryCard
-          label="Hours per unit"
+          label="Hours per machine"
           value={formatNum(data.availableHoursPerUnit, 0)}
-          hint={`${data.horizonWorkingDays} workdays × 9h`}
+          hint={`${data.horizonWorkingDays} shop days × 9h`}
         />
         <SummaryCard
-          label="Above 80% load"
+          label="Running near full capacity"
           value={formatInt(constraints.length)}
           hint={
             constraints.length
               ? constraints.map((c) => c.code).join(', ')
-              : 'no capacity flags'
+              : 'none near full capacity'
           }
         />
       </div>
 
       <Title level={5} style={{ marginTop: 0, marginBottom: 8, color: '#0f1c2e' }}>
-        Projected load by machine type
+        Expected workload by machine type
       </Title>
       <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
-        Amber bars and “constraint” labels mark types at or above 80%. Percentage and absolute
-        hours are both shown — 88% on one unit differs from 30% across eight.
+        Amber bars and “near full” labels mark types running near full capacity (at or above
+        80%). Hours booked and percent full are both shown — 88% on one machine is not the same
+        as 30% across eight.
       </div>
 
       <div
@@ -155,7 +153,7 @@ export default function AnalyticsCapacityPage() {
               tick={AXIS}
               tickFormatter={(v) => `${v}%`}
               label={{
-                value: 'Projected load %',
+                value: 'Expected workload %',
                 position: 'insideBottom',
                 offset: -2,
                 style: AXIS,
@@ -167,10 +165,10 @@ export default function AnalyticsCapacityPage() {
               contentStyle={{ fontSize: 13 }}
               formatter={(value: number, _name, item) => {
                 const row = item?.payload;
-                if (!row) return [`${value.toFixed(1)}%`, 'Load'];
+                if (!row) return [`${value.toFixed(1)}%`, 'Hours booked'];
                 return [
                   `${value.toFixed(1)}% · ${formatNum(row.load, 0)}h of ${formatNum(row.avail, 0)}h`,
-                  row.above ? 'Constraint' : 'Load',
+                  row.above ? 'Near full' : 'Hours booked',
                 ];
               }}
             />
@@ -192,7 +190,7 @@ export default function AnalyticsCapacityPage() {
                     return null;
                   }
                   const label = `${row.pct.toFixed(1)}% · ${formatNum(row.load, 0)}h / ${formatNum(row.avail, 0)}h${
-                    row.above ? ' · constraint' : ''
+                    row.above ? ' · near full' : ''
                   }`;
                   return (
                     <text
@@ -222,29 +220,29 @@ export default function AnalyticsCapacityPage() {
           { title: 'Machine type', dataIndex: 'code', width: 110 },
           { title: 'Name', dataIndex: 'name' },
           {
-            title: 'Active units',
+            title: 'Machines up',
             dataIndex: 'units',
             width: 100,
             align: 'right',
           },
           {
-            title: 'Load hours',
+            title: 'Hours booked',
             dataIndex: 'load',
-            width: 100,
+            width: 110,
             align: 'right',
             render: (v: number) => formatNum(v, 1),
           },
           {
-            title: 'Available hours',
+            title: 'Hours available',
             dataIndex: 'avail',
             width: 120,
             align: 'right',
             render: (v: number) => formatNum(v, 1),
           },
           {
-            title: 'Projected load',
+            title: 'Expected workload',
             dataIndex: 'pct',
-            width: 120,
+            width: 150,
             align: 'right',
             render: (v: number, row) => (
               <span
@@ -253,7 +251,7 @@ export default function AnalyticsCapacityPage() {
                   color: row.above ? CONSTRAINT : undefined,
                 }}
               >
-                {v.toFixed(1)}%{row.above ? ' (constraint)' : ''}
+                {v.toFixed(1)}%{row.above ? ' · near full' : ''}
               </span>
             ),
           },
