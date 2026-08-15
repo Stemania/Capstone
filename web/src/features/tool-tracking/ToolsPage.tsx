@@ -12,9 +12,18 @@ import {
   Segmented,
   DatePicker,
   Alert,
+  Dropdown,
   message,
 } from 'antd';
-import { PlusOutlined, SearchOutlined, DownloadOutlined } from '@ant-design/icons';
+import type { MenuProps, TableColumnsType } from 'antd';
+import {
+  PlusOutlined,
+  SearchOutlined,
+  DownloadOutlined,
+  CheckSquareOutlined,
+  MoreOutlined,
+  QrcodeOutlined,
+} from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { inventoryApi, toolsApi } from '../../api/tools.api';
 import StatusPill from '../../components/StatusPill';
@@ -28,8 +37,7 @@ import type {
 import apiClient, { getErrorMessage } from '../../api/client';
 import { exportCsv } from '../../utils/csvExport';
 
-type StockFilter = 'all' | 'low' | 'ok';
-type SortKey = 'name_asc' | 'stock_asc' | 'stock_desc';
+type StockFilter = 'low' | 'ok';
 type PageTab = 'stock' | 'suggestions' | 'usage';
 
 export default function ToolsPage() {
@@ -40,9 +48,10 @@ export default function ToolsPage() {
   const [adjustTool, setAdjustTool] = useState<Tool | null>(null);
   const [qrTool, setQrTool] = useState<Tool | null>(null);
   const [query, setQuery] = useState('');
-  const [stockFilter, setStockFilter] = useState<StockFilter>('all');
-  const [categoryFilter, setCategoryFilter] = useState<'all' | ToolCategory>('all');
-  const [sort, setSort] = useState<SortKey>('name_asc');
+  const [stockFilter, setStockFilter] = useState<StockFilter[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<ToolCategory[]>([]);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [form] = Form.useForm();
   const [adjustForm] = Form.useForm();
 
@@ -107,25 +116,24 @@ export default function ToolsPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = tools.filter((t) => {
-      if (
-        q &&
-        !`${t.name} ${t.code} ${t.sizeSpec || ''}`.toLowerCase().includes(q)
-      ) {
+    return tools.filter((t) => {
+      if (q && !`${t.name} ${t.code} ${t.sizeSpec || ''}`.toLowerCase().includes(q)) {
         return false;
       }
-      if (categoryFilter !== 'all' && t.category !== categoryFilter) return false;
-      if (stockFilter === 'low' && !t.lowStock) return false;
-      if (stockFilter === 'ok' && t.lowStock) return false;
+      if (categoryFilter.length && !categoryFilter.includes(t.category)) return false;
+      if (stockFilter.length) {
+        const ok = !t.lowStock;
+        const match = stockFilter.some((f) => (f === 'low' ? t.lowStock : ok));
+        if (!match) return false;
+      }
       return true;
     });
-    list = [...list].sort((a, b) => {
-      if (sort === 'stock_asc') return (a.quantityOnHand ?? 0) - (b.quantityOnHand ?? 0);
-      if (sort === 'stock_desc') return (b.quantityOnHand ?? 0) - (a.quantityOnHand ?? 0);
-      return a.name.localeCompare(b.name);
-    });
-    return list;
-  }, [tools, query, stockFilter, categoryFilter, sort]);
+  }, [tools, query, stockFilter, categoryFilter]);
+
+  const selectedTools = useMemo(
+    () => filtered.filter((t) => selectedKeys.includes(t.id)),
+    [filtered, selectedKeys]
+  );
 
   const onCreate = async (values: {
     name: string;
@@ -155,13 +163,14 @@ export default function ToolsPage() {
     }
   };
 
-  const columns = [
+  const columns: TableColumnsType<Tool> = [
     {
       title: 'Item',
       key: 'name',
-      render: (_: unknown, r: Tool) => (
+      sorter: (a, b) => a.name.localeCompare(b.name),
+      render: (_: unknown, r) => (
         <div>
-          <div style={{ fontWeight: 600 }}>{r.name}</div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>{r.name}</div>
           <div style={{ fontSize: 12, color: '#64748b' }}>
             {[r.sizeSpec, r.code].filter(Boolean).join(' · ')}
           </div>
@@ -174,18 +183,18 @@ export default function ToolsPage() {
       width: 130,
       render: (c: ToolCategory) =>
         c === 'CONSUMABLE' ? (
-          <StatusPill color="gray">Consumable</StatusPill>
+          <StatusPill color="gray" compact>Consumable</StatusPill>
         ) : (
-          <StatusPill color="blue">Returnable</StatusPill>
+          <StatusPill color="blue" compact>Returnable</StatusPill>
         ),
     },
     {
       title: 'In stock',
       key: 'stock',
       width: 120,
-      align: 'right' as const,
-      render: (_: unknown, r: Tool) => (
-        <span style={{ fontWeight: r.lowStock ? 700 : 500, color: r.lowStock ? '#b45309' : undefined }}>
+      sorter: (a, b) => (a.quantityOnHand ?? 0) - (b.quantityOnHand ?? 0),
+      render: (_: unknown, r) => (
+        <span style={{ fontWeight: r.lowStock ? 700 : 500, color: r.lowStock ? '#b45309' : '#475569' }}>
           {r.quantityOnHand} {r.unit}
         </span>
       ),
@@ -193,26 +202,26 @@ export default function ToolsPage() {
     {
       title: 'Reorder level',
       dataIndex: 'minimumStock',
-      width: 110,
-      align: 'right' as const,
-      render: (v: number | null, r: Tool) => (v == null ? '—' : `${v} ${r.unit}`),
+      width: 130,
+      sorter: (a, b) => (a.minimumStock ?? 0) - (b.minimumStock ?? 0),
+      render: (v: number | null, r) => (v == null ? '—' : `${v} ${r.unit}`),
     },
     {
       title: 'Status',
       key: 'status',
-      width: 110,
-      render: (_: unknown, r: Tool) =>
+      width: 120,
+      render: (_: unknown, r) =>
         r.lowStock ? (
-          <StatusPill color="amber">Low stock</StatusPill>
+          <StatusPill color="amber" compact>Low stock</StatusPill>
         ) : (
-          <StatusPill color="green">OK</StatusPill>
+          <StatusPill color="green" compact>OK</StatusPill>
         ),
     },
     {
       title: 'Holders',
       key: 'holders',
       width: 140,
-      render: (_: unknown, r: Tool) => {
+      render: (_: unknown, r) => {
         if (r.category === 'CONSUMABLE') return '—';
         const n = r.holders?.length ?? 0;
         if (!n) return <span style={{ color: '#94a3b8' }}>None out</span>;
@@ -226,18 +235,44 @@ export default function ToolsPage() {
     {
       title: '',
       key: 'actions',
-      width: 180,
-      render: (_: unknown, record: Tool) => (
-        <Space>
-          <Button size="small" onClick={() => setQrTool(record)}>
-            QR
-          </Button>
-          <Button size="small" onClick={() => setAdjustTool(record)}>
-            Adjust
-          </Button>
-        </Space>
-      ),
+      width: 56,
+      align: 'center',
+      render: (_: unknown, record) => {
+        const items: MenuProps['items'] = [
+          {
+            key: 'qr',
+            icon: <QrcodeOutlined />,
+            label: 'QR',
+            onClick: () => setQrTool(record),
+          },
+          {
+            key: 'adjust',
+            label: 'Adjust stock',
+            onClick: () => setAdjustTool(record),
+          },
+        ];
+        return (
+          <Dropdown menu={{ items }} trigger={['click']} placement="bottomRight">
+            <Button
+              type="text"
+              size="small"
+              icon={<MoreOutlined style={{ fontSize: 18 }} />}
+              aria-label="More actions"
+            />
+          </Dropdown>
+        );
+      },
     },
+  ];
+
+  const stockCsvFields = [
+    { key: 'name', header: 'Name', value: (r: Tool) => r.name },
+    { key: 'code', header: 'Code', value: (r: Tool) => r.code },
+    { key: 'category', header: 'Category', value: (r: Tool) => r.category },
+    { key: 'unit', header: 'Unit', value: (r: Tool) => r.unit },
+    { key: 'onHand', header: 'QuantityOnHand', value: (r: Tool) => r.quantityOnHand },
+    { key: 'min', header: 'MinimumStock', value: (r: Tool) => r.minimumStock },
+    { key: 'low', header: 'LowStock', value: (r: Tool) => (r.lowStock ? 'yes' : 'no') },
   ];
 
   return (
@@ -254,73 +289,64 @@ export default function ToolsPage() {
       />
 
       {tab === 'stock' && (
-        <>
-          <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }} wrap>
-            <Space wrap>
+        <div className="std-list-page">
+          <div className="std-list-toolbar">
+            <div className="std-list-filters">
               <Input
                 allowClear
-                placeholder="Search inventory..."
+                placeholder="Search item, code, size…"
                 prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                style={{ width: 220 }}
+                className="std-list-search"
               />
               <Select
+                mode="multiple"
+                allowClear
+                maxTagCount="responsive"
+                placeholder="Category"
+                className="std-list-filter std-list-filter--sm"
                 value={categoryFilter}
                 onChange={setCategoryFilter}
-                style={{ width: 150 }}
                 options={[
-                  { value: 'all', label: 'All categories' },
                   { value: 'RETURNABLE_TOOL', label: 'Returnable' },
                   { value: 'CONSUMABLE', label: 'Consumable' },
                 ]}
               />
               <Select
+                mode="multiple"
+                allowClear
+                maxTagCount="responsive"
+                placeholder="Stock"
+                className="std-list-filter std-list-filter--sm"
                 value={stockFilter}
                 onChange={setStockFilter}
-                style={{ width: 140 }}
                 options={[
-                  { value: 'all', label: 'All stock' },
                   { value: 'low', label: 'Low stock' },
-                  { value: 'ok', label: 'OK stock' },
+                  { value: 'ok', label: 'OK' },
                 ]}
               />
-              <Select
-                value={sort}
-                onChange={setSort}
-                style={{ width: 150 }}
-                options={[
-                  { value: 'name_asc', label: 'Name A–Z' },
-                  { value: 'stock_asc', label: 'Stock low→high' },
-                  { value: 'stock_desc', label: 'Stock high→low' },
-                ]}
-              />
-            </Space>
-            <Space>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Button
+                icon={<CheckSquareOutlined />}
+                type={selectMode ? 'primary' : 'default'}
+                ghost={selectMode}
+                onClick={() => {
+                  if (selectMode) {
+                    setSelectMode(false);
+                    setSelectedKeys([]);
+                  } else {
+                    setSelectMode(true);
+                  }
+                }}
+              >
+                {selectMode ? 'Done selecting' : 'Select multiple'}
+              </Button>
               <Button
                 icon={<DownloadOutlined />}
                 onClick={() =>
-                  exportCsv('inventory-stock.csv', filtered, [
-                    { key: 'name', header: 'Name', value: (r) => r.name },
-                    { key: 'code', header: 'Code', value: (r) => r.code },
-                    { key: 'category', header: 'Category', value: (r) => r.category },
-                    { key: 'unit', header: 'Unit', value: (r) => r.unit },
-                    {
-                      key: 'onHand',
-                      header: 'QuantityOnHand',
-                      value: (r) => r.quantityOnHand,
-                    },
-                    {
-                      key: 'min',
-                      header: 'MinimumStock',
-                      value: (r) => r.minimumStock,
-                    },
-                    {
-                      key: 'low',
-                      header: 'LowStock',
-                      value: (r) => (r.lowStock ? 'yes' : 'no'),
-                    },
-                  ])
+                  exportCsv('inventory-stock.csv', filtered, stockCsvFields)
                 }
               >
                 Export CSV
@@ -329,14 +355,40 @@ export default function ToolsPage() {
                 type="primary"
                 icon={<PlusOutlined />}
                 onClick={() => setModalOpen(true)}
-                style={{ height: 32, fontWeight: 600 }}
+                style={{ fontWeight: 700 }}
               >
                 Add item
               </Button>
-            </Space>
-          </Space>
+            </div>
+          </div>
+
+          {selectMode && (
+            <div className="std-list-bulk">
+              <span className="std-list-bulk__count">
+                {selectedKeys.length
+                  ? `${selectedKeys.length} selected`
+                  : 'Select items to export'}
+              </span>
+              <Space size={8}>
+                <Button
+                  size="small"
+                  icon={<DownloadOutlined />}
+                  disabled={!selectedTools.length}
+                  onClick={() => exportCsv('inventory-stock.csv', selectedTools, stockCsvFields)}
+                >
+                  Export selected
+                </Button>
+                {selectedKeys.length > 0 && (
+                  <Button size="small" type="text" onClick={() => setSelectedKeys([])}>
+                    Clear
+                  </Button>
+                )}
+              </Space>
+            </div>
+          )}
 
           <Table
+            className="std-list-table"
             rowKey="id"
             size="small"
             columns={columns}
@@ -344,9 +396,24 @@ export default function ToolsPage() {
             loading={loading}
             rowClassName={(r) => (r.lowStock ? 'inventory-low-stock' : '')}
             locale={{ emptyText: 'No inventory items match your filters yet' }}
-            scroll={{ x: true }}
+            scroll={{ x: 960 }}
+            pagination={{
+              pageSize: 20,
+              showSizeChanger: true,
+              pageSizeOptions: [10, 20, 50],
+              showTotal: (total) => `${total} item${total === 1 ? '' : 's'}`,
+            }}
+            rowSelection={
+              selectMode
+                ? {
+                    selectedRowKeys: selectedKeys,
+                    onChange: (keys) => setSelectedKeys(keys.map(String)),
+                    preserveSelectedRowKeys: true,
+                  }
+                : undefined
+            }
           />
-        </>
+        </div>
       )}
 
       {tab === 'suggestions' && (
@@ -359,6 +426,7 @@ export default function ToolsPage() {
             description={suggestions?.description}
           />
           <Table
+            className="std-list-table"
             size="small"
             rowKey="toolId"
             loading={!suggestions}
@@ -428,6 +496,7 @@ export default function ToolsPage() {
             Outstanding unreturned tools
           </Typography.Title>
           <Table
+            className="std-list-table"
             size="small"
             style={{ marginBottom: 24 }}
             rowKey="workerId"
@@ -453,6 +522,7 @@ export default function ToolsPage() {
             Usage by worker × item
           </Typography.Title>
           <Table
+            className="std-list-table"
             size="small"
             style={{ marginBottom: 24 }}
             rowKey={(r) => `${r.workerId}-${r.toolId}`}
@@ -482,6 +552,7 @@ export default function ToolsPage() {
             Consumption by item
           </Typography.Title>
           <Table
+            className="std-list-table"
             size="small"
             rowKey="toolId"
             loading={usageLoading}

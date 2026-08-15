@@ -8,6 +8,7 @@ import { operationsApi } from '../../api/operations.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
+import { DOWNTIME_REASONS } from '../../constants/downtimeReasons';
 import type { JobOrder, Operation, OperationPauseReason } from '../../types';
 
 const PAUSE_REASONS: { value: OperationPauseReason; label: string }[] = [
@@ -57,6 +58,8 @@ export default function AssignmentDetailPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [pauseForOp, setPauseForOp] = useState<Operation | null>(null);
+  const [reportForOp, setReportForOp] = useState<Operation | null>(null);
+  const [reportNote, setReportNote] = useState('');
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const fetchJob = async () => {
@@ -117,6 +120,26 @@ export default function AssignmentDetailPage() {
       await operationsApi.pause(pauseForOp.id, reason, undefined, new Date().toISOString());
       message.success('Operation paused');
       setPauseForOp(null);
+      await fetchJob();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const confirmBreakdown = async (reason: string) => {
+    if (!reportForOp?.machineUnitId) return;
+    setActionLoading(reportForOp.id);
+    try {
+      await operationsApi.openDowntime(
+        reportForOp.machineUnitId,
+        reason,
+        reportNote.trim() || undefined
+      );
+      message.success('Breakdown reported');
+      setReportForOp(null);
+      setReportNote('');
       await fetchJob();
     } catch (err) {
       message.error(getErrorMessage(err));
@@ -296,6 +319,7 @@ export default function AssignmentDetailPage() {
             const opName = op.operationName || op.name || 'Operation';
             const seq = op.sequenceNo ?? op.seq ?? index + 1;
             const machineLabel =
+              op.machineUnitLabel ||
               op.machineTypeName ||
               (op.machineNames && op.machineNames[0]) ||
               null;
@@ -384,10 +408,52 @@ export default function AssignmentDetailPage() {
                   </div>
 
                   {machineLabel ? (
-                    <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 8 }}>
-                      Machine: {machineLabel}
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: colors.textSecondary,
+                        marginBottom: 8,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <span>
+                        Machine: {machineLabel}
+                      </span>
+                      {op.machineDown && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            padding: '2px 8px',
+                            borderRadius: 999,
+                            background: 'rgba(220,38,38,0.12)',
+                            color: colors.red,
+                          }}
+                        >
+                          Down
+                        </span>
+                      )}
                     </div>
                   ) : null}
+
+                  {isMine && op.machineUnitId && !op.machineDown && !done && (
+                    <Button
+                      type="default"
+                      block
+                      size="large"
+                      loading={actionLoading === op.id}
+                      onClick={() => {
+                        setReportNote('');
+                        setReportForOp(op);
+                      }}
+                      style={{ height: 44, fontWeight: 700, marginBottom: 8 }}
+                    >
+                      Report breakdown
+                    </Button>
+                  )}
 
                   {!isMine && op.assignedWorkerName && (
                     <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 8 }}>
@@ -515,6 +581,75 @@ export default function AssignmentDetailPage() {
                   </Button>
                 ))}
                 <Button block size="large" onClick={() => setPauseForOp(null)} style={{ height: 44 }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {reportForOp && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(15,23,42,0.45)',
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'flex-end',
+              justifyContent: 'center',
+            }}
+            onClick={() => setReportForOp(null)}
+          >
+            <div
+              style={{
+                width: '100%',
+                maxWidth: 480,
+                background: colors.card,
+                borderTopLeftRadius: 16,
+                borderTopRightRadius: 16,
+                padding: '16px 16px 24px',
+                boxShadow: colors.shadow,
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>Report breakdown</div>
+              <div style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 12 }}>
+                Why is {reportForOp.machineUnitLabel || reportForOp.machineTypeName || 'this machine'} down?
+              </div>
+              <textarea
+                value={reportNote}
+                onChange={(e) => setReportNote(e.target.value)}
+                placeholder="Optional note"
+                rows={2}
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  marginBottom: 12,
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  border: `1px solid ${colors.cardBorder}`,
+                  background: colors.inputBg || colors.card,
+                  color: colors.text,
+                  fontSize: 14,
+                  fontFamily: 'inherit',
+                  resize: 'none',
+                }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {DOWNTIME_REASONS.map((r) => (
+                  <Button
+                    key={r}
+                    block
+                    size="large"
+                    loading={actionLoading === reportForOp.id}
+                    onClick={() => confirmBreakdown(r)}
+                    style={{ height: 44, fontWeight: 700, textAlign: 'left' }}
+                  >
+                    {r}
+                  </Button>
+                ))}
+                <Button block size="large" onClick={() => setReportForOp(null)} style={{ height: 44 }}>
                   Cancel
                 </Button>
               </div>

@@ -155,6 +155,7 @@ class JobOperation(db.Model):
             "notes": self.notes,
             "timeLogs": [log.to_dict() for log in (self.time_logs or [])],
             "isPaused": self._is_paused(),
+            "machineDown": self._is_machine_down(),
             # Legacy-shaped fields for gradual UI migration
             "seq": self.sequence_no,
             "name": self.operation_name,
@@ -172,6 +173,18 @@ class JobOperation(db.Model):
             return False
         last = logs[-1]
         return last.event.value == "PAUSE" if last.event else False
+
+    def _is_machine_down(self):
+        if not self.machine_unit_id:
+            return False
+        from app.models.operation_time import MachineDowntime
+
+        return (
+            MachineDowntime.query.filter_by(
+                machine_unit_id=self.machine_unit_id, ended_at=None
+            ).first()
+            is not None
+        )
 
 
     def _derived_segments(self):

@@ -1,4 +1,4 @@
-import { ConfigProvider, Modal, Popover, theme as antdTheme } from 'antd';
+import { ConfigProvider, Popover, theme as antdTheme } from 'antd';
 import {
   LogoutOutlined,
   UnorderedListOutlined,
@@ -12,6 +12,7 @@ import {
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { confirmLogout } from '../utils/confirmLogout';
 
 export interface WorkerPalette {
   bg: string;
@@ -135,15 +136,7 @@ export function WorkerPageHeader({
         type="button"
         onClick={() => {
           setAccountOpen(false);
-          Modal.confirm({
-            title: 'Log out?',
-            content: 'You will need to sign in again to see your jobs.',
-            okText: 'Log out',
-            okButtonProps: { danger: true },
-            cancelText: 'Stay signed in',
-            centered: true,
-            onOk: () => logout(),
-          });
+          logout();
         }}
         style={{
           width: '100%',
@@ -154,7 +147,7 @@ export function WorkerPageHeader({
           padding: '11px 12px',
           border: 'none',
           borderRadius: 10,
-          background: '#dc2626',
+          background: '#611020',
           color: '#fff',
           fontSize: 14,
           fontWeight: 700,
@@ -290,8 +283,10 @@ export default function WorkerLayout() {
   const isScan = location.pathname.startsWith('/scan');
 
   const logout = () => {
-    authLogout();
-    navigate('/login');
+    confirmLogout(() => {
+      authLogout();
+      navigate('/login');
+    }, 'You will need to sign in again to see your jobs.');
   };
 
   const tabs = [
@@ -330,11 +325,12 @@ export default function WorkerLayout() {
       >
         <div
           style={{
-            minHeight: '100dvh',
+            height: '100%',
             background: isScan ? '#000' : colors.bg,
             color: colors.text,
             display: 'flex',
             flexDirection: 'column',
+            overflow: 'hidden',
           }}
         >
           <main style={{ flex: 1, paddingBottom: 100, overflowY: 'auto' }}>

@@ -17,11 +17,32 @@ def _uuid():
 
 
 class JobOrderStatus(enum.Enum):
+    # Internal planning (not client-facing; workers must not see these)
+    DRAFT = "DRAFT"
+    PLANNING = "PLANNING"
+    RELEASED = "RELEASED"
+    # Production floor (existing chain)
     UNASSIGNED = "UNASSIGNED"
     ASSIGNED = "ASSIGNED"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
     DELIVERED = "DELIVERED"
+
+
+# Sticky internal states — not derived from operation progress.
+PLANNING_STATUSES = frozenset({JobOrderStatus.DRAFT, JobOrderStatus.PLANNING})
+
+# Workers may only see jobs at RELEASED or later.
+PRODUCTION_VISIBLE_STATUSES = frozenset(
+    {
+        JobOrderStatus.RELEASED,
+        JobOrderStatus.UNASSIGNED,
+        JobOrderStatus.ASSIGNED,
+        JobOrderStatus.IN_PROGRESS,
+        JobOrderStatus.COMPLETED,
+        JobOrderStatus.DELIVERED,
+    }
+)
 
 
 class JobPriority(enum.Enum):
@@ -65,7 +86,7 @@ class JobOrder(db.Model):
     client_po_number = db.Column(db.String(100), nullable=True)
     po_date = db.Column(db.Date, nullable=True)
     status = db.Column(
-        db.Enum(JobOrderStatus), nullable=False, default=JobOrderStatus.UNASSIGNED, index=True
+        db.Enum(JobOrderStatus), nullable=False, default=JobOrderStatus.DRAFT, index=True
     )
     priority = db.Column(
         db.Enum(JobPriority), nullable=False, default=JobPriority.MODERATE, index=True

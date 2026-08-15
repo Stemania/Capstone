@@ -107,6 +107,10 @@ def schedule_board(
     if client_id:
         q = q.filter(JobOrder.client_id == client_id)
 
+    from app.models.job_order import PLANNING_STATUSES
+
+    q = q.filter(~JobOrder.status.in_(tuple(PLANNING_STATUSES)))
+
     ops = q.order_by(JobOperation.scheduled_start.asc()).all()
 
     operations_out = []

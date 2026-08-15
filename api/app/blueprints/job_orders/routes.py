@@ -44,7 +44,7 @@ def list_job_orders():
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def create_job_order():
     data = request.get_json() or {}
-    required = ["clientId", "title", "dueDate", "operations"]
+    required = ["clientId", "title", "dueDate"]
     for field in required:
         if field not in data:
             return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"{field} is required"}}), 400
@@ -66,7 +66,16 @@ def get_job_order(job_id):
 def update_job_order(job_id):
     job = jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
     data = request.get_json() or {}
-    job = jo_service.update_job_order(job, data)
+    job = jo_service.update_job_order(job, data, actor_role=get_current_user_role())
+    return jsonify(job.to_dict(include_operations=True))
+
+
+@job_orders_bp.route("/<job_id>/release", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN)
+def release_job_order(job_id):
+    job = jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
+    job = jo_service.release_job_order(job)
     return jsonify(job.to_dict(include_operations=True))
 
 

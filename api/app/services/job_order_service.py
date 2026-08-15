@@ -11,6 +11,8 @@ from app.models.job_order import (
     JobType,
     MaterialSource,
     PartCondition,
+    PLANNING_STATUSES,
+    PRODUCTION_VISIBLE_STATUSES,
 )
 from app.models.machine import MachineType
 from app.models.operation import JobOperation, OperationStatus
@@ -111,9 +113,13 @@ def _initial_part_condition(material_source: MaterialSource) -> PartCondition:
 def derive_job_status(job: JobOrder) -> JobOrderStatus:
     if job.status == JobOrderStatus.DELIVERED or job.delivered_at:
         return JobOrderStatus.DELIVERED
+    # Internal planning states are explicit — never derive them from ops.
+    if job.status in PLANNING_STATUSES:
+        return job.status
+
     ops = list(job.operations or [])
     if not ops:
-        return JobOrderStatus.UNASSIGNED
+        return JobOrderStatus.RELEASED
     if all(op.status == OperationStatus.COMPLETED for op in ops):
         return JobOrderStatus.COMPLETED
     if any(
@@ -123,7 +129,7 @@ def derive_job_status(job: JobOrder) -> JobOrderStatus:
         return JobOrderStatus.IN_PROGRESS
     if any(op.assigned_worker_id for op in ops):
         return JobOrderStatus.ASSIGNED
-    return JobOrderStatus.UNASSIGNED
+    return JobOrderStatus.RELEASED
 
 
 def advance_part_condition(job: JobOrder):
@@ -140,6 +146,8 @@ def check_job_access(job_order, user_id, user_role):
     if user_role in (UserRole.ADMIN.value, UserRole.OFFICE_STAFF.value):
         return True
     if user_role == UserRole.PRODUCTION_WORKER.value:
+        if job_order.status in PLANNING_STATUSES:
+            raise AppError("Access denied", "FORBIDDEN", 403)
         has_op = any(op.assigned_worker_id == user_id for op in (job_order.operations or []))
         if not has_op:
             raise AppError("Access denied", "FORBIDDEN", 403)
@@ -155,7 +163,8 @@ def list_job_orders(user_id, user_role, status=None):
     )
     if user_role == UserRole.PRODUCTION_WORKER.value:
         query = query.filter(
-            JobOrder.operations.any(JobOperation.assigned_worker_id == user_id)
+            JobOrder.status.in_(tuple(PRODUCTION_VISIBLE_STATUSES)),
+            JobOrder.operations.any(JobOperation.assigned_worker_id == user_id),
         )
     if status:
         query = query.filter_by(status=JobOrderStatus(status))
@@ -226,9 +235,7 @@ def _build_operation(job_id, op_data, seq_fallback):
 
 
 def create_job_order(data, created_by_id):
-    if not data.get("operations"):
-        raise AppError("At least one operation is required", "VALIDATION_ERROR", 400)
-
+    """Office creates a DRAFT from the client PO. Operations are optional; no notify."""
     priority = data.get("priority", "MODERATE")
     try:
         priority_enum = JobPriority(priority)
@@ -252,7 +259,7 @@ def create_job_order(data, created_by_id):
             due_date=_parse_date(data["dueDate"]),
             client_po_number=(data.get("clientPoNumber") or None),
             po_date=_parse_date(data.get("poDate")),
-            status=JobOrderStatus.UNASSIGNED,
+            status=JobOrderStatus.DRAFT,
             priority=priority_enum,
             job_type=job_type,
             material_source=material_source,
@@ -266,17 +273,12 @@ def create_job_order(data, created_by_id):
         db.session.add(job)
         db.session.flush()
 
-        for i, op_data in enumerate(data["operations"], start=1):
+        # Optional ops on create (admin tooling); still stays DRAFT — no JOB_RECEIVED.
+        for i, op_data in enumerate(data.get("operations") or [], start=1):
             op = _build_operation(job.id, op_data, i)
             db.session.add(op)
 
-        db.session.flush()
-        job.status = derive_job_status(job)
         db.session.commit()
-        from app.models.notification import NotificationMilestone
-        from app.services.notification_service import safe_notify_job_milestone
-
-        safe_notify_job_milestone(job.id, NotificationMilestone.JOB_RECEIVED)
         return get_job_order(job.id, created_by_id, UserRole.OFFICE_STAFF.value)
     except AppError:
         db.session.rollback()
@@ -318,8 +320,29 @@ def mark_job_delivered(job):
         raise
 
 
-def update_job_order(job, data):
+def update_job_order(job, data, actor_role=None):
+    """Update job fields and/or operations.
+
+    Office may edit job information in DRAFT/PLANNING.
+    Admin may edit operations in DRAFT/PLANNING (moves DRAFT → PLANNING when ops saved).
+    After RELEASED, either role may update as before; status is re-derived.
+    """
     try:
+        planning = job.status in PLANNING_STATUSES
+        role = actor_role
+
+        if planning and role == UserRole.OFFICE_STAFF.value and "operations" in data:
+            raise AppError(
+                "Office staff cannot edit operations during planning",
+                "FORBIDDEN",
+                403,
+            )
+        if planning and role == UserRole.ADMIN.value:
+            # Admin planning screen — job info is read-only there; allow ops only.
+            # Still allow incidental field patches if sent, for API flexibility,
+            # but office-only restriction above is the hard gate.
+            pass
+
         if "clientId" in data:
             job.client_id = data["clientId"]
         if "title" in data:
@@ -369,11 +392,62 @@ def update_job_order(job, data):
                 op = _build_operation(job.id, payload, i)
                 db.session.add(op)
             db.session.flush()
+            if job.status == JobOrderStatus.DRAFT and data.get("operations"):
+                job.status = JobOrderStatus.PLANNING
 
         job.status = derive_job_status(job)
         advance_part_condition(job)
         db.session.commit()
         return get_job_order(job.id, job.created_by_id, UserRole.OFFICE_STAFF.value)
+    except AppError:
+        db.session.rollback()
+        raise
+    except Exception:
+        db.session.rollback()
+        raise
+
+
+def _release_missing_items(job: JobOrder) -> list[str]:
+    ops = sorted(list(job.operations or []), key=lambda o: o.sequence_no or 0)
+    if not ops:
+        return ["Add at least one operation before releasing."]
+    missing = []
+    for op in ops:
+        label = op.operation_name or f"Operation {op.sequence_no}"
+        seq = op.sequence_no
+        if not op.assigned_worker_id:
+            missing.append(f"#{seq} {label}: assign a worker")
+        if op.estimated_hours is None:
+            missing.append(f"#{seq} {label}: set target hours")
+    return missing
+
+
+def release_job_order(job):
+    """Admin releases a DRAFT/PLANNING job to production. Fires JOB_RECEIVED."""
+    from app.models.notification import NotificationMilestone
+    from app.services.notification_service import safe_notify_job_milestone
+
+    if job.status not in PLANNING_STATUSES:
+        raise AppError(
+            "Only draft or planning jobs can be released",
+            "INVALID_TRANSITION",
+            409,
+        )
+
+    missing = _release_missing_items(job)
+    if missing:
+        raise AppError(
+            "Cannot release yet — " + "; ".join(missing),
+            "VALIDATION_ERROR",
+            400,
+        )
+
+    try:
+        job.status = JobOrderStatus.RELEASED
+        job.status = derive_job_status(job)
+        db.session.commit()
+        safe_notify_job_milestone(job.id, NotificationMilestone.JOB_RECEIVED)
+        return get_job_order(job.id, job.created_by_id, UserRole.ADMIN.value)
     except AppError:
         db.session.rollback()
         raise

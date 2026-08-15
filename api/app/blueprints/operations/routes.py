@@ -131,6 +131,13 @@ def rework_operation(operation_id):
     return jsonify(follow.to_dict()), 201
 
 
+@operations_bp.route("/machine-units/status", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def list_machine_unit_status():
+    return jsonify(op_service.list_machine_unit_statuses())
+
+
 @operations_bp.route("/machine-units/<unit_id>/downtime", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF, UserRole.PRODUCTION_WORKER)
@@ -143,7 +150,11 @@ def open_downtime(unit_id):
         note=data.get("note"),
         started_at=data.get("startedAt") or data.get("started_at"),
     )
-    return jsonify(row.to_dict()), 201
+    payload = row.to_dict()
+    affected = op_service.list_affected_operations(unit_id)
+    payload["affectedCount"] = len(affected)
+    payload["affectedOperations"] = affected
+    return jsonify(payload), 201
 
 
 @operations_bp.route("/machine-units/downtime/<downtime_id>/close", methods=["POST"])
@@ -154,6 +165,7 @@ def close_downtime(downtime_id):
     row = op_service.close_machine_downtime(
         downtime_id,
         ended_at=data.get("endedAt") or data.get("ended_at"),
+        note=data.get("note"),
     )
     return jsonify(row.to_dict())
 

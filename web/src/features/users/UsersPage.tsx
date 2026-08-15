@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Table, Button, Modal, Form, Input, Select, Tag, Space, Popconfirm, message, Row, Col,
+  Table, Button, Modal, Form, Input, Select, Tag, Dropdown, message, Row, Col,
 } from 'antd';
-import { PlusOutlined, UserAddOutlined, SearchOutlined, EditOutlined } from '@ant-design/icons';
+import type { MenuProps, TableColumnsType } from 'antd';
+import {
+  PlusOutlined,
+  UserAddOutlined,
+  SearchOutlined,
+  EditOutlined,
+  CheckSquareOutlined,
+  MoreOutlined,
+  StopOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { usersApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
-import type { User, WorkerSkill } from '../../types';
+import type { User, UserRole, WorkerSkill } from '../../types';
 
 const NAVY = '#0f1c2e';
 
@@ -17,9 +26,7 @@ const roleStyle: Record<string, { label: string; color: PillColor }> = {
   PRODUCTION_WORKER: { label: 'Production Worker', color: 'green' },
 };
 
-type RoleFilter = 'all' | 'ADMIN' | 'OFFICE_STAFF' | 'PRODUCTION_WORKER';
-type StatusFilter = 'all' | 'active' | 'inactive';
-type SortKey = 'name_asc' | 'name_desc' | 'role_asc';
+type StatusFilter = 'active' | 'inactive';
 
 function skillLabels(user: User): string[] {
   const fromTop = user.skills || [];
@@ -37,9 +44,10 @@ export default function UsersPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [query, setQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [sort, setSort] = useState<SortKey>('name_asc');
+  const [roleFilter, setRoleFilter] = useState<UserRole[]>([]);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter[]>([]);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [form] = Form.useForm();
 
   const fetchUsers = async () => {
@@ -58,20 +66,16 @@ export default function UsersPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = users.filter((u) => {
+    return users.filter((u) => {
       if (q && !`${u.fullName} ${u.email}`.toLowerCase().includes(q)) return false;
-      if (roleFilter !== 'all' && u.role !== roleFilter) return false;
-      if (statusFilter === 'active' && !u.active) return false;
-      if (statusFilter === 'inactive' && u.active) return false;
+      if (roleFilter.length && !roleFilter.includes(u.role)) return false;
+      if (statusFilter.length) {
+        const status: StatusFilter = u.active ? 'active' : 'inactive';
+        if (!statusFilter.includes(status)) return false;
+      }
       return true;
     });
-    list = [...list].sort((a, b) => {
-      if (sort === 'name_desc') return b.fullName.localeCompare(a.fullName);
-      if (sort === 'role_asc') return a.role.localeCompare(b.role);
-      return a.fullName.localeCompare(b.fullName);
-    });
-    return list;
-  }, [users, query, roleFilter, statusFilter, sort]);
+  }, [users, query, roleFilter, statusFilter]);
 
   const closeModal = () => {
     setModalOpen(false);
@@ -116,64 +120,103 @@ export default function UsersPage() {
     }
   };
 
-  const columns = [
+  const columns: TableColumnsType<User> = [
     {
       title: 'Name',
       dataIndex: 'fullName',
       key: 'fullName',
-      render: (n: string) => <span style={{ fontWeight: 600 }}>{n}</span>,
+      sorter: (a, b) => a.fullName.localeCompare(b.fullName),
+      render: (n: string) => (
+        <span style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>{n}</span>
+      ),
     },
-    { title: 'Email', dataIndex: 'email', key: 'email' },
+    {
+      title: 'Email',
+      dataIndex: 'email',
+      key: 'email',
+      ellipsis: true,
+      sorter: (a, b) => a.email.localeCompare(b.email),
+      render: (v: string) => <span style={{ fontSize: 13, color: '#475569' }}>{v}</span>,
+    },
     {
       title: 'Role',
       dataIndex: 'role',
       key: 'role',
+      width: 170,
       render: (r: string) => {
         const st = roleStyle[r] || { label: r.replace('_', ' '), color: 'gray' as PillColor };
-        return <StatusPill color={st.color}>{st.label}</StatusPill>;
+        return <StatusPill color={st.color} compact>{st.label}</StatusPill>;
       },
     },
     {
       title: 'Skills',
       key: 'skills',
       render: (_: unknown, record: User) => {
-        if (record.role !== 'PRODUCTION_WORKER') return '—';
-        const labels = skillLabels(record);
-        if (!labels.length) return <span style={{ color: '#94a3b8' }}>None</span>;
-        return labels.map((s) => (
-          <Tag key={s} style={{ borderRadius: 999 }}>{s}</Tag>
-        ));
+        const labels = record.role === 'PRODUCTION_WORKER' ? skillLabels(record) : [];
+        return (
+          <div className="users-skills" title={labels.length ? labels.join(', ') : undefined}>
+            {labels.length
+              ? labels.map((s) => (
+                  <Tag key={s} style={{ borderRadius: 999, margin: 0 }}>
+                    {s}
+                  </Tag>
+                ))
+              : <span style={{ color: '#94a3b8' }}>—</span>}
+          </div>
+        );
       },
     },
     {
       title: 'Status',
       dataIndex: 'active',
       key: 'active',
+      width: 110,
       render: (a: boolean) => (
-        <StatusPill color={a ? 'green' : 'red'}>{a ? 'Active' : 'Inactive'}</StatusPill>
+        <StatusPill color={a ? 'green' : 'red'} compact>{a ? 'Active' : 'Inactive'}</StatusPill>
       ),
     },
     {
-      title: 'Actions',
+      title: '',
       key: 'actions',
-      render: (_: unknown, record: User) => (
-        <Space>
-          {record.role === 'PRODUCTION_WORKER' && (
+      width: 56,
+      align: 'center',
+      render: (_: unknown, record: User) => {
+        const items: MenuProps['items'] = [];
+        if (record.role === 'PRODUCTION_WORKER') {
+          items.push({
+            key: 'skills',
+            icon: <EditOutlined />,
+            label: 'Skills / Schedule',
+            onClick: () => navigate(`/users/${record.id}`),
+          });
+        }
+        if (record.active) {
+          items.push({
+            key: 'deactivate',
+            icon: <StopOutlined />,
+            danger: true,
+            label: 'Deactivate',
+            onClick: () => {
+              Modal.confirm({
+                title: 'Deactivate this user?',
+                okText: 'Deactivate',
+                okButtonProps: { danger: true },
+                onOk: () => onDeactivate(record.id),
+              });
+            },
+          });
+        }
+        return (
+          <Dropdown menu={{ items }} trigger={['click']} placement="bottomRight">
             <Button
+              type="text"
               size="small"
-              icon={<EditOutlined />}
-              onClick={() => navigate(`/users/${record.id}`)}
-            >
-              Skills / Schedule
-            </Button>
-          )}
-          {record.active ? (
-            <Popconfirm title="Deactivate this user?" onConfirm={() => onDeactivate(record.id)}>
-              <Button danger size="small">Deactivate</Button>
-            </Popconfirm>
-          ) : null}
-        </Space>
-      ),
+              icon={<MoreOutlined style={{ fontSize: 18 }} />}
+              aria-label="More actions"
+            />
+          </Dropdown>
+        );
+      },
     },
   ];
 
@@ -195,67 +238,109 @@ export default function UsersPage() {
   );
 
   return (
-    <div>
-      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }} wrap>
-        <Space wrap>
+    <div className="std-list-page">
+      <div className="std-list-toolbar">
+        <div className="std-list-filters">
           <Input
             allowClear
-            placeholder="Search users..."
+            placeholder="Search name or email…"
             prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            style={{ width: 220 }}
+            className="std-list-search"
           />
           <Select
+            mode="multiple"
+            allowClear
+            maxTagCount="responsive"
+            placeholder="Role"
+            className="std-list-filter"
             value={roleFilter}
             onChange={setRoleFilter}
-            style={{ width: 170 }}
             options={[
-              { value: 'all', label: 'All roles' },
               { value: 'ADMIN', label: 'Administrator' },
               { value: 'OFFICE_STAFF', label: 'Office Staff' },
               { value: 'PRODUCTION_WORKER', label: 'Production Worker' },
             ]}
           />
           <Select
+            mode="multiple"
+            allowClear
+            maxTagCount="responsive"
+            placeholder="Status"
+            className="std-list-filter std-list-filter--sm"
             value={statusFilter}
             onChange={setStatusFilter}
-            style={{ width: 140 }}
             options={[
-              { value: 'all', label: 'All status' },
               { value: 'active', label: 'Active' },
               { value: 'inactive', label: 'Inactive' },
             ]}
           />
-          <Select
-            value={sort}
-            onChange={setSort}
-            style={{ width: 140 }}
-            options={[
-              { value: 'name_asc', label: 'Name A–Z' },
-              { value: 'name_desc', label: 'Name Z–A' },
-              { value: 'role_asc', label: 'Role' },
-            ]}
-          />
-        </Space>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setModalOpen(true)}
-          style={{ height: 32, fontWeight: 600 }}
-        >
-          Add User
-        </Button>
-      </Space>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Button
+            icon={<CheckSquareOutlined />}
+            type={selectMode ? 'primary' : 'default'}
+            ghost={selectMode}
+            onClick={() => {
+              if (selectMode) {
+                setSelectMode(false);
+                setSelectedKeys([]);
+              } else {
+                setSelectMode(true);
+              }
+            }}
+          >
+            {selectMode ? 'Done selecting' : 'Select multiple'}
+          </Button>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setModalOpen(true)}
+            style={{ fontWeight: 700 }}
+          >
+            Add User
+          </Button>
+        </div>
+      </div>
+
+      {selectMode && (
+        <div className="std-list-bulk">
+          <span className="std-list-bulk__count">
+            {selectedKeys.length ? `${selectedKeys.length} selected` : 'Select users'}
+          </span>
+          {selectedKeys.length > 0 && (
+            <Button size="small" type="text" onClick={() => setSelectedKeys([])}>
+              Clear
+            </Button>
+          )}
+        </div>
+      )}
 
       <Table
+        className="std-list-table users-list-table"
         rowKey="id"
         columns={columns}
         dataSource={filtered}
         loading={loading}
-        locale={{ emptyText: 'No users match your filters' }}
-        scroll={{ x: true }}
+        locale={{ emptyText: 'No users match your filters yet' }}
+        scroll={{ x: 900 }}
         size="small"
+        pagination={{
+          pageSize: 20,
+          showSizeChanger: true,
+          pageSizeOptions: [10, 20, 50],
+          showTotal: (total) => `${total} user${total === 1 ? '' : 's'}`,
+        }}
+        rowSelection={
+          selectMode
+            ? {
+                selectedRowKeys: selectedKeys,
+                onChange: (keys) => setSelectedKeys(keys.map(String)),
+                preserveSelectedRowKeys: true,
+              }
+            : undefined
+        }
       />
 
       <Modal

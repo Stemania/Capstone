@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Table,
   Button,
@@ -8,12 +8,29 @@ import {
   Switch,
   Typography,
   Space,
+  Select,
+  Dropdown,
   message,
 } from 'antd';
-import { PlusOutlined, EditOutlined } from '@ant-design/icons';
+import type { MenuProps, TableColumnsType } from 'antd';
+import {
+  PlusOutlined,
+  EditOutlined,
+  SearchOutlined,
+  CheckSquareOutlined,
+  MoreOutlined,
+} from '@ant-design/icons';
 import { clientsApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
+import StatusPill from '../../components/StatusPill';
 import type { Client } from '../../types';
+
+type NotifyFilter = 'email' | 'sms' | 'off';
+
+function notifyLabel(r: Client) {
+  const parts = [r.notifyByEmail ? 'Email' : null, r.notifyBySms ? 'SMS' : null].filter(Boolean);
+  return parts.join(' · ') || 'Off';
+}
 
 export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
@@ -21,6 +38,10 @@ export default function ClientsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
+  const [notifyFilter, setNotifyFilter] = useState<NotifyFilter[]>([]);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [form] = Form.useForm();
 
   const fetchClients = async () => {
@@ -38,6 +59,30 @@ export default function ClientsPage() {
   useEffect(() => {
     fetchClients();
   }, []);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return clients.filter((c) => {
+      if (
+        q &&
+        !`${c.name} ${c.contact || ''} ${c.email || ''} ${c.mobileNumber || ''}`
+          .toLowerCase()
+          .includes(q)
+      ) {
+        return false;
+      }
+      if (notifyFilter.length) {
+        const off = !c.notifyByEmail && !c.notifyBySms;
+        const match = notifyFilter.some((f) => {
+          if (f === 'email') return !!c.notifyByEmail;
+          if (f === 'sms') return !!c.notifyBySms;
+          return off;
+        });
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [clients, search, notifyFilter]);
 
   const openCreate = () => {
     setEditing(null);
@@ -91,63 +136,177 @@ export default function ClientsPage() {
     }
   };
 
-  const columns = [
+  const columns: TableColumnsType<Client> = [
     {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
-      render: (n: string) => <span style={{ fontWeight: 600 }}>{n}</span>,
+      sorter: (a, b) => a.name.localeCompare(b.name),
+      render: (n: string) => (
+        <span style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>{n}</span>
+      ),
     },
-    { title: 'Contact', dataIndex: 'contact', key: 'contact', render: (v?: string) => v || '—' },
-    { title: 'Email', dataIndex: 'email', key: 'email', render: (v?: string) => v || '—' },
+    {
+      title: 'Contact',
+      dataIndex: 'contact',
+      key: 'contact',
+      ellipsis: true,
+      sorter: (a, b) => (a.contact || '').localeCompare(b.contact || ''),
+      render: (v?: string) => (
+        <span style={{ fontSize: 14, color: '#0f172a' }}>{v || '—'}</span>
+      ),
+    },
+    {
+      title: 'Email',
+      dataIndex: 'email',
+      key: 'email',
+      ellipsis: true,
+      sorter: (a, b) => (a.email || '').localeCompare(b.email || ''),
+      render: (v?: string) => (
+        <span style={{ fontSize: 13, color: '#475569' }}>{v || '—'}</span>
+      ),
+    },
     {
       title: 'Mobile',
       dataIndex: 'mobileNumber',
       key: 'mobileNumber',
-      render: (v?: string) => v || '—',
+      width: 140,
+      sorter: (a, b) => (a.mobileNumber || '').localeCompare(b.mobileNumber || ''),
+      render: (v?: string) => (
+        <span style={{ fontSize: 13, color: '#475569' }}>{v || '—'}</span>
+      ),
     },
     {
       title: 'Notify',
       key: 'notify',
       width: 140,
       render: (_: unknown, r: Client) => (
-        <span style={{ fontSize: 12, color: '#64748b' }}>
-          {[r.notifyByEmail ? 'Email' : null, r.notifyBySms ? 'SMS' : null]
-            .filter(Boolean)
-            .join(' · ') || 'Off'}
-        </span>
+        r.notifyByEmail || r.notifyBySms ? (
+          <StatusPill color="blue" compact>{notifyLabel(r)}</StatusPill>
+        ) : (
+          <span style={{ fontSize: 12, color: '#94a3b8' }}>Off</span>
+        )
       ),
     },
     {
       title: '',
       key: 'actions',
-      width: 80,
-      render: (_: unknown, r: Client) => (
-        <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(r)}>
-          Edit
-        </Button>
-      ),
+      width: 56,
+      align: 'center',
+      render: (_: unknown, r: Client) => {
+        const items: MenuProps['items'] = [
+          {
+            key: 'edit',
+            icon: <EditOutlined />,
+            label: 'Edit',
+            onClick: () => openEdit(r),
+          },
+        ];
+        return (
+          <Dropdown menu={{ items }} trigger={['click']} placement="bottomRight">
+            <Button
+              type="text"
+              size="small"
+              icon={<MoreOutlined style={{ fontSize: 18 }} />}
+              aria-label="More actions"
+            />
+          </Dropdown>
+        );
+      },
     },
   ];
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <Typography.Text type="secondary">
-          Register client contact details for job update messages. No client portal or login.
-        </Typography.Text>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          Register client
-        </Button>
+    <div className="std-list-page">
+      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+        Register client contact details for job update messages.
+      </Typography.Text>
+
+      <div className="std-list-toolbar">
+        <div className="std-list-filters">
+          <Input
+            allowClear
+            prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+            placeholder="Search name, contact, email, mobile…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="std-list-search"
+          />
+          <Select
+            mode="multiple"
+            allowClear
+            maxTagCount="responsive"
+            placeholder="Notify"
+            className="std-list-filter std-list-filter--sm"
+            value={notifyFilter}
+            onChange={setNotifyFilter}
+            options={[
+              { value: 'email', label: 'Email' },
+              { value: 'sms', label: 'SMS' },
+              { value: 'off', label: 'Off' },
+            ]}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Button
+            icon={<CheckSquareOutlined />}
+            type={selectMode ? 'primary' : 'default'}
+            ghost={selectMode}
+            onClick={() => {
+              if (selectMode) {
+                setSelectMode(false);
+                setSelectedKeys([]);
+              } else {
+                setSelectMode(true);
+              }
+            }}
+          >
+            {selectMode ? 'Done selecting' : 'Select multiple'}
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} style={{ fontWeight: 700 }}>
+            Register client
+          </Button>
+        </div>
       </div>
 
+      {selectMode && (
+        <div className="std-list-bulk">
+          <span className="std-list-bulk__count">
+            {selectedKeys.length ? `${selectedKeys.length} selected` : 'Select clients'}
+          </span>
+          <Space size={8}>
+            {selectedKeys.length > 0 && (
+              <Button size="small" type="text" onClick={() => setSelectedKeys([])}>
+                Clear
+              </Button>
+            )}
+          </Space>
+        </div>
+      )}
+
       <Table
+        className="std-list-table"
         rowKey="id"
+        size="small"
         loading={loading}
-        dataSource={clients}
+        dataSource={filtered}
         columns={columns}
-        pagination={{ pageSize: 20 }}
-        size="middle"
+        pagination={{
+          pageSize: 20,
+          showSizeChanger: true,
+          pageSizeOptions: [10, 20, 50],
+          showTotal: (total) => `${total} client${total === 1 ? '' : 's'}`,
+        }}
+        locale={{ emptyText: 'No clients match your filters yet' }}
+        rowSelection={
+          selectMode
+            ? {
+                selectedRowKeys: selectedKeys,
+                onChange: (keys) => setSelectedKeys(keys.map(String)),
+                preserveSelectedRowKeys: true,
+              }
+            : undefined
+        }
       />
 
       <Modal

@@ -65,6 +65,9 @@ export interface Client {
 }
 
 export type JobOrderStatus =
+  | 'DRAFT'
+  | 'PLANNING'
+  | 'RELEASED'
   | 'UNASSIGNED'
   | 'ASSIGNED'
   | 'IN_PROGRESS'
@@ -168,6 +171,7 @@ export interface Operation {
   notes?: string | null;
   timeLogs?: OperationTimeLog[];
   isPaused?: boolean;
+  machineDown?: boolean;
   /** Legacy aliases */
   seq?: number;
   name?: string;
@@ -182,6 +186,39 @@ export interface MachineUnitInfo {
   machineTypeName?: string | null;
   label: string;
   active?: boolean;
+}
+
+export interface MachineDowntimeRecord {
+  id: string;
+  machineUnitId: string;
+  machineUnitLabel?: string | null;
+  startedAt: string;
+  endedAt?: string | null;
+  reason: string;
+  reportedById: string;
+  reportedByName?: string | null;
+  note?: string | null;
+  open: boolean;
+  createdAt?: string | null;
+  affectedCount?: number;
+  affectedOperations?: AffectedScheduledOperation[];
+}
+
+export interface AffectedScheduledOperation {
+  id: string;
+  jobOrderId: string;
+  jobNumber?: string | null;
+  jobTitle?: string | null;
+  operationName: string;
+  status?: string | null;
+  scheduledStart?: string | null;
+  scheduledEnd?: string | null;
+}
+
+export interface MachineUnitStatus extends MachineUnitInfo {
+  down: boolean;
+  openDowntime?: MachineDowntimeRecord | null;
+  affectedCount: number;
 }
 
 export interface ProposedOperation {

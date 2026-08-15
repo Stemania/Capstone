@@ -1,5 +1,6 @@
 """Operation start/pause/resume/complete with append-only time logs."""
 
+from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -42,7 +43,7 @@ def _ensure_utc(dt):
 
 def list_my_operations(worker_id):
     from sqlalchemy.orm import joinedload
-    from app.models.job_order import JobOrder
+    from app.models.job_order import JobOrder, PRODUCTION_VISIBLE_STATUSES
 
     return (
         JobOperation.query.options(
@@ -51,7 +52,11 @@ def list_my_operations(worker_id):
             joinedload(JobOperation.assigned_worker),
             joinedload(JobOperation.time_logs),
         )
-        .filter(JobOperation.assigned_worker_id == worker_id)
+        .join(JobOrder, JobOperation.job_order_id == JobOrder.id)
+        .filter(
+            JobOperation.assigned_worker_id == worker_id,
+            JobOrder.status.in_(tuple(PRODUCTION_VISIBLE_STATUSES)),
+        )
         .order_by(JobOperation.sequence_no.asc())
         .all()
     )
@@ -132,8 +137,17 @@ def _last_event(operation):
 
 def start_operation(operation, user_id, user_role, timestamp):
     from app.constants.machines import assert_machine_type_available
+    from app.models.job_order import PLANNING_STATUSES
 
     _assert_worker_owns(operation, user_id, user_role)
+
+    job = operation.job_order
+    if job.status in PLANNING_STATUSES:
+        raise AppError(
+            "This job has not been released to production yet",
+            "INVALID_TRANSITION",
+            409,
+        )
 
     if operation.status == OperationStatus.IN_PROGRESS:
         last = _last_event(operation)
@@ -155,7 +169,6 @@ def start_operation(operation, user_id, user_role, timestamp):
         _assert_unit_not_down(operation.machine_unit_id)
 
     ts = _parse_timestamp(timestamp)
-    job = operation.job_order
     before_status = job.status
     try:
         operation.status = OperationStatus.IN_PROGRESS
@@ -409,20 +422,91 @@ def open_machine_downtime(machine_unit_id, reported_by_id, reason, note=None, st
         raise
 
 
-def close_machine_downtime(downtime_id, ended_at=None):
+def close_machine_downtime(downtime_id, ended_at=None, note=None):
     row = MachineDowntime.query.get(downtime_id)
     if not row:
         raise AppError("Downtime record not found", "NOT_FOUND", 404)
     if row.ended_at is not None:
         return row
     ts = _parse_timestamp(ended_at)
+    extra = str(note).strip() if note else ""
     try:
         row.ended_at = ts
+        if extra:
+            row.note = f"{row.note}\nClosed: {extra}".strip() if row.note else extra
         db.session.commit()
         return row
     except Exception:
         db.session.rollback()
         raise
+
+
+_AFFECTED_STATUSES = (
+    OperationStatus.PENDING,
+    OperationStatus.SCHEDULED,
+    OperationStatus.IN_PROGRESS,
+    OperationStatus.REWORK,
+)
+
+
+def _serialize_affected_operation(op):
+    job = op.job_order
+    year = job.created_at.year if job and job.created_at else datetime.now(timezone.utc).year
+    short = (job.id or "")[:4].upper() if job else ""
+    return {
+        "id": op.id,
+        "jobOrderId": op.job_order_id,
+        "jobNumber": f"JO-{year}-{short}" if job else None,
+        "jobTitle": job.title if job else None,
+        "operationName": op.operation_name,
+        "status": op.status.value if op.status else None,
+        "scheduledStart": op.scheduled_start.isoformat() if op.scheduled_start else None,
+        "scheduledEnd": op.scheduled_end.isoformat() if op.scheduled_end else None,
+    }
+
+
+def list_affected_operations(machine_unit_id):
+    rows = (
+        JobOperation.query.filter(
+            JobOperation.machine_unit_id == machine_unit_id,
+            JobOperation.status.in_(_AFFECTED_STATUSES),
+        )
+        .order_by(JobOperation.scheduled_start.asc(), JobOperation.sequence_no.asc())
+        .all()
+    )
+    return [_serialize_affected_operation(op) for op in rows]
+
+
+def list_machine_unit_statuses():
+    from app.models.machine import MachineType, MachineUnit
+
+    units = (
+        MachineUnit.query.filter_by(active=True)
+        .join(MachineType)
+        .order_by(MachineType.name, MachineUnit.label)
+        .all()
+    )
+    open_by = {
+        row.machine_unit_id: row
+        for row in MachineDowntime.query.filter(MachineDowntime.ended_at.is_(None)).all()
+    }
+    counts = defaultdict(int)
+    if units:
+        for op in JobOperation.query.filter(
+            JobOperation.machine_unit_id.in_([u.id for u in units]),
+            JobOperation.status.in_(_AFFECTED_STATUSES),
+        ):
+            counts[op.machine_unit_id] += 1
+
+    out = []
+    for unit in units:
+        dt = open_by.get(unit.id)
+        payload = unit.to_dict()
+        payload["down"] = dt is not None
+        payload["openDowntime"] = dt.to_dict() if dt else None
+        payload["affectedCount"] = int(counts.get(unit.id, 0))
+        out.append(payload)
+    return out
 
 
 def open_downtime_intervals_by_unit():

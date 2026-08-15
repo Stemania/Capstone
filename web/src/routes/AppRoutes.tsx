@@ -10,6 +10,7 @@ import MyToolsPage from '../features/tool-tracking/MyToolsPage';
 import LoginPage from '../features/auth/LoginPage';
 import JobOrderListPage from '../features/job-orders/JobOrderListPage';
 import JobOrderFormPage from '../features/job-orders/JobOrderFormPage';
+import JobOrderPlanningPage from '../features/job-orders/JobOrderPlanningPage';
 import JobOrderDetailPage from '../features/job-orders/JobOrderDetailPage';
 import MyAssignmentsPage from '../features/my-assignments/MyAssignmentsPage';
 import AssignmentDetailPage from '../features/my-assignments/AssignmentDetailPage';
@@ -19,6 +20,7 @@ import ToolsPage from '../features/tool-tracking/ToolsPage';
 import ScanToolPage from '../features/tool-tracking/ScanToolPage';
 import ScoringWeightsPage from '../features/settings/ScoringWeightsPage';
 import ClientsPage from '../features/clients/ClientsPage';
+import MachinesPage from '../features/machines/MachinesPage';
 import ScheduleBoardPage from '../features/schedule/ScheduleBoardPage';
 import ReportsHubPage from '../features/reports/ReportsHubPage';
 import EfficiencyReportPage from '../features/reports/EfficiencyReportPage';
@@ -98,6 +100,7 @@ export default function AppRoutes() {
                 </Route>
                 <Route path="/tools" element={<ToolsPage />} />
                 <Route path="/clients" element={<ClientsPage />} />
+                <Route path="/machines" element={<MachinesPage />} />
                 <Route path="/reports" element={<ReportsHubPage />} />
                 <Route path="/reports/efficiency" element={<EfficiencyReportPage />} />
                 <Route path="/reports/inventory" element={<InventoryReportPage />} />
@@ -108,6 +111,7 @@ export default function AppRoutes() {
               </Route>
 
               <Route element={<ProtectedRoute roles={['ADMIN']} />}>
+                <Route path="/job-orders/:id/plan" element={<JobOrderPlanningPage />} />
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/users/:id" element={<WorkerDetailPage />} />
                 <Route path="/settings/scoring-weights" element={<ScoringWeightsPage />} />

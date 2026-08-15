@@ -42,6 +42,9 @@ import { WorkerPageHeader } from '../../layouts/WorkerLayout';
 const { Title, Text } = Typography;
 
 const STATUS_PILL: Record<JobOrderStatus, { label: string; color: PillColor }> = {
+  DRAFT: { label: 'Draft', color: 'gray' },
+  PLANNING: { label: 'Planning', color: 'gray' },
+  RELEASED: { label: 'Released', color: 'blue' },
   UNASSIGNED: { label: 'Unassigned', color: 'gray' },
   ASSIGNED: { label: 'Assigned', color: 'blue' },
   IN_PROGRESS: { label: 'In Progress', color: 'blue' },
@@ -353,12 +356,15 @@ export default function JobOrderDetailPage() {
     );
   }
 
-  const status = STATUS_PILL[job.status] || STATUS_PILL.UNASSIGNED;
+  const status = STATUS_PILL[job.status] || STATUS_PILL.RELEASED;
   const priority = job.priority ? PRIORITY_PILL[job.priority] : null;
   const overdue =
     job.status !== 'COMPLETED' &&
     job.status !== 'DELIVERED' &&
+    job.status !== 'DRAFT' &&
+    job.status !== 'PLANNING' &&
     dayjs(job.dueDate).isBefore(dayjs(), 'day');
+  const isPlanning = job.status === 'DRAFT' || job.status === 'PLANNING';
 
   return (
     <div className="jo-detail-page" style={{ maxWidth: 1200, margin: '0 auto', padding: isWorker ? '0 12px 24px' : undefined }}>
@@ -395,12 +401,20 @@ export default function JobOrderDetailPage() {
           </div>
         </Space>
         <Space wrap>
+          {isPlanning && isAdmin && (
+            <Button
+              type="primary"
+              onClick={() => navigate(`/job-orders/${job.id}/plan`)}
+            >
+              Plan Operations
+            </Button>
+          )}
           {canManage && (
             <Button
               icon={<EditOutlined />}
               onClick={() => navigate(`/job-orders/${job.id}/edit`)}
             >
-              Edit
+              {isPlanning ? 'Edit PO' : 'Edit'}
             </Button>
           )}
           <Button
@@ -449,7 +463,21 @@ export default function JobOrderDetailPage() {
             {dash(job.clientName)}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            <StatusPill color={status.color}>{status.label}</StatusPill>
+            {isPlanning ? (
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  letterSpacing: 0.4,
+                  textTransform: 'uppercase',
+                  color: '#94a3b8',
+                }}
+              >
+                {job.status === 'DRAFT' ? 'Internal draft' : 'Internal planning'}
+              </span>
+            ) : (
+              <StatusPill color={status.color}>{status.label}</StatusPill>
+            )}
             {priority && <StatusPill color={priority.color}>{priority.label}</StatusPill>}
             <span style={{ fontSize: 13, color: overdue ? '#dc2626' : MUTED, fontWeight: 600 }}>
               Due {fmtDate(job.dueDate)}

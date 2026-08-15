@@ -43,6 +43,13 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
@@ -51,10 +58,6 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: #f1f5f9;
-}
-
-#root {
-  min-height: 100vh;
 }
 
 .page-spinner {
@@ -79,6 +82,18 @@ body {
     margin: 8px !important;
     padding: 16px !important;
   }
+}
+
+.ant-menu-dark .ant-menu-item,
+.ant-menu-dark .ant-menu-item .ant-menu-title-content {
+  font-weight: 700 !important;
+}
+
+.app-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
 }
 
 /* Center icons when the admin sidebar is folded */
@@ -155,6 +170,38 @@ body {
   }
 }
 
+.jo-form-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16;
+}
+
+.jo-form-step__badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #0f1c2e;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.jo-form-step__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f1c2e;
+  line-height: 1.3;
+}
+
+.jo-form-step__text {
+  min-width: 0;
+}
+
 /* Form item whose input stretches to fill remaining panel height */
 .fill-item {
   flex: 1;
@@ -207,64 +254,172 @@ body {
   padding-bottom: 24px;
 }
 
-/* Job order list — compact Flutter-like table */
+/* Shared list pages (job orders, clients, inventory, users) */
+.std-list-page,
 .jo-list-page {
-  height: 100%;
+  height: auto;
 }
 
+.std-list-toolbar,
 .jo-list-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.std-list-filters,
+.jo-list-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.std-list-search,
+.jo-list-search {
+  width: 260px;
+  max-width: 100%;
+}
+
+.std-list-filter,
+.jo-list-filter {
+  min-width: 160px;
+  width: 180px;
+}
+
+.std-list-filter--sm,
+.jo-list-filter--sm {
+  min-width: 130px;
+  width: 150px;
+}
+
+.std-list-bulk,
+.jo-list-bulk {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 20px;
   flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
 }
 
-.jo-list-filter {
-  width: 200px;
+.std-list-bulk__count,
+.jo-list-bulk__count {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f1c2e;
 }
 
+.std-list-table .ant-table,
 .jo-list-table .ant-table {
   font-family: inherit;
+  width: 100% !important;
 }
 
+.std-list-table table,
+.jo-list-table table {
+  width: 100% !important;
+  table-layout: fixed !important;
+}
+
+.std-list-table .ant-table-container,
+.std-list-table .ant-table-content,
+.std-list-table .ant-table-body,
+.jo-list-table .ant-table-container,
+.jo-list-table .ant-table-content,
+.jo-list-table .ant-table-body {
+  overflow-x: clip;
+  overflow-y: visible !important;
+  max-height: none !important;
+}
+
+.std-list-table .ant-table-thead > tr > th,
 .jo-list-table .ant-table-thead > tr > th {
-  background: #fff !important;
+  background: #f8fafc !important;
   color: #64748b !important;
   font-size: 12px !important;
   font-weight: 600 !important;
-  padding: 8px 12px 12px !important;
+  padding: 8px 8px !important;
   border-bottom: 1px solid #e2e8f0 !important;
+  white-space: nowrap;
 }
 
-.jo-list-table .ant-table-tbody > tr > td {
-  padding: 12px !important;
+.std-list-table .ant-table-column-sorter,
+.jo-list-table .ant-table-column-sorter {
+  margin-inline-start: 2px !important;
+}
+
+.std-list-table .ant-table-selection-column,
+.jo-list-table .ant-table-selection-column {
+  width: 36px !important;
+  min-width: 36px !important;
+  padding-left: 8px !important;
+  padding-right: 4px !important;
+}
+
+.std-list-table .ant-table-thead > tr > th.ant-table-cell-fix-right,
+.jo-list-table .ant-table-thead > tr > th.ant-table-cell-fix-right {
+  background: #f8fafc !important;
+}
+
+.std-list-table .ant-table-tbody > tr.ant-table-measure-row,
+.std-list-table .ant-table-tbody > tr.ant-table-measure-row > td,
+.jo-list-table .ant-table-tbody > tr.ant-table-measure-row,
+.jo-list-table .ant-table-tbody > tr.ant-table-measure-row > td {
+  height: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  font-size: 0 !important;
+  line-height: 0 !important;
+}
+
+.std-list-table .ant-table-tbody > tr:not(.ant-table-measure-row) > td,
+.jo-list-table .ant-table-tbody > tr:not(.ant-table-measure-row) > td {
+  padding: 10px 8px !important;
   border-bottom: 1px solid #e2e8f0 !important;
   vertical-align: middle;
 }
 
-.jo-list-table .ant-table-tbody > tr:last-child > td {
+.std-list-table .ant-table-tbody > tr:not(.ant-table-measure-row):last-child > td,
+.jo-list-table .ant-table-tbody > tr:not(.ant-table-measure-row):last-child > td {
   border-bottom: none !important;
 }
 
+.std-list-table .ant-table-tbody > tr:hover > td,
 .jo-list-table .ant-table-tbody > tr:hover > td {
   background: #f8fafc !important;
 }
 
+.std-list-table .ant-table-cell-fix-right,
 .jo-list-table .ant-table-cell-fix-right {
   background: #fff !important;
 }
 
+.std-list-table .ant-table-tbody > tr:hover > .ant-table-cell-fix-right,
 .jo-list-table .ant-table-tbody > tr:hover > .ant-table-cell-fix-right {
   background: #f8fafc !important;
 }
 
-.jo-list-edit-btn {
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  height: 32px !important;
-  padding: 0 10px !important;
+.users-skills {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  align-items: center;
+  gap: 4px;
+  min-height: 48px;
+}
+
+.users-list-table .ant-table-tbody > tr:not(.ant-table-measure-row) > td {
+  height: 68px;
 }
 
 /* —— Reports / job order print —— */
@@ -376,6 +531,13 @@ body {
 }
 
 @media print {
+  html,
+  body,
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
   .no-print {
     display: none !important;
   }
