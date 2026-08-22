@@ -722,7 +722,7 @@ export default function JobOrderListPage() {
           closable={false}
           title={null}
           styles={{
-            container: {
+            content: {
               padding: 0,
               borderRadius: '16px 16px 0 0',
               overflow: 'hidden',

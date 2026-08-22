@@ -258,7 +258,7 @@ export default function AppLayout() {
         closable={false}
         className="app-nav-drawer"
         styles={{
-          container: { padding: 0, borderRadius: 0, background: NAVY },
+          content: { padding: 0, borderRadius: 0, background: NAVY },
           header: { display: 'none' },
           body: {
             padding: 0,
