@@ -13,6 +13,9 @@ import {
   DatePicker,
   Alert,
   Dropdown,
+  Row,
+  Col,
+  Spin,
   message,
 } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
@@ -23,6 +26,7 @@ import {
   CheckSquareOutlined,
   MoreOutlined,
   QrcodeOutlined,
+  AppstoreAddOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { inventoryApi, toolsApi } from '../../api/tools.api';
@@ -35,10 +39,15 @@ import type {
   ToolCategory,
 } from '../../types';
 import apiClient, { getErrorMessage } from '../../api/client';
+import { useIsPhone } from '../../hooks/useIsPhone';
 import { exportCsv } from '../../utils/csvExport';
 
 type StockFilter = 'low' | 'ok';
 type PageTab = 'stock' | 'suggestions' | 'usage';
+
+function sectionLabel(text: string) {
+  return <div className="app-form-section">{text}</div>;
+}
 
 export default function ToolsPage() {
   const [tab, setTab] = useState<PageTab>('stock');
@@ -54,6 +63,8 @@ export default function ToolsPage() {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [form] = Form.useForm();
   const [adjustForm] = Form.useForm();
+  const [creating, setCreating] = useState(false);
+  const isPhone = useIsPhone();
 
   const [suggestions, setSuggestions] = useState<InventoryPurchaseSuggestions | null>(null);
   const [usageWorker, setUsageWorker] = useState<InventoryUsageByWorker | null>(null);
@@ -135,6 +146,8 @@ export default function ToolsPage() {
     [filtered, selectedKeys]
   );
 
+  const closeCreateModal = () => setModalOpen(false);
+
   const onCreate = async (values: {
     name: string;
     code?: string;
@@ -144,10 +157,18 @@ export default function ToolsPage() {
     minimumStock?: number | null;
     sizeSpec?: string;
   }) => {
-    await toolsApi.create(values);
-    setModalOpen(false);
-    form.resetFields();
-    fetchTools();
+    try {
+      setCreating(true);
+      await toolsApi.create(values);
+      message.success('Inventory item added');
+      setModalOpen(false);
+      form.resetFields();
+      fetchTools();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setCreating(false);
+    }
   };
 
   const onAdjust = async (values: { quantity: number; reason: string }) => {
@@ -277,6 +298,7 @@ export default function ToolsPage() {
 
   return (
     <div>
+      <div className="admin-h-scroll">
       <Segmented
         style={{ marginBottom: 16 }}
         value={tab}
@@ -287,6 +309,7 @@ export default function ToolsPage() {
           { label: 'Usage', value: 'usage' },
         ]}
       />
+      </div>
 
       {tab === 'stock' && (
         <div className="std-list-page">
@@ -327,7 +350,7 @@ export default function ToolsPage() {
                 ]}
               />
             </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div className="std-list-actions">
               <Button
                 icon={<CheckSquareOutlined />}
                 type={selectMode ? 'primary' : 'default'}
@@ -387,6 +410,55 @@ export default function ToolsPage() {
             </div>
           )}
 
+          {isPhone ? (
+            <div className="admin-cards">
+              {loading && (
+                <div className="page-spinner">
+                  <Spin />
+                </div>
+              )}
+              {!loading && filtered.length === 0 && (
+                <div className="admin-cards__empty">No inventory items match your filters yet</div>
+              )}
+              {!loading &&
+                filtered.map((r) => (
+                  <div key={r.id} className="admin-card">
+                    <div className="admin-card__top">
+                      <div>
+                        <div className="admin-card__title">{r.name}</div>
+                        <div className="admin-card__meta">
+                          {[r.sizeSpec, r.code, r.category === 'CONSUMABLE' ? 'Consumable' : 'Returnable']
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </div>
+                      </div>
+                      <Dropdown
+                        menu={{
+                          items: [
+                            { key: 'qr', icon: <QrcodeOutlined />, label: 'QR', onClick: () => setQrTool(r) },
+                            { key: 'adjust', label: 'Adjust stock', onClick: () => setAdjustTool(r) },
+                          ],
+                        }}
+                        trigger={['click']}
+                        placement="bottomRight"
+                      >
+                        <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} aria-label="More actions" />
+                      </Dropdown>
+                    </div>
+                    <div className="admin-card__row">
+                      <span style={{ fontWeight: r.lowStock ? 800 : 600, color: r.lowStock ? '#b45309' : '#0f1c2e' }}>
+                        {r.quantityOnHand} {r.unit}
+                      </span>
+                      {r.lowStock ? (
+                        <StatusPill color="amber" compact>Low stock</StatusPill>
+                      ) : (
+                        <StatusPill color="green" compact>OK</StatusPill>
+                      )}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          ) : (
           <Table
             className="std-list-table"
             rowKey="id"
@@ -413,6 +485,7 @@ export default function ToolsPage() {
                 : undefined
             }
           />
+          )}
         </div>
       )}
 
@@ -596,50 +669,113 @@ export default function ToolsPage() {
         </div>
       )}
 
-      <Modal title="Add inventory item" open={modalOpen} onCancel={() => setModalOpen(false)} footer={null}>
+      <Modal
+        open={modalOpen}
+        onCancel={closeCreateModal}
+        footer={null}
+        width={560}
+        centered
+        destroyOnHidden
+        className="app-form-modal"
+        styles={{
+          container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
+          body: { padding: 0 },
+        }}
+        closable={false}
+      >
+        <div className="app-form-modal__head">
+          <div className="app-form-modal__icon">
+            <AppstoreAddOutlined />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="app-form-modal__title">Add inventory item</div>
+            <div className="app-form-modal__sub">Name, category, and starting stock for the shop floor.</div>
+          </div>
+          <button type="button" className="app-form-modal__close" onClick={closeCreateModal} aria-label="Close">
+            ×
+          </button>
+        </div>
+
         <Form
           form={form}
           layout="vertical"
           onFinish={onCreate}
+          style={{ padding: '20px 24px 8px' }}
           initialValues={{ category: 'RETURNABLE_TOOL', unit: 'pcs', quantityOnHand: 0 }}
         >
-          <Form.Item name="name" label="Name" rules={[{ required: true }]}>
-            <Input />
+          {sectionLabel('Item details')}
+          <Form.Item
+            name="name"
+            label="Name"
+            rules={[{ required: true, message: 'Name is required' }]}
+            style={{ marginBottom: 14 }}
+          >
+            <Input placeholder="e.g. End mill" />
           </Form.Item>
-          <Form.Item name="code" label="Code (optional)">
-            <Input placeholder="Auto-generated if empty" />
-          </Form.Item>
-          <Form.Item name="category" label="Category" rules={[{ required: true }]}>
-            <Select
-              options={[
-                { value: 'RETURNABLE_TOOL', label: 'Returnable tool' },
-                { value: 'CONSUMABLE', label: 'Consumable' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item name="sizeSpec" label="Size / spec">
+          <Row gutter={12}>
+            <Col span={14}>
+              <Form.Item
+                name="category"
+                label="Category"
+                rules={[{ required: true }]}
+                style={{ marginBottom: 14 }}
+              >
+                <Select
+                  options={[
+                    { value: 'RETURNABLE_TOOL', label: 'Returnable tool' },
+                    { value: 'CONSUMABLE', label: 'Consumable' },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={10}>
+              <Form.Item name="code" label="Code" style={{ marginBottom: 14 }}>
+                <Input placeholder="Auto-generated if empty" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="sizeSpec" label="Size / spec" style={{ marginBottom: 18 }}>
             <Input placeholder="e.g. 10mm" />
           </Form.Item>
-          <Space style={{ width: '100%' }} styles={{ item: { flex: 1 } }}>
-            <Form.Item name="unit" label="Unit" rules={[{ required: true }]} style={{ flex: 1 }}>
-              <Input placeholder="pcs" />
-            </Form.Item>
-            <Form.Item
-              name="quantityOnHand"
-              label="In stock"
-              rules={[{ required: true }]}
-              style={{ flex: 1 }}
-            >
-              <InputNumber min={0} style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="minimumStock" label="Reorder level" style={{ flex: 1 }}>
-              <InputNumber min={0} style={{ width: '100%' }} />
-            </Form.Item>
-          </Space>
-          <Button type="primary" htmlType="submit" block>
+
+          {sectionLabel('Stock levels')}
+          <Row gutter={12}>
+            <Col span={8}>
+              <Form.Item
+                name="unit"
+                label="Unit"
+                rules={[{ required: true, message: 'Required' }]}
+                style={{ marginBottom: 14 }}
+              >
+                <Input placeholder="pcs" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item
+                name="quantityOnHand"
+                label="In stock"
+                rules={[{ required: true, message: 'Required' }]}
+                style={{ marginBottom: 14 }}
+              >
+                <InputNumber min={0} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="minimumStock" label="Reorder level" style={{ marginBottom: 14 }}>
+                <InputNumber min={0} style={{ width: '100%' }} placeholder="Optional" />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Form>
+
+        <div className="app-form-modal__footer">
+          <Button onClick={closeCreateModal} style={{ minWidth: 96 }}>
+            Cancel
+          </Button>
+          <Button type="primary" loading={creating} onClick={() => form.submit()} style={{ fontWeight: 700, minWidth: 120 }}>
             Create
           </Button>
-        </Form>
+        </div>
       </Modal>
 
       <Modal

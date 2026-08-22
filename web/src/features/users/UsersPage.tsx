@@ -1,44 +1,33 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Table, Button, Modal, Form, Input, Select, Tag, Dropdown, message, Row, Col,
+  Table, Button, Modal, Form, Input, Select, Dropdown, message, Row, Col, Spin,
 } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
   PlusOutlined,
   UserAddOutlined,
   SearchOutlined,
-  EditOutlined,
   CheckSquareOutlined,
   MoreOutlined,
   StopOutlined,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
 import { usersApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
-import type { User, UserRole, WorkerSkill } from '../../types';
+import { useIsPhone } from '../../hooks/useIsPhone';
+import type { User, UserRole } from '../../types';
 
 const NAVY = '#0f1c2e';
 
 const roleStyle: Record<string, { label: string; color: PillColor }> = {
   ADMIN: { label: 'Administrator', color: 'blue' },
   OFFICE_STAFF: { label: 'Office Staff', color: 'amber' },
-  PRODUCTION_WORKER: { label: 'Production Worker', color: 'green' },
+  PRODUCTION_WORKER: { label: 'Production Worker', color: 'teal' },
 };
 
 type StatusFilter = 'active' | 'inactive';
 
-function skillLabels(user: User): string[] {
-  const fromTop = user.skills || [];
-  const fromProfile = user.workerProfile?.skills || [];
-  const raw = fromTop.length ? fromTop : fromProfile;
-  return raw
-    .map((s) => (typeof s === 'string' ? s : (s as WorkerSkill).machineTypeCode || (s as WorkerSkill).machineTypeName || ''))
-    .filter(Boolean) as string[];
-}
-
 export default function UsersPage() {
-  const navigate = useNavigate();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -49,6 +38,7 @@ export default function UsersPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [form] = Form.useForm();
+  const isPhone = useIsPhone();
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -90,7 +80,7 @@ export default function UsersPage() {
   }) => {
     setSubmitting(true);
     try {
-      const created = await usersApi.create({
+      await usersApi.create({
         email: values.email,
         password: values.password,
         fullName: values.fullName,
@@ -98,11 +88,7 @@ export default function UsersPage() {
       });
       message.success('User created');
       closeModal();
-      if (values.role === 'PRODUCTION_WORKER') {
-        navigate(`/users/${created.data.id}`);
-      } else {
-        fetchUsers();
-      }
+      fetchUsers();
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
@@ -149,24 +135,6 @@ export default function UsersPage() {
       },
     },
     {
-      title: 'Skills',
-      key: 'skills',
-      render: (_: unknown, record: User) => {
-        const labels = record.role === 'PRODUCTION_WORKER' ? skillLabels(record) : [];
-        return (
-          <div className="users-skills" title={labels.length ? labels.join(', ') : undefined}>
-            {labels.length
-              ? labels.map((s) => (
-                  <Tag key={s} style={{ borderRadius: 999, margin: 0 }}>
-                    {s}
-                  </Tag>
-                ))
-              : <span style={{ color: '#94a3b8' }}>—</span>}
-          </div>
-        );
-      },
-    },
-    {
       title: 'Status',
       dataIndex: 'active',
       key: 'active',
@@ -182,14 +150,6 @@ export default function UsersPage() {
       align: 'center',
       render: (_: unknown, record: User) => {
         const items: MenuProps['items'] = [];
-        if (record.role === 'PRODUCTION_WORKER') {
-          items.push({
-            key: 'skills',
-            icon: <EditOutlined />,
-            label: 'Skills / Schedule',
-            onClick: () => navigate(`/users/${record.id}`),
-          });
-        }
         if (record.active) {
           items.push({
             key: 'deactivate',
@@ -206,6 +166,7 @@ export default function UsersPage() {
             },
           });
         }
+        if (!items.length) return null;
         return (
           <Dropdown menu={{ items }} trigger={['click']} placement="bottomRight">
             <Button
@@ -277,7 +238,7 @@ export default function UsersPage() {
             ]}
           />
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="std-list-actions">
           <Button
             icon={<CheckSquareOutlined />}
             type={selectMode ? 'primary' : 'default'}
@@ -317,14 +278,73 @@ export default function UsersPage() {
         </div>
       )}
 
+      {isPhone ? (
+        <div className="admin-cards">
+          {loading && (
+            <div className="page-spinner">
+              <Spin />
+            </div>
+          )}
+          {!loading && filtered.length === 0 && (
+            <div className="admin-cards__empty">No users match your filters yet</div>
+          )}
+          {!loading &&
+            filtered.map((u) => {
+              const st = roleStyle[u.role] || { label: u.role.replace('_', ' '), color: 'gray' as PillColor };
+              return (
+                <div key={u.id} className="admin-card">
+                  <div className="admin-card__top">
+                    <div>
+                      <div className="admin-card__title">{u.fullName}</div>
+                      <div className="admin-card__meta">{u.email}</div>
+                    </div>
+                    {u.active && (
+                      <Dropdown
+                        menu={{
+                          items: [
+                            {
+                              key: 'deactivate',
+                              icon: <StopOutlined />,
+                              danger: true,
+                              label: 'Deactivate',
+                              onClick: () => {
+                                Modal.confirm({
+                                  title: 'Deactivate this user?',
+                                  okText: 'Deactivate',
+                                  okButtonProps: { danger: true },
+                                  onOk: () => onDeactivate(u.id),
+                                });
+                              },
+                            },
+                          ],
+                        }}
+                        trigger={['click']}
+                        placement="bottomRight"
+                      >
+                        <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} aria-label="More actions" />
+                      </Dropdown>
+                    )}
+                  </div>
+                  <div className="admin-card__row">
+                    <StatusPill color={st.color} compact>
+                      {st.label}
+                    </StatusPill>
+                    <StatusPill color={u.active ? 'green' : 'red'} compact>
+                      {u.active ? 'Active' : 'Inactive'}
+                    </StatusPill>
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+      ) : (
       <Table
-        className="std-list-table users-list-table"
+        className="std-list-table"
         rowKey="id"
         columns={columns}
         dataSource={filtered}
         loading={loading}
         locale={{ emptyText: 'No users match your filters yet' }}
-        scroll={{ x: 900 }}
         size="small"
         pagination={{
           pageSize: 20,
@@ -342,6 +362,7 @@ export default function UsersPage() {
             : undefined
         }
       />
+      )}
 
       <Modal
         open={modalOpen}
@@ -352,6 +373,7 @@ export default function UsersPage() {
         destroyOnHidden
         className="add-user-modal"
         styles={{
+          container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
           body: { padding: 0 },
         }}
         closable={false}
@@ -384,7 +406,7 @@ export default function UsersPage() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 17, fontWeight: 800 }}>Add User</div>
             <div style={{ fontSize: 12, opacity: 0.65, marginTop: 2 }}>
-              Create an account — set worker skills on the detail page after create
+              Create an account. Set worker skills and hours under Worker setup.
             </div>
           </div>
           <button

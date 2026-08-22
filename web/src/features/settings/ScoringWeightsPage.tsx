@@ -4,30 +4,36 @@ import { workersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import type { ScoringWeights } from '../../types';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 const NAVY = '#0f1c2e';
 
 const LABELS: Record<keyof ScoringWeights, { title: string; hint: string }> = {
   skill: {
     title: 'Skill level fit',
-    hint: 'How well the worker’s skill level matches the machine for this operation',
+    hint: 'How well their skill matches the machine for this operation',
   },
   availability: {
     title: 'Availability',
-    hint: 'Whether the worker is free in the needed time window without schedule clashes',
+    hint: 'Free in the needed window, no schedule clashes',
   },
   workload: {
     title: 'How busy they already are',
-    hint: 'How many target hours the worker already has this week',
+    hint: 'Target hours they already have this week',
   },
   efficiency: {
     title: 'Past performance',
-    hint: 'How close their finished operations usually land to target hours',
+    hint: 'How close finished work usually lands to target hours',
   },
 };
 
-export default function ScoringWeightsPage() {
+const FACTORS = Object.keys(LABELS) as (keyof ScoringWeights)[];
+
+export default function ScoringWeightsPage({
+  embedded = false,
+}: {
+  embedded?: boolean;
+}) {
   const [form] = Form.useForm<ScoringWeights>();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -85,7 +91,7 @@ export default function ScoringWeightsPage() {
 
   if (loading) {
     return (
-      <div style={{ padding: 48, textAlign: 'center' }}>
+      <div style={{ padding: 32, textAlign: 'center' }}>
         <Spin />
       </div>
     );
@@ -94,62 +100,58 @@ export default function ScoringWeightsPage() {
   const sumOk = Math.abs(sum - 1) <= 0.0001;
 
   return (
-    <div style={{ maxWidth: 560 }}>
-      <Title level={4} style={{ marginTop: 0, color: NAVY }}>
-        Worker ranking
-      </Title>
-      <Paragraph type="secondary" style={{ marginBottom: 20 }}>
-        When the shop suggests who should take an operation, these four factors decide the order of the
-        shortlist. Raise a factor to put more weight on it; lower it to care less. The four numbers
-        must always add up to 1.0. Changes apply the next time you ask for a suggestion.
-      </Paragraph>
+    <div className="worker-ranking">
+      {!embedded && (
+        <Title level={4} style={{ marginTop: 0, color: NAVY }}>
+          Worker ranking
+        </Title>
+      )}
+      <p className="worker-ranking__intro">
+        These four numbers decide the shortlist when suggesting a worker. They must add up to 1.0.
+      </p>
 
       {!sumOk && (
         <Alert
           type="warning"
           showIcon
-          style={{ marginBottom: 16 }}
-          message={`Factors currently add up to ${sum.toFixed(4)} — they must equal 1.0 before you can save`}
+          style={{ marginBottom: 12 }}
+          message={`Factors add up to ${sum.toFixed(4)} — they must equal 1.0 to save`}
         />
       )}
 
       <Form
         form={form}
         layout="vertical"
+        requiredMark={false}
         onValuesChange={(_, all) => recalcSum(all)}
         initialValues={{ skill: 0.4, availability: 0.3, workload: 0.2, efficiency: 0.1 }}
       >
-        {(Object.keys(LABELS) as (keyof ScoringWeights)[]).map((key) => (
-          <Form.Item
-            key={key}
-            name={key}
-            label={LABELS[key].title}
-            extra={LABELS[key].hint}
-            rules={[{ required: true, message: 'Required' }]}
-          >
-            <InputNumber
-              min={0}
-              max={1}
-              step={0.05}
-              precision={4}
-              style={{ width: '100%' }}
-            />
-          </Form.Item>
-        ))}
+        <div className="worker-ranking__grid">
+          {FACTORS.map((key) => (
+            <div className="worker-ranking__card" key={key}>
+              <div className="worker-ranking__label">{LABELS[key].title}</div>
+              <Form.Item name={key} rules={[{ required: true, message: 'Required' }]} style={{ marginBottom: 8 }}>
+                <InputNumber min={0} max={1} step={0.05} precision={4} />
+              </Form.Item>
+              <div className="worker-ranking__hint">{LABELS[key].hint}</div>
+            </div>
+          ))}
+        </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 8 }}>
+        <div className="worker-ranking__footer">
           <Text>
-            Total:{' '}
-            <Text strong style={{ color: sumOk ? '#389e0d' : '#cf1322' }}>
+            Total{' '}
+            <Text strong style={{ color: sumOk ? '#16a34a' : '#dc2626' }}>
               {sum.toFixed(4)}
             </Text>
+            <Text type="secondary"> / 1.0000</Text>
           </Text>
           <Button
             type="primary"
             loading={saving}
             onClick={onSave}
             disabled={!sumOk}
-            style={{ background: NAVY, borderColor: NAVY }}
+            style={{ background: NAVY, borderColor: NAVY, fontWeight: 700 }}
           >
             Save ranking
           </Button>

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { DatePicker, Spin, Table, Typography, message } from 'antd';
-import { Link } from 'react-router-dom';
+import { DatePicker, Spin, Table, message } from 'antd';
 import dayjs from 'dayjs';
 import { inventoryApi, toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
@@ -11,7 +10,7 @@ import {
   rangeToParams,
   type AnalyticsRange,
 } from '../analytics/analyticsPeriod';
-import { ReportStamp, ReportToolbar, displayOrDash } from './ReportChrome';
+import { ReportSection, ReportStamp, ReportToolbar, displayOrDash } from './ReportChrome';
 
 export default function InventoryReportPage() {
   const [range, setRange] = useState<AnalyticsRange>(defaultAnalyticsRange);
@@ -60,9 +59,6 @@ export default function InventoryReportPage() {
 
   return (
     <div className="report-page">
-      <div className="no-print" style={{ marginBottom: 8 }}>
-        <Link to="/reports">← Reports</Link>
-      </div>
       <ReportToolbar
         title="Inventory Status Report"
         periodFrom={params.from}
@@ -89,121 +85,117 @@ export default function InventoryReportPage() {
         </div>
       ) : (
         <>
-          <Typography.Title level={5}>Current stock</Typography.Title>
-          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-            Low-stock rows are highlighted.
-          </Typography.Text>
-          <Table
-            size="small"
-            pagination={false}
-            rowKey="id"
-            dataSource={stockRows}
-            rowClassName={(r) => (r.lowStock ? 'report-row-low-stock' : '')}
-            locale={{ emptyText: 'No inventory items to show yet' }}
-            columns={[
-              { title: 'Item', dataIndex: 'name' },
-              { title: 'Code', dataIndex: 'code', width: 100 },
-              {
-                title: 'Category',
-                dataIndex: 'category',
-                width: 140,
-                render: (v: string) => (v === 'CONSUMABLE' ? 'Consumable' : 'Returnable'),
-              },
-              { title: 'Unit', dataIndex: 'unit', width: 72 },
-              {
-                title: 'In stock',
-                dataIndex: 'quantityOnHand',
-                width: 88,
-                align: 'right',
-                render: (v: number | null | undefined) =>
-                  v == null || Number.isNaN(v) ? '—' : v,
-              },
-              {
-                title: 'Reorder level',
-                dataIndex: 'minimumStock',
-                width: 110,
-                align: 'right',
-                render: (v: number | null | undefined) =>
-                  v == null || Number.isNaN(v) ? '—' : v,
-              },
-            ]}
-          />
+          <ReportSection title="Current stock" note="Low-stock rows are highlighted.">
+            <Table
+              size="small"
+              pagination={false}
+              rowKey="id"
+              dataSource={stockRows}
+              rowClassName={(r) => (r.lowStock ? 'report-row-low-stock' : '')}
+              locale={{ emptyText: 'No inventory items to show yet' }}
+              columns={[
+                { title: 'Item', dataIndex: 'name' },
+                { title: 'Code', dataIndex: 'code', width: 100 },
+                {
+                  title: 'Category',
+                  dataIndex: 'category',
+                  width: 140,
+                  render: (v: string) => (v === 'CONSUMABLE' ? 'Consumable' : 'Returnable'),
+                },
+                { title: 'Unit', dataIndex: 'unit', width: 72 },
+                {
+                  title: 'In stock',
+                  dataIndex: 'quantityOnHand',
+                  width: 88,
+                  align: 'right',
+                  render: (v: number | null | undefined) =>
+                    v == null || Number.isNaN(v) ? '—' : v,
+                },
+                {
+                  title: 'Reorder level',
+                  dataIndex: 'minimumStock',
+                  width: 110,
+                  align: 'right',
+                  render: (v: number | null | undefined) =>
+                    v == null || Number.isNaN(v) ? '—' : v,
+                },
+              ]}
+            />
+          </ReportSection>
 
-          <Typography.Title level={5} style={{ marginTop: 20 }}>
-            Outstanding borrowed tools by worker
-          </Typography.Title>
-          <Table
-            size="small"
-            pagination={false}
-            rowKey="workerId"
-            dataSource={outstanding}
-            locale={{ emptyText: 'No tools still out with workers' }}
-            columns={[
-              { title: 'Worker', dataIndex: 'workerName', render: (v) => displayOrDash(v) },
-              {
-                title: 'Total qty',
-                dataIndex: 'totalOutstandingQuantity',
-                width: 100,
-                align: 'right',
-                render: (v: number | null) => (v == null ? '—' : v),
-              },
-              {
-                title: 'Items',
-                key: 'items',
-                render: (_: unknown, r) =>
-                  r.items?.length
-                    ? r.items
-                        .map(
-                          (i) =>
-                            `${i.toolName} (${i.quantity == null ? '—' : i.quantity})`
-                        )
-                        .join('; ')
-                    : '—',
-              },
-            ]}
-          />
+          <ReportSection title="Outstanding borrowed tools by worker">
+            <Table
+              size="small"
+              pagination={false}
+              rowKey="workerId"
+              dataSource={outstanding}
+              locale={{ emptyText: 'No tools still out with workers' }}
+              columns={[
+                { title: 'Worker', dataIndex: 'workerName', render: (v) => displayOrDash(v) },
+                {
+                  title: 'Total qty',
+                  dataIndex: 'totalOutstandingQuantity',
+                  width: 100,
+                  align: 'right',
+                  render: (v: number | null) => (v == null ? '—' : v),
+                },
+                {
+                  title: 'Items',
+                  key: 'items',
+                  render: (_: unknown, r) =>
+                    r.items?.length
+                      ? r.items
+                          .map(
+                            (i) =>
+                              `${i.toolName} (${i.quantity == null ? '—' : i.quantity})`
+                          )
+                          .join('; ')
+                      : '—',
+                },
+              ]}
+            />
+          </ReportSection>
 
-          <Typography.Title level={5} style={{ marginTop: 20 }}>
-            Amount used over period
-          </Typography.Title>
-          <Table
-            size="small"
-            pagination={false}
-            rowKey="toolId"
-            dataSource={usageItem?.items || []}
-            locale={{ emptyText: 'No usage recorded in this period yet' }}
-            columns={[
-              { title: 'Item', dataIndex: 'name' },
-              { title: 'Code', dataIndex: 'code', width: 100 },
-              {
-                title: 'Category',
-                dataIndex: 'category',
-                width: 120,
-                render: (v: string) => displayOrDash(v),
-              },
-              {
-                title: 'Amount used',
-                dataIndex: 'consumptionQuantity',
-                width: 110,
-                align: 'right',
-                render: (v: number | null) => (v == null ? '—' : formatNum(v, 2)),
-              },
-              {
-                title: 'Per working day',
-                dataIndex: 'consumptionPerWorkingDay',
-                width: 120,
-                align: 'right',
-                render: (v: number | null) => (v == null ? '—' : formatNum(v, 2)),
-              },
-              {
-                title: 'Issues',
-                dataIndex: 'issueQuantity',
-                width: 80,
-                align: 'right',
-                render: (v: number | null) => (v == null ? '—' : formatNum(v, 2)),
-              },
-            ]}
-          />
+          <ReportSection title="Amount used over period">
+            <Table
+              size="small"
+              pagination={false}
+              rowKey="toolId"
+              dataSource={usageItem?.items || []}
+              locale={{ emptyText: 'No usage recorded in this period yet' }}
+              columns={[
+                { title: 'Item', dataIndex: 'name' },
+                { title: 'Code', dataIndex: 'code', width: 100 },
+                {
+                  title: 'Category',
+                  dataIndex: 'category',
+                  width: 120,
+                  render: (v: string) => displayOrDash(v),
+                },
+                {
+                  title: 'Amount used',
+                  dataIndex: 'consumptionQuantity',
+                  width: 110,
+                  align: 'right',
+                  render: (v: number | null) => (v == null ? '—' : formatNum(v, 2)),
+                },
+                {
+                  title: 'Per working day',
+                  dataIndex: 'consumptionPerWorkingDay',
+                  width: 120,
+                  align: 'right',
+                  render: (v: number | null) => (v == null ? '—' : formatNum(v, 2)),
+                },
+                {
+                  title: 'Issues',
+                  dataIndex: 'issueQuantity',
+                  width: 80,
+                  align: 'right',
+                  render: (v: number | null) => (v == null ? '—' : formatNum(v, 2)),
+                },
+              ]}
+            />
+          </ReportSection>
         </>
       )}
     </div>

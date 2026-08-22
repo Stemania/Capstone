@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { Spin } from 'antd';
 import { AuthProvider } from '../hooks/useAuth';
 import { ProtectedRoute } from './ProtectedRoute';
@@ -15,10 +15,9 @@ import JobOrderDetailPage from '../features/job-orders/JobOrderDetailPage';
 import MyAssignmentsPage from '../features/my-assignments/MyAssignmentsPage';
 import AssignmentDetailPage from '../features/my-assignments/AssignmentDetailPage';
 import UsersPage from '../features/users/UsersPage';
-import WorkerDetailPage from '../features/users/WorkerDetailPage';
+import WorkerSetupPage from '../features/workers/WorkerSetupPage';
 import ToolsPage from '../features/tool-tracking/ToolsPage';
 import ScanToolPage from '../features/tool-tracking/ScanToolPage';
-import ScoringWeightsPage from '../features/settings/ScoringWeightsPage';
 import ClientsPage from '../features/clients/ClientsPage';
 import MachinesPage from '../features/machines/MachinesPage';
 import ScheduleBoardPage from '../features/schedule/ScheduleBoardPage';
@@ -35,6 +34,11 @@ const AnalyticsDelaysPage = lazy(() => import('../features/analytics/AnalyticsDe
 const AnalyticsSalesPage = lazy(() => import('../features/analytics/AnalyticsSalesPage'));
 const AnalyticsForecastPage = lazy(() => import('../features/analytics/AnalyticsForecastPage'));
 const AnalyticsCapacityPage = lazy(() => import('../features/analytics/AnalyticsCapacityPage'));
+
+function WorkerSetupFromUser() {
+  const { id } = useParams();
+  return <Navigate to={id ? `/worker-setup?tab=roster&worker=${id}` : '/worker-setup'} replace />;
+}
 
 function AnalyticsSuspense({ children }: { children: React.ReactNode }) {
   return (
@@ -113,8 +117,12 @@ export default function AppRoutes() {
               <Route element={<ProtectedRoute roles={['ADMIN']} />}>
                 <Route path="/job-orders/:id/plan" element={<JobOrderPlanningPage />} />
                 <Route path="/users" element={<UsersPage />} />
-                <Route path="/users/:id" element={<WorkerDetailPage />} />
-                <Route path="/settings/scoring-weights" element={<ScoringWeightsPage />} />
+                <Route path="/users/:id" element={<WorkerSetupFromUser />} />
+                <Route path="/worker-setup" element={<WorkerSetupPage />} />
+                <Route
+                  path="/settings/scoring-weights"
+                  element={<Navigate to="/worker-setup?tab=ranking" replace />}
+                />
               </Route>
 
               <Route path="/" element={<Navigate to="/login" replace />} />

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { DatePicker, Spin, Table, Typography, message } from 'antd';
-import { Link } from 'react-router-dom';
+import { DatePicker, Spin, Table, message } from 'antd';
 import dayjs from 'dayjs';
 import { analyticsApi } from '../../api/analytics.api';
 import { workersApi } from '../../api/jobOrders.api';
@@ -16,7 +15,7 @@ import {
   rangeToParams,
   type AnalyticsRange,
 } from '../analytics/analyticsPeriod';
-import { ReportStamp, ReportToolbar } from './ReportChrome';
+import { ReportSection, ReportStamp, ReportToolbar } from './ReportChrome';
 
 function skillLabel(s: WorkerSkill) {
   const name = s.machineTypeName || s.machineTypeCode || s.machineTypeId;
@@ -36,7 +35,6 @@ export default function WorkerPerformanceReportPage() {
     (async () => {
       setLoading(true);
       try {
-        // minOps=1 so we still get counts for thin samples; averages blanked below threshold.
         const [perf, list] = await Promise.all([
           analyticsApi.byWorker({ ...params, minOps: 1 }),
           workersApi.list(),
@@ -80,7 +78,6 @@ export default function WorkerPerformanceReportPage() {
       });
       byId.delete(u.id);
     }
-    // Workers who appear in analytics but not in active list
     for (const leftover of byId.values()) {
       const belowMin = leftover.operationCount < minOps;
       merged.push({
@@ -94,11 +91,10 @@ export default function WorkerPerformanceReportPage() {
     return merged.sort((a, b) => a.workerName.localeCompare(b.workerName));
   }, [byWorker, workers, minOps]);
 
+  const excluded = byWorker?.excludedOperationCount ?? 0;
+
   return (
     <div className="report-page">
-      <div className="no-print" style={{ marginBottom: 8 }}>
-        <Link to="/reports">← Reports</Link>
-      </div>
       <ReportToolbar
         title="Worker Performance Report"
         periodFrom={params.from}
@@ -124,25 +120,20 @@ export default function WorkerPerformanceReportPage() {
           <Spin size="large" />
         </div>
       ) : (
-        <>
-          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 13 }}>
-            {byWorker?.excludedOperationCount ?? '—'} finished operation
-            {(byWorker?.excludedOperationCount ?? 0) === 1 ? '' : 's'} without a target hours value{' '}
-            {(byWorker?.excludedOperationCount ?? 0) === 1 ? 'is' : 'are'} left out of
-            difference-from-target numbers; averages need at least {minOps} finished operations. Below
-            that: counts shown, averages blank (—). Redo is shown as hours worked (there is no
-            separate redo count per worker).
-          </Typography.Text>
-
+        <ReportSection
+          title="By worker"
+          note={`${excluded} finished operation${excluded === 1 ? '' : 's'} without a target hours value ${
+            excluded === 1 ? 'is' : 'are'
+          } left out of difference-from-target numbers; averages need at least ${minOps} finished operations. Below that: counts shown, averages blank (—). Redo is shown as hours worked.`}
+        >
           <Table
             size="small"
             pagination={false}
             rowKey="workerId"
             dataSource={rows}
-            scroll={{ x: 1100 }}
             locale={{ emptyText: 'No workers to show for this period yet' }}
             columns={[
-              { title: 'Worker', dataIndex: 'workerName', fixed: 'left', width: 160 },
+              { title: 'Worker', dataIndex: 'workerName', width: 160 },
               {
                 title: 'Finished operations',
                 dataIndex: 'operationCount',
@@ -167,14 +158,14 @@ export default function WorkerPerformanceReportPage() {
               {
                 title: 'Difference from target',
                 dataIndex: 'averageVariancePct',
-                width: 160,
+                width: 150,
                 align: 'right',
                 render: (v: number | null) => formatPctVsTarget(v),
               },
               {
                 title: 'Finished close to target',
                 dataIndex: 'onEstimateRatePct',
-                width: 160,
+                width: 150,
                 align: 'right',
                 render: (v: number | null) => formatPct(v),
               },
@@ -188,12 +179,13 @@ export default function WorkerPerformanceReportPage() {
               {
                 title: 'Machines they can run',
                 key: 'skills',
+                ellipsis: true,
                 render: (_: unknown, r: { skills: WorkerSkill[] }) =>
                   r.skills?.length ? r.skills.map(skillLabel).join('; ') : '—',
               },
             ]}
           />
-        </>
+        </ReportSection>
       )}
     </div>
   );

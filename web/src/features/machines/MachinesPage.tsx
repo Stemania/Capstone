@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Table, Button, Input, Select, Modal, Form, Typography, Dropdown, message } from 'antd';
+import { Table, Button, Input, Select, Modal, Form, Typography, Dropdown, Spin, message } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import { SearchOutlined, MoreOutlined, WarningOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -7,6 +7,7 @@ import dayjs from 'dayjs';
 import { operationsApi } from '../../api/operations.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill from '../../components/StatusPill';
+import { useIsPhone } from '../../hooks/useIsPhone';
 import { DOWNTIME_REASONS } from '../../constants/downtimeReasons';
 import type { MachineUnitStatus } from '../../types';
 
@@ -28,6 +29,7 @@ function formatOpenDuration(startedAt: string, nowMs: number): string {
 
 export default function MachinesPage() {
   const navigate = useNavigate();
+  const isPhone = useIsPhone();
   const [units, setUnits] = useState<MachineUnitStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -304,6 +306,80 @@ export default function MachinesPage() {
         </div>
       </div>
 
+      {isPhone ? (
+        <div className="admin-cards">
+          {loading && (
+            <div className="page-spinner">
+              <Spin />
+            </div>
+          )}
+          {!loading && filtered.length === 0 && (
+            <div className="admin-cards__empty">No machines match your filters yet</div>
+          )}
+          {!loading &&
+            filtered.map((record) => {
+              const items: MenuProps['items'] = [];
+              if (!record.down) {
+                items.push({
+                  key: 'report',
+                  label: 'Report breakdown',
+                  onClick: () => {
+                    reportForm.resetFields();
+                    setReportFor(record);
+                  },
+                });
+              } else {
+                items.push({
+                  key: 'close',
+                  label: 'Close breakdown',
+                  onClick: () => {
+                    closeForm.resetFields();
+                    setCloseFor(record);
+                  },
+                });
+              }
+              if (record.affectedCount > 0) {
+                items.push({
+                  key: 'schedule',
+                  label: 'Open schedule',
+                  onClick: () => navigate('/schedule'),
+                });
+              }
+              return (
+                <div key={record.id} className="admin-card">
+                  <div className="admin-card__top">
+                    <div>
+                      <div className="admin-card__title">{record.label}</div>
+                      <div className="admin-card__meta">
+                        {record.machineTypeName || 'Machine'}
+                        {record.down && record.openDowntime?.reason ? ` · ${record.openDowntime.reason}` : ''}
+                      </div>
+                    </div>
+                    <Dropdown menu={{ items }} trigger={['click']} placement="bottomRight">
+                      <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} aria-label="More actions" />
+                    </Dropdown>
+                  </div>
+                  <div className="admin-card__row">
+                    {record.down ? (
+                      <StatusPill color="red" compact>
+                        Down {record.openDowntime?.startedAt ? `· ${formatOpenDuration(record.openDowntime.startedAt, nowMs)}` : ''}
+                      </StatusPill>
+                    ) : (
+                      <StatusPill color="green" compact>
+                        Available
+                      </StatusPill>
+                    )}
+                    {record.affectedCount > 0 && (
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#2563eb' }}>
+                        {record.affectedCount} scheduled op{record.affectedCount === 1 ? '' : 's'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+      ) : (
       <Table
         className="std-list-table"
         rowKey="id"
@@ -321,6 +397,7 @@ export default function MachinesPage() {
         }}
         locale={{ emptyText: 'No machines match your filters yet' }}
       />
+      )}
 
       <Modal
         title={reportFor ? `Report breakdown — ${reportFor.label}` : 'Report breakdown'}

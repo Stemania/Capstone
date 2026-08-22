@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Table, Button, Typography, Select, Dropdown, Input, Space, message } from 'antd';
+import { Table, Button, Typography, Select, Dropdown, Input, Space, Spin, message, Drawer, Badge } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
   PlusOutlined,
@@ -11,6 +11,8 @@ import {
   MoreOutlined,
   SearchOutlined,
   CheckSquareOutlined,
+  FilterOutlined,
+  CloseOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -19,6 +21,7 @@ import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import { useAuth } from '../../hooks/useAuth';
+import { useIsPhone } from '../../hooks/useIsPhone';
 import type { JobOrder, JobOrderStatus, JobPriority } from '../../types';
 
 const PLANNING_STATUSES = new Set<JobOrderStatus>(['DRAFT', 'PLANNING']);
@@ -56,6 +59,37 @@ function formatAmount(n?: number | null) {
   return `₱${Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function isJobOverdue(job: JobOrder) {
+  return (
+    job.status !== 'COMPLETED' &&
+    job.status !== 'DELIVERED' &&
+    dayjs(job.dueDate).isBefore(dayjs(), 'day')
+  );
+}
+
+function JobStatusBadge({ job }: { job: JobOrder }) {
+  if (PLANNING_STATUSES.has(job.status)) {
+    return (
+      <span
+        style={{
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: 0.3,
+          textTransform: 'uppercase',
+          color: '#94a3b8',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {job.status === 'DRAFT' ? 'Draft' : 'Planning'}
+      </span>
+    );
+  }
+  const overdue = isJobOverdue(job);
+  if (overdue) return <StatusPill color="red" compact>Overdue</StatusPill>;
+  const st = statusStyle[job.status] || statusStyle.RELEASED;
+  return <StatusPill color={st.color} compact>{st.label}</StatusPill>;
+}
+
 function jobSearchHaystack(job: JobOrder) {
   return [
     job.jobNumber,
@@ -78,10 +112,12 @@ export default function JobOrderListPage() {
   const [clientFilter, setClientFilter] = useState<string[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [selectMode, setSelectMode] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [error, setError] = useState('');
   const [delivering, setDelivering] = useState(false);
   const navigate = useNavigate();
   const { isAdmin, isOfficeStaff } = useAuth();
+  const isPhone = useIsPhone();
 
   const fetchJobs = async () => {
     setLoading(true);
@@ -123,6 +159,25 @@ export default function JobOrderListPage() {
     [filtered, selectedKeys]
   );
   const selectedCompletable = selectedJobs.filter((j) => j.status === 'COMPLETED');
+  const activeFilterCount =
+    (statusFilter.length ? 1 : 0) + (priorityFilter.length ? 1 : 0) + (clientFilter.length ? 1 : 0);
+  const overdueCount = filtered.filter(isJobOverdue).length;
+  const doneCount = filtered.filter((j) => j.status === 'COMPLETED' || j.status === 'DELIVERED').length;
+
+  const clearJobFilters = () => {
+    setStatusFilter([]);
+    setPriorityFilter([]);
+    setClientFilter([]);
+  };
+
+  const toggleSelectMode = () => {
+    if (selectMode) {
+      setSelectMode(false);
+      setSelectedKeys([]);
+    } else {
+      setSelectMode(true);
+    }
+  };
 
   const handleBulkDeliver = async () => {
     if (!selectedCompletable.length) {
@@ -153,6 +208,58 @@ export default function JobOrderListPage() {
     selectedJobs.forEach((job) => {
       window.open(`/job-orders/${job.id}/print`, '_blank', 'noopener,noreferrer');
     });
+  };
+
+  const jobActionItems = (record: JobOrder): MenuProps['items'] => {
+    const planning = PLANNING_STATUSES.has(record.status);
+    const items: MenuProps['items'] = [
+      {
+        key: 'view',
+        icon: <EyeOutlined />,
+        label: 'View',
+        onClick: () => navigate(`/job-orders/${record.id}`),
+      },
+    ];
+    if (planning && isAdmin) {
+      items.push({
+        key: 'plan',
+        icon: <CalendarOutlined />,
+        label: 'Plan operations',
+        onClick: () => navigate(`/job-orders/${record.id}/plan`),
+      });
+    }
+    if (isOfficeStaff || isAdmin) {
+      items.push({
+        key: 'edit',
+        icon: <EditOutlined />,
+        label: planning ? 'Edit PO' : 'Edit',
+        onClick: () => navigate(`/job-orders/${record.id}/edit`),
+      });
+    }
+    items.push({
+      key: 'print',
+      icon: <PrinterOutlined />,
+      label: 'Print',
+      onClick: () => navigate(`/job-orders/${record.id}/print`),
+    });
+    if (record.status === 'COMPLETED') {
+      items.push({ type: 'divider' });
+      items.push({
+        key: 'deliver',
+        icon: <CheckOutlined />,
+        label: 'Mark delivered',
+        onClick: async () => {
+          try {
+            await jobOrdersApi.deliver(record.id);
+            message.success('Marked delivered');
+            fetchJobs();
+          } catch (err) {
+            message.error(getErrorMessage(err));
+          }
+        },
+      });
+    }
+    return items;
   };
 
   const columns: TableColumnsType<JobOrder> = [
@@ -298,104 +405,109 @@ export default function JobOrderListPage() {
       dataIndex: 'status',
       key: 'status',
       width: 108,
-      render: (s: JobOrderStatus, record) => {
-        if (PLANNING_STATUSES.has(s)) {
-          return (
-            <span
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: 0.3,
-                textTransform: 'uppercase',
-                color: '#94a3b8',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {s === 'DRAFT' ? 'Draft' : 'Planning'}
-            </span>
-          );
-        }
-        const overdue =
-          s !== 'COMPLETED' &&
-          s !== 'DELIVERED' &&
-          dayjs(record.dueDate).isBefore(dayjs(), 'day');
-        if (overdue) return <StatusPill color="red" compact>Overdue</StatusPill>;
-        const st = statusStyle[s] || statusStyle.RELEASED;
-        return <StatusPill color={st.color} compact>{st.label}</StatusPill>;
-      },
+      render: (_s: JobOrderStatus, record) => <JobStatusBadge job={record} />,
     },
     {
       title: '',
       key: 'actions',
       width: 40,
       align: 'center',
-      render: (_: unknown, record) => {
-        const planning = PLANNING_STATUSES.has(record.status);
-        const items: MenuProps['items'] = [
-          {
-            key: 'view',
-            icon: <EyeOutlined />,
-            label: 'View',
-            onClick: () => navigate(`/job-orders/${record.id}`),
-          },
-        ];
-        if (planning && isAdmin) {
-          items.push({
-            key: 'plan',
-            icon: <CalendarOutlined />,
-            label: 'Plan operations',
-            onClick: () => navigate(`/job-orders/${record.id}/plan`),
-          });
-        }
-        if (isOfficeStaff || isAdmin) {
-          items.push({
-            key: 'edit',
-            icon: <EditOutlined />,
-            label: planning ? 'Edit PO' : 'Edit',
-            onClick: () => navigate(`/job-orders/${record.id}/edit`),
-          });
-        }
-        items.push({
-          key: 'print',
-          icon: <PrinterOutlined />,
-          label: 'Print',
-          onClick: () => navigate(`/job-orders/${record.id}/print`),
-        });
-        if (record.status === 'COMPLETED') {
-          items.push({ type: 'divider' });
-          items.push({
-            key: 'deliver',
-            icon: <CheckOutlined />,
-            label: 'Mark delivered',
-            onClick: async () => {
-              try {
-                await jobOrdersApi.deliver(record.id);
-                message.success('Marked delivered');
-                fetchJobs();
-              } catch (err) {
-                message.error(getErrorMessage(err));
-              }
-            },
-          });
-        }
-        return (
-          <div onClick={(e) => e.stopPropagation()}>
-            <Dropdown menu={{ items }} trigger={['click']} placement="bottomRight">
-              <Button
-                type="text"
-                size="small"
-                icon={<MoreOutlined style={{ fontSize: 18 }} />}
-                aria-label="More actions"
-              />
-            </Dropdown>
-          </div>
-        );
-      },
+      render: (_: unknown, record) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <Dropdown menu={{ items: jobActionItems(record) }} trigger={['click']} placement="bottomRight">
+            <Button
+              type="text"
+              size="small"
+              icon={<MoreOutlined style={{ fontSize: 18 }} />}
+              aria-label="More actions"
+            />
+          </Dropdown>
+        </div>
+      ),
     },
   ];
 
   return (
     <div className="jo-list-page">
+      {isPhone ? (
+        <div className="sched-m jo-m-chrome">
+          <div className="sched-m__top">
+            <div className="jo-m__nav">
+              <Input
+                allowClear
+                variant="borderless"
+                prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+                placeholder="Search jobs…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="jo-m__search"
+              />
+              <button
+                type="button"
+                className="sched-m__icon jo-m__add"
+                onClick={() => navigate('/job-orders/new')}
+                aria-label="New job order"
+              >
+                <PlusOutlined />
+              </button>
+              <button
+                type="button"
+                className={`sched-m__icon${selectMode ? ' is-on' : ''}`}
+                onClick={toggleSelectMode}
+                aria-label={selectMode ? 'Done selecting' : 'Select multiple'}
+              >
+                <CheckOutlined />
+              </button>
+              <Badge count={activeFilterCount} size="small" offset={[-4, 4]} className="sched-m__filter">
+                <button
+                  type="button"
+                  className="sched-m__icon"
+                  onClick={() => setFiltersOpen(true)}
+                  aria-label="Filters"
+                >
+                  <FilterOutlined />
+                </button>
+              </Badge>
+            </div>
+          </div>
+          <div className="sched-m__stats">
+            <div className="sched-m__stat">
+              <div className="sched-m__stat-n">{loading ? '—' : filtered.length}</div>
+              <div className="sched-m__stat-l">Jobs</div>
+            </div>
+            <div className={`sched-m__stat${overdueCount ? ' is-danger' : ''}`}>
+              <div className="sched-m__stat-n">{loading ? '—' : overdueCount}</div>
+              <div className="sched-m__stat-l">Overdue</div>
+            </div>
+            <div className="sched-m__stat">
+              <div className="sched-m__stat-n">{loading ? '—' : doneCount}</div>
+              <div className="sched-m__stat-l">Done</div>
+            </div>
+          </div>
+          {selectMode ? (
+            <div className="jo-m__bulk">
+              <span className="jo-m__bulk-count">{selectedKeys.length} selected</span>
+              <Button
+                size="small"
+                icon={<PrinterOutlined />}
+                disabled={!selectedJobs.length}
+                onClick={handleBulkPrint}
+              >
+                Print
+              </Button>
+              <Button
+                size="small"
+                icon={<CheckOutlined />}
+                loading={delivering}
+                disabled={!selectedCompletable.length}
+                onClick={handleBulkDeliver}
+              >
+                Deliver{selectedCompletable.length ? ` (${selectedCompletable.length})` : ''}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : (
       <div className="jo-list-toolbar">
         <div className="jo-list-filters">
           <Input
@@ -443,19 +555,12 @@ export default function JobOrderListPage() {
             options={clientOptions}
           />
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="jo-list-actions">
           <Button
             icon={<CheckSquareOutlined />}
             type={selectMode ? 'primary' : 'default'}
             ghost={selectMode}
-            onClick={() => {
-              if (selectMode) {
-                setSelectMode(false);
-                setSelectedKeys([]);
-              } else {
-                setSelectMode(true);
-              }
-            }}
+            onClick={toggleSelectMode}
           >
             {selectMode ? 'Done selecting' : 'Select multiple'}
           </Button>
@@ -469,17 +574,16 @@ export default function JobOrderListPage() {
           </Button>
         </div>
       </div>
+      )}
 
-      {selectMode && (
+      {selectMode && !isPhone && (
         <div className="jo-list-bulk">
           <span className="jo-list-bulk__count">
-            {selectedKeys.length
-              ? `${selectedKeys.length} selected${
-                  selectedJobs.length !== selectedKeys.length
-                    ? ` (${selectedJobs.length} in view)`
-                    : ''
-                }`
-              : 'Select jobs to print or mark delivered'}
+            {selectedKeys.length}
+            {' selected'}
+            {selectedKeys.length > 0 && selectedJobs.length !== selectedKeys.length
+              ? ` (${selectedJobs.length} in view)`
+              : ''}
           </span>
           <Space size={8}>
             <Button
@@ -514,6 +618,68 @@ export default function JobOrderListPage() {
         </Typography.Text>
       )}
 
+      {isPhone ? (
+        <div className="admin-cards">
+          {loading && (
+            <div className="page-spinner">
+              <Spin />
+            </div>
+          )}
+          {!loading && filtered.length === 0 && (
+            <div className="admin-cards__empty">No job orders match your filters yet</div>
+          )}
+          {!loading &&
+            filtered.map((job) => {
+              const pri = priorityStyle[job.priority || 'MODERATE'];
+              const selected = selectedKeys.includes(job.id);
+              return (
+                <div
+                  key={job.id}
+                  className="admin-card"
+                  style={selected ? { borderColor: '#2563eb', background: '#eff6ff' } : undefined}
+                  onClick={() => {
+                    if (selectMode) {
+                      setSelectedKeys((keys) =>
+                        keys.includes(job.id) ? keys.filter((k) => k !== job.id) : [...keys, job.id]
+                      );
+                      return;
+                    }
+                    navigate(`/job-orders/${job.id}`);
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <div className="admin-card__top">
+                    <div>
+                      <div className="admin-card__kicker">
+                        {job.jobNumber || job.id.slice(0, 8).toUpperCase()}
+                      </div>
+                      <div className="admin-card__title">{job.title}</div>
+                      <div className="admin-card__meta">
+                        {job.clientName || 'No client'}
+                        {' · '}
+                        Due {dayjs(job.dueDate).format('MMM D')}
+                        {job.opsTotal ? ` · ${job.opsCompleted || 0}/${job.opsTotal} ops` : ''}
+                      </div>
+                    </div>
+                    <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <JobStatusBadge job={job} />
+                      <Dropdown menu={{ items: jobActionItems(job) }} trigger={['click']} placement="bottomRight">
+                        <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} aria-label="More actions" />
+                      </Dropdown>
+                    </div>
+                  </div>
+                  <div className="admin-card__row">
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#0f1c2e' }}>{formatAmount(job.amount)}</span>
+                    <StatusPill color={pri.color} compact>
+                      {pri.label}
+                    </StatusPill>
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+      ) : (
       <Table
         className="jo-list-table"
         rowKey="id"
@@ -544,6 +710,108 @@ export default function JobOrderListPage() {
           style: { cursor: 'pointer' },
         })}
       />
+      )}
+      {isPhone ? (
+        <Drawer
+          className="sched-f-drawer"
+          rootClassName="sched-f-drawer"
+          placement="bottom"
+          height="auto"
+          open={filtersOpen}
+          onClose={() => setFiltersOpen(false)}
+          closable={false}
+          title={null}
+          styles={{
+            container: {
+              padding: 0,
+              borderRadius: '16px 16px 0 0',
+              overflow: 'hidden',
+              background: '#f1f5f9',
+            },
+            header: { display: 'none', padding: 0 },
+            body: { padding: 0, background: '#f1f5f9' },
+          }}
+        >
+          <div className="sched-f">
+            <div className="sched-f__handle" />
+            <div className="sched-f__head">
+              <div>
+                <div className="sched-f__title">Filters</div>
+                <div className="sched-f__sub">{activeFilterCount ? `${activeFilterCount} on` : 'None on'}</div>
+              </div>
+              {activeFilterCount ? (
+                <button type="button" className="sched-f__text" onClick={clearJobFilters}>
+                  Clear
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="sched-m__icon"
+                onClick={() => setFiltersOpen(false)}
+                aria-label="Close"
+              >
+                <CloseOutlined />
+              </button>
+            </div>
+            <div className="sched-f__card">
+              <div className="sched-f__label">Narrow by</div>
+              <div className="sched-f__rows">
+                <div className="sched-f__row">
+                  <span className="sched-f__row-k">Status</span>
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    variant="borderless"
+                    maxTagCount={1}
+                    placeholder="All"
+                    className="sched-f__select"
+                    value={statusFilter}
+                    onChange={setStatusFilter}
+                    options={STATUS_OPTIONS}
+                  />
+                </div>
+                <div className="sched-f__row">
+                  <span className="sched-f__row-k">Priority</span>
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    variant="borderless"
+                    maxTagCount={1}
+                    placeholder="All"
+                    className="sched-f__select"
+                    value={priorityFilter}
+                    onChange={setPriorityFilter}
+                    options={[
+                      { value: 'HIGH', label: 'High' },
+                      { value: 'MODERATE', label: 'Moderate' },
+                      { value: 'LOW', label: 'Low' },
+                    ]}
+                  />
+                </div>
+                <div className="sched-f__row">
+                  <span className="sched-f__row-k">Client</span>
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    showSearch
+                    variant="borderless"
+                    optionFilterProp="label"
+                    maxTagCount={1}
+                    placeholder="All"
+                    className="sched-f__select"
+                    value={clientFilter}
+                    onChange={setClientFilter}
+                    options={clientOptions}
+                  />
+                </div>
+              </div>
+            </div>
+            <button type="button" className="sched-f__done" onClick={() => setFiltersOpen(false)}>
+              Done
+            </button>
+          </div>
+        </Drawer>
+      ) : null}
     </div>
   );
 }

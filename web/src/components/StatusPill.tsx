@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-export type PillColor = 'blue' | 'green' | 'amber' | 'red' | 'gray';
+export type PillColor = 'blue' | 'green' | 'amber' | 'red' | 'gray' | 'teal';
 
 const styles: Record<PillColor, { color: string; bg: string }> = {
   blue: { color: '#2563eb', bg: 'rgba(37,99,235,0.12)' },
@@ -8,6 +8,7 @@ const styles: Record<PillColor, { color: string; bg: string }> = {
   amber: { color: '#d97706', bg: 'rgba(217,119,6,0.12)' },
   red: { color: '#dc2626', bg: 'rgba(220,38,38,0.12)' },
   gray: { color: '#64748b', bg: '#f1f5f9' },
+  teal: { color: '#0d9488', bg: 'rgba(13,148,136,0.12)' },
 };
 
 export default function StatusPill({

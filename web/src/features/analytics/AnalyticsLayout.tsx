@@ -35,6 +35,7 @@ export default function AnalyticsLayout() {
     <AnalyticsPeriodProvider range={range} setRange={setRange}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div
+          className="admin-h-scroll"
           style={{
             display: 'flex',
             flexWrap: 'wrap',

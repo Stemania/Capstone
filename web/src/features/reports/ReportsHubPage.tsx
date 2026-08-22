@@ -56,8 +56,8 @@ export default function ReportsHubPage() {
       <Row gutter={[16, 16]}>
         {REPORTS.map((r) => (
           <Col xs={24} md={8} key={r.to}>
-            <Link to={r.to} style={{ color: 'inherit' }}>
-              <Card hoverable>
+            <Link to={r.to} style={{ color: 'inherit', display: 'block', height: '100%' }}>
+              <Card hoverable style={{ height: '100%' }} styles={{ body: { minHeight: 132 } }}>
                 <div style={{ display: 'flex', gap: 12 }}>
                   {r.icon}
                   <div>
