@@ -6,13 +6,18 @@ export const usersApi = {
   get: (id: string) => apiClient.get<User>(`/users/${id}`),
   create: (data: {
     email: string;
-    password: string;
     fullName: string;
     role: string;
+    mobileNumber: string;
+    inviteChannel?: 'EMAIL' | 'SMS';
   }) => apiClient.post<User>('/users', data),
-  update: (id: string, data: Partial<User & { password?: string }>) =>
+  update: (id: string, data: Partial<User>) =>
     apiClient.patch<User>(`/users/${id}`, data),
   deactivate: (id: string) => apiClient.delete(`/users/${id}`),
+  resendInvite: (id: string, channel?: 'EMAIL' | 'SMS') =>
+    apiClient.post(`/users/${id}/invite`, channel ? { channel } : {}),
+  revokeInvite: (id: string) => apiClient.delete(`/users/${id}/invite`),
+  revokeDevices: (id: string) => apiClient.delete(`/users/${id}/devices`),
 };
 
 export const workerProfileApi = {

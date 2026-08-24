@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Table, Button, Modal, Form, Input, Select, Dropdown, message, Row, Col, Spin,
+  Table, Button, Modal, Form, Input, Select, Dropdown, message, Spin, Alert,
 } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
@@ -10,6 +10,7 @@ import {
   CheckSquareOutlined,
   MoreOutlined,
   StopOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons';
 import { usersApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
@@ -74,19 +75,21 @@ export default function UsersPage() {
 
   const onCreate = async (values: {
     email: string;
-    password: string;
     fullName: string;
     role: string;
+    mobileNumber: string;
+    inviteChannel: 'EMAIL' | 'SMS';
   }) => {
     setSubmitting(true);
     try {
-      await usersApi.create({
-        email: values.email,
-        password: values.password,
-        fullName: values.fullName,
-        role: values.role,
-      });
-      message.success('User created');
+          await usersApi.create({
+            email: values.email,
+            fullName: values.fullName,
+            role: values.role,
+            mobileNumber: values.mobileNumber,
+            inviteChannel: values.inviteChannel,
+          });
+          message.success('Invitation sent. The user must set their own password.');
       closeModal();
       fetchUsers();
     } catch (err) {
@@ -99,11 +102,32 @@ export default function UsersPage() {
   const onDeactivate = async (id: string) => {
     try {
       await usersApi.deactivate(id);
-      message.success('User deactivated');
+      message.success('User disabled. Their production history is kept.');
       fetchUsers();
     } catch (err) {
       message.error(getErrorMessage(err));
     }
+  };
+
+  const onReenable = async (id: string) => {
+    try {
+      await usersApi.update(id, { active: true });
+      message.success('User re-enabled');
+      fetchUsers();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    }
+  };
+
+  const confirmDisable = (id: string, name: string) => {
+    Modal.confirm({
+      title: `Disable ${name}?`,
+      content:
+        'They will not be able to sign in. Job history, time logs, and audit records stay in the system.',
+      okText: 'Disable',
+      okButtonProps: { danger: true },
+      onOk: () => onDeactivate(id),
+    });
   };
 
   const columns: TableColumnsType<User> = [
@@ -136,12 +160,21 @@ export default function UsersPage() {
     },
     {
       title: 'Status',
-      dataIndex: 'active',
-      key: 'active',
+      dataIndex: 'status',
+      key: 'status',
       width: 110,
-      render: (a: boolean) => (
-        <StatusPill color={a ? 'green' : 'red'} compact>{a ? 'Active' : 'Inactive'}</StatusPill>
-      ),
+      render: (_: unknown, record: User) => {
+        const status = record.status || (record.active ? 'ACTIVE' : 'DISABLED');
+        const color =
+          status === 'ACTIVE' ? 'green' : status === 'INVITED' ? 'amber' : 'red';
+        const label =
+          status === 'ACTIVE' ? 'Active' : status === 'INVITED' ? 'Invited' : 'Disabled';
+        return (
+          <StatusPill color={color} compact>
+            {label}
+          </StatusPill>
+        );
+      },
     },
     {
       title: '',
@@ -150,18 +183,69 @@ export default function UsersPage() {
       align: 'center',
       render: (_: unknown, record: User) => {
         const items: MenuProps['items'] = [];
-        if (record.active) {
+        const status = record.status || (record.active ? 'ACTIVE' : 'DISABLED');
+        if (status === 'INVITED') {
+          items.push({
+            key: 'resend',
+            label: 'Resend invite',
+            onClick: async () => {
+              try {
+                await usersApi.resendInvite(record.id);
+                message.success('Invitation resent');
+                fetchUsers();
+              } catch (err) {
+                message.error(getErrorMessage(err));
+              }
+            },
+          });
+          items.push({
+            key: 'revoke-invite',
+            label: 'Revoke invite',
+            onClick: async () => {
+              try {
+                await usersApi.revokeInvite(record.id);
+                message.success('Invitation revoked');
+                fetchUsers();
+              } catch (err) {
+                message.error(getErrorMessage(err));
+              }
+            },
+          });
+        }
+        if (status === 'ACTIVE') {
+          items.push({
+            key: 'revoke-devices',
+            label: 'Revoke all devices',
+            onClick: () => {
+              Modal.confirm({
+                title: 'Revoke all device PINs for this user?',
+                onOk: async () => {
+                  await usersApi.revokeDevices(record.id);
+                  message.success('Devices revoked');
+                },
+              });
+            },
+          });
+        }
+        if (status !== 'DISABLED') {
           items.push({
             key: 'deactivate',
             icon: <StopOutlined />,
             danger: true,
-            label: 'Deactivate',
+            label: 'Disable',
+            onClick: () => confirmDisable(record.id, record.fullName),
+          });
+        } else {
+          items.push({
+            key: 'reenable',
+            icon: <CheckCircleOutlined />,
+            label: 'Re-enable',
             onClick: () => {
               Modal.confirm({
-                title: 'Deactivate this user?',
-                okText: 'Deactivate',
-                okButtonProps: { danger: true },
-                onOk: () => onDeactivate(record.id),
+                title: `Re-enable ${record.fullName}?`,
+                content: 'They will be able to sign in again with their existing password.',
+                okText: 'Re-enable',
+                onOk: () => onReenable(record.id),
               });
             },
           });
@@ -180,6 +264,7 @@ export default function UsersPage() {
       },
     },
   ];
+
 
   const sectionLabel = (text: string) => (
     <div
@@ -200,6 +285,13 @@ export default function UsersPage() {
 
   return (
     <div className="std-list-page">
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="Users are disabled, not deleted"
+        description="Disable stops sign-in but keeps production history, time logs, and audit records. Re-enable restores access."
+      />
       <div className="std-list-toolbar">
         <div className="std-list-filters">
           <Input
@@ -298,32 +390,41 @@ export default function UsersPage() {
                       <div className="admin-card__title">{u.fullName}</div>
                       <div className="admin-card__meta">{u.email}</div>
                     </div>
-                    {u.active && (
-                      <Dropdown
-                        menu={{
-                          items: [
-                            {
-                              key: 'deactivate',
-                              icon: <StopOutlined />,
-                              danger: true,
-                              label: 'Deactivate',
-                              onClick: () => {
-                                Modal.confirm({
-                                  title: 'Deactivate this user?',
-                                  okText: 'Deactivate',
-                                  okButtonProps: { danger: true },
-                                  onOk: () => onDeactivate(u.id),
-                                });
-                              },
-                            },
-                          ],
-                        }}
-                        trigger={['click']}
-                        placement="bottomRight"
-                      >
-                        <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} aria-label="More actions" />
-                      </Dropdown>
-                    )}
+                    <Dropdown
+                      menu={{
+                        items:
+                          (u.status || (u.active ? 'ACTIVE' : 'DISABLED')) === 'DISABLED'
+                            ? [
+                                {
+                                  key: 'reenable',
+                                  icon: <CheckCircleOutlined />,
+                                  label: 'Re-enable',
+                                  onClick: () => {
+                                    Modal.confirm({
+                                      title: `Re-enable ${u.fullName}?`,
+                                      content:
+                                        'They will be able to sign in again with their existing password.',
+                                      okText: 'Re-enable',
+                                      onOk: () => onReenable(u.id),
+                                    });
+                                  },
+                                },
+                              ]
+                            : [
+                                {
+                                  key: 'deactivate',
+                                  icon: <StopOutlined />,
+                                  danger: true,
+                                  label: 'Disable',
+                                  onClick: () => confirmDisable(u.id, u.fullName),
+                                },
+                              ],
+                      }}
+                      trigger={['click']}
+                      placement="bottomRight"
+                    >
+                      <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} aria-label="More actions" />
+                    </Dropdown>
                   </div>
                   <div className="admin-card__row">
                     <StatusPill color={st.color} compact>
@@ -451,28 +552,39 @@ export default function UsersPage() {
             <Input size="large" placeholder="e.g. Juan Dela Cruz" />
           </Form.Item>
 
-          <Row gutter={12}>
-            <Col span={14}>
-              <Form.Item
-                name="email"
-                label="Email"
-                rules={[{ required: true, type: 'email', message: 'Valid email required' }]}
-                style={{ marginBottom: 14 }}
-              >
-                <Input size="large" placeholder="name@bmsc.local" />
-              </Form.Item>
-            </Col>
-            <Col span={10}>
-              <Form.Item
-                name="password"
-                label="Password"
-                rules={[{ required: true, min: 6, message: 'Min. 6 characters' }]}
-                style={{ marginBottom: 14 }}
-              >
-                <Input.Password size="large" placeholder="••••••••" />
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item
+            name="email"
+            label="Email"
+            rules={[{ required: true, type: 'email', message: 'Valid email required' }]}
+            style={{ marginBottom: 14 }}
+          >
+            <Input size="large" placeholder="name@bmsc.local" />
+          </Form.Item>
+
+          <Form.Item
+            name="mobileNumber"
+            label="Mobile number"
+            rules={[{ required: true, message: 'Mobile number is required' }]}
+            style={{ marginBottom: 14 }}
+          >
+            <Input size="large" placeholder="09XX XXX XXXX" />
+          </Form.Item>
+
+          <Form.Item
+            name="inviteChannel"
+            label="Send invite via"
+            rules={[{ required: true }]}
+            style={{ marginBottom: 14 }}
+            initialValue="EMAIL"
+          >
+            <Select
+              size="large"
+              options={[
+                { value: 'EMAIL', label: 'Email link' },
+                { value: 'SMS', label: 'SMS code' },
+              ]}
+            />
+          </Form.Item>
 
           {sectionLabel('Role & access')}
 
