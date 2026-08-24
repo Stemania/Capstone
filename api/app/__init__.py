@@ -90,22 +90,27 @@ def _register_cli(app):
     @app.cli.command("create-admin")
     def create_admin_command():
         """Create an admin user interactively."""
-        from app.models.user import User, UserRole
+        from app.models.user import User, UserRole, UserStatus
         from app.extensions import bcrypt
 
         email = input("Admin email: ")
         password = input("Admin password: ")
         full_name = input("Full name: ")
+        mobile = input("Mobile number: ")
 
         if User.query.filter_by(email=email).first():
             print("User already exists.")
             return
 
+        from app.utils.phone import normalize_ph_mobile
+
         user = User(
-            email=email,
+            email=email.strip().lower(),
+            mobile_number=normalize_ph_mobile(mobile, required=True),
             password_hash=bcrypt.generate_password_hash(password).decode("utf-8"),
             full_name=full_name,
             role=UserRole.ADMIN,
+            status=UserStatus.ACTIVE,
             active=True,
         )
         db.session.add(user)

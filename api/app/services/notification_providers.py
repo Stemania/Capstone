@@ -18,7 +18,7 @@ class NotificationProvider(ABC):
     name: str = "base"
 
     @abstractmethod
-    def send(self, recipient: str, body: str) -> None:
+    def send(self, recipient: str, body: str, subject: str | None = None) -> None:
         """Raise on failure; return None on success."""
 
 
@@ -27,9 +27,14 @@ class ConsoleProvider(NotificationProvider):
 
     name = "console"
 
-    def send(self, recipient: str, body: str) -> None:
-        logger.info("[CONSOLE notification] to=%s body=%s", recipient, body)
-        print(f"[CONSOLE notification] to={recipient} body={body}")
+    def send(self, recipient: str, body: str, subject: str | None = None) -> None:
+        logger.info(
+            "[CONSOLE notification] to=%s subject=%s body=%s",
+            recipient,
+            subject or "(none)",
+            body,
+        )
+        print(f"[CONSOLE notification] to={recipient} subject={subject or ''} body={body}")
 
 
 class SmtpEmailProvider(NotificationProvider):
@@ -51,9 +56,9 @@ class SmtpEmailProvider(NotificationProvider):
         self.from_addr = from_addr
         self.use_tls = use_tls
 
-    def send(self, recipient: str, body: str) -> None:
+    def send(self, recipient: str, body: str, subject: str | None = None) -> None:
         msg = EmailMessage()
-        msg["Subject"] = "Brothers Machine Shop — job update"
+        msg["Subject"] = subject or "Brothers Machine Shop — job update"
         msg["From"] = self.from_addr
         msg["To"] = recipient
         msg.set_content(body)
@@ -74,7 +79,7 @@ class SemaphoreSmsProvider(NotificationProvider):
         self.api_key = api_key
         self.sender_name = sender_name
 
-    def send(self, recipient: str, body: str) -> None:
+    def send(self, recipient: str, body: str, subject: str | None = None) -> None:
         payload = {
             "apikey": self.api_key,
             "number": recipient,
@@ -108,7 +113,7 @@ class TwilioSmsProvider(NotificationProvider):
         self.auth_token = auth_token
         self.from_number = from_number
 
-    def send(self, recipient: str, body: str) -> None:
+    def send(self, recipient: str, body: str, subject: str | None = None) -> None:
         url = (
             f"https://api.twilio.com/2010-04-01/Accounts/"
             f"{self.account_sid}/Messages.json"
@@ -141,7 +146,7 @@ class StubSmsProvider(NotificationProvider):
 
     name = "sms_stub"
 
-    def send(self, recipient: str, body: str) -> None:
+    def send(self, recipient: str, body: str, subject: str | None = None) -> None:
         logger.info("[SMS STUB] to=%s body=%s", recipient, body)
         print(f"[SMS STUB] to={recipient} body={body}")
 
