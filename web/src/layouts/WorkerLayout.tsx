@@ -13,6 +13,7 @@ import { createContext, useContext, useState, type ReactNode } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { confirmLogout } from '../utils/confirmLogout';
+import PinOfferModal from '../features/auth/PinOfferModal';
 
 export interface WorkerPalette {
   bg: string;
@@ -132,6 +133,31 @@ export function WorkerPageHeader({
           <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>Worker</div>
         </div>
       </div>
+      <button
+        type="button"
+        onClick={() => {
+          setAccountOpen(false);
+          navigate('/account/security');
+        }}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          padding: '11px 12px',
+          border: 'none',
+          borderRadius: 10,
+          marginBottom: 8,
+          background: '#f1f5f9',
+          color: '#0f172a',
+          fontSize: 14,
+          fontWeight: 600,
+          cursor: 'pointer',
+        }}
+      >
+        Account security
+      </button>
       <button
         type="button"
         onClick={() => {
@@ -336,6 +362,7 @@ export default function WorkerLayout() {
           <main style={{ flex: 1, paddingBottom: 100, overflowY: 'auto' }}>
             <Outlet />
           </main>
+          <PinOfferModal />
 
           <nav
             style={{

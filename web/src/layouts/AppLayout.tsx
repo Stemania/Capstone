@@ -208,6 +208,17 @@ export default function AppLayout() {
       <button
         type="button"
         className="app-shell__logout-btn"
+        style={{ marginBottom: 8, background: '#f1f5f9', color: '#0f172a' }}
+        onClick={() => {
+          setAccountOpen(false);
+          navigate('/account/security');
+        }}
+      >
+        Account security
+      </button>
+      <button
+        type="button"
+        className="app-shell__logout-btn"
         onClick={() => {
           setAccountOpen(false);
           handleLogout();

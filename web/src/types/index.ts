@@ -1,4 +1,5 @@
 export type UserRole = 'ADMIN' | 'OFFICE_STAFF' | 'PRODUCTION_WORKER';
+export type UserStatus = 'INVITED' | 'ACTIVE' | 'DISABLED';
 
 export interface WorkerSkill {
   id?: string;
@@ -40,8 +41,10 @@ export interface WorkerProfile {
 export interface User {
   id: string;
   email: string;
+  mobileNumber?: string | null;
   fullName: string;
   role: UserRole;
+  status?: UserStatus;
   active: boolean;
   createdAt?: string;
   workerProfile?: WorkerProfile;
@@ -51,6 +54,24 @@ export interface User {
   activeJobId?: string;
   activeJobTitle?: string;
   conflictOperationId?: string;
+  invitation?: {
+    id: string;
+    channel?: string;
+    expiresAt?: string | null;
+    active?: boolean;
+  };
+}
+
+export interface UserDevice {
+  id: string;
+  userId: string;
+  deviceId: string;
+  deviceLabel?: string | null;
+  hasPin: boolean;
+  pinSetAt?: string | null;
+  lastUsedAt?: string | null;
+  revokedAt?: string | null;
+  createdAt?: string | null;
 }
 
 export interface Client {
@@ -476,6 +497,7 @@ export interface LoginResponse {
   accessToken: string;
   refreshToken: string;
   user: User;
+  device?: { known: boolean; hasPin: boolean };
 }
 
 export interface ApiError {

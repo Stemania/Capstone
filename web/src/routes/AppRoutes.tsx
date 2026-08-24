@@ -8,6 +8,8 @@ import AppLayout from '../layouts/AppLayout';
 import WorkerLayout from '../layouts/WorkerLayout';
 import MyToolsPage from '../features/tool-tracking/MyToolsPage';
 import LoginPage from '../features/auth/LoginPage';
+import SetPasswordPage from '../features/auth/SetPasswordPage';
+import AccountSecurityPage from '../features/auth/AccountSecurityPage';
 import JobOrderListPage from '../features/job-orders/JobOrderListPage';
 import JobOrderFormPage from '../features/job-orders/JobOrderFormPage';
 import JobOrderPlanningPage from '../features/job-orders/JobOrderPlanningPage';
@@ -60,6 +62,7 @@ export default function AppRoutes() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/set-password" element={<SetPasswordPage />} />
 
           <Route element={<ProtectedRoute />}>
             <Route
@@ -67,6 +70,7 @@ export default function AppRoutes() {
                 <ProtectedRoute roles={['ADMIN', 'OFFICE_STAFF', 'PRODUCTION_WORKER']} />
               }
             >
+              <Route path="/account/security" element={<AccountSecurityPage />} />
               <Route path="/job-orders/:id/print" element={<JobOrderPrintPage />} />
             </Route>
 

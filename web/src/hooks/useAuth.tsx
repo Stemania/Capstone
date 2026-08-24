@@ -1,11 +1,12 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { authApi } from '../api/auth.api';
-import type { User } from '../types';
+import type { LoginResponse, User } from '../types';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<void>;
+  applySession: (data: LoginResponse) => void;
   logout: () => void;
   isAdmin: boolean;
   isOfficeStaff: boolean;
@@ -40,12 +41,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const login = async (email: string, password: string) => {
-    const { data } = await authApi.login(email, password);
+  const applySession = (data: LoginResponse) => {
     localStorage.setItem('accessToken', data.accessToken);
     localStorage.setItem('refreshToken', data.refreshToken);
     localStorage.setItem('user', JSON.stringify(data.user));
     setUser(data.user);
+  };
+
+  const login = async (identifier: string, password: string) => {
+    const { data } = await authApi.login(identifier, password);
+    applySession(data);
   };
 
   const logout = () => {
@@ -59,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         loading,
         login,
+        applySession,
         logout,
         isAdmin: user?.role === 'ADMIN',
         isOfficeStaff: user?.role === 'OFFICE_STAFF',
