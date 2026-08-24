@@ -24,7 +24,8 @@ from app.models.operation_time import (
 )
 from app.models.tool import Tool, ToolCategory
 from app.models.tool_event import ToolEvent, ToolEventType
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, UserStatus
+from app.models.user_security import InvitationChannel, UserDevice, UserInvitation
 from app.models.worker_profile import WorkerProfile
 from app.models.scoring_weight import ScoringWeight, DEFAULT_SCORING_WEIGHTS
 from app.models.worker_skill import (
@@ -38,6 +39,10 @@ from app.models.worker_skill import (
 __all__ = [
     "User",
     "UserRole",
+    "UserStatus",
+    "UserInvitation",
+    "UserDevice",
+    "InvitationChannel",
     "WorkerProfile",
     "WorkerSkill",
     "WorkerSchedule",

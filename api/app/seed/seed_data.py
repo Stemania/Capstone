@@ -1,4 +1,5 @@
 from datetime import date, time, timedelta
+from decimal import Decimal
 
 from app.constants.machines import MACHINE_CATALOG
 from app.extensions import bcrypt, db
@@ -22,11 +23,11 @@ from app.models import (
     ToolEventType,
     User,
     UserRole,
+    UserStatus,
     WorkerProfile,
     WorkerSchedule,
     WorkerSkill,
 )
-from decimal import Decimal
 from app.models.scoring_weight import DEFAULT_SCORING_WEIGHTS
 from app.models.worker_skill import OPERATION_TYPE_SEED, SKILL_TOKEN_TO_MACHINE
 
@@ -195,16 +196,20 @@ def seed_database():
 
     admin = User(
         email="admin@bmsc.local",
+        mobile_number="+639171000001",
         password_hash=bcrypt.generate_password_hash("Admin123!").decode("utf-8"),
         full_name="Admin User",
         role=UserRole.ADMIN,
+        status=UserStatus.ACTIVE,
         active=True,
     )
     office = User(
         email="office@bmsc.local",
+        mobile_number="+639171000002",
         password_hash=bcrypt.generate_password_hash("Office123!").decode("utf-8"),
         full_name="Office Staff",
         role=UserRole.OFFICE_STAFF,
+        status=UserStatus.ACTIVE,
         active=True,
     )
 
@@ -233,12 +238,14 @@ def seed_database():
     ]
 
     workers = []
-    for email, name, skill_tokens in workers_data:
+    for idx, (email, name, skill_tokens) in enumerate(workers_data, start=1):
         w = User(
             email=email,
+            mobile_number=f"+63917{100000 + idx:06d}",
             password_hash=bcrypt.generate_password_hash("Worker123!").decode("utf-8"),
             full_name=name,
             role=UserRole.PRODUCTION_WORKER,
+            status=UserStatus.ACTIVE,
             active=True,
         )
         workers.append((w, skill_tokens))

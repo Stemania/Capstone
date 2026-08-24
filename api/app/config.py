@@ -44,6 +44,8 @@ class Config:
     TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
     TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
     TWILIO_FROM = os.getenv("TWILIO_FROM")
+    FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    INVITATION_TOKEN_PEPPER = os.getenv("INVITATION_TOKEN_PEPPER", SECRET_KEY)
 
 
 class TestConfig(Config):

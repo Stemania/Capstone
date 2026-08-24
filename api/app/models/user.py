@@ -19,14 +19,29 @@ class UserRole(enum.Enum):
     PRODUCTION_WORKER = "PRODUCTION_WORKER"
 
 
+class UserStatus(enum.Enum):
+    INVITED = "INVITED"
+    ACTIVE = "ACTIVE"
+    DISABLED = "DISABLED"
+
+
 class User(db.Model):
     __tablename__ = "users"
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
-    password_hash = db.Column(db.String(255), nullable=False)
+    mobile_number = db.Column(db.String(16), unique=True, nullable=True, index=True)
+    password_hash = db.Column(db.String(255), nullable=True)
     full_name = db.Column(db.String(255), nullable=False)
     role = db.Column(db.Enum(UserRole), nullable=False, index=True)
+    status = db.Column(
+        db.Enum(UserStatus),
+        nullable=False,
+        default=UserStatus.ACTIVE,
+        server_default="ACTIVE",
+        index=True,
+    )
+    # Kept in sync with status for older call sites that filter on active.
     active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
     updated_at = db.Column(
@@ -58,12 +73,17 @@ class User(db.Model):
     )
     tool_events = db.relationship("ToolEvent", back_populates="worker")
 
+    def sync_active_flag(self):
+        self.active = self.status == UserStatus.ACTIVE
+
     def to_dict(self, include_profile=False, include_skills=False, include_schedule=False):
         data = {
             "id": self.id,
             "email": self.email,
+            "mobileNumber": self.mobile_number,
             "fullName": self.full_name,
             "role": self.role.value,
+            "status": self.status.value if self.status else UserStatus.ACTIVE.value,
             "active": self.active,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }
