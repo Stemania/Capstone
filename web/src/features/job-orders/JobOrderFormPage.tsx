@@ -79,7 +79,6 @@ export default function JobOrderFormPage() {
           poDate: data.poDate ? dayjs(data.poDate) : undefined,
           priority: data.priority || 'MODERATE',
           jobType: data.jobType || 'FABRICATION',
-          materialSource: data.materialSource || 'SHOP_PROCURED',
           quantity: data.quantity,
           unitOfMeasure: data.unitOfMeasure,
           amount: data.amount,
@@ -109,7 +108,6 @@ export default function JobOrderFormPage() {
       poDate?: dayjs.Dayjs;
       priority: string;
       jobType: string;
-      materialSource: string;
       quantity?: number;
       unitOfMeasure?: string;
       amount?: number;
@@ -132,7 +130,6 @@ export default function JobOrderFormPage() {
       poDate: values.poDate ? values.poDate.format('YYYY-MM-DD') : null,
       priority: values.priority,
       jobType: values.jobType,
-      materialSource: values.materialSource,
       quantity: values.quantity ?? null,
       unitOfMeasure: values.unitOfMeasure || null,
       amount: values.amount ?? null,
@@ -225,7 +222,6 @@ export default function JobOrderFormPage() {
         initialValues={{
           priority: 'MODERATE',
           jobType: 'FABRICATION',
-          materialSource: 'SHOP_PROCURED',
           rawMaterials: [{ name: '', quantity: undefined, unit: '' }],
         }}
         style={{
@@ -281,11 +277,12 @@ export default function JobOrderFormPage() {
             </Form.Item>
           </Col>
           <Col xs={24} md={12}>
-            <Form.Item name="materialSource" label="Material Source" rules={[{ required: true }]}>
+            <Form.Item name="priority" label="Priority" rules={[{ required: true }]}>
               <Select
                 options={[
-                  { value: 'SHOP_PROCURED', label: 'Shop procured' },
-                  { value: 'CLIENT_SUPPLIED', label: 'Client supplied' },
+                  { value: 'HIGH', label: 'High' },
+                  { value: 'MODERATE', label: 'Moderate' },
+                  { value: 'LOW', label: 'Low' },
                 ]}
               />
             </Form.Item>
@@ -310,18 +307,7 @@ export default function JobOrderFormPage() {
               />
             </Form.Item>
           </Col>
-          <Col xs={24} md={6}>
-            <Form.Item name="priority" label="Priority" rules={[{ required: true }]}>
-              <Select
-                options={[
-                  { value: 'HIGH', label: 'High' },
-                  { value: 'MODERATE', label: 'Moderate' },
-                  { value: 'LOW', label: 'Low' },
-                ]}
-              />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={6}>
+          <Col xs={24} md={12}>
             <Form.Item name="amount" label="Amount (PHP)">
               <InputNumber style={{ width: '100%' }} min={0} step={0.01} placeholder="0.00" />
             </Form.Item>

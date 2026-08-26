@@ -9,7 +9,7 @@ import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
 import { DOWNTIME_REASONS } from '../../constants/downtimeReasons';
-import type { JobOrder, Operation, OperationPauseReason } from '../../types';
+import type { JobOrder, Operation, OperationPauseReason, PartCondition } from '../../types';
 
 const PAUSE_REASONS: { value: OperationPauseReason; label: string }[] = [
   { value: 'END_OF_SHIFT', label: 'End of shift' },
@@ -19,6 +19,16 @@ const PAUSE_REASONS: { value: OperationPauseReason; label: string }[] = [
   { value: 'WAITING_PRIOR_OPERATION', label: 'Waiting on prior operation' },
   { value: 'OTHER', label: 'Other' },
 ];
+
+const PART_STAGE_LABEL: Record<PartCondition, string> = {
+  RAW_MATERIAL: 'Raw material',
+  CLIENT_SUPPLIED_ITEM: 'Client supplied item',
+  BLANK: 'Blank',
+  WORK_IN_PROCESS: 'Work in process',
+  MACHINED: 'Machined',
+  HEAT_TREATED: 'Heat treated',
+  FINISHED: 'Finished',
+};
 
 function workedSecondsSoFar(op: Operation, nowMs: number): number {
   const logs = [...(op.timeLogs || [])].sort(
@@ -276,6 +286,13 @@ export default function AssignmentDetailPage() {
               <div style={{ fontSize: 12, color: colors.textSecondary, marginTop: 8 }}>
                 Qty {job.quantity}
                 {job.unitOfMeasure ? ` ${job.unitOfMeasure}` : ''}
+              </div>
+            )}
+            {job.partCondition && (
+              <div style={{ fontSize: 12, color: colors.textSecondary, marginTop: 6 }}>
+                <span style={{ fontWeight: 700, color: colors.text }}>Stage of the part</span>
+                {': '}
+                {PART_STAGE_LABEL[job.partCondition] || job.partCondition}
               </div>
             )}
           </div>

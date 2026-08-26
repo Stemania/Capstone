@@ -88,11 +88,6 @@ const JOB_TYPE_LABEL: Record<string, string> = {
   REPAIR: 'Repair',
 };
 
-const MATERIAL_SOURCE_LABEL: Record<string, string> = {
-  SHOP_PROCURED: 'Shop procured',
-  CLIENT_SUPPLIED: 'Client supplied',
-};
-
 const NOTIF_UPDATE_LABEL: Record<string, string> = {
   JOB_RECEIVED: 'Job received',
   JOB_STARTED: 'Job started',
@@ -515,10 +510,6 @@ export default function JobOrderDetailPage() {
               <RefItem label="Client PO #" value={dash(job.clientPoNumber)} />
               <RefItem label="PO date" value={fmtDate(job.poDate)} />
               <RefItem label="Job type" value={friendlyEnum(job.jobType, JOB_TYPE_LABEL)} />
-              <RefItem
-                label="Material source"
-                value={friendlyEnum(job.materialSource, MATERIAL_SOURCE_LABEL)}
-              />
               <RefItem
                 label="Stage of the part"
                 value={friendlyEnum(job.partCondition, PART_STAGE_LABEL)}

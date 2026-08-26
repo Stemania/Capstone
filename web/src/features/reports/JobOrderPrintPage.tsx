@@ -130,9 +130,6 @@ export default function JobOrderPrintPage() {
             <strong>Job type</strong> {displayOrDash(job.jobType)}
           </div>
           <div>
-            <strong>Material source</strong> {displayOrDash(job.materialSource)}
-          </div>
-          <div>
             <strong>Qty</strong>{' '}
             {job.quantity != null
               ? `${job.quantity}${job.unitOfMeasure ? ` ${job.unitOfMeasure}` : ''}`

@@ -96,7 +96,6 @@ export type JobOrderStatus =
   | 'DELIVERED';
 export type JobPriority = 'HIGH' | 'MODERATE' | 'LOW';
 export type JobType = 'FABRICATION' | 'MODIFICATION' | 'REPAIR';
-export type MaterialSource = 'SHOP_PROCURED' | 'CLIENT_SUPPLIED';
 export type PartCondition =
   | 'RAW_MATERIAL'
   | 'CLIENT_SUPPLIED_ITEM'
@@ -295,7 +294,6 @@ export interface JobOrder {
   status: JobOrderStatus;
   priority?: JobPriority;
   jobType?: JobType;
-  materialSource?: MaterialSource;
   partCondition?: PartCondition;
   quantity?: number | null;
   unitOfMeasure?: string | null;
