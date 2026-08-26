@@ -9,7 +9,6 @@ from app.models.job_order import (
     JobOrderStatus,
     JobPriority,
     JobType,
-    MaterialSource,
     PartCondition,
     PLANNING_STATUSES,
     PRODUCTION_VISIBLE_STATUSES,
@@ -104,12 +103,6 @@ def _validate_worker(worker_id, start=None, end=None, exclude_operation_id=None)
     return worker
 
 
-def _initial_part_condition(material_source: MaterialSource) -> PartCondition:
-    if material_source == MaterialSource.CLIENT_SUPPLIED:
-        return PartCondition.CLIENT_SUPPLIED_ITEM
-    return PartCondition.RAW_MATERIAL
-
-
 def derive_job_status(job: JobOrder) -> JobOrderStatus:
     if job.status == JobOrderStatus.DELIVERED or job.delivered_at:
         return JobOrderStatus.DELIVERED
@@ -132,14 +125,79 @@ def derive_job_status(job: JobOrder) -> JobOrderStatus:
     return JobOrderStatus.RELEASED
 
 
+def _initial_part_condition(job_type: JobType) -> PartCondition:
+    if job_type in (JobType.MODIFICATION, JobType.REPAIR):
+        return PartCondition.CLIENT_SUPPLIED_ITEM
+    return PartCondition.RAW_MATERIAL
+
+
+# Furthest stage wins; never move backwards.
+_PART_CONDITION_RANK = {
+    PartCondition.RAW_MATERIAL: 0,
+    PartCondition.CLIENT_SUPPLIED_ITEM: 0,
+    PartCondition.BLANK: 1,
+    PartCondition.WORK_IN_PROCESS: 2,
+    PartCondition.MACHINED: 3,
+    PartCondition.HEAT_TREATED: 4,
+    PartCondition.FINISHED: 5,
+}
+
+_MACHINING_OP_CODES = frozenset(
+    {
+        "TURNING",
+        "FACING",
+        "THREADING",
+        "TEETH_CUTTING",
+        "SLOTTING",
+        "GROOVING",
+        "DRILLING",
+        "KEYWAY",
+        "SPLINE",
+        "SURFACE_GRINDING",
+    }
+)
+
+
+def _part_condition_from_op_code(code: str | None) -> PartCondition | None:
+    if not code:
+        return None
+    if code == "BLANKING":
+        return PartCondition.BLANK
+    if code == "HEAT_TREATMENT":
+        return PartCondition.HEAT_TREATED
+    if code in _MACHINING_OP_CODES:
+        return PartCondition.MACHINED
+    return None
+
+
+def _rank(condition: PartCondition | None) -> int:
+    if condition is None:
+        return 0
+    return _PART_CONDITION_RANK.get(condition, 0)
+
+
 def advance_part_condition(job: JobOrder):
+    """Advance part stage from completed operation types; never move backwards."""
     ops = list(job.operations or [])
     if not ops:
         return
-    if all(op.status == OperationStatus.COMPLETED for op in ops):
-        job.part_condition = PartCondition.FINISHED
-    elif any(op.status == OperationStatus.COMPLETED for op in ops):
-        job.part_condition = PartCondition.WORK_IN_PROCESS
+
+    current = job.part_condition or PartCondition.RAW_MATERIAL
+    best = current
+
+    for op in ops:
+        if op.status != OperationStatus.COMPLETED:
+            continue
+        code = op.operation_type.code if op.operation_type else None
+        stage = _part_condition_from_op_code(code)
+        if stage is not None and _rank(stage) > _rank(best):
+            best = stage
+
+    if ops and all(op.status == OperationStatus.COMPLETED for op in ops):
+        best = PartCondition.FINISHED
+
+    if _rank(best) > _rank(current):
+        job.part_condition = best
 
 
 def check_job_access(job_order, user_id, user_role):
@@ -175,6 +233,7 @@ def get_job_order(job_id, user_id, user_role):
     job = JobOrder.query.options(
         joinedload(JobOrder.operations).joinedload(JobOperation.assigned_worker),
         joinedload(JobOrder.operations).joinedload(JobOperation.machine_type),
+        joinedload(JobOrder.operations).joinedload(JobOperation.operation_type),
         joinedload(JobOrder.operations).joinedload(JobOperation.time_logs),
         joinedload(JobOrder.client),
     ).get(job_id)
@@ -246,10 +305,6 @@ def create_job_order(data, created_by_id):
         job_type = JobType(data.get("jobType", "FABRICATION"))
     except ValueError:
         raise AppError("Invalid jobType", "VALIDATION_ERROR", 400)
-    try:
-        material_source = MaterialSource(data.get("materialSource", "SHOP_PROCURED"))
-    except ValueError:
-        raise AppError("Invalid materialSource", "VALIDATION_ERROR", 400)
 
     try:
         job = JobOrder(
@@ -262,8 +317,7 @@ def create_job_order(data, created_by_id):
             status=JobOrderStatus.DRAFT,
             priority=priority_enum,
             job_type=job_type,
-            material_source=material_source,
-            part_condition=_initial_part_condition(material_source),
+            part_condition=_initial_part_condition(job_type),
             quantity=_parse_decimal(data.get("quantity"), "quantity"),
             unit_of_measure=(data.get("unitOfMeasure") or None),
             amount=_parse_decimal(data.get("amount"), "amount"),
@@ -365,11 +419,11 @@ def update_job_order(job, data, actor_role=None):
                 job.job_type = JobType(data["jobType"])
             except ValueError:
                 raise AppError("Invalid jobType", "VALIDATION_ERROR", 400)
-        if "materialSource" in data:
-            try:
-                job.material_source = MaterialSource(data["materialSource"])
-            except ValueError:
-                raise AppError("Invalid materialSource", "VALIDATION_ERROR", 400)
+            # Only reset initial stage when no ops have advanced the piece yet.
+            if not any(
+                op.status == OperationStatus.COMPLETED for op in (job.operations or [])
+            ):
+                job.part_condition = _initial_part_condition(job.job_type)
         if "partCondition" in data and data["partCondition"]:
             try:
                 job.part_condition = PartCondition(data["partCondition"])

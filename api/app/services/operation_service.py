@@ -312,6 +312,14 @@ def complete_operation(operation, user_id, user_role, timestamp):
         # Refresh relationship for variance calc
         db.session.flush()
         recompute_variance(operation)
+        from sqlalchemy.orm import joinedload
+        from app.models.job_order import JobOrder
+
+        job = (
+            JobOrder.query.options(
+                joinedload(JobOrder.operations).joinedload(JobOperation.operation_type),
+            ).get(job.id)
+        )
         job.status = derive_job_status(job)
         advance_part_condition(job)
         db.session.commit()

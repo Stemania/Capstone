@@ -13,7 +13,7 @@ from app import create_app
 from app.config import Config
 from app.extensions import bcrypt, db
 from app.models.client import Client
-from app.models.job_order import JobOrder, JobOrderStatus, JobType, MaterialSource, PartCondition
+from app.models.job_order import JobOrder, JobOrderStatus, JobType, PartCondition
 from app.models.notification import NotificationMilestone
 from app.models.operation import JobOperation, OperationStatus
 from app.models.user import User, UserRole
@@ -104,7 +104,6 @@ def _make_job(seeded, status, *, with_op=True, worker_id=None, hours=None):
         due_date=date(2026, 9, 1),
         status=status,
         job_type=JobType.FABRICATION,
-        material_source=MaterialSource.SHOP_PROCURED,
         part_condition=PartCondition.RAW_MATERIAL,
         created_by_id=seeded["office_id"],
     )
@@ -256,7 +255,6 @@ def test_no_notification_on_draft_or_planning_job_received_on_release(
             "title": "PO Draft",
             "dueDate": "2026-09-15",
             "jobType": "FABRICATION",
-            "materialSource": "SHOP_PROCURED",
             "priority": "MODERATE",
         },
         headers=office_headers,

@@ -4,7 +4,7 @@ import pytest
 
 from app.extensions import bcrypt, db
 from app.models.client import Client
-from app.models.job_order import JobOrder, JobOrderStatus, JobType, MaterialSource, PartCondition
+from app.models.job_order import JobOrder, JobOrderStatus, JobType, PartCondition
 from app.models.operation import JobOperation, OperationStatus
 from app.models.user import User, UserRole
 from app.models.worker_profile import WorkerProfile
@@ -73,7 +73,6 @@ def test_worker_cannot_access_other_workers_job(client, app, seeded_users):
             due_date=date(2026, 8, 1),
             status=JobOrderStatus.ASSIGNED,
             job_type=JobType.FABRICATION,
-            material_source=MaterialSource.SHOP_PROCURED,
             part_condition=PartCondition.RAW_MATERIAL,
             created_by_id=seeded_users["office"].id,
         )
@@ -106,7 +105,6 @@ def test_operation_start_is_idempotent(client, app, seeded_users):
             due_date=date(2026, 8, 1),
             status=JobOrderStatus.ASSIGNED,
             job_type=JobType.FABRICATION,
-            material_source=MaterialSource.SHOP_PROCURED,
             part_condition=PartCondition.RAW_MATERIAL,
             created_by_id=seeded_users["office"].id,
         )

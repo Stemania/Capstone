@@ -57,11 +57,6 @@ class JobType(enum.Enum):
     REPAIR = "REPAIR"
 
 
-class MaterialSource(enum.Enum):
-    SHOP_PROCURED = "SHOP_PROCURED"
-    CLIENT_SUPPLIED = "CLIENT_SUPPLIED"
-
-
 class PartCondition(enum.Enum):
     RAW_MATERIAL = "RAW_MATERIAL"
     CLIENT_SUPPLIED_ITEM = "CLIENT_SUPPLIED_ITEM"
@@ -93,11 +88,6 @@ class JobOrder(db.Model):
     )
     job_type = db.Column(
         db.Enum(JobType), nullable=False, default=JobType.FABRICATION, index=True
-    )
-    material_source = db.Column(
-        db.Enum(MaterialSource),
-        nullable=False,
-        default=MaterialSource.SHOP_PROCURED,
     )
     part_condition = db.Column(
         db.Enum(PartCondition),
@@ -164,11 +154,6 @@ class JobOrder(db.Model):
             "status": self.status.value,
             "priority": self.priority.value if self.priority else JobPriority.MODERATE.value,
             "jobType": self.job_type.value if self.job_type else JobType.FABRICATION.value,
-            "materialSource": (
-                self.material_source.value
-                if self.material_source
-                else MaterialSource.SHOP_PROCURED.value
-            ),
             "partCondition": (
                 self.part_condition.value
                 if self.part_condition

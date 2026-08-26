@@ -44,7 +44,6 @@ from app.models.job_order import (
     JobOrderStatus,
     JobPriority,
     JobType,
-    MaterialSource,
     PartCondition,
 )
 from app.models.machine import MachineType, MachineUnit
@@ -599,65 +598,30 @@ def _job_slots_for_clients(clients, rng: random.Random):
 
 def _job_type_mix_for_profile(profile_kind: str, rng: random.Random):
     """
-    Construction → mostly FABRICATION / shop-procured.
+    Construction → mostly FABRICATION.
     Manufacturing → MODIFICATION / REPAIR on client-supplied items.
     Mixed → balanced.
+    Returns (job_type, part_condition).
     """
     roll = rng.random()
     if profile_kind == "construction":
         if roll < 0.82:
-            return (
-                JobType.FABRICATION,
-                MaterialSource.SHOP_PROCURED,
-                PartCondition.RAW_MATERIAL,
-            )
+            return JobType.FABRICATION, PartCondition.RAW_MATERIAL
         if roll < 0.92:
-            return (
-                JobType.MODIFICATION,
-                MaterialSource.CLIENT_SUPPLIED,
-                PartCondition.CLIENT_SUPPLIED_ITEM,
-            )
-        return (
-            JobType.REPAIR,
-            MaterialSource.CLIENT_SUPPLIED,
-            PartCondition.CLIENT_SUPPLIED_ITEM,
-        )
+            return JobType.MODIFICATION, PartCondition.CLIENT_SUPPLIED_ITEM
+        return JobType.REPAIR, PartCondition.CLIENT_SUPPLIED_ITEM
     if profile_kind == "manufacturing":
         if roll < 0.55:
-            return (
-                JobType.MODIFICATION,
-                MaterialSource.CLIENT_SUPPLIED,
-                PartCondition.CLIENT_SUPPLIED_ITEM,
-            )
+            return JobType.MODIFICATION, PartCondition.CLIENT_SUPPLIED_ITEM
         if roll < 0.85:
-            return (
-                JobType.REPAIR,
-                MaterialSource.CLIENT_SUPPLIED,
-                PartCondition.CLIENT_SUPPLIED_ITEM,
-            )
-        return (
-            JobType.FABRICATION,
-            MaterialSource.SHOP_PROCURED,
-            PartCondition.RAW_MATERIAL,
-        )
+            return JobType.REPAIR, PartCondition.CLIENT_SUPPLIED_ITEM
+        return JobType.FABRICATION, PartCondition.RAW_MATERIAL
     # mixed
     if roll < 0.45:
-        return (
-            JobType.FABRICATION,
-            MaterialSource.SHOP_PROCURED,
-            PartCondition.RAW_MATERIAL,
-        )
+        return JobType.FABRICATION, PartCondition.RAW_MATERIAL
     if roll < 0.75:
-        return (
-            JobType.MODIFICATION,
-            MaterialSource.CLIENT_SUPPLIED,
-            PartCondition.CLIENT_SUPPLIED_ITEM,
-        )
-    return (
-        JobType.REPAIR,
-        MaterialSource.CLIENT_SUPPLIED,
-        PartCondition.CLIENT_SUPPLIED_ITEM,
-    )
+        return JobType.MODIFICATION, PartCondition.CLIENT_SUPPLIED_ITEM
+    return JobType.REPAIR, PartCondition.CLIENT_SUPPLIED_ITEM
 
 
 def _amount_for_profile(profile_kind: str, rng: random.Random) -> Decimal:
@@ -670,10 +634,8 @@ def _amount_for_profile(profile_kind: str, rng: random.Random) -> Decimal:
     return Decimal(str(rng.randint(15, 70) * 1000))
 
 
-def _sample_raw_materials(rng: random.Random, material_source: MaterialSource) -> list:
-    """Shop-procured jobs get bill-of-materials lines; client-supplied often empty."""
-    if material_source == MaterialSource.CLIENT_SUPPLIED and rng.random() < 0.55:
-        return []
+def _sample_raw_materials(rng: random.Random) -> list:
+    """Bill-of-materials lines for synthetic jobs."""
     pool = [
         ("Mild steel plate", "pcs"),
         ("Mild steel round bar", "pcs"),
@@ -890,7 +852,7 @@ def seed_history():
             route = _pick_open_pipeline_route(rng)
             n_ops = len(route)
 
-        job_type, material, part_cond = _job_type_mix_for_profile(
+        job_type, part_cond = _job_type_mix_for_profile(
             client_profile["profile"], rng
         )
         title = f"{JOB_TITLE_PREFIX} {rng.choice(JOB_TITLES)} #{idx + 1:02d}"
@@ -911,12 +873,11 @@ def seed_history():
                 [JobPriority.HIGH, JobPriority.MODERATE, JobPriority.MODERATE, JobPriority.LOW]
             ),
             job_type=job_type,
-            material_source=material,
             part_condition=part_cond,
             quantity=Decimal(str(rng.choice([1, 2, 4, 6, 12]))),
             unit_of_measure=rng.choice(["pcs", "lot", "set"]),
             amount=_amount_for_profile(client_profile["profile"], rng),
-            raw_materials=_sample_raw_materials(rng, material),
+            raw_materials=_sample_raw_materials(rng),
             created_by_id=creator.id,
             created_at=shop_local_to_utc(job_day, time(7, 30)),
         )
