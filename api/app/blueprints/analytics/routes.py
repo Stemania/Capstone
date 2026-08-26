@@ -119,18 +119,6 @@ def sales_forecast():
     )
 
 
-@analytics_bp.route("/demand/materials", methods=["GET"])
-@jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
-def demand_materials():
-    return jsonify(
-        analytics.demand_materials(
-            from_s=request.args.get("from"),
-            to_s=request.args.get("to"),
-        )
-    )
-
-
 @analytics_bp.route("/demand/capacity", methods=["GET"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)

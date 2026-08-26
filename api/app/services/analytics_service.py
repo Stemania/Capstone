@@ -941,67 +941,6 @@ def sales_forecast(from_s=None, to_s=None):
     }
 
 
-def demand_materials(from_s=None, to_s=None):
-    period_from, period_to, _start_utc, _end_utc = _parse_period(from_s, to_s)
-    working_days = _working_days_inclusive(period_from, period_to)
-
-    def _agg_materials(jobs):
-        # key: (name, unit) -> qty, job ids
-        buckets = defaultdict(lambda: {"quantity": 0.0, "jobIds": set()})
-        for job in jobs:
-            for line in job.raw_materials or []:
-                name = (line.get("name") or "").strip()
-                if not name:
-                    continue
-                unit = (line.get("unit") or "").strip() or None
-                try:
-                    qty = float(line.get("quantity") or 0)
-                except (TypeError, ValueError):
-                    qty = 0.0
-                key = (name, unit)
-                buckets[key]["quantity"] += qty
-                buckets[key]["jobIds"].add(job.id)
-        rows = []
-        for (name, unit), st in buckets.items():
-            rows.append(
-                {
-                    "name": name,
-                    "unit": unit,
-                    "quantity": _num(st["quantity"], 2),
-                    "jobCount": len(st["jobIds"]),
-                }
-            )
-        rows.sort(key=lambda r: (-(r["quantity"] or 0), r["name"]))
-        return rows
-
-    pipeline_jobs = JobOrder.query.filter(
-        JobOrder.status != JobOrderStatus.COMPLETED
-    ).all()
-    completed = [j for j, _ in _completed_jobs_in_period(period_from, period_to)]
-
-    pipeline_rows = _agg_materials(pipeline_jobs)
-    hist_rows = _agg_materials(completed)
-    for row in hist_rows:
-        row["perWorkingDay"] = (
-            _num((row["quantity"] or 0) / working_days, 4) if working_days else None
-        )
-
-    return {
-        "period": {"from": period_from.isoformat(), "to": period_to.isoformat()},
-        "workingDaysInSample": working_days,
-        "pipelineJobCount": len(pipeline_jobs),
-        "pipelineMaterials": pipeline_rows,
-        "historicalConsumption": {
-            "description": (
-                "Materials listed on completed jobs in the sample period "
-                "(not a purchase forecast)."
-            ),
-            "completedJobCount": len(completed),
-            "materials": hist_rows,
-        },
-    }
-
-
 def capacity_type_rows(active_types, units_by_type, load_by_type, available_per_unit):
     """
     Build per-type capacity rows.
