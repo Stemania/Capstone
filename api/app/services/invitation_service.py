@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -19,6 +20,8 @@ from app.services.notification_providers import build_email_provider, build_sms_
 from app.utils.errors import AppError
 from app.utils.passwords import validate_password
 from app.utils.phone import looks_like_email, looks_like_mobile, normalize_ph_mobile
+
+logger = logging.getLogger(__name__)
 
 INVITE_TTL = timedelta(hours=48)
 
@@ -195,14 +198,25 @@ def _deliver_invitation(user: User, invitation: UserInvitation, raw_secret: str)
             f"If you did not expect this, ignore this message.\n"
         )
         provider, _ = build_email_provider(cfg)
-        provider.send(user.email, body, subject="Set your Brothers Machine Shop password")
+        recipient = user.email
+        provider.send(recipient, body, subject="Set your Brothers Machine Shop password")
     else:
         body = (
             f"BMSC invite code: {raw_secret}. "
             f"Enter it with your email/mobile at {frontend}/set-password. Expires in 48h."
         )
         provider, _ = build_sms_provider(cfg)
-        provider.send(user.mobile_number, body)
+        recipient = user.mobile_number
+        provider.send(recipient, body)
+
+    # Never include the raw token/code — safe for production logs.
+    logger.info(
+        "Invitation sent user_id=%s to=%s channel=%s provider=%s",
+        user.id,
+        recipient,
+        invitation.channel.value,
+        provider.name,
+    )
 
 
 def _find_invitation_by_secret(raw_secret: str) -> UserInvitation | None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import smtplib
 from abc import ABC, abstractmethod
 from email.message import EmailMessage
@@ -10,6 +11,27 @@ from typing import Optional
 from urllib import error, parse, request
 
 logger = logging.getLogger(__name__)
+
+
+def is_development_environment(config: dict | None = None) -> bool:
+    """True only for explicit local development — not production or plain TESTING."""
+    if config is None:
+        try:
+            from flask import current_app, has_app_context
+
+            if has_app_context():
+                config = current_app.config
+        except RuntimeError:
+            config = None
+    if config is not None:
+        env = str(config.get("ENV") or config.get("FLASK_ENV") or "").lower()
+        if env in ("development", "dev"):
+            return True
+        if config.get("DEBUG"):
+            return True
+        return False
+    env = (os.getenv("FLASK_ENV") or os.getenv("ENV") or "production").lower()
+    return env in ("development", "dev")
 
 
 class NotificationProvider(ABC):
@@ -28,13 +50,26 @@ class ConsoleProvider(NotificationProvider):
     name = "console"
 
     def send(self, recipient: str, body: str, subject: str | None = None) -> None:
+        if is_development_environment():
+            logger.info(
+                "[CONSOLE notification] to=%s subject=%s body=%s",
+                recipient,
+                subject or "(none)",
+                body,
+            )
+            print(
+                f"[CONSOLE notification] to={recipient} subject={subject or ''} body={body}"
+            )
+            return
+
         logger.info(
-            "[CONSOLE notification] to=%s subject=%s body=%s",
+            "[CONSOLE notification] to=%s subject=%s body=[redacted]",
             recipient,
             subject or "(none)",
-            body,
         )
-        print(f"[CONSOLE notification] to={recipient} subject={subject or ''} body={body}")
+        print(
+            f"[CONSOLE notification] to={recipient} subject={subject or ''} body=[redacted]"
+        )
 
 
 class SmtpEmailProvider(NotificationProvider):
@@ -147,8 +182,13 @@ class StubSmsProvider(NotificationProvider):
     name = "sms_stub"
 
     def send(self, recipient: str, body: str, subject: str | None = None) -> None:
-        logger.info("[SMS STUB] to=%s body=%s", recipient, body)
-        print(f"[SMS STUB] to={recipient} body={body}")
+        if is_development_environment():
+            logger.info("[SMS STUB] to=%s body=%s", recipient, body)
+            print(f"[SMS STUB] to={recipient} body={body}")
+            return
+
+        logger.info("[SMS STUB] to=%s body=[redacted]", recipient)
+        print(f"[SMS STUB] to={recipient} body=[redacted]")
 
 
 def build_email_provider(config: dict) -> tuple[NotificationProvider, bool]:
