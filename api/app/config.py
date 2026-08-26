@@ -1,4 +1,4 @@
-﻿import os
+import os
 
 from dotenv import load_dotenv
 
@@ -30,18 +30,22 @@ class Config:
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    # Optional. No localhost default — an unset/mis-set Redis URL must not
+    # point production at a Redis that does not exist in the container.
+    REDIS_URL = os.getenv("REDIS_URL") or None
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173")
 
     # Auth rate limits (per client IP). Only applied to selected auth routes.
+    # Storage defaults to in-process memory. Redis only when RATELIMIT_STORAGE_URI
+    # is an explicit redis:// URL *and* reachable at startup (see create_app).
     RATELIMIT_ENABLED = os.getenv("RATELIMIT_ENABLED", "true").lower() in (
         "1",
         "true",
         "yes",
     )
-    RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI") or os.getenv(
-        "REDIS_URL", "memory://"
-    )
+    RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI") or "memory://"
+    RATELIMIT_SWALLOW_ERRORS = True
+    RATELIMIT_IN_MEMORY_FALLBACK_ENABLED = True
     AUTH_RATE_LIMIT_LOGIN = os.getenv("AUTH_RATE_LIMIT_LOGIN", "10 per minute")
     AUTH_RATE_LIMIT_PIN_UNLOCK = os.getenv("AUTH_RATE_LIMIT_PIN_UNLOCK", "20 per minute")
     AUTH_RATE_LIMIT_INVITE_VALIDATE = os.getenv(

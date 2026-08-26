@@ -1,4 +1,4 @@
-﻿"""Security: console invite redaction + auth rate limits.
+"""Security: console invite redaction + auth rate limits.
 
 Runs against local DATABASE_URL (bmsc) inside a rolled-back session.
 """
@@ -260,3 +260,62 @@ def test_non_auth_routes_not_rate_limited_by_default(rate_client):
         resp = rate_client.get("/api/v1/job-orders", headers=headers)
         assert resp.status_code == 200
 
+
+class UnreachableRedisConfig(LocalTxnConfig):
+    """Rate limiting enabled but storage points at a closed Redis port."""
+
+    RATELIMIT_ENABLED = True
+    RATELIMIT_STORAGE_URI = "redis://127.0.0.1:1/0"
+    AUTH_RATE_LIMIT_LOGIN = "10 per minute"
+
+
+def test_login_succeeds_when_ratelimit_redis_unreachable(monkeypatch):
+    application = create_app(UnreachableRedisConfig)
+    ctx = application.app_context()
+    ctx.push()
+    monkeypatch.setattr(db.session, "commit", db.session.flush)
+    try:
+        assert application.config["RATELIMIT_STORAGE_URI"] == "memory://"
+
+        user = User(
+            email="failover_user@test.local",
+            mobile_number="+639170000105",
+            password_hash=bcrypt.generate_password_hash("Worker123!").decode("utf-8"),
+            full_name="Failover User",
+            role=UserRole.PRODUCTION_WORKER,
+            status=UserStatus.ACTIVE,
+            active=True,
+        )
+        db.session.add(user)
+        db.session.flush()
+        db.session.add(WorkerProfile(user_id=user.id))
+        db.session.flush()
+
+        client = application.test_client()
+        limiter.reset()
+        resp = client.post(
+            "/api/v1/auth/login",
+            json={"identifier": "failover_user@test.local", "password": "Worker123!"},
+        )
+        assert resp.status_code == 200, resp.get_json()
+        assert resp.get_json().get("accessToken")
+    finally:
+        db.session.rollback()
+        db.session.remove()
+        ctx.pop()
+
+
+def test_resolve_ratelimit_storage_defaults_to_memory_not_redis_url():
+    from app.extensions import resolve_ratelimit_storage_uri
+
+    class NoRedisConfig(LocalTxnConfig):
+        REDIS_URL = None
+        RATELIMIT_STORAGE_URI = "memory://"
+
+    application = create_app(NoRedisConfig)
+    with application.app_context():
+        assert application.config["RATELIMIT_STORAGE_URI"] == "memory://"
+        # Even if REDIS_URL were set, rate-limit URI must not auto-adopt it.
+        application.config["REDIS_URL"] = "redis://127.0.0.1:6379/0"
+        application.config["RATELIMIT_STORAGE_URI"] = "memory://"
+        assert resolve_ratelimit_storage_uri(application) == "memory://"
