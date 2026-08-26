@@ -132,8 +132,9 @@ class JobOrder(db.Model):
     tool_events = db.relationship("ToolEvent", back_populates="job_order")
     notification_logs = db.relationship("NotificationLog", back_populates="job_order")
 
-    def to_dict(self, include_operations=False):
+    def to_dict(self, include_operations=False, viewer_role=None):
         from app.models.operation import OperationStatus
+        from app.models.user import UserRole
 
         ops = list(self.operations or [])
         completed = sum(1 for op in ops if op.status == OperationStatus.COMPLETED)
@@ -149,16 +150,17 @@ class JobOrder(db.Model):
                 return None
             return float(v) if isinstance(v, Decimal) else float(v)
 
+        role = viewer_role.value if isinstance(viewer_role, UserRole) else viewer_role
+        hide_commercial = role == UserRole.PRODUCTION_WORKER.value
+
         data = {
             "id": self.id,
             "jobNumber": f"JO-{year}-{short}",
-            "clientId": self.client_id,
             "clientName": self.client.name if self.client else None,
             "title": self.title,
             "description": self.description,
             "dueDate": self.due_date.isoformat() if self.due_date else None,
             "clientPoNumber": self.client_po_number,
-            "poDate": self.po_date.isoformat() if self.po_date else None,
             "status": self.status.value,
             "priority": self.priority.value if self.priority else JobPriority.MODERATE.value,
             "jobType": self.job_type.value if self.job_type else JobType.FABRICATION.value,
@@ -174,9 +176,7 @@ class JobOrder(db.Model):
             ),
             "quantity": _num(self.quantity),
             "unitOfMeasure": self.unit_of_measure,
-            "amount": _num(self.amount),
             "rawMaterials": self.raw_materials or [],
-            "createdById": self.created_by_id,
             "deliveredAt": self.delivered_at.isoformat() if self.delivered_at else None,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
             "opsCompleted": completed,
@@ -189,6 +189,11 @@ class JobOrder(db.Model):
                 else None
             ),
         }
+        if not hide_commercial:
+            data["clientId"] = self.client_id
+            data["poDate"] = self.po_date.isoformat() if self.po_date else None
+            data["createdById"] = self.created_by_id
+            data["amount"] = _num(self.amount)
         if include_operations:
             data["operations"] = [op.to_dict() for op in ops]
         scheduled_ends = [op.scheduled_end for op in ops if op.scheduled_end]

@@ -24,6 +24,8 @@ class LocalTxnConfig(Config):
     """Same local Postgres as development; tests never commit."""
 
     TESTING = True
+    RATELIMIT_ENABLED = False
+    RATELIMIT_STORAGE_URI = "memory://"
 
 
 def _login(client, email, password):
@@ -135,6 +137,50 @@ def test_production_cannot_fetch_draft_or_planning_by_id(client, seeded):
 
     assert client.get(f"/api/v1/job-orders/{draft.id}", headers=headers).status_code == 403
     assert client.get(f"/api/v1/job-orders/{planning.id}", headers=headers).status_code == 403
+
+
+def test_worker_job_payload_omits_amount(client, seeded):
+    job = _make_job(
+        seeded, JobOrderStatus.ASSIGNED, worker_id=seeded["worker_id"], hours=2
+    )
+    job.amount = Decimal("12500.00")
+    job.client_po_number = "PO-7788"
+    job.po_date = date(2026, 8, 15)
+    db.session.flush()
+
+    omitted = ("amount", "clientId", "poDate", "createdById")
+
+    login = _login(client, "plan_worker@test.local", "Worker123!")
+    token = login.get_json()["accessToken"]
+    headers = _auth_header(token)
+
+    detail = client.get(f"/api/v1/job-orders/{job.id}", headers=headers)
+    assert detail.status_code == 200
+    worker_body = detail.get_json()
+    for field in omitted:
+        assert field not in worker_body
+    assert worker_body.get("clientName") == "Plan Test Client"
+    assert worker_body.get("clientPoNumber") == "PO-7788"
+
+    listing = client.get("/api/v1/job-orders", headers=headers)
+    assert listing.status_code == 200
+    listed = next(j for j in listing.get_json() if j["id"] == job.id)
+    for field in omitted:
+        assert field not in listed
+    assert listed.get("clientName") == "Plan Test Client"
+    assert listed.get("clientPoNumber") == "PO-7788"
+
+    office_login = _login(client, "plan_office@test.local", "Office123!")
+    office_headers = _auth_header(office_login.get_json()["accessToken"])
+    office_detail = client.get(f"/api/v1/job-orders/{job.id}", headers=office_headers)
+    assert office_detail.status_code == 200
+    office_body = office_detail.get_json()
+    assert office_body["amount"] == 12500.0
+    assert office_body["clientId"] == seeded["client_id"]
+    assert office_body["poDate"] == "2026-08-15"
+    assert office_body["createdById"] == seeded["office_id"]
+    assert office_body["clientName"] == "Plan Test Client"
+    assert office_body["clientPoNumber"] == "PO-7788"
 
 
 def test_operation_cannot_start_on_non_released_job(client, seeded):

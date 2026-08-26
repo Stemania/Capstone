@@ -35,8 +35,9 @@ def list_machine_units():
 @jwt_required()
 def list_job_orders():
     status = request.args.get("status")
-    jobs = jo_service.list_job_orders(get_current_user_id(), get_current_user_role(), status)
-    return jsonify([j.to_dict() for j in jobs])
+    role = get_current_user_role()
+    jobs = jo_service.list_job_orders(get_current_user_id(), role, status)
+    return jsonify([j.to_dict(viewer_role=role) for j in jobs])
 
 
 @job_orders_bp.route("", methods=["POST"])
@@ -50,42 +51,46 @@ def create_job_order():
             return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"{field} is required"}}), 400
 
     job = jo_service.create_job_order(data, get_current_user_id())
-    return jsonify(job.to_dict(include_operations=True)), 201
+    return jsonify(job.to_dict(include_operations=True, viewer_role=get_current_user_role())), 201
 
 
 @job_orders_bp.route("/<job_id>", methods=["GET"])
 @jwt_required()
 def get_job_order(job_id):
-    job = jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
-    return jsonify(job.to_dict(include_operations=True))
+    role = get_current_user_role()
+    job = jo_service.get_job_order(job_id, get_current_user_id(), role)
+    return jsonify(job.to_dict(include_operations=True, viewer_role=role))
 
 
 @job_orders_bp.route("/<job_id>", methods=["PATCH"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def update_job_order(job_id):
-    job = jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
+    role = get_current_user_role()
+    job = jo_service.get_job_order(job_id, get_current_user_id(), role)
     data = request.get_json() or {}
-    job = jo_service.update_job_order(job, data, actor_role=get_current_user_role())
-    return jsonify(job.to_dict(include_operations=True))
+    job = jo_service.update_job_order(job, data, actor_role=role)
+    return jsonify(job.to_dict(include_operations=True, viewer_role=role))
 
 
 @job_orders_bp.route("/<job_id>/release", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN)
 def release_job_order(job_id):
-    job = jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
+    role = get_current_user_role()
+    job = jo_service.get_job_order(job_id, get_current_user_id(), role)
     job = jo_service.release_job_order(job)
-    return jsonify(job.to_dict(include_operations=True))
+    return jsonify(job.to_dict(include_operations=True, viewer_role=role))
 
 
 @job_orders_bp.route("/<job_id>/deliver", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def deliver_job_order(job_id):
-    job = jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
+    role = get_current_user_role()
+    job = jo_service.get_job_order(job_id, get_current_user_id(), role)
     job = jo_service.mark_job_delivered(job)
-    return jsonify(job.to_dict(include_operations=True))
+    return jsonify(job.to_dict(include_operations=True, viewer_role=role))
 
 
 @job_orders_bp.route("/<job_id>/operations", methods=["GET"])
