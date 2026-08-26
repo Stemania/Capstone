@@ -1014,7 +1014,27 @@ button.admin-card {
   align-items: center;
 }
 
-/* Job order form: taller fields + tighter label gap (closer to Flutter) */
+/* Job order form: dense 24-col layout that fits 1366×768 without page scroll */
+.jo-form-page__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.jo-form {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 18px 12px;
+}
+
+.jo-form.ant-form-vertical .ant-form-item {
+  margin-bottom: 10px;
+}
+
 .jo-form.ant-form-vertical .ant-form-item-label {
   padding: 0 0 2px !important;
 }
@@ -1022,6 +1042,7 @@ button.admin-card {
 .jo-form.ant-form-vertical .ant-form-item-label > label {
   height: auto !important;
   font-weight: 600;
+  font-size: 13px;
 }
 
 .jo-form .ant-input,
@@ -1047,9 +1068,126 @@ button.admin-card {
 }
 
 .jo-form textarea.ant-input {
-  min-height: 90px !important;
-  padding-top: 10px !important;
-  padding-bottom: 10px !important;
+  resize: none !important;
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+  line-height: 1.45;
+}
+
+.jo-form__pair-col {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+}
+
+.jo-form__desc-item {
+  flex: 1;
+  min-height: 0;
+  margin-bottom: 10px !important;
+  display: flex;
+  flex-direction: column;
+}
+
+.jo-form__desc-item .ant-form-item-row {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.jo-form__desc-item .ant-form-item-control {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.jo-form__desc-item .ant-form-item-control-input {
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.jo-form__desc-item .ant-form-item-control-input-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.jo-form__desc-item textarea.ant-input {
+  flex: 1;
+  width: 100%;
+  min-height: 120px !important;
+  height: 100% !important;
+  max-height: none !important;
+}
+
+.jo-form__materials {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+  min-height: 148px;
+  margin-bottom: 10px;
+}
+
+.jo-form__materials-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.88);
+  line-height: 1.5714;
+  padding-bottom: 2px;
+  flex-shrink: 0;
+}
+
+.jo-form__materials-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 120px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fafbfc;
+}
+
+.jo-form__materials-scroll {
+  flex: 0 1 auto;
+  padding: 6px 8px 2px;
+}
+
+.jo-form__materials-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+  align-items: flex-start;
+}
+
+.jo-form__materials-add {
+  flex-shrink: 0;
+  height: 36px !important;
+  font-weight: 600;
+  color: #475569;
+  border: none !important;
+  border-top: 1px dashed #cbd5e1 !important;
+  border-radius: 0 !important;
+  background: #fff !important;
+}
+
+.jo-form__footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+/* Dropdown.Button uses Space.Compact block (full width); keep footer actions compact */
+.jo-form__footer .ant-space-compact-block {
+  width: auto !important;
+  display: inline-flex !important;
 }
 
 /* Job order form: fill viewport on desktop without page scroll */

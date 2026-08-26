@@ -176,18 +176,9 @@ export default function JobOrderFormPage() {
   }
 
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 12,
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 16,
-        }}
-      >
-        <Space wrap>
+    <div className="jo-form-page" style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <div className="jo-form-page__header">
+        <Space wrap size={8}>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(backTo)}>
             Back
           </Button>
@@ -195,7 +186,7 @@ export default function JobOrderFormPage() {
             <Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>
               {isEdit ? jobNumber || id?.slice(0, 8).toUpperCase() : 'New'}
             </Text>
-            <Title level={4} style={{ margin: 0, color: NAVY }}>
+            <Title level={4} style={{ margin: 0, color: NAVY, lineHeight: 1.25 }}>
               {isEdit ? 'Edit Job Information' : 'New Job Order'}
             </Title>
           </div>
@@ -205,12 +196,12 @@ export default function JobOrderFormPage() {
         </Text>
       </div>
 
-      {error && <Alert type="error" message={error} style={{ marginBottom: 16 }} showIcon />}
+      {error && <Alert type="error" message={error} style={{ marginBottom: 10 }} showIcon />}
       {jobStatus === 'PLANNING' && (
         <Alert
           type="info"
           showIcon
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 10 }}
           message="This job is in planning. You can still update PO details; Admin owns operations."
         />
       )}
@@ -219,20 +210,16 @@ export default function JobOrderFormPage() {
         form={form}
         layout="vertical"
         size="large"
+        className="jo-form"
         initialValues={{
           priority: 'MODERATE',
           jobType: 'FABRICATION',
           rawMaterials: [{ name: '', quantity: undefined, unit: '' }],
         }}
-        style={{
-          background: '#fff',
-          border: '1px solid #e2e8f0',
-          borderRadius: 12,
-          padding: '24px 28px',
-        }}
       >
-        <Row gutter={[24, 8]}>
-          <Col xs={24} md={14}>
+        <Row gutter={[16, 0]} align="stretch">
+          {/* Row 1: Client · Client PO # · PO Date */}
+          <Col xs={24} md={8}>
             <Form.Item name="clientId" label="Client" rules={[{ required: true }]}>
               <Select
                 showSearch
@@ -242,30 +229,24 @@ export default function JobOrderFormPage() {
               />
             </Form.Item>
           </Col>
-          <Col xs={24} md={10}>
-            <Form.Item name="dueDate" label="Date Required" rules={[{ required: true }]}>
-              <DatePicker style={{ width: '100%' }} />
-            </Form.Item>
-          </Col>
-
-          <Col xs={24} md={12}>
+          <Col xs={24} md={8}>
             <Form.Item name="clientPoNumber" label="Client PO #">
               <Input placeholder="PO number" />
             </Form.Item>
           </Col>
-          <Col xs={24} md={12}>
+          <Col xs={24} md={8}>
             <Form.Item name="poDate" label="PO Date">
               <DatePicker style={{ width: '100%' }} />
             </Form.Item>
           </Col>
 
-          <Col span={24}>
+          {/* Row 2: Title · Job Type · Priority */}
+          <Col xs={24} md={12}>
             <Form.Item name="title" label="Title" rules={[{ required: true }]}>
               <Input placeholder="e.g. Modification of Cyclodrive Base" />
             </Form.Item>
           </Col>
-
-          <Col xs={24} md={12}>
+          <Col xs={24} md={6}>
             <Form.Item name="jobType" label="Job Type" rules={[{ required: true }]}>
               <Select
                 options={[
@@ -276,7 +257,7 @@ export default function JobOrderFormPage() {
               />
             </Form.Item>
           </Col>
-          <Col xs={24} md={12}>
+          <Col xs={24} md={6}>
             <Form.Item name="priority" label="Priority" rules={[{ required: true }]}>
               <Select
                 options={[
@@ -288,12 +269,18 @@ export default function JobOrderFormPage() {
             </Form.Item>
           </Col>
 
-          <Col xs={12} md={6}>
+          {/* Row 3: Date Required · Quantity · Unit · Amount */}
+          <Col xs={24} md={6}>
+            <Form.Item name="dueDate" label="Date Required" rules={[{ required: true }]}>
+              <DatePicker style={{ width: '100%' }} />
+            </Form.Item>
+          </Col>
+          <Col xs={12} md={4}>
             <Form.Item name="quantity" label="Quantity">
               <InputNumber style={{ width: '100%' }} min={0} step={0.01} placeholder="1.00" />
             </Form.Item>
           </Col>
-          <Col xs={12} md={6}>
+          <Col xs={12} md={4}>
             <Form.Item name="unitOfMeasure" label="Unit">
               <Select
                 allowClear
@@ -307,101 +294,87 @@ export default function JobOrderFormPage() {
               />
             </Form.Item>
           </Col>
-          <Col xs={24} md={12}>
+          <Col xs={24} md={10}>
             <Form.Item name="amount" label="Amount (PHP)">
               <InputNumber style={{ width: '100%' }} min={0} step={0.01} placeholder="0.00" />
             </Form.Item>
           </Col>
 
-          <Col span={24}>
-            <Form.Item name="description" label="Description">
+          {/* Row 4: Description · Raw Materials (equal height; grow together) */}
+          <Col xs={24} md={12} className="jo-form__pair-col">
+            <Form.Item name="description" label="Description" className="jo-form__desc-item">
               <TextArea
-                rows={3}
+                rows={5}
                 placeholder="Notes from PO / special instructions (optional)"
               />
             </Form.Item>
           </Col>
+          <Col xs={24} md={12} className="jo-form__pair-col">
+            <div className="jo-form__materials">
+              <div className="jo-form__materials-label">Raw Materials</div>
+              <Form.List name="rawMaterials">
+                {(fields, { add, remove }) => (
+                  <div className="jo-form__materials-body">
+                    <div className="jo-form__materials-scroll">
+                      {fields.map(({ key, name, ...rest }) => (
+                        <div key={key} className="jo-form__materials-row">
+                          <Form.Item
+                            {...rest}
+                            name={[name, 'name']}
+                            style={{ flex: 2, marginBottom: 0 }}
+                          >
+                            <Input placeholder="Material name" />
+                          </Form.Item>
+                          <Form.Item
+                            {...rest}
+                            name={[name, 'quantity']}
+                            style={{ width: 88, marginBottom: 0 }}
+                          >
+                            <InputNumber style={{ width: '100%' }} min={0} placeholder="Qty" />
+                          </Form.Item>
+                          <Form.Item
+                            {...rest}
+                            name={[name, 'unit']}
+                            style={{ width: 96, marginBottom: 0 }}
+                          >
+                            <Select
+                              allowClear
+                              placeholder="Unit"
+                              options={[
+                                { value: 'pcs', label: 'pcs' },
+                                { value: 'lot', label: 'lot' },
+                                { value: 'set', label: 'set' },
+                                { value: 'kg', label: 'kg' },
+                              ]}
+                            />
+                          </Form.Item>
+                          <Button
+                            type="text"
+                            danger
+                            icon={<DeleteOutlined />}
+                            disabled={fields.length <= 1}
+                            onClick={() => remove(name)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <Button
+                      type="default"
+                      onClick={() => add()}
+                      block
+                      icon={<PlusOutlined />}
+                      className="jo-form__materials-add"
+                    >
+                      Add Material
+                    </Button>
+                  </div>
+                )}
+              </Form.List>
+            </div>
+          </Col>
         </Row>
 
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 700,
-            letterSpacing: 0.6,
-            textTransform: 'uppercase',
-            color: '#64748b',
-            margin: '8px 0 12px',
-            paddingBottom: 8,
-            borderBottom: '1px solid #e2e8f0',
-          }}
-        >
-          Raw Materials
-        </div>
-
-        <Form.List name="rawMaterials">
-          {(fields, { add, remove }) => (
-            <>
-              {fields.map(({ key, name, ...rest }) => (
-                <div
-                  key={key}
-                  style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start' }}
-                >
-                  <Form.Item {...rest} name={[name, 'name']} style={{ flex: 2, marginBottom: 0 }}>
-                    <Input placeholder="Material name" />
-                  </Form.Item>
-                  <Form.Item {...rest} name={[name, 'quantity']} style={{ width: 100, marginBottom: 0 }}>
-                    <InputNumber style={{ width: '100%' }} min={0} placeholder="Qty" />
-                  </Form.Item>
-                  <Form.Item {...rest} name={[name, 'unit']} style={{ width: 110, marginBottom: 0 }}>
-                    <Select
-                      allowClear
-                      placeholder="Unit"
-                      options={[
-                        { value: 'pcs', label: 'pcs' },
-                        { value: 'lot', label: 'lot' },
-                        { value: 'set', label: 'set' },
-                        { value: 'kg', label: 'kg' },
-                      ]}
-                    />
-                  </Form.Item>
-                  <Button
-                    type="text"
-                    danger
-                    icon={<DeleteOutlined />}
-                    disabled={fields.length <= 1}
-                    onClick={() => remove(name)}
-                  />
-                </div>
-              ))}
-              <Button
-                type="default"
-                onClick={() => add()}
-                block
-                icon={<PlusOutlined />}
-                style={{
-                  height: 44,
-                  fontWeight: 600,
-                  color: '#475569',
-                  borderColor: '#cbd5e1',
-                  borderStyle: 'dashed',
-                }}
-              >
-                Add Material
-              </Button>
-            </>
-          )}
-        </Form.List>
-
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 10,
-            marginTop: 24,
-            paddingTop: 16,
-            borderTop: '1px solid #e2e8f0',
-          }}
-        >
+        <div className="jo-form__footer">
           <Button onClick={() => navigate(backTo)}>Cancel</Button>
           {showAdminSplit ? (
             <Dropdown.Button
