@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import (
     create_access_token,
     create_refresh_token,
@@ -6,6 +6,7 @@ from flask_jwt_extended import (
     jwt_required,
 )
 
+from app.extensions import limiter
 from app.middleware.rbac import get_current_user_id
 from app.models.user import User
 from app.services.auth_service import (
@@ -37,7 +38,27 @@ def _tokens_for(user: User) -> dict:
     }
 
 
+def _limit_login():
+    return current_app.config.get("AUTH_RATE_LIMIT_LOGIN", "10 per minute")
+
+
+def _limit_pin_unlock():
+    return current_app.config.get("AUTH_RATE_LIMIT_PIN_UNLOCK", "20 per minute")
+
+
+def _limit_invite_validate():
+    return current_app.config.get("AUTH_RATE_LIMIT_INVITE_VALIDATE", "10 per minute")
+
+
+def _limit_invite_accept():
+    return current_app.config.get("AUTH_RATE_LIMIT_INVITE_ACCEPT", "5 per minute")
+
+
 @auth_bp.route("/login", methods=["POST"])
+@limiter.limit(
+    _limit_login,
+    error_message="Too many login attempts. Please wait a minute and try again.",
+)
 def login():
     data = request.get_json() or {}
     identifier = data.get("identifier") or data.get("email") or data.get("mobile")
@@ -85,6 +106,10 @@ def me():
 
 
 @auth_bp.route("/invitation/validate", methods=["POST"])
+@limiter.limit(
+    _limit_invite_validate,
+    error_message="Too many invitation checks. Please wait a minute and try again.",
+)
 def invitation_validate():
     data = request.get_json() or {}
     token = data.get("token") or data.get("code")
@@ -94,6 +119,10 @@ def invitation_validate():
 
 
 @auth_bp.route("/invitation/accept", methods=["POST"])
+@limiter.limit(
+    _limit_invite_accept,
+    error_message="Too many invitation attempts. Please wait a minute and try again.",
+)
 def invitation_accept():
     data = request.get_json() or {}
     token = data.get("token") or data.get("code")
@@ -124,6 +153,10 @@ def change_password():
 
 
 @auth_bp.route("/pin/unlock", methods=["POST"])
+@limiter.limit(
+    _limit_pin_unlock,
+    error_message="Too many PIN attempts. Please wait a minute and try again.",
+)
 def pin_unlock():
     data = request.get_json() or {}
     result = unlock_with_pin(data.get("deviceId") or "", data.get("pin") or "")

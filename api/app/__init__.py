@@ -1,4 +1,4 @@
-import os
+﻿import os
 import uuid
 from datetime import datetime, timezone
 
@@ -6,7 +6,7 @@ from flask import Flask
 from flask_cors import CORS
 from flask_migrate import Migrate
 
-from app.extensions import bcrypt, db, jwt, redis_client
+from app.extensions import bcrypt, db, jwt, limiter, redis_client
 from app.utils.errors import register_error_handlers
 
 
@@ -20,11 +20,17 @@ def create_app(config_object=None):
 
         app.config.from_object(Config)
 
+    if not app.config.get("RATELIMIT_STORAGE_URI"):
+        app.config["RATELIMIT_STORAGE_URI"] = (
+            app.config.get("REDIS_URL") or "memory://"
+        )
+
     db.init_app(app)
     migrate = Migrate(app, db)
     jwt.init_app(app)
     bcrypt.init_app(app)
     redis_client.init_app(app)
+    limiter.init_app(app)
 
     cors_origins = app.config.get("CORS_ORIGINS", "http://localhost:5173")
     if isinstance(cors_origins, str):
@@ -40,7 +46,6 @@ def create_app(config_object=None):
     register_audit_listeners()
 
     return app
-
 
 def _register_blueprints(app):
     from app.blueprints.auth.routes import auth_bp

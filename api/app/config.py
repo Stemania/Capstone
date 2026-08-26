@@ -1,4 +1,4 @@
-import os
+﻿import os
 
 from dotenv import load_dotenv
 
@@ -21,6 +21,9 @@ class Config:
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-jwt-secret")
     JWT_ACCESS_TOKEN_EXPIRES = 3600  # 1 hour
     JWT_REFRESH_TOKEN_EXPIRES = 604800  # 7 days
+    # development | production — controls console invite secret logging
+    ENV = os.getenv("FLASK_ENV", os.getenv("ENV", "production"))
+    DEBUG = os.getenv("FLASK_DEBUG", "0").lower() in ("1", "true", "yes")
 
     SQLALCHEMY_DATABASE_URI = _normalize_database_url(
         os.getenv("DATABASE_URL", "postgresql+psycopg://bmsc:bmsc_dev@localhost:5432/bmsc")
@@ -29,6 +32,24 @@ class Config:
 
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173")
+
+    # Auth rate limits (per client IP). Only applied to selected auth routes.
+    RATELIMIT_ENABLED = os.getenv("RATELIMIT_ENABLED", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI") or os.getenv(
+        "REDIS_URL", "memory://"
+    )
+    AUTH_RATE_LIMIT_LOGIN = os.getenv("AUTH_RATE_LIMIT_LOGIN", "10 per minute")
+    AUTH_RATE_LIMIT_PIN_UNLOCK = os.getenv("AUTH_RATE_LIMIT_PIN_UNLOCK", "20 per minute")
+    AUTH_RATE_LIMIT_INVITE_VALIDATE = os.getenv(
+        "AUTH_RATE_LIMIT_INVITE_VALIDATE", "10 per minute"
+    )
+    AUTH_RATE_LIMIT_INVITE_ACCEPT = os.getenv(
+        "AUTH_RATE_LIMIT_INVITE_ACCEPT", "5 per minute"
+    )
 
     # Notifications — default CONSOLE (no credentials required)
     NOTIFICATION_EMAIL_PROVIDER = os.getenv("NOTIFICATION_EMAIL_PROVIDER", "console")
@@ -50,6 +71,8 @@ class Config:
 
 class TestConfig(Config):
     TESTING = True
+    RATELIMIT_ENABLED = False
+    RATELIMIT_STORAGE_URI = "memory://"
     SQLALCHEMY_DATABASE_URI = _normalize_database_url(
         os.getenv("TEST_DATABASE_URL", "postgresql+psycopg://bmsc:bmsc_dev@localhost:5432/bmsc_test")
     )

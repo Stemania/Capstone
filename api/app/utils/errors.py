@@ -1,4 +1,5 @@
 from flask import jsonify
+from flask_limiter.errors import RateLimitExceeded
 
 
 class AppError(Exception):
@@ -15,6 +16,28 @@ def register_error_handlers(app):
         return (
             jsonify({"error": {"code": error.code, "message": error.message}}),
             error.status_code,
+        )
+
+    @app.errorhandler(RateLimitExceeded)
+    def handle_rate_limit(error):
+        message = (
+            getattr(error, "description", None)
+            or "Too many attempts. Please wait a minute and try again."
+        )
+        return (
+            jsonify({"error": {"code": "RATE_LIMIT_EXCEEDED", "message": message}}),
+            429,
+        )
+
+    @app.errorhandler(429)
+    def handle_too_many_requests(error):
+        message = (
+            getattr(error, "description", None)
+            or "Too many attempts. Please wait a minute and try again."
+        )
+        return (
+            jsonify({"error": {"code": "RATE_LIMIT_EXCEEDED", "message": message}}),
+            429,
         )
 
     @app.errorhandler(404)

@@ -25,6 +25,10 @@ class LocalTxnConfig(Config):
     """Same local Postgres as development; tests never commit."""
 
     TESTING = True
+    ENV = "production"
+    DEBUG = False
+    RATELIMIT_ENABLED = False
+    RATELIMIT_STORAGE_URI = "memory://"
 
 
 @pytest.fixture
