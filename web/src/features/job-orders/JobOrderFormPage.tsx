@@ -12,21 +12,26 @@ import {
   Row,
   Col,
   Space,
+  Dropdown,
 } from 'antd';
-import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, DeleteOutlined, DownOutlined, PlusOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { clientsApi, jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
+import { useAuth } from '../../hooks/useAuth';
 import type { Client } from '../../types';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
+type SaveDestination = 'plan' | 'list' | 'detail';
+
 export default function JobOrderFormPage() {
   const { id } = useParams();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
   const [form] = Form.useForm();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(isEdit);
@@ -36,6 +41,9 @@ export default function JobOrderFormPage() {
   const [jobNumber, setJobNumber] = useState<string | null>(null);
   const NAVY = '#0f1c2e';
   const backTo = isEdit && id ? `/job-orders/${id}` : '/job-orders';
+  // New jobs are DRAFT; planning entry only applies while still DRAFT.
+  const canEnterPlanning = !isEdit || jobStatus === 'DRAFT' || jobStatus === null;
+  const showAdminSplit = isAdmin && canEnterPlanning;
 
   useEffect(() => {
     let cancelled = false;
@@ -91,21 +99,28 @@ export default function JobOrderFormPage() {
     };
   }, [form, id, isEdit]);
 
-  const onFinish = async (values: {
-    clientId: string;
-    title: string;
-    description?: string;
-    dueDate: dayjs.Dayjs;
-    clientPoNumber?: string;
-    poDate?: dayjs.Dayjs;
-    priority: string;
-    jobType: string;
-    materialSource: string;
-    quantity?: number;
-    unitOfMeasure?: string;
-    amount?: number;
-    rawMaterials?: { name: string; quantity?: number; unit?: string }[];
-  }) => {
+  const saveJob = async (destination: SaveDestination) => {
+    let values: {
+      clientId: string;
+      title: string;
+      description?: string;
+      dueDate: dayjs.Dayjs;
+      clientPoNumber?: string;
+      poDate?: dayjs.Dayjs;
+      priority: string;
+      jobType: string;
+      materialSource: string;
+      quantity?: number;
+      unitOfMeasure?: string;
+      amount?: number;
+      rawMaterials?: { name: string; quantity?: number; unit?: string }[];
+    };
+    try {
+      values = await form.validateFields();
+    } catch {
+      return;
+    }
+
     setSubmitting(true);
     setError('');
     const payload = {
@@ -131,12 +146,22 @@ export default function JobOrderFormPage() {
     };
 
     try {
+      let jobId = id;
       if (isEdit && id) {
         await jobOrdersApi.update(id, payload);
-        navigate(`/job-orders/${id}`);
       } else {
         const { data } = await jobOrdersApi.create(payload);
-        navigate(`/job-orders/${data.id}`);
+        jobId = data.id;
+      }
+
+      if (destination === 'plan' && jobId) {
+        navigate(`/job-orders/${jobId}/plan`);
+      } else if (destination === 'list') {
+        navigate('/job-orders');
+      } else if (jobId) {
+        navigate(`/job-orders/${jobId}`);
+      } else {
+        navigate('/job-orders');
       }
     } catch (err) {
       setError(getErrorMessage(err));
@@ -197,7 +222,6 @@ export default function JobOrderFormPage() {
         form={form}
         layout="vertical"
         size="large"
-        onFinish={onFinish}
         initialValues={{
           priority: 'MODERATE',
           jobType: 'FABRICATION',
@@ -392,12 +416,36 @@ export default function JobOrderFormPage() {
             borderTop: '1px solid #e2e8f0',
           }}
         >
-          <Button onClick={() => navigate(backTo)}>
-            Cancel
-          </Button>
-          <Button type="primary" htmlType="submit" loading={submitting} style={{ fontWeight: 600, minWidth: 160 }}>
-            {isEdit ? 'Save Job Information' : 'Save as Draft'}
-          </Button>
+          <Button onClick={() => navigate(backTo)}>Cancel</Button>
+          {showAdminSplit ? (
+            <Dropdown.Button
+              type="primary"
+              loading={submitting}
+              icon={<DownOutlined />}
+              onClick={() => saveJob('plan')}
+              style={{ fontWeight: 600 }}
+              menu={{
+                items: [
+                  {
+                    key: 'draft',
+                    label: 'Save as draft',
+                    onClick: () => saveJob('list'),
+                  },
+                ],
+              }}
+            >
+              Save and plan
+            </Dropdown.Button>
+          ) : (
+            <Button
+              type="primary"
+              loading={submitting}
+              onClick={() => saveJob(canEnterPlanning ? 'list' : 'detail')}
+              style={{ fontWeight: 600, minWidth: 160 }}
+            >
+              {canEnterPlanning ? 'Save as draft' : 'Save Job Information'}
+            </Button>
+          )}
         </div>
       </Form>
     </div>
