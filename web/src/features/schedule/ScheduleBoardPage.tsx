@@ -19,22 +19,34 @@ import {
   FilterOutlined,
   CloseOutlined,
 } from '@ant-design/icons';
-import dayjs, { type Dayjs } from 'dayjs';
+import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import { scheduleApi, type ScheduleBoardOperation, type ScheduleBoardResponse } from '../../api/schedule.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { WorkerPageHeader } from '../../layouts/WorkerLayout';
-import { SHOP_TZ, formatShopDateTime } from '../../utils/shopTime';
+import {
+  HOUR_END,
+  HOUR_START,
+  TIMELINE_BORDER as BORDER,
+  TIMELINE_NAVY as NAVY,
+  WORKING_HOURS_NOTE,
+  buildWeekTimelineLayout,
+  dayColumnsForView,
+  defaultShopDayWindows,
+  leftPx,
+  periodBounds,
+  pxPerHour,
+  timelineWidth,
+  widthPx,
+  type TimelineViewMode,
+} from './scheduleTimelineUtils';
+import { formatShopDateTime, SHOP_TZ } from '../../utils/shopTime';
+import ScheduleExpandShell from './ScheduleExpandShell';
 
 const { Text } = Typography;
 
-const NAVY = '#0f1c2e';
-const BORDER = '#e2e8f0';
-const HOUR_START = 6;
-const HOUR_END = 22;
-
-type ViewMode = 'day' | 'week' | 'month';
+type ViewMode = TimelineViewMode;
 type RowMode = 'machine' | 'worker';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -44,55 +56,6 @@ const STATUS_COLOR: Record<string, string> = {
   REWORK: '#d97706',
   PENDING: '#94a3b8',
 };
-
-function periodBounds(anchor: Dayjs, mode: ViewMode): { from: Dayjs; to: Dayjs } {
-  const a = anchor.tz(SHOP_TZ);
-  if (mode === 'day') {
-    const d = a.startOf('day');
-    return { from: d, to: d };
-  }
-  if (mode === 'week') {
-    const dow = a.day();
-    const start = a.startOf('day').subtract(dow === 0 ? 6 : dow - 1, 'day');
-    return { from: start, to: start.add(6, 'day') };
-  }
-  const start = a.startOf('month');
-  return { from: start, to: a.endOf('month').startOf('day') };
-}
-
-function pxPerHour(mode: ViewMode, mobile: boolean): number {
-  if (mode === 'day') return mobile ? 40 : 56;
-  if (mode === 'week') return mobile ? 12 : 18;
-  return mobile ? 4 : 6;
-}
-
-function timelineWidth(from: Dayjs, to: Dayjs, mode: ViewMode, mobile: boolean): number {
-  const hoursPerDay = HOUR_END - HOUR_START;
-  const days = to.diff(from, 'day') + 1;
-  return days * hoursPerDay * pxPerHour(mode, mobile);
-}
-
-function leftPx(iso: string, from: Dayjs, mode: ViewMode, mobile: boolean): number {
-  const t = dayjs(iso).tz(SHOP_TZ);
-  const dayIndex = t.startOf('day').diff(from.startOf('day'), 'day');
-  const hour = t.hour() + t.minute() / 60;
-  const clampedHour = Math.min(HOUR_END, Math.max(HOUR_START, hour));
-  const hoursPerDay = HOUR_END - HOUR_START;
-  const pph = pxPerHour(mode, mobile);
-  return dayIndex * hoursPerDay * pph + (clampedHour - HOUR_START) * pph;
-}
-
-function widthPx(
-  startIso: string,
-  endIso: string,
-  from: Dayjs,
-  mode: ViewMode,
-  mobile: boolean
-): number {
-  const left = leftPx(startIso, from, mode, mobile);
-  const right = leftPx(endIso, from, mode, mobile);
-  return Math.max(right - left, 4);
-}
 
 function statusLabel(s: string) {
   if (s === 'REWORK') return 'Redo';
@@ -198,11 +161,6 @@ export default function ScheduleBoardPage() {
     return out;
   }, [data, rowMode]);
 
-  const boardW = timelineWidth(from, to, viewMode, isMobile);
-  const dayCount = to.diff(from, 'day') + 1;
-  const hoursPerDay = HOUR_END - HOUR_START;
-  const pph = pxPerHour(viewMode, isMobile);
-
   const shiftPeriod = (dir: -1 | 1) => {
     if (viewMode === 'day') setAnchor((a) => a.add(dir, 'day'));
     else if (viewMode === 'week') setAnchor((a) => a.add(dir * 7, 'day'));
@@ -234,6 +192,26 @@ export default function ScheduleBoardPage() {
 
   const summary = data?.summary;
   const isPhoneBoard = isMobile && !isWorker;
+  const weekLayout = useMemo(() => {
+    if (viewMode !== 'week') return null;
+    const windows =
+      data?.shopDayWindows && data.shopDayWindows.length > 0
+        ? data.shopDayWindows
+        : defaultShopDayWindows(from, to);
+    return buildWeekTimelineLayout(from, to, windows, isMobile);
+  }, [viewMode, data?.shopDayWindows, from, to, isMobile]);
+  const boardW = timelineWidth(from, to, viewMode, isMobile, weekLayout);
+  const dayColumns = dayColumnsForView(from, to, viewMode, isMobile, weekLayout);
+  const pph = pxPerHour(viewMode, isMobile);
+  const columnFill = viewMode === 'week' || viewMode === 'month';
+  const posArgs = [from, viewMode, isMobile, weekLayout] as const;
+  const boardCollapsedMaxHeight = isWorker
+    ? 'calc(100dvh - 280px)'
+    : isPhoneBoard
+      ? 'calc(100dvh - 340px)'
+      : isMobile
+        ? 'calc(100dvh - 260px)'
+        : 'calc(100vh - 280px)';
   const today = dayjs().tz(SHOP_TZ).startOf('day');
   const showingToday = !today.isBefore(from, 'day') && !today.isAfter(to, 'day');
   const nearFull = summary?.machinesNearFullCapacity || [];
@@ -531,22 +509,17 @@ export default function ScheduleBoardPage() {
           <Spin size="large" />
         </div>
       ) : (
-        <div
-          style={{
-            border: `1px solid ${BORDER}`,
-            borderRadius: 10,
-            background: '#fff',
-            overflow: 'auto',
-            maxHeight: isWorker
-              ? 'calc(100dvh - 280px)'
-              : isPhoneBoard
-                ? 'calc(100dvh - 340px)'
-                : isMobile
-                  ? 'calc(100dvh - 260px)'
-                  : 'calc(100vh - 280px)',
-            WebkitOverflowScrolling: 'touch',
-          }}
-        >
+        <ScheduleExpandShell collapsedMaxHeight={boardCollapsedMaxHeight}>
+          <div
+            className="sched-board-view"
+            style={{
+              border: `1px solid ${BORDER}`,
+              borderRadius: 10,
+              background: '#fff',
+              overflow: 'auto',
+              WebkitOverflowScrolling: 'touch',
+            }}
+          >
           <div style={{ minWidth: labelW + boardW }}>
             <div
               style={{
@@ -583,17 +556,13 @@ export default function ScheduleBoardPage() {
                   borderBottom: `1px solid ${BORDER}`,
                 }}
               >
-                {Array.from({ length: dayCount }, (_, i) => {
-                  const d = from.add(i, 'day');
-                  const left = i * hoursPerDay * pph;
-                  const w = hoursPerDay * pph;
-                  return (
+                {dayColumns.map((col, i) => (
                     <div
-                      key={d.format('YYYY-MM-DD')}
+                      key={col.key}
                       style={{
                         position: 'absolute',
-                        left,
-                        width: w,
+                        left: col.left,
+                        width: col.width,
                         top: 0,
                         bottom: 0,
                         borderLeft: i === 0 ? 'none' : `1px solid ${BORDER}`,
@@ -605,14 +574,9 @@ export default function ScheduleBoardPage() {
                         color: '#475569',
                       }}
                     >
-                      {viewMode === 'day'
-                        ? d.format(isMobile ? 'ddd D' : 'ddd MMM D')
-                        : viewMode === 'week'
-                          ? d.format('ddd D')
-                          : d.format('D')}
+                      {col.label}
                     </div>
-                  );
-                })}
+                  ))}
               </div>
             </div>
 
@@ -680,12 +644,12 @@ export default function ScheduleBoardPage() {
                             : undefined,
                       }}
                     >
-                      {Array.from({ length: dayCount }, (_, i) => (
+                      {dayColumns.map((col, i) => (
                         <div
-                          key={i}
+                          key={col.key}
                           style={{
                             position: 'absolute',
-                            left: i * hoursPerDay * pph,
+                            left: col.left,
                             top: 0,
                             bottom: 0,
                             width: 1,
@@ -711,20 +675,18 @@ export default function ScheduleBoardPage() {
                           <div
                             style={{
                               position: 'absolute',
-                              top: 4,
-                              height: rowH - 8,
-                              left: leftPx(d.segmentStart, from, viewMode, isMobile),
+                              top: columnFill ? 0 : 4,
+                              height: columnFill ? rowH : rowH - 8,
+                              left: leftPx(d.segmentStart, ...posArgs),
                               width: widthPx(
                                 d.segmentStart,
                                 d.segmentEnd,
-                                from,
-                                viewMode,
-                                isMobile
+                                ...posArgs
                               ),
                               background:
                                 'repeating-linear-gradient(-45deg, #fecaca, #fecaca 4px, #fee2e2 4px, #fee2e2 8px)',
                               border: '1px solid #f87171',
-                              borderRadius: 4,
+                              borderRadius: columnFill ? 0 : 4,
                               opacity: 0.9,
                               zIndex: 1,
                             }}
@@ -781,26 +743,30 @@ export default function ScheduleBoardPage() {
                                 }
                                 style={{
                                   position: 'absolute',
-                                  top: 5,
-                                  height: rowH - 10,
-                                  left: leftPx(seg.start, from, viewMode, isMobile),
-                                  width: widthPx(seg.start, seg.end, from, viewMode, isMobile),
+                                  top: columnFill ? 0 : 5,
+                                  height: columnFill ? rowH : rowH - 10,
+                                  left: leftPx(seg.start, ...posArgs),
+                                  width: widthPx(seg.start, seg.end, ...posArgs),
                                   background: color,
-                                  border: late ? '2px solid #dc2626' : 'none',
-                                  borderRadius: 4,
+                                  border: columnFill ? 'none' : late ? '2px solid #dc2626' : 'none',
+                                  borderRadius: columnFill ? 0 : 4,
                                   color: '#fff',
                                   fontSize: isMobile ? 9 : 10,
                                   fontWeight: 700,
                                   overflow: 'hidden',
                                   whiteSpace: 'nowrap',
                                   textOverflow: 'ellipsis',
-                                  padding: '0 4px',
+                                  padding: columnFill ? '0 6px' : '0 4px',
                                   cursor: 'pointer',
                                   textAlign: 'left',
                                   zIndex: 2,
-                                  boxShadow: late
-                                    ? '0 0 0 1px rgba(220,38,38,0.35)'
-                                    : undefined,
+                                  boxShadow: columnFill
+                                    ? late
+                                      ? 'inset 0 0 0 2px #dc2626'
+                                      : undefined
+                                    : late
+                                      ? '0 0 0 1px rgba(220,38,38,0.35)'
+                                      : undefined,
                                 }}
                               >
                                 {isMobile
@@ -818,10 +784,13 @@ export default function ScheduleBoardPage() {
             })}
           </div>
           <div style={{ padding: '8px 12px', fontSize: 11, color: '#94a3b8' }}>
-            Times in Asia/Manila ({HOUR_START}:00–{HOUR_END}:00). Scroll sideways for more days.
+            {viewMode === 'week' && weekLayout
+              ? `${WORKING_HOURS_NOTE} Scroll sideways for more days.`
+              : `${HOUR_START}:00–${HOUR_END}:00. Scroll sideways for more days.`}
             {isWorker ? ' Read-only.' : ''}
           </div>
-        </div>
+          </div>
+        </ScheduleExpandShell>
       )}
 
       <Drawer

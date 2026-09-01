@@ -1,5 +1,12 @@
 import apiClient from './client';
 
+export type ShopDayWindow = {
+  date: string;
+  startTime: string | null;
+  endTime: string | null;
+  isWorking: boolean;
+};
+
 export type ScheduleBoardSegment = { start: string; end: string };
 
 export type ScheduleBoardOperation = {
@@ -45,6 +52,7 @@ export type ScheduleBoardDowntime = {
 export type ScheduleBoardResponse = {
   period: { from: string; to: string };
   timezone: string;
+  shopDayWindows: ShopDayWindow[];
   machineUnits: {
     id: string;
     label: string;

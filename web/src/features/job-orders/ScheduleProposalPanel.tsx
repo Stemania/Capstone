@@ -1,4 +1,4 @@
-import { Button, DatePicker, Tag, Typography } from 'antd';
+import { DatePicker, Tag, Typography } from 'antd';
 import type { ProposedOperation, ScheduleFlag, ScheduleWarning } from '../../types';
 import {
   formatShopDateTime,
@@ -14,11 +14,9 @@ type Props = {
   operations: ProposedOperation[];
   projectedCompletion?: string | null;
   scheduleFlag?: ScheduleFlag | null;
-  scheduleApplied: boolean;
   warningsBySeq: Record<number, ScheduleWarning[]>;
   onChangeOp: (sequenceNo: number, patch: Partial<ProposedOperation>) => void;
   onBlurValidate: () => void;
-  onApply: () => void;
 };
 
 function FlagBadge({ flag }: { flag: ScheduleFlag | null | undefined }) {
@@ -48,88 +46,82 @@ export default function ScheduleProposalPanel({
   operations,
   projectedCompletion,
   scheduleFlag,
-  scheduleApplied,
   warningsBySeq,
   onChangeOp,
   onBlurValidate,
-  onApply,
 }: Props) {
   return (
-    <div
-      style={{
-        marginTop: 14,
-        padding: 14,
-        borderRadius: 10,
-        border: scheduleApplied ? '1.5px solid #2563eb' : '1px dashed #94a3b8',
-        background: scheduleApplied ? '#eff6ff' : '#fff',
-      }}
-    >
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 12 }}>
-        <Text strong style={{ fontSize: 13, color: NAVY }}>
-          Proposed schedule
-        </Text>
-        <FlagBadge flag={scheduleFlag} />
-        {projectedCompletion && (
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            Expected completion:{' '}
-            <Text strong style={{ color: NAVY }}>
-              {formatShopDateTime(projectedCompletion)}
-            </Text>
-            <span style={{ marginLeft: 4, fontSize: 11 }}>(Asia/Manila)</span>
+    <div className="jo-plan__schedule">
+      <div className="jo-plan__schedule-meta">
+        <div className="jo-plan__schedule-meta-main">
+          <Text strong style={{ fontSize: 13, color: NAVY }}>
+            Proposed schedule
           </Text>
-        )}
-        {scheduleApplied ? (
-          <Tag color="blue" style={{ margin: 0 }}>
-            Applied to form — save job to persist
-          </Tag>
-        ) : (
-          <Tag style={{ margin: 0 }}>Preview only — not saved yet</Tag>
-        )}
+          <FlagBadge flag={scheduleFlag} />
+          {projectedCompletion ? (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Expected completion:{' '}
+              <Text strong style={{ color: NAVY }}>
+                {formatShopDateTime(projectedCompletion)}
+              </Text>
+            </Text>
+          ) : null}
+        </div>
+        <Tag style={{ margin: 0 }}>Preview only — not saved yet</Tag>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className="jo-plan__schedule-table">
+        <div className="jo-plan__schedule-row jo-plan__schedule-row--head">
+          <div className="jo-plan__schedule-op">Operation</div>
+          <div className="jo-plan__schedule-field">Start</div>
+          <div className="jo-plan__schedule-field">End</div>
+        </div>
+
         {operations.map((op) => {
           const warnings = warningsBySeq[op.sequenceNo] || [];
           return (
             <div
               key={op.sequenceNo}
-              style={{
-                padding: 10,
-                borderRadius: 8,
-                border: op.scheduled ? '1px solid #e2e8f0' : '1px solid #fecaca',
-                background: op.scheduled ? '#fafafa' : '#fef2f2',
-              }}
+              className={`jo-plan__schedule-row${op.scheduled ? '' : ' jo-plan__schedule-row--error'}`}
             >
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+              <div className="jo-plan__schedule-op">
                 <Text strong style={{ fontSize: 12 }}>
                   #{op.sequenceNo} {op.operationName}
                 </Text>
-                {op.estimatedHoursDefaulted && (
-                  <Tag color="default" style={{ margin: 0, fontSize: 11 }}>
-                    1.0h assumed (no target hours given)
-                  </Tag>
-                )}
-                {op.machineUnitLabel && (
-                  <Tag style={{ margin: 0, fontSize: 11 }}>{op.machineUnitLabel}</Tag>
-                )}
+                <div className="jo-plan__schedule-tags">
+                  {op.estimatedHoursDefaulted ? (
+                    <Tag color="default" style={{ margin: 0, fontSize: 11 }}>
+                      1.0h assumed
+                    </Tag>
+                  ) : null}
+                  {op.machineUnitLabel ? (
+                    <Tag style={{ margin: 0, fontSize: 11 }}>{op.machineUnitLabel}</Tag>
+                  ) : null}
+                </div>
+                {!op.scheduled && op.message ? (
+                  <Text type="danger" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+                    {op.message}
+                  </Text>
+                ) : null}
+                {warnings.length > 0 ? (
+                  <div className="jo-plan__schedule-tags" style={{ marginTop: 4 }}>
+                    {warnings.map((w, i) => (
+                      <Tag key={`${w.code}-${i}`} color="warning" style={{ margin: 0, fontSize: 11 }}>
+                        {w.message}
+                      </Tag>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
-              {!op.scheduled && op.message && (
-                <Text type="danger" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
-                  {op.message}
-                </Text>
-              )}
-
-              {op.scheduled && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-                      Start (Manila)
-                    </Text>
+              {op.scheduled ? (
+                <>
+                  <div className="jo-plan__schedule-field" data-label="Start">
                     <DatePicker
                       showTime={{ format: 'HH:mm' }}
                       format="MMM D, YYYY HH:mm"
                       size="small"
+                      style={{ width: '100%' }}
                       value={isoToShopDayjs(op.scheduledStart)}
                       onChange={(v) => {
                         onChangeOp(op.sequenceNo, {
@@ -139,14 +131,12 @@ export default function ScheduleProposalPanel({
                       onBlur={onBlurValidate}
                     />
                   </div>
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-                      End (Manila)
-                    </Text>
+                  <div className="jo-plan__schedule-field" data-label="End">
                     <DatePicker
                       showTime={{ format: 'HH:mm' }}
                       format="MMM D, YYYY HH:mm"
                       size="small"
+                      style={{ width: '100%' }}
                       value={isoToShopDayjs(op.scheduledEnd)}
                       onChange={(v) => {
                         onChangeOp(op.sequenceNo, {
@@ -156,32 +146,13 @@ export default function ScheduleProposalPanel({
                       onBlur={onBlurValidate}
                     />
                   </div>
-                </div>
-              )}
-
-              {warnings.length > 0 && (
-                <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {warnings.map((w, i) => (
-                    <Tag key={`${w.code}-${i}`} color="warning" style={{ margin: 0, fontSize: 11 }}>
-                      {w.message}
-                    </Tag>
-                  ))}
-                </div>
+                </>
+              ) : (
+                <div className="jo-plan__schedule-field jo-plan__schedule-field--empty" />
               )}
             </div>
           );
         })}
-      </div>
-
-      <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
-        <Button
-          type="primary"
-          onClick={onApply}
-          disabled={scheduleApplied || !operations.some((o) => o.scheduled)}
-          style={{ background: NAVY, borderColor: NAVY, fontWeight: 600 }}
-        >
-          Apply Schedule to Job
-        </Button>
       </div>
     </div>
   );

@@ -1,17 +1,34 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Table, Button, Input, Select, Modal, Form, Typography, Dropdown, Spin, message } from 'antd';
-import type { MenuProps, TableColumnsType } from 'antd';
-import { SearchOutlined, MoreOutlined, WarningOutlined } from '@ant-design/icons';
+import {
+  Button,
+  Input,
+  Select,
+  Modal,
+  Form,
+  Typography,
+  Dropdown,
+  Spin,
+  message,
+} from 'antd';
+import type { MenuProps } from 'antd';
+import {
+  SearchOutlined,
+  MoreOutlined,
+  WarningOutlined,
+  UserOutlined,
+  DownOutlined,
+  RightOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { operationsApi } from '../../api/operations.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill from '../../components/StatusPill';
-import { useIsPhone } from '../../hooks/useIsPhone';
 import { DOWNTIME_REASONS } from '../../constants/downtimeReasons';
 import type { MachineUnitStatus } from '../../types';
 
-type StatusFilter = 'down' | 'available';
+type CardStatus = 'running' | 'idle' | 'breakdown';
+type StatusFilter = CardStatus;
 
 function formatOpenDuration(startedAt: string, nowMs: number): string {
   const ms = Math.max(0, nowMs - dayjs(startedAt).valueOf());
@@ -27,13 +44,196 @@ function formatOpenDuration(startedAt: string, nowMs: number): string {
   return `${m}m`;
 }
 
+function cardStatus(unit: MachineUnitStatus): CardStatus {
+  if (unit.down) return 'breakdown';
+  if (unit.currentOperation) return 'running';
+  return 'idle';
+}
+
+function formatWhen(iso?: string | null): string {
+  if (!iso) return '';
+  return dayjs(iso).format('MMM D, h:mm A');
+}
+
+function unitSearchText(unit: MachineUnitStatus): string {
+  const cur = unit.currentOperation;
+  const nxt = unit.nextOperation;
+  return [
+    unit.label,
+    unit.machineTypeName,
+    unit.machineTypeCode,
+    unit.openDowntime?.reason,
+    unit.openDowntime?.reportedByName,
+    cur?.operationName,
+    cur?.jobNumber,
+    cur?.assignedWorkerName,
+    nxt?.operationName,
+    nxt?.jobNumber,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function cardFooter(unit: MachineUnitStatus, nowMs: number): { text: string; breakdown?: boolean } {
+  const status = cardStatus(unit);
+  if (status === 'breakdown' && unit.openDowntime?.startedAt) {
+    return {
+      text: `Down ${formatOpenDuration(unit.openDowntime.startedAt, nowMs)}`,
+      breakdown: true,
+    };
+  }
+  if (status === 'running' && unit.currentOperation?.scheduledEnd) {
+    return { text: `Expected finish ${formatWhen(unit.currentOperation.scheduledEnd)}` };
+  }
+  if (unit.nextOperation) {
+    const op = unit.nextOperation;
+    const when = op.scheduledStart ? formatWhen(op.scheduledStart) : 'Unscheduled';
+    return { text: `Next: ${op.operationName}${op.jobNumber ? ` · ${op.jobNumber}` : ''} · ${when}` };
+  }
+  if (unit.affectedCount > 0) {
+    return { text: `${unit.affectedCount} op${unit.affectedCount === 1 ? '' : 's'} pending schedule` };
+  }
+  return { text: 'No upcoming work' };
+}
+
+function cardNavigateTarget(unit: MachineUnitStatus): string | null {
+  const op = unit.currentOperation ?? unit.nextOperation;
+  return op?.jobOrderId ? `/job-orders/${op.jobOrderId}` : null;
+}
+
+function MachineUnitCard({
+  unit,
+  nowMs,
+  onReport,
+  onClose,
+  onOpenSchedule,
+}: {
+  unit: MachineUnitStatus;
+  nowMs: number;
+  onReport: (unit: MachineUnitStatus) => void;
+  onClose: (unit: MachineUnitStatus) => void;
+  onOpenSchedule: () => void;
+}) {
+  const navigate = useNavigate();
+  const status = cardStatus(unit);
+  const footer = cardFooter(unit, nowMs);
+  const target = cardNavigateTarget(unit);
+  const cur = unit.currentOperation;
+
+  const menuItems: MenuProps['items'] = [];
+  if (!unit.down) {
+    menuItems.push({
+      key: 'report',
+      label: 'Report breakdown',
+      onClick: () => onReport(unit),
+    });
+  } else {
+    menuItems.push({
+      key: 'close',
+      label: 'Close breakdown',
+      onClick: () => onClose(unit),
+    });
+  }
+  if (unit.affectedCount > 0) {
+    menuItems.push({
+      key: 'schedule',
+      label: 'Open schedule',
+      onClick: onOpenSchedule,
+    });
+  }
+
+  return (
+    <article
+      className={[
+        'machine-card',
+        `machine-card--${status}`,
+        target ? 'machine-card--clickable' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      onClick={() => {
+        if (target) navigate(target);
+      }}
+      onKeyDown={(e) => {
+        if (target && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          navigate(target);
+        }
+      }}
+      role={target ? 'button' : undefined}
+      tabIndex={target ? 0 : undefined}
+    >
+      <div className="machine-card__head">
+        <div className="machine-card__label">{unit.label}</div>
+        <div className="machine-card__menu" onClick={(e) => e.stopPropagation()}>
+          <StatusPill
+            color={status === 'running' ? 'green' : status === 'breakdown' ? 'red' : 'gray'}
+            compact
+          >
+            {status === 'running' ? 'Running' : status === 'breakdown' ? 'Breakdown' : 'Idle'}
+          </StatusPill>
+          <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+            <Button
+              type="text"
+              size="small"
+              icon={<MoreOutlined style={{ fontSize: 16 }} />}
+              aria-label="Machine actions"
+              style={{ marginLeft: 2 }}
+            />
+          </Dropdown>
+        </div>
+      </div>
+
+      <div className="machine-card__body">
+        {status === 'running' && cur ? (
+          <>
+            <div className="machine-card__op">{cur.operationName}</div>
+            {cur.jobNumber && <div className="machine-card__job">{cur.jobNumber}</div>}
+            {cur.assignedWorkerName && (
+              <div className="machine-card__worker">
+                <UserOutlined style={{ fontSize: 12, color: '#64748b' }} />
+                {cur.assignedWorkerName}
+              </div>
+            )}
+          </>
+        ) : status === 'breakdown' ? (
+          <div className="machine-card__idle-copy">
+            {unit.openDowntime?.reason || 'Machine reported down'}
+          </div>
+        ) : unit.nextOperation ? (
+          <>
+            <div className="machine-card__op">{unit.nextOperation.operationName}</div>
+            {unit.nextOperation.jobNumber && (
+              <div className="machine-card__job">{unit.nextOperation.jobNumber}</div>
+            )}
+          </>
+        ) : (
+          <div className="machine-card__idle-copy">Standing by</div>
+        )}
+      </div>
+
+      <div
+        className={[
+          'machine-card__footer',
+          footer.breakdown ? 'machine-card__footer--breakdown' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        {footer.text}
+      </div>
+    </article>
+  );
+}
+
 export default function MachinesPage() {
   const navigate = useNavigate();
-  const isPhone = useIsPhone();
   const [units, setUnits] = useState<MachineUnitStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter[]>([]);
+  const [collapsedTypes, setCollapsedTypes] = useState<Record<string, boolean>>({});
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [reportFor, setReportFor] = useState<MachineUnitStatus | null>(null);
   const [closeFor, setCloseFor] = useState<MachineUnitStatus | null>(null);
@@ -66,21 +266,29 @@ export default function MachinesPage() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return units.filter((u) => {
-      if (
-        q &&
-        !`${u.label} ${u.machineTypeName || ''} ${u.machineTypeCode || ''} ${u.openDowntime?.reason || ''} ${u.openDowntime?.reportedByName || ''}`
-          .toLowerCase()
-          .includes(q)
-      ) {
-        return false;
-      }
-      if (statusFilter.length) {
-        const key: StatusFilter = u.down ? 'down' : 'available';
-        if (!statusFilter.includes(key)) return false;
-      }
+      if (q && !unitSearchText(u).includes(q)) return false;
+      if (statusFilter.length && !statusFilter.includes(cardStatus(u))) return false;
       return true;
     });
   }, [units, search, statusFilter]);
+
+  const groups = useMemo(() => {
+    const map = new Map<
+      string,
+      { typeId: string; typeName: string; units: MachineUnitStatus[] }
+    >();
+    for (const unit of filtered) {
+      const typeId = unit.machineTypeId || unit.machineTypeCode || 'other';
+      const typeName = unit.machineTypeName || unit.machineTypeCode || 'Other';
+      const existing = map.get(typeId);
+      if (existing) {
+        existing.units.push(unit);
+      } else {
+        map.set(typeId, { typeId, typeName, units: [unit] });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.typeName.localeCompare(b.typeName));
+  }, [filtered]);
 
   const warnScheduled = (count: number) => {
     if (!count) return;
@@ -139,145 +347,14 @@ export default function MachinesPage() {
     }
   };
 
-  const columns: TableColumnsType<MachineUnitStatus> = [
-    {
-      title: 'Machine',
-      dataIndex: 'label',
-      key: 'label',
-      sorter: (a, b) => a.label.localeCompare(b.label),
-      render: (v: string) => (
-        <span style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>{v}</span>
-      ),
-    },
-    {
-      title: 'Type',
-      dataIndex: 'machineTypeName',
-      key: 'type',
-      width: 140,
-      sorter: (a, b) => (a.machineTypeName || '').localeCompare(b.machineTypeName || ''),
-      render: (v: string | null | undefined) => (
-        <span style={{ fontSize: 13 }}>{v || '—'}</span>
-      ),
-    },
-    {
-      title: 'Status',
-      key: 'status',
-      width: 110,
-      render: (_: unknown, record) =>
-        record.down ? (
-          <StatusPill color="red" compact>
-            Down
-          </StatusPill>
-        ) : (
-          <StatusPill color="green" compact>
-            Available
-          </StatusPill>
-        ),
-    },
-    {
-      title: 'Duration',
-      key: 'duration',
-      width: 100,
-      render: (_: unknown, record) =>
-        record.down && record.openDowntime?.startedAt ? (
-          <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>
-            {formatOpenDuration(record.openDowntime.startedAt, nowMs)}
-          </span>
-        ) : (
-          <span style={{ color: '#94a3b8' }}>—</span>
-        ),
-    },
-    {
-      title: 'Reason',
-      key: 'reason',
-      ellipsis: true,
-      render: (_: unknown, record) => (
-        <span style={{ fontSize: 13 }}>{record.openDowntime?.reason || '—'}</span>
-      ),
-    },
-    {
-      title: 'Reported by',
-      key: 'reportedBy',
-      width: 160,
-      ellipsis: true,
-      render: (_: unknown, record) => (
-        <span style={{ fontSize: 13 }}>{record.openDowntime?.reportedByName || '—'}</span>
-      ),
-    },
-    {
-      title: 'Since',
-      key: 'since',
-      width: 150,
-      render: (_: unknown, record) =>
-        record.openDowntime?.startedAt ? (
-          <span style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-            {dayjs(record.openDowntime.startedAt).format('MMM D, h:mm A')}
-          </span>
-        ) : (
-          <span style={{ color: '#94a3b8' }}>—</span>
-        ),
-    },
-    {
-      title: 'Scheduled',
-      key: 'affected',
-      width: 110,
-      sorter: (a, b) => a.affectedCount - b.affectedCount,
-      render: (_: unknown, record) =>
-        record.affectedCount > 0 ? (
-          <Button type="link" size="small" style={{ padding: 0, fontWeight: 700 }} onClick={() => navigate('/schedule')}>
-            {record.affectedCount} op{record.affectedCount === 1 ? '' : 's'}
-          </Button>
-        ) : (
-          <span style={{ color: '#94a3b8' }}>—</span>
-        ),
-    },
-    {
-      title: '',
-      key: 'actions',
-      width: 40,
-      align: 'center',
-      render: (_: unknown, record) => {
-        const items: MenuProps['items'] = [];
-        if (!record.down) {
-          items.push({
-            key: 'report',
-            label: 'Report breakdown',
-            onClick: () => {
-              reportForm.resetFields();
-              setReportFor(record);
-            },
-          });
-        } else {
-          items.push({
-            key: 'close',
-            label: 'Close breakdown',
-            onClick: () => {
-              closeForm.resetFields();
-              setCloseFor(record);
-            },
-          });
-        }
-        if (record.affectedCount > 0) {
-          items.push({
-            key: 'schedule',
-            label: 'Open schedule',
-            onClick: () => navigate('/schedule'),
-          });
-        }
-        return (
-          <Dropdown menu={{ items }} trigger={['click']} placement="bottomRight">
-            <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} aria-label="More actions" />
-          </Dropdown>
-        );
-      },
-    },
-  ];
+  const toggleType = (typeId: string) => {
+    setCollapsedTypes((prev) => ({ ...prev, [typeId]: !prev[typeId] }));
+  };
 
   return (
     <div className="std-list-page">
       <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-        Shop machines. Report a breakdown to block the unit on the schedule. Existing jobs on that
-        machine stay put until you reschedule them.
+        Shop floor status at a glance. Report a breakdown to block the unit on the schedule.
       </Typography.Text>
 
       <div className="std-list-toolbar">
@@ -285,7 +362,7 @@ export default function MachinesPage() {
           <Input
             allowClear
             prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-            placeholder="Search machine, type, reason…"
+            placeholder="Search machine, job, worker…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="std-list-search"
@@ -299,104 +376,66 @@ export default function MachinesPage() {
             value={statusFilter}
             onChange={setStatusFilter}
             options={[
-              { value: 'down', label: 'Down' },
-              { value: 'available', label: 'Available' },
+              { value: 'running', label: 'Running' },
+              { value: 'idle', label: 'Idle' },
+              { value: 'breakdown', label: 'Breakdown' },
             ]}
           />
         </div>
       </div>
 
-      {isPhone ? (
-        <div className="admin-cards">
-          {loading && (
-            <div className="page-spinner">
-              <Spin />
-            </div>
-          )}
-          {!loading && filtered.length === 0 && (
-            <div className="admin-cards__empty">No machines match your filters yet</div>
-          )}
-          {!loading &&
-            filtered.map((record) => {
-              const items: MenuProps['items'] = [];
-              if (!record.down) {
-                items.push({
-                  key: 'report',
-                  label: 'Report breakdown',
-                  onClick: () => {
-                    reportForm.resetFields();
-                    setReportFor(record);
-                  },
-                });
-              } else {
-                items.push({
-                  key: 'close',
-                  label: 'Close breakdown',
-                  onClick: () => {
-                    closeForm.resetFields();
-                    setCloseFor(record);
-                  },
-                });
-              }
-              if (record.affectedCount > 0) {
-                items.push({
-                  key: 'schedule',
-                  label: 'Open schedule',
-                  onClick: () => navigate('/schedule'),
-                });
-              }
-              return (
-                <div key={record.id} className="admin-card">
-                  <div className="admin-card__top">
-                    <div>
-                      <div className="admin-card__title">{record.label}</div>
-                      <div className="admin-card__meta">
-                        {record.machineTypeName || 'Machine'}
-                        {record.down && record.openDowntime?.reason ? ` · ${record.openDowntime.reason}` : ''}
-                      </div>
-                    </div>
-                    <Dropdown menu={{ items }} trigger={['click']} placement="bottomRight">
-                      <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} aria-label="More actions" />
-                    </Dropdown>
-                  </div>
-                  <div className="admin-card__row">
-                    {record.down ? (
-                      <StatusPill color="red" compact>
-                        Down {record.openDowntime?.startedAt ? `· ${formatOpenDuration(record.openDowntime.startedAt, nowMs)}` : ''}
-                      </StatusPill>
-                    ) : (
-                      <StatusPill color="green" compact>
-                        Available
-                      </StatusPill>
-                    )}
-                    {record.affectedCount > 0 && (
-                      <span style={{ fontSize: 12, fontWeight: 700, color: '#2563eb' }}>
-                        {record.affectedCount} scheduled op{record.affectedCount === 1 ? '' : 's'}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+      {loading ? (
+        <div className="page-spinner">
+          <Spin size="large" />
         </div>
+      ) : groups.length === 0 ? (
+        <div className="machines-board__empty">No machines match your filters yet</div>
       ) : (
-      <Table
-        className="std-list-table"
-        rowKey="id"
-        size="small"
-        columns={columns}
-        dataSource={filtered}
-        loading={loading}
-        showSorterTooltip={false}
-        tableLayout="fixed"
-        pagination={{
-          pageSize: 20,
-          showSizeChanger: true,
-          pageSizeOptions: [10, 20, 50],
-          showTotal: (total) => `${total} machine${total === 1 ? '' : 's'}`,
-        }}
-        locale={{ emptyText: 'No machines match your filters yet' }}
-      />
+        <div className="machines-board__groups">
+          {groups.map((group) => {
+            const collapsed = collapsedTypes[group.typeId] ?? false;
+            return (
+              <section key={group.typeId}>
+                <button
+                  type="button"
+                  className="machines-board__section-header"
+                  onClick={() => toggleType(group.typeId)}
+                  aria-expanded={!collapsed}
+                >
+                  {collapsed ? (
+                    <RightOutlined className="machines-board__section-chevron" />
+                  ) : (
+                    <DownOutlined className="machines-board__section-chevron" />
+                  )}
+                  <span className="machines-board__section-title">
+                    {group.typeName} · {group.units.length} unit
+                    {group.units.length === 1 ? '' : 's'}
+                  </span>
+                </button>
+                {!collapsed && (
+                  <div className="machines-board__grid">
+                    {group.units.map((unit) => (
+                      <MachineUnitCard
+                        key={unit.id}
+                        unit={unit}
+                        nowMs={nowMs}
+                        onReport={(u) => {
+                          reportForm.resetFields();
+                          setReportFor(u);
+                        }}
+                        onClose={(u) => {
+                          closeForm.resetFields();
+                          setCloseFor(u);
+                        }}
+                        onOpenSchedule={() => navigate('/schedule')}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
       )}
 
       <Modal

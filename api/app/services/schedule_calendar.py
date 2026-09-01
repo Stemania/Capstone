@@ -273,6 +273,54 @@ def load_worker_schedule_maps(worker_id):
     return schedule_by_dow
 
 
+def shop_day_windows_union(period_from: date, period_to: date) -> list[dict]:
+    """
+    Per calendar date, union of all active workers' effective working hours
+    (WorkerSchedule + WorkCalendarException). Used for compressed week-view columns.
+    """
+    from app.models.user import User, UserRole
+
+    workers = User.query.filter_by(role=UserRole.PRODUCTION_WORKER, active=True).all()
+    exceptions = load_calendar_exceptions(period_from, period_to)
+    schedules_by_worker = {w.id: load_worker_schedule_maps(w.id) for w in workers}
+
+    out = []
+    cur = period_from
+    while cur <= period_to:
+        starts: list[time] = []
+        ends: list[time] = []
+        working = False
+        for worker in workers:
+            sched = schedules_by_worker.get(worker.id, {})
+            day_start, day_end, is_working = effective_hours_for_date(
+                cur, sched, exceptions
+            )
+            if is_working and day_start and day_end:
+                working = True
+                starts.append(day_start)
+                ends.append(day_end)
+        if working:
+            out.append(
+                {
+                    "date": cur.isoformat(),
+                    "startTime": min(starts).strftime("%H:%M"),
+                    "endTime": max(ends).strftime("%H:%M"),
+                    "isWorking": True,
+                }
+            )
+        else:
+            out.append(
+                {
+                    "date": cur.isoformat(),
+                    "startTime": None,
+                    "endTime": None,
+                    "isWorking": False,
+                }
+            )
+        cur += timedelta(days=1)
+    return out
+
+
 def load_calendar_exceptions(start_date: date, end_date: date):
     rows = WorkCalendarException.query.filter(
         WorkCalendarException.date >= start_date,
