@@ -1,18 +1,73 @@
-import { Alert, Button, Form, Input, List, Modal, Space, Typography, message } from 'antd';
+import {
+  Alert,
+  Button,
+  Form,
+  Input,
+  Modal,
+  Spin,
+  message,
+} from 'antd';
+import {
+  LeftOutlined,
+  LockOutlined,
+  MobileOutlined,
+  TabletOutlined,
+} from '@ant-design/icons';
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { authApi, getOrCreateDeviceId } from '../../api/auth.api';
 import { getErrorMessage } from '../../api/client';
+import { useAuth } from '../../hooks/useAuth';
 import type { UserDevice } from '../../types';
 import PinSetupKeypad from './PinSetupKeypad';
+import './AccountSecurityPage.css';
 
-const { Title, Text } = Typography;
+function formatDeviceName(label: string | null | undefined, deviceId: string): string {
+  const raw = (label || '').trim();
+  if (!raw) return `Device ${deviceId.slice(0, 8)}`;
+  if (!raw.includes('Mozilla') && raw.length <= 48) return raw;
+
+  let os = 'Device';
+  if (/iPhone|iPod/.test(raw)) os = 'iPhone';
+  else if (/iPad/.test(raw)) os = 'iPad';
+  else if (/Android/.test(raw)) os = 'Android';
+  else if (/Windows/.test(raw)) os = 'Windows';
+  else if (/Mac OS X|Macintosh/.test(raw)) os = 'Mac';
+
+  let browser = '';
+  if (/Edg\//.test(raw)) browser = 'Edge';
+  else if (/Chrome\//.test(raw) && !/Edg/.test(raw)) browser = 'Chrome';
+  else if (/Firefox\//.test(raw)) browser = 'Firefox';
+  else if (/Safari\//.test(raw) && !/Chrome/.test(raw)) browser = 'Safari';
+
+  return browser ? `${os} · ${browser}` : os;
+}
+
+function devicePinLabel(device: UserDevice): string {
+  if (device.revokedAt) return 'Revoked';
+  return device.hasPin ? 'PIN enabled' : 'Password only';
+}
 
 export default function AccountSecurityPage() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [devices, setDevices] = useState<UserDevice[]>([]);
   const [loading, setLoading] = useState(true);
   const [passwordForm] = Form.useForm();
+  const [passwordSaving, setPasswordSaving] = useState(false);
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const deviceId = getOrCreateDeviceId();
+
+  const homePath =
+    user?.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/job-orders';
+
+  const goBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate(homePath);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -53,6 +108,7 @@ export default function AccountSecurityPage() {
     currentPassword: string;
     newPassword: string;
   }) => {
+    setPasswordSaving(true);
     try {
       await authApi.changePassword(values.currentPassword, values.newPassword);
       localStorage.removeItem('bmsc_has_pin');
@@ -61,6 +117,8 @@ export default function AccountSecurityPage() {
       load();
     } catch (err) {
       message.error(getErrorMessage(err));
+    } finally {
+      setPasswordSaving(false);
     }
   };
 
@@ -68,6 +126,9 @@ export default function AccountSecurityPage() {
     Modal.confirm({
       title: 'Revoke this device?',
       content: 'PIN unlock will stop working on that device.',
+      okText: 'Revoke',
+      okButtonProps: { danger: true },
+      centered: true,
       onOk: async () => {
         await authApi.revokeDevice(row.id);
         if (row.deviceId === deviceId) localStorage.removeItem('bmsc_has_pin');
@@ -78,96 +139,166 @@ export default function AccountSecurityPage() {
   };
 
   const thisDevice = devices.find((d) => d.deviceId === deviceId && !d.revokedAt);
+  const activeDevices = devices.filter((d) => !d.revokedAt);
 
   return (
-    <div style={{ maxWidth: 720, margin: '0 auto', padding: '16px 12px 40px' }}>
-      <Title level={3} style={{ marginBottom: 4 }}>
-        Account security
-      </Title>
-      <Text type="secondary">
-        Manage your password, optional device PIN, and signed-in devices.
-      </Text>
+    <div className="acct-sec">
+      <header className="acct-sec__header">
+        <div className="acct-sec__header-row">
+          <button type="button" className="acct-sec__back" onClick={goBack} aria-label="Go back">
+            <LeftOutlined />
+          </button>
+          <div className="acct-sec__header-text">
+            <h1 className="acct-sec__title">Account security</h1>
+            <p className="acct-sec__subtitle">
+              Password, device PIN, and signed-in sessions
+            </p>
+          </div>
+        </div>
+      </header>
 
-      <div style={{ marginTop: 24, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 16 }}>
-        <Title level={5}>Change password</Title>
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message="Changing your password clears PIN unlock on every device."
-        />
-        <Form form={passwordForm} layout="vertical" onFinish={onChangePassword}>
-          <Form.Item name="currentPassword" label="Current password" rules={[{ required: true }]}>
-            <Input.Password />
-          </Form.Item>
-          <Form.Item
-            name="newPassword"
-            label="New password"
-            rules={[{ required: true, min: 8 }]}
-          >
-            <Input.Password />
-          </Form.Item>
-          <Button type="primary" htmlType="submit">
-            Update password
-          </Button>
-        </Form>
-      </div>
-
-      <div style={{ marginTop: 16, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 16 }}>
-        <Title level={5}>PIN for this device</Title>
-        <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-          Optional. Only unlocks this phone after a full password sign-in.
-        </Text>
-        {thisDevice?.hasPin ? (
-          <Space>
-            <Text>PIN is set on this device.</Text>
-            <Button danger onClick={onRemovePin}>
-              Remove PIN
-            </Button>
-          </Space>
-        ) : (
-          <Button type="primary" onClick={() => setPinModalOpen(true)}>
-            Set PIN
-          </Button>
-        )}
-      </div>
-
-      <div style={{ marginTop: 16, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 16 }}>
-        <Title level={5}>Your devices</Title>
-        <List
-          loading={loading}
-          dataSource={devices}
-          locale={{ emptyText: 'No devices yet' }}
-          renderItem={(item) => (
-            <List.Item
-              actions={
-                item.revokedAt
-                  ? []
-                  : [
-                      <Button key="revoke" type="link" danger onClick={() => revoke(item)}>
-                        Revoke
-                      </Button>,
-                    ]
-              }
+      <div className="acct-sec__scroll">
+        <div className="acct-sec__body">
+          <section className="acct-sec__card" aria-labelledby="acct-password">
+            <div className="acct-sec__card-head">
+              <div className="acct-sec__card-icon acct-sec__card-icon--password">
+                <LockOutlined />
+              </div>
+              <div>
+                <h2 id="acct-password" className="acct-sec__card-title">
+                  Change password
+                </h2>
+                <p className="acct-sec__card-desc">
+                  Use a strong password you have not used elsewhere.
+                </p>
+              </div>
+            </div>
+            <Alert
+              type="info"
+              showIcon
+              className="acct-sec__notice"
+              message="Updating your password clears PIN unlock on every device."
+            />
+            <Form
+              form={passwordForm}
+              layout="vertical"
+              onFinish={onChangePassword}
+              className="acct-sec__form"
+              requiredMark="optional"
             >
-              <List.Item.Meta
-                title={
-                  <>
-                    {item.deviceLabel || item.deviceId.slice(0, 8)}
-                    {item.deviceId === deviceId ? ' (this device)' : ''}
-                  </>
-                }
-                description={
-                  item.revokedAt
-                    ? `Revoked ${item.revokedAt}`
-                    : item.hasPin
-                      ? 'PIN enabled'
-                      : 'No PIN'
-                }
-              />
-            </List.Item>
-          )}
-        />
+              <Form.Item
+                name="currentPassword"
+                label="Current password"
+                rules={[{ required: true, message: 'Enter your current password' }]}
+              >
+                <Input.Password size="large" placeholder="Current password" />
+              </Form.Item>
+              <Form.Item
+                name="newPassword"
+                label="New password"
+                rules={[
+                  { required: true, message: 'Enter a new password' },
+                  { min: 8, message: 'At least 8 characters' },
+                ]}
+              >
+                <Input.Password size="large" placeholder="At least 8 characters" />
+              </Form.Item>
+              <div className="acct-sec__actions">
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  size="large"
+                  loading={passwordSaving}
+                  block
+                >
+                  Update password
+                </Button>
+              </div>
+            </Form>
+          </section>
+
+          <section className="acct-sec__card" aria-labelledby="acct-pin">
+            <div className="acct-sec__card-head">
+              <div className="acct-sec__card-icon acct-sec__card-icon--pin">
+                <MobileOutlined />
+              </div>
+              <div>
+                <h2 id="acct-pin" className="acct-sec__card-title">
+                  PIN for this device
+                </h2>
+                <p className="acct-sec__card-desc">
+                  Optional quick unlock after a full password sign-in on this phone or tablet.
+                </p>
+              </div>
+            </div>
+            {thisDevice?.hasPin ? (
+              <div className="acct-sec__actions">
+                <span className="acct-sec__pin-status">PIN active on this device</span>
+                <Button danger size="large" onClick={onRemovePin}>
+                  Remove PIN
+                </Button>
+              </div>
+            ) : (
+              <Button type="primary" size="large" block onClick={() => setPinModalOpen(true)}>
+                Set PIN
+              </Button>
+            )}
+          </section>
+
+          <section className="acct-sec__card" aria-labelledby="acct-devices">
+            <div className="acct-sec__card-head">
+              <div className="acct-sec__card-icon acct-sec__card-icon--devices">
+                <TabletOutlined />
+              </div>
+              <div>
+                <h2 id="acct-devices" className="acct-sec__card-title">
+                  Your devices
+                </h2>
+                <p className="acct-sec__card-desc">
+                  Browsers and phones where you have signed in recently.
+                </p>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="acct-sec__loading">
+                <Spin />
+              </div>
+            ) : activeDevices.length === 0 ? (
+              <div className="acct-sec__empty">No active devices yet</div>
+            ) : (
+              <div className="acct-sec__device-list">
+                {activeDevices.map((item) => {
+                  const isCurrent = item.deviceId === deviceId;
+                  return (
+                    <div
+                      key={item.id}
+                      className={`acct-sec__device${isCurrent ? ' acct-sec__device--current' : ''}`}
+                    >
+                      <div className="acct-sec__device-top">
+                        <div className="acct-sec__device-name">
+                          {formatDeviceName(item.deviceLabel, item.deviceId)}
+                        </div>
+                        {isCurrent ? <span className="acct-sec__device-badge">This device</span> : null}
+                      </div>
+                      <div className="acct-sec__device-meta">{devicePinLabel(item)}</div>
+                      {!isCurrent ? (
+                        <Button
+                          type="link"
+                          danger
+                          className="acct-sec__device-revoke"
+                          onClick={() => revoke(item)}
+                        >
+                          Revoke access
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
       </div>
 
       <Modal
@@ -177,9 +308,9 @@ export default function AccountSecurityPage() {
         footer={null}
         destroyOnHidden
         centered
-        width={400}
+        width="min(400px, calc(100vw - 32px))"
       >
-        <p style={{ color: '#475569', marginBottom: 16, textAlign: 'center' }}>
+        <p style={{ color: '#475569', marginBottom: 16, textAlign: 'center', fontSize: 14 }}>
           Choose a 6-digit PIN for faster unlock on this device only.
         </p>
         <PinSetupKeypad

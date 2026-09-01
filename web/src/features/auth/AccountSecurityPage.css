@@ -1,0 +1,266 @@
+.acct-sec {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.acct-sec__header {
+  flex-shrink: 0;
+  background: #0f1c2e;
+  color: #fff;
+  padding: calc(12px + env(safe-area-inset-top)) 16px 16px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.acct-sec__header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.acct-sec__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-left: -8px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.acct-sec__back:active {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.acct-sec__header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.acct-sec__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.acct-sec__subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.72);
+  line-height: 1.35;
+}
+
+.acct-sec__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.acct-sec__body {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 16px 16px calc(28px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.acct-sec__card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.acct-sec__card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.acct-sec__card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.acct-sec__card-icon--password {
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+}
+
+.acct-sec__card-icon--pin {
+  background: rgba(22, 163, 74, 0.1);
+  color: #16a34a;
+}
+
+.acct-sec__card-icon--devices {
+  background: rgba(15, 28, 46, 0.08);
+  color: #0f1c2e;
+}
+
+.acct-sec__card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f1c2e;
+  line-height: 1.25;
+}
+
+.acct-sec__card-desc {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.acct-sec__notice {
+  margin-bottom: 14px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.acct-sec__form .ant-form-item {
+  margin-bottom: 14px;
+}
+
+.acct-sec__form .ant-form-item-label > label {
+  font-weight: 600;
+  color: #334155;
+}
+
+.acct-sec__form .ant-input-affix-wrapper,
+.acct-sec__form .ant-input {
+  border-radius: 10px;
+}
+
+.acct-sec__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.acct-sec__actions .ant-btn {
+  border-radius: 10px;
+  font-weight: 600;
+  min-height: 40px;
+}
+
+.acct-sec__pin-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(22, 163, 74, 0.1);
+  color: #16a34a;
+}
+
+.acct-sec__device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.acct-sec__device {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #f8fafc;
+}
+
+.acct-sec__device--current {
+  border-color: #93c5fd;
+  background: rgba(37, 99, 235, 0.04);
+}
+
+.acct-sec__device-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.acct-sec__device-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.acct-sec__device-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #0f1c2e;
+  color: #fff;
+}
+
+.acct-sec__device-meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.acct-sec__device-revoke {
+  margin-top: 10px;
+  padding: 0;
+  height: auto;
+  font-weight: 600;
+}
+
+.acct-sec__empty {
+  text-align: center;
+  padding: 24px 12px;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.acct-sec__loading {
+  display: flex;
+  justify-content: center;
+  padding: 32px;
+}
+
+@media (min-width: 768px) {
+  .acct-sec__title {
+    font-size: 22px;
+  }
+
+  .acct-sec__body {
+    padding-top: 24px;
+    gap: 16px;
+  }
+
+  .acct-sec__card {
+    padding: 20px;
+  }
+}
