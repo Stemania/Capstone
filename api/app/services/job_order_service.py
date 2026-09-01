@@ -10,7 +10,7 @@ from app.models.job_order import (
     JobPriority,
     JobType,
     PartCondition,
-    PLANNING_STATUSES,
+    PRODUCTION_STATUSES,
     PRODUCTION_VISIBLE_STATUSES,
 )
 from app.models.machine import MachineType
@@ -106,13 +106,13 @@ def _validate_worker(worker_id, start=None, end=None, exclude_operation_id=None)
 def derive_job_status(job: JobOrder) -> JobOrderStatus:
     if job.status == JobOrderStatus.DELIVERED or job.delivered_at:
         return JobOrderStatus.DELIVERED
-    # Internal planning states are explicit — never derive them from ops.
-    if job.status in PLANNING_STATUSES:
-        return job.status
+    # Draft is sticky until release — stage is derived from data, not stored.
+    if job.status == JobOrderStatus.DRAFT:
+        return JobOrderStatus.DRAFT
 
     ops = list(job.operations or [])
     if not ops:
-        return JobOrderStatus.RELEASED
+        return JobOrderStatus.SCHEDULED
     if all(op.status == OperationStatus.COMPLETED for op in ops):
         return JobOrderStatus.COMPLETED
     if any(
@@ -120,9 +120,7 @@ def derive_job_status(job: JobOrder) -> JobOrderStatus:
         for op in ops
     ):
         return JobOrderStatus.IN_PROGRESS
-    if any(op.assigned_worker_id for op in ops):
-        return JobOrderStatus.ASSIGNED
-    return JobOrderStatus.RELEASED
+    return JobOrderStatus.SCHEDULED
 
 
 def _initial_part_condition(job_type: JobType) -> PartCondition:
@@ -204,7 +202,7 @@ def check_job_access(job_order, user_id, user_role):
     if user_role in (UserRole.ADMIN.value, UserRole.OFFICE_STAFF.value):
         return True
     if user_role == UserRole.PRODUCTION_WORKER.value:
-        if job_order.status in PLANNING_STATUSES:
+        if job_order.status == JobOrderStatus.DRAFT:
             raise AppError("Access denied", "FORBIDDEN", 403)
         has_op = any(op.assigned_worker_id == user_id for op in (job_order.operations or []))
         if not has_op:
@@ -213,17 +211,22 @@ def check_job_access(job_order, user_id, user_role):
     raise AppError("Access denied", "FORBIDDEN", 403)
 
 
-def list_job_orders(user_id, user_role, status=None):
+def list_job_orders(user_id, user_role, status=None, scope=None):
     query = JobOrder.query.options(
         joinedload(JobOrder.operations).joinedload(JobOperation.assigned_worker),
         joinedload(JobOrder.operations).joinedload(JobOperation.machine_type),
         joinedload(JobOrder.client),
+        joinedload(JobOrder.created_by),
     )
     if user_role == UserRole.PRODUCTION_WORKER.value:
         query = query.filter(
             JobOrder.status.in_(tuple(PRODUCTION_VISIBLE_STATUSES)),
             JobOrder.operations.any(JobOperation.assigned_worker_id == user_id),
         )
+    elif scope == "drafts":
+        query = query.filter_by(status=JobOrderStatus.DRAFT)
+    elif scope != "all":
+        query = query.filter(JobOrder.status.in_(tuple(PRODUCTION_STATUSES)))
     if status:
         query = query.filter_by(status=JobOrderStatus(status))
     return query.order_by(JobOrder.due_date.asc()).all()
@@ -377,21 +380,21 @@ def mark_job_delivered(job):
 def update_job_order(job, data, actor_role=None):
     """Update job fields and/or operations.
 
-    Office may edit job information in DRAFT/PLANNING.
-    Admin may edit operations in DRAFT/PLANNING (moves DRAFT → PLANNING when ops saved).
-    After RELEASED, either role may update as before; status is re-derived.
+    Office may edit job information while DRAFT.
+    Admin may edit operations while DRAFT.
+    After release (SCHEDULED+), either role may update as before; status is re-derived.
     """
     try:
-        planning = job.status in PLANNING_STATUSES
+        is_draft = job.status == JobOrderStatus.DRAFT
         role = actor_role
 
-        if planning and role == UserRole.OFFICE_STAFF.value and "operations" in data:
+        if is_draft and role == UserRole.OFFICE_STAFF.value and "operations" in data:
             raise AppError(
                 "Office staff cannot edit operations during planning",
                 "FORBIDDEN",
                 403,
             )
-        if planning and role == UserRole.ADMIN.value:
+        if is_draft and role == UserRole.ADMIN.value:
             # Admin planning screen — job info is read-only there; allow ops only.
             # Still allow incidental field patches if sent, for API flexibility,
             # but office-only restriction above is the hard gate.
@@ -446,10 +449,9 @@ def update_job_order(job, data, actor_role=None):
                 op = _build_operation(job.id, payload, i)
                 db.session.add(op)
             db.session.flush()
-            if job.status == JobOrderStatus.DRAFT and data.get("operations"):
-                job.status = JobOrderStatus.PLANNING
 
-        job.status = derive_job_status(job)
+        if job.status != JobOrderStatus.DRAFT:
+            job.status = derive_job_status(job)
         advance_part_condition(job)
         db.session.commit()
         return get_job_order(job.id, job.created_by_id, UserRole.OFFICE_STAFF.value)
@@ -477,13 +479,13 @@ def _release_missing_items(job: JobOrder) -> list[str]:
 
 
 def release_job_order(job):
-    """Admin releases a DRAFT/PLANNING job to production. Fires JOB_RECEIVED."""
+    """Admin releases a DRAFT job to production. Fires JOB_RECEIVED."""
     from app.models.notification import NotificationMilestone
     from app.services.notification_service import safe_notify_job_milestone
 
-    if job.status not in PLANNING_STATUSES:
+    if job.status != JobOrderStatus.DRAFT:
         raise AppError(
-            "Only draft or planning jobs can be released",
+            "Only draft jobs can be released",
             "INVALID_TRANSITION",
             409,
         )
@@ -497,7 +499,7 @@ def release_job_order(job):
         )
 
     try:
-        job.status = JobOrderStatus.RELEASED
+        job.status = JobOrderStatus.SCHEDULED
         job.status = derive_job_status(job)
         db.session.commit()
         safe_notify_job_milestone(job.id, NotificationMilestone.JOB_RECEIVED)

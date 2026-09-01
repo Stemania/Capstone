@@ -111,7 +111,7 @@ def test_rework_creates_new_operation_leaves_original(monkeypatch):
     )
 
     monkeypatch.setattr(svc, "check_job_access", lambda *a, **k: True)
-    monkeypatch.setattr(svc, "derive_job_status", lambda j: JobOrderStatus.ASSIGNED)
+    monkeypatch.setattr(svc, "derive_job_status", lambda j: JobOrderStatus.SCHEDULED)
     monkeypatch.setattr(svc.db, "session", MagicMock())
 
     follow = create_rework_operation(

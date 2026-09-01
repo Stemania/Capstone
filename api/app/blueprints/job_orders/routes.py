@@ -35,8 +35,9 @@ def list_machine_units():
 @jwt_required()
 def list_job_orders():
     status = request.args.get("status")
+    scope = request.args.get("scope", "production")
     role = get_current_user_role()
-    jobs = jo_service.list_job_orders(get_current_user_id(), role, status)
+    jobs = jo_service.list_job_orders(get_current_user_id(), role, status, scope)
     return jsonify([j.to_dict(viewer_role=role) for j in jobs])
 
 

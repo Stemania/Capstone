@@ -17,32 +17,41 @@ def _uuid():
 
 
 class JobOrderStatus(enum.Enum):
-    # Internal planning (not client-facing; workers must not see these)
+    # Pre-production (Office / Admin planning)
     DRAFT = "DRAFT"
-    PLANNING = "PLANNING"
-    RELEASED = "RELEASED"
-    # Production floor (existing chain)
-    UNASSIGNED = "UNASSIGNED"
-    ASSIGNED = "ASSIGNED"
+    # Production floor
+    SCHEDULED = "SCHEDULED"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
     DELIVERED = "DELIVERED"
+    # Legacy labels — retained for Postgres enum compatibility only; never set in code.
+    PLANNING = "PLANNING"
+    RELEASED = "RELEASED"
+    UNASSIGNED = "UNASSIGNED"
+    ASSIGNED = "ASSIGNED"
 
 
-# Sticky internal states — not derived from operation progress.
-PLANNING_STATUSES = frozenset({JobOrderStatus.DRAFT, JobOrderStatus.PLANNING})
-
-# Workers may only see jobs at RELEASED or later.
-PRODUCTION_VISIBLE_STATUSES = frozenset(
+# Enum labels that remain in the DB type but must not be written by application code.
+DEPRECATED_JOB_STATUSES = frozenset(
     {
+        JobOrderStatus.PLANNING,
         JobOrderStatus.RELEASED,
         JobOrderStatus.UNASSIGNED,
         JobOrderStatus.ASSIGNED,
+    }
+)
+
+PRODUCTION_STATUSES = frozenset(
+    {
+        JobOrderStatus.SCHEDULED,
         JobOrderStatus.IN_PROGRESS,
         JobOrderStatus.COMPLETED,
         JobOrderStatus.DELIVERED,
     }
 )
+
+# Workers may only see committed production jobs (not drafts).
+PRODUCTION_VISIBLE_STATUSES = PRODUCTION_STATUSES
 
 
 class JobPriority(enum.Enum):
@@ -65,6 +74,21 @@ class PartCondition(enum.Enum):
     MACHINED = "MACHINED"
     HEAT_TREATED = "HEAT_TREATED"
     FINISHED = "FINISHED"
+
+
+def draft_stage_label(job: "JobOrder") -> str:
+    """Human-readable planning stage for DRAFT rows (not stored)."""
+    ops = list(job.operations or [])
+    meaningful = [
+        o
+        for o in ops
+        if (o.operation_name or "").strip() or o.operation_type_id
+    ]
+    if not meaningful:
+        return "No operations yet"
+    n = len(meaningful)
+    word = "operation" if n == 1 else "operations"
+    return f"{n} {word}, not scheduled"
 
 
 class JobOrder(db.Model):
@@ -120,7 +144,11 @@ class JobOrder(db.Model):
         order_by="JobOperation.sequence_no",
     )
     tool_events = db.relationship("ToolEvent", back_populates="job_order")
-    notification_logs = db.relationship("NotificationLog", back_populates="job_order")
+    notification_logs = db.relationship(
+        "NotificationLog",
+        back_populates="job_order",
+        cascade="all, delete-orphan",
+    )
 
     def to_dict(self, include_operations=False, viewer_role=None):
         from app.models.operation import OperationStatus
@@ -174,10 +202,13 @@ class JobOrder(db.Model):
                 else None
             ),
         }
+        if self.status == JobOrderStatus.DRAFT:
+            data["draftStage"] = draft_stage_label(self)
         if not hide_commercial:
             data["clientId"] = self.client_id
             data["poDate"] = self.po_date.isoformat() if self.po_date else None
             data["createdById"] = self.created_by_id
+            data["createdByName"] = self.created_by.full_name if self.created_by else None
             data["amount"] = _num(self.amount)
         if include_operations:
             data["operations"] = [op.to_dict() for op in ops]

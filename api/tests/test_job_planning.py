@@ -1,4 +1,4 @@
-"""Job order planning workflow: DRAFT → PLANNING → RELEASED.
+"""Job order planning workflow: DRAFT → SCHEDULED (release)."""
 
 Runs against the local DATABASE_URL (bmsc) inside a connection transaction that
 is always rolled back — no bmsc_test database required.
@@ -124,23 +124,19 @@ def _make_job(seeded, status, *, with_op=True, worker_id=None, hours=None):
     return job
 
 
-def test_production_cannot_fetch_draft_or_planning_by_id(client, seeded):
+def test_production_cannot_fetch_draft_by_id(client, seeded):
     draft = _make_job(seeded, JobOrderStatus.DRAFT, worker_id=seeded["worker_id"], hours=2)
-    planning = _make_job(
-        seeded, JobOrderStatus.PLANNING, worker_id=seeded["worker_id"], hours=2
-    )
 
     login = _login(client, "plan_worker@test.local", "Worker123!")
     token = login.get_json()["accessToken"]
     headers = _auth_header(token)
 
     assert client.get(f"/api/v1/job-orders/{draft.id}", headers=headers).status_code == 403
-    assert client.get(f"/api/v1/job-orders/{planning.id}", headers=headers).status_code == 403
 
 
 def test_worker_job_payload_omits_amount(client, seeded):
     job = _make_job(
-        seeded, JobOrderStatus.ASSIGNED, worker_id=seeded["worker_id"], hours=2
+        seeded, JobOrderStatus.SCHEDULED, worker_id=seeded["worker_id"], hours=2
     )
     job.amount = Decimal("12500.00")
     job.client_po_number = "PO-7788"
@@ -183,7 +179,7 @@ def test_worker_job_payload_omits_amount(client, seeded):
 
 
 def test_operation_cannot_start_on_non_released_job(client, seeded):
-    job = _make_job(seeded, JobOrderStatus.PLANNING, worker_id=seeded["worker_id"], hours=2)
+    job = _make_job(seeded, JobOrderStatus.DRAFT, worker_id=seeded["worker_id"], hours=2)
     op_id = job.operations[0].id
 
     login = _login(client, "plan_worker@test.local", "Worker123!")
@@ -203,7 +199,7 @@ def test_operation_cannot_start_on_non_released_job(client, seeded):
 
 
 def test_release_blocked_when_missing_worker_or_hours(client, seeded):
-    job = _make_job(seeded, JobOrderStatus.PLANNING, worker_id=None, hours=None)
+    job = _make_job(seeded, JobOrderStatus.DRAFT, worker_id=None, hours=None)
 
     login = _login(client, "plan_admin@test.local", "Admin123!")
     token = login.get_json()["accessToken"]
@@ -216,19 +212,22 @@ def test_release_blocked_when_missing_worker_or_hours(client, seeded):
     assert "hours" in msg
 
 
-def test_existing_jobs_migrate_to_released_or_later():
-    """Migration 009 maps UNASSIGNED → RELEASED; later statuses stay production-visible."""
+def test_migration_012_maps_legacy_statuses():
+    """Migration 012 consolidates statuses for production floor."""
     mapping = {
-        "UNASSIGNED": "RELEASED",
-        "ASSIGNED": "ASSIGNED",
+        "PLANNING": "DRAFT",
+        "RELEASED": "SCHEDULED",
+        "ASSIGNED": "SCHEDULED",
+        "UNASSIGNED": "SCHEDULED",
         "IN_PROGRESS": "IN_PROGRESS",
         "COMPLETED": "COMPLETED",
         "DELIVERED": "DELIVERED",
     }
     for before, after in mapping.items():
-        assert after not in ("DRAFT", "PLANNING")
-        if before == "UNASSIGNED":
-            assert after == "RELEASED"
+        if before == "PLANNING":
+            assert after == "DRAFT"
+        elif before in ("RELEASED", "ASSIGNED", "UNASSIGNED"):
+            assert after == "SCHEDULED"
         else:
             assert after == before
 
@@ -267,6 +266,24 @@ def test_no_notification_on_draft_or_planning_job_received_on_release(
     login_admin = _login(client, "plan_admin@test.local", "Admin123!")
     admin_headers = _auth_header(login_admin.get_json()["accessToken"])
 
+    save_ops = client.patch(
+        f"/api/v1/job-orders/{job_id}",
+        json={
+            "operations": [
+                {
+                    "sequenceNo": 1,
+                    "operationName": "Turning",
+                    "assignedWorkerId": seeded["worker_id"],
+                    "estimatedHours": 3,
+                }
+            ]
+        },
+        headers=admin_headers,
+    )
+    assert save_ops.status_code == 200, save_ops.get_json()
+    assert save_ops.get_json()["status"] == "DRAFT"
+    assert sent == []
+
     plan = client.patch(
         f"/api/v1/job-orders/{job_id}",
         json={
@@ -282,10 +299,10 @@ def test_no_notification_on_draft_or_planning_job_received_on_release(
         headers=admin_headers,
     )
     assert plan.status_code == 200, plan.get_json()
-    assert plan.get_json()["status"] == "PLANNING"
+    assert plan.get_json()["status"] == "DRAFT"
     assert sent == []
 
     release = client.post(f"/api/v1/job-orders/{job_id}/release", headers=admin_headers)
     assert release.status_code == 200, release.get_json()
-    assert release.get_json()["status"] in ("RELEASED", "ASSIGNED")
+    assert release.get_json()["status"] == "SCHEDULED"
     assert any(m == NotificationMilestone.JOB_RECEIVED for _, m in sent)

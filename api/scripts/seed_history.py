@@ -54,7 +54,8 @@ from app.models.operation_time import (
     OperationTimeEvent,
     OperationTimeLog,
 )
-from app.models.user import User, UserRole
+from app.models.notification import NotificationLog
+from app.models.tool_event import ToolEvent
 from app.models.worker_skill import (
     CalendarExceptionType,
     OperationType,
@@ -203,6 +204,32 @@ def _hist_jobs_query():
     return JobOrder.query.filter(JobOrder.client_po_number.like(f"{PO_PREFIX}%"))
 
 
+def _wipe_hist_artifacts(*, commit: bool = True) -> tuple[int, int, int]:
+    """Remove HIST-SEED downtimes, calendar rows, and clients with no jobs left."""
+    dts = MachineDowntime.query.filter(MachineDowntime.note.like(f"%{TAG}%")).all()
+    for row in dts:
+        db.session.delete(row)
+
+    cal = WorkCalendarException.query.filter(
+        WorkCalendarException.note.like(f"%{TAG}%")
+    ).all()
+    for row in cal:
+        db.session.delete(row)
+
+    clients = Client.query.filter(Client.name.like(f"{TAG}%")).all()
+    deleted_clients = 0
+    for c in clients:
+        if JobOrder.query.filter_by(client_id=c.id).first():
+            continue
+        NotificationLog.query.filter_by(client_id=c.id).delete(synchronize_session=False)
+        db.session.delete(c)
+        deleted_clients += 1
+
+    if commit:
+        db.session.commit()
+    return len(dts), len(cal), deleted_clients
+
+
 def wipe_history():
     """Remove only HIST-SEED tagged records. Leaves everything else alone."""
     jobs = _hist_jobs_query().all()
@@ -220,29 +247,24 @@ def wipe_history():
         else 0
     )
 
+    if job_ids:
+        NotificationLog.query.filter(
+            NotificationLog.job_order_id.in_(job_ids)
+        ).delete(synchronize_session=False)
+        ToolEvent.query.filter(ToolEvent.job_order_id.in_(job_ids)).update(
+            {ToolEvent.job_order_id: None},
+            synchronize_session=False,
+        )
+
     # Job → operations → time_logs cascade
     for job in jobs:
         db.session.delete(job)
     db.session.flush()
 
-    dts = MachineDowntime.query.filter(MachineDowntime.note.like(f"%{TAG}%")).all()
-    for row in dts:
-        db.session.delete(row)
-
-    cal = WorkCalendarException.query.filter(
-        WorkCalendarException.note.like(f"%{TAG}%")
-    ).all()
-    for row in cal:
-        db.session.delete(row)
-
-    clients = Client.query.filter(Client.name.like(f"{TAG}%")).all()
-    for c in clients:
-        db.session.delete(c)
-
-    db.session.commit()
+    dts_n, cal_n, clients_n = _wipe_hist_artifacts(commit=True)
     print(
         f"Wiped: {len(jobs)} jobs, {op_count} operations, {log_count} time logs, "
-        f"{len(dts)} downtimes, {len(cal)} calendar exceptions, {len(clients)} clients."
+        f"{dts_n} downtimes, {cal_n} calendar exceptions, {clients_n} clients."
     )
 
 
@@ -725,7 +747,7 @@ def _schedule_open_jobs(created_jobs, catalog, machines, rng: random.Random) -> 
     open_jobs = [
         j
         for j in created_jobs
-        if j.status in (JobOrderStatus.ASSIGNED, JobOrderStatus.IN_PROGRESS)
+        if j.status in (JobOrderStatus.SCHEDULED, JobOrderStatus.IN_PROGRESS)
     ]
     open_jobs.sort(key=lambda j: (j.due_date, j.id))
     _scale_open_pipeline_hours(open_jobs, machines, rng)
@@ -781,7 +803,7 @@ def _status_for_index(i: int, total: int) -> JobOrderStatus:
     # Larger open pipeline so Lathe/Milling absolute hours are visible in the
     # 4-week capacity window (~10 ASSIGNED + ~14 IN_PROGRESS).
     if i >= total - 10:
-        return JobOrderStatus.ASSIGNED
+        return JobOrderStatus.SCHEDULED
     if i >= total - 24:
         return JobOrderStatus.IN_PROGRESS
     return JobOrderStatus.COMPLETED
@@ -918,7 +940,7 @@ def seed_history():
 
             start_t = time(rng.choice([8, 8, 9, 9, 10]), rng.choice([0, 15, 30, 45]))
 
-            if status == JobOrderStatus.ASSIGNED:
+            if status == JobOrderStatus.SCHEDULED:
                 op_status = OperationStatus.PENDING
             elif status == JobOrderStatus.IN_PROGRESS:
                 # Leave most of the route still to run (capacity forecast demo)

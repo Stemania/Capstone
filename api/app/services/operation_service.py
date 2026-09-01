@@ -137,12 +137,12 @@ def _last_event(operation):
 
 def start_operation(operation, user_id, user_role, timestamp):
     from app.constants.machines import assert_machine_type_available
-    from app.models.job_order import PLANNING_STATUSES
+    from app.models.job_order import JobOrderStatus
 
     _assert_worker_owns(operation, user_id, user_role)
 
     job = operation.job_order
-    if job.status in PLANNING_STATUSES:
+    if job.status == JobOrderStatus.DRAFT:
         raise AppError(
             "This job has not been released to production yet",
             "INVALID_TRANSITION",
@@ -459,6 +459,7 @@ _AFFECTED_STATUSES = (
 
 def _serialize_affected_operation(op):
     job = op.job_order
+    worker = op.assigned_worker
     year = job.created_at.year if job and job.created_at else datetime.now(timezone.utc).year
     short = (job.id or "")[:4].upper() if job else ""
     return {
@@ -470,6 +471,7 @@ def _serialize_affected_operation(op):
         "status": op.status.value if op.status else None,
         "scheduledStart": op.scheduled_start.isoformat() if op.scheduled_start else None,
         "scheduledEnd": op.scheduled_end.isoformat() if op.scheduled_end else None,
+        "assignedWorkerName": worker.full_name if worker else None,
     }
 
 
@@ -486,6 +488,7 @@ def list_affected_operations(machine_unit_id):
 
 
 def list_machine_unit_statuses():
+    from sqlalchemy.orm import joinedload
     from app.models.machine import MachineType, MachineUnit
 
     units = (
@@ -499,12 +502,44 @@ def list_machine_unit_statuses():
         for row in MachineDowntime.query.filter(MachineDowntime.ended_at.is_(None)).all()
     }
     counts = defaultdict(int)
-    if units:
+    unit_ids = [u.id for u in units]
+    running_by_unit = {}
+    next_by_unit = {}
+    if unit_ids:
         for op in JobOperation.query.filter(
-            JobOperation.machine_unit_id.in_([u.id for u in units]),
+            JobOperation.machine_unit_id.in_(unit_ids),
             JobOperation.status.in_(_AFFECTED_STATUSES),
         ):
             counts[op.machine_unit_id] += 1
+
+        board_ops = (
+            JobOperation.query.options(
+                joinedload(JobOperation.job_order),
+                joinedload(JobOperation.assigned_worker),
+            )
+            .filter(
+                JobOperation.machine_unit_id.in_(unit_ids),
+                JobOperation.status.in_(
+                    (OperationStatus.IN_PROGRESS, OperationStatus.SCHEDULED)
+                ),
+            )
+            .order_by(
+                JobOperation.machine_unit_id,
+                JobOperation.scheduled_start.asc().nullslast(),
+                JobOperation.sequence_no.asc(),
+            )
+            .all()
+        )
+        for op in board_ops:
+            uid = op.machine_unit_id
+            if op.status == OperationStatus.IN_PROGRESS:
+                running_by_unit[uid] = op
+            elif (
+                op.status == OperationStatus.SCHEDULED
+                and uid not in next_by_unit
+                and uid not in running_by_unit
+            ):
+                next_by_unit[uid] = op
 
     out = []
     for unit in units:
@@ -513,6 +548,12 @@ def list_machine_unit_statuses():
         payload["down"] = dt is not None
         payload["openDowntime"] = dt.to_dict() if dt else None
         payload["affectedCount"] = int(counts.get(unit.id, 0))
+        running = running_by_unit.get(unit.id)
+        nxt = next_by_unit.get(unit.id)
+        payload["currentOperation"] = (
+            _serialize_affected_operation(running) if running else None
+        )
+        payload["nextOperation"] = _serialize_affected_operation(nxt) if nxt else None
         out.append(payload)
     return out
 

@@ -15,6 +15,7 @@ from app.services.scoring_service import (
     score_workload,
     worker_week_load_hours,
 )
+from app.services.worker_availability import get_busy_workers
 
 
 def _resolve_machine_type_id(
@@ -123,6 +124,12 @@ def suggest_workers(
     }
     peer_hours = list(load_by_worker.values())
 
+    busy_workers = get_busy_workers(
+        start=scheduled_start,
+        end=scheduled_end,
+        exclude_operation_id=exclude_operation_id,
+    )
+
     suggestions = []
     for worker in workers:
         skill = skill_by_worker.get(worker.id) if target_machine_id else None
@@ -147,6 +154,13 @@ def suggest_workers(
             scheduled_end=scheduled_end,
             exclude_operation_id=exclude_operation_id,
         )
+
+        conflict = busy_workers.get(worker.id)
+        if conflict:
+            label = conflict.operation_name or "another operation"
+            avail_score = 0.0
+            avail_reason = f"currently on '{label}'"
+            avail_default = False
 
         hours = load_by_worker.get(
             worker.id,
@@ -202,12 +216,17 @@ def suggest_workers(
                 "reason": reason,
                 "matchedSkills": [mt.code] if mt and skill else [],
                 "proficiency": skill.proficiency if skill else None,
-                "available": avail_score > 0.0,
+                "available": avail_score > 0.0 and conflict is None,
             }
         )
 
     suggestions.sort(
-        key=lambda s: (s["qualified"], s["score"], s.get("proficiency") or 0),
+        key=lambda s: (
+            s["qualified"],
+            s["available"],
+            s["score"],
+            s.get("proficiency") or 0,
+        ),
         reverse=True,
     )
     return {"weights": weights, "suggestions": suggestions}
