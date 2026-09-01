@@ -87,10 +87,7 @@ export interface Client {
 
 export type JobOrderStatus =
   | 'DRAFT'
-  | 'PLANNING'
-  | 'RELEASED'
-  | 'UNASSIGNED'
-  | 'ASSIGNED'
+  | 'SCHEDULED'
   | 'IN_PROGRESS'
   | 'COMPLETED'
   | 'DELIVERED';
@@ -233,12 +230,15 @@ export interface AffectedScheduledOperation {
   status?: string | null;
   scheduledStart?: string | null;
   scheduledEnd?: string | null;
+  assignedWorkerName?: string | null;
 }
 
 export interface MachineUnitStatus extends MachineUnitInfo {
   down: boolean;
   openDowntime?: MachineDowntimeRecord | null;
   affectedCount: number;
+  currentOperation?: AffectedScheduledOperation | null;
+  nextOperation?: AffectedScheduledOperation | null;
 }
 
 export interface ProposedOperation {
@@ -300,6 +300,8 @@ export interface JobOrder {
   amount?: number | null;
   rawMaterials?: RawMaterial[];
   createdById?: string;
+  createdByName?: string | null;
+  draftStage?: string | null;
   deliveredAt?: string | null;
   createdAt?: string;
   opsCompleted?: number;

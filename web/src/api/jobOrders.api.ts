@@ -37,8 +37,8 @@ export const clientsApi = {
 };
 
 export const jobOrdersApi = {
-  list: (status?: string) =>
-    apiClient.get<JobOrder[]>('/job-orders', { params: status ? { status } : {} }),
+  list: (params?: { status?: string; scope?: 'production' | 'drafts' | 'all' }) =>
+    apiClient.get<JobOrder[]>('/job-orders', { params }),
   get: (id: string) => apiClient.get<JobOrder>(`/job-orders/${id}`),
   machines: () => apiClient.get<MachineInfo[]>('/job-orders/machines'),
   machineUnits: () => apiClient.get<MachineUnitInfo[]>('/job-orders/machine-units'),

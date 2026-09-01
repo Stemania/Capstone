@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Table, Button, Typography, Select, Dropdown, Input, Space, Spin, message, Drawer, Badge } from 'antd';
+import { Table, Button, Typography, Select, Dropdown, Input, Space, Spin, message, Drawer, Badge, Segmented } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
   PlusOutlined,
@@ -24,14 +24,10 @@ import { useAuth } from '../../hooks/useAuth';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import type { JobOrder, JobOrderStatus, JobPriority } from '../../types';
 
-const PLANNING_STATUSES = new Set<JobOrderStatus>(['DRAFT', 'PLANNING']);
+type ListTab = 'production' | 'drafts';
 
-const STATUS_OPTIONS: { value: JobOrderStatus; label: string }[] = [
-  { value: 'DRAFT', label: 'Internal draft' },
-  { value: 'PLANNING', label: 'Internal planning' },
-  { value: 'RELEASED', label: 'Released' },
-  { value: 'UNASSIGNED', label: 'Unassigned' },
-  { value: 'ASSIGNED', label: 'Assigned' },
+const PRODUCTION_STATUS_OPTIONS: { value: JobOrderStatus; label: string }[] = [
+  { value: 'SCHEDULED', label: 'Scheduled' },
   { value: 'IN_PROGRESS', label: 'In Progress' },
   { value: 'COMPLETED', label: 'Completed' },
   { value: 'DELIVERED', label: 'Delivered' },
@@ -39,10 +35,7 @@ const STATUS_OPTIONS: { value: JobOrderStatus; label: string }[] = [
 
 const statusStyle: Record<JobOrderStatus, { label: string; color: PillColor }> = {
   DRAFT: { label: 'Draft', color: 'gray' },
-  PLANNING: { label: 'Planning', color: 'gray' },
-  RELEASED: { label: 'Released', color: 'blue' },
-  UNASSIGNED: { label: 'Unassigned', color: 'gray' },
-  ASSIGNED: { label: 'Assigned', color: 'blue' },
+  SCHEDULED: { label: 'Scheduled', color: 'blue' },
   IN_PROGRESS: { label: 'In Progress', color: 'blue' },
   COMPLETED: { label: 'Completed', color: 'green' },
   DELIVERED: { label: 'Delivered', color: 'green' },
@@ -68,26 +61,15 @@ function isJobOverdue(job: JobOrder) {
 }
 
 function JobStatusBadge({ job }: { job: JobOrder }) {
-  if (PLANNING_STATUSES.has(job.status)) {
-    return (
-      <span
-        style={{
-          fontSize: 11,
-          fontWeight: 600,
-          letterSpacing: 0.3,
-          textTransform: 'uppercase',
-          color: '#94a3b8',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {job.status === 'DRAFT' ? 'Draft' : 'Planning'}
-      </span>
-    );
-  }
   const overdue = isJobOverdue(job);
   if (overdue) return <StatusPill color="red" compact>Overdue</StatusPill>;
-  const st = statusStyle[job.status] || statusStyle.RELEASED;
+  const st = statusStyle[job.status] || statusStyle.SCHEDULED;
   return <StatusPill color={st.color} compact>{st.label}</StatusPill>;
+}
+
+function draftOpenPath(job: JobOrder): string {
+  if (!job.opsTotal) return `/job-orders/${job.id}/edit?step=1`;
+  return `/job-orders/${job.id}/plan`;
 }
 
 function jobSearchHaystack(job: JobOrder) {
@@ -107,6 +89,8 @@ export default function JobOrderListPage() {
   const [jobs, setJobs] = useState<JobOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [listTab, setListTab] = useState<ListTab>('production');
+  const [draftCount, setDraftCount] = useState(0);
   const [statusFilter, setStatusFilter] = useState<JobOrderStatus[]>([]);
   const [priorityFilter, setPriorityFilter] = useState<JobPriority[]>([]);
   const [clientFilter, setClientFilter] = useState<string[]>([]);
@@ -119,11 +103,15 @@ export default function JobOrderListPage() {
   const { isAdmin, isOfficeStaff } = useAuth();
   const isPhone = useIsPhone();
 
-  const fetchJobs = async () => {
+  const fetchJobs = async (tab: ListTab = listTab) => {
     setLoading(true);
     try {
-      const { data } = await jobOrdersApi.list();
+      const { data } = await jobOrdersApi.list({ scope: tab });
       setJobs(data);
+      if (tab === 'production' && (isAdmin || isOfficeStaff)) {
+        const drafts = await jobOrdersApi.list({ scope: 'drafts' });
+        setDraftCount(drafts.data.length);
+      }
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -132,8 +120,8 @@ export default function JobOrderListPage() {
   };
 
   useEffect(() => {
-    fetchJobs();
-  }, []);
+    fetchJobs(listTab);
+  }, [listTab]);
 
   const clientOptions = useMemo(() => {
     const names = new Set<string>();
@@ -211,16 +199,17 @@ export default function JobOrderListPage() {
   };
 
   const jobActionItems = (record: JobOrder): MenuProps['items'] => {
-    const planning = PLANNING_STATUSES.has(record.status);
+    const isDraft = record.status === 'DRAFT';
     const items: MenuProps['items'] = [
       {
         key: 'view',
         icon: <EyeOutlined />,
-        label: 'View',
-        onClick: () => navigate(`/job-orders/${record.id}`),
+        label: isDraft ? 'Continue' : 'View',
+        onClick: () =>
+          navigate(isDraft ? draftOpenPath(record) : `/job-orders/${record.id}`),
       },
     ];
-    if (planning && isAdmin) {
+    if (isDraft && isAdmin) {
       items.push({
         key: 'plan',
         icon: <CalendarOutlined />,
@@ -232,8 +221,11 @@ export default function JobOrderListPage() {
       items.push({
         key: 'edit',
         icon: <EditOutlined />,
-        label: planning ? 'Edit PO' : 'Edit',
-        onClick: () => navigate(`/job-orders/${record.id}/edit`),
+        label: isDraft ? 'Edit PO' : 'Edit',
+        onClick: () =>
+          navigate(
+            isDraft ? `/job-orders/${record.id}/edit` : `/job-orders/${record.id}/edit`
+          ),
       });
     }
     items.push({
@@ -262,7 +254,7 @@ export default function JobOrderListPage() {
     return items;
   };
 
-  const columns: TableColumnsType<JobOrder> = [
+  const productionColumns: TableColumnsType<JobOrder> = [
     {
       title: 'Job #',
       dataIndex: 'jobNumber',
@@ -427,8 +419,78 @@ export default function JobOrderListPage() {
     },
   ];
 
+  const draftColumns: TableColumnsType<JobOrder> = [
+    productionColumns[0],
+    productionColumns[1],
+    productionColumns[2],
+    {
+      title: 'Stage',
+      key: 'draftStage',
+      width: 200,
+      ellipsis: true,
+      render: (_: unknown, record) => (
+        <span style={{ fontSize: 13, color: '#475569' }}>{record.draftStage || '—'}</span>
+      ),
+    },
+    {
+      title: 'Created by',
+      key: 'createdByName',
+      width: 120,
+      ellipsis: true,
+      render: (_: unknown, record) => (
+        <span style={{ fontSize: 13 }}>{record.createdByName || '—'}</span>
+      ),
+    },
+    {
+      title: 'Created',
+      key: 'createdAt',
+      width: 112,
+      sorter: (a, b) => dayjs(a.createdAt).valueOf() - dayjs(b.createdAt).valueOf(),
+      render: (v: string | undefined) => (
+        <span style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+          {v ? dayjs(v).format('MMM D, YYYY') : '—'}
+        </span>
+      ),
+    },
+    productionColumns[productionColumns.length - 1],
+  ];
+
+  const columns = listTab === 'drafts' ? draftColumns : productionColumns;
+
+  const listTabs = (isAdmin || isOfficeStaff) ? (
+    <div style={{ marginBottom: isPhone ? 10 : 14 }}>
+      <Segmented
+        block={isPhone}
+        value={listTab}
+        onChange={(v) => {
+          setListTab(v as ListTab);
+          setStatusFilter([]);
+          setSelectedKeys([]);
+        }}
+        options={[
+          { label: 'Job orders', value: 'production' },
+          {
+            label: (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                Drafts
+                {draftCount > 0 ? <Badge count={draftCount} size="small" /> : null}
+              </span>
+            ),
+            value: 'drafts',
+          },
+        ]}
+      />
+    </div>
+  ) : null;
+
+  const openJob = (job: JobOrder) => {
+    if (job.status === 'DRAFT') navigate(draftOpenPath(job));
+    else navigate(`/job-orders/${job.id}`);
+  };
+
   return (
     <div className="jo-list-page">
+      {listTabs}
       {isPhone ? (
         <div className="sched-m jo-m-chrome">
           <div className="sched-m__top">
@@ -518,6 +580,7 @@ export default function JobOrderListPage() {
             onChange={(e) => setSearch(e.target.value)}
             className="jo-list-search"
           />
+          {listTab === 'production' && (
           <Select
             mode="multiple"
             allowClear
@@ -526,8 +589,9 @@ export default function JobOrderListPage() {
             className="jo-list-filter"
             value={statusFilter}
             onChange={setStatusFilter}
-            options={STATUS_OPTIONS}
+            options={PRODUCTION_STATUS_OPTIONS}
           />
+          )}
           <Select
             mode="multiple"
             allowClear
@@ -644,7 +708,7 @@ export default function JobOrderListPage() {
                       );
                       return;
                     }
-                    navigate(`/job-orders/${job.id}`);
+                    openJob(job);
                   }}
                   role="button"
                   tabIndex={0}
@@ -664,6 +728,9 @@ export default function JobOrderListPage() {
                     </div>
                     <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                       <JobStatusBadge job={job} />
+                      {listTab === 'drafts' && job.draftStage ? (
+                        <span style={{ fontSize: 11, color: '#64748b' }}>{job.draftStage}</span>
+                      ) : null}
                       <Dropdown menu={{ items: jobActionItems(job) }} trigger={['click']} placement="bottomRight">
                         <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} aria-label="More actions" />
                       </Dropdown>
@@ -706,7 +773,7 @@ export default function JobOrderListPage() {
             : undefined
         }
         onRow={(record) => ({
-          onClick: () => navigate(`/job-orders/${record.id}`),
+          onClick: () => openJob(record),
           style: { cursor: 'pointer' },
         })}
       />
@@ -756,6 +823,7 @@ export default function JobOrderListPage() {
             <div className="sched-f__card">
               <div className="sched-f__label">Narrow by</div>
               <div className="sched-f__rows">
+                {listTab === 'production' ? (
                 <div className="sched-f__row">
                   <span className="sched-f__row-k">Status</span>
                   <Select
@@ -767,9 +835,10 @@ export default function JobOrderListPage() {
                     className="sched-f__select"
                     value={statusFilter}
                     onChange={setStatusFilter}
-                    options={STATUS_OPTIONS}
+                    options={PRODUCTION_STATUS_OPTIONS}
                   />
                 </div>
+                ) : null}
                 <div className="sched-f__row">
                   <span className="sched-f__row-k">Priority</span>
                   <Select

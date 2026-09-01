@@ -43,10 +43,7 @@ const { Title, Text } = Typography;
 
 const STATUS_PILL: Record<JobOrderStatus, { label: string; color: PillColor }> = {
   DRAFT: { label: 'Draft', color: 'gray' },
-  PLANNING: { label: 'Planning', color: 'gray' },
-  RELEASED: { label: 'Released', color: 'blue' },
-  UNASSIGNED: { label: 'Unassigned', color: 'gray' },
-  ASSIGNED: { label: 'Assigned', color: 'blue' },
+  SCHEDULED: { label: 'Scheduled', color: 'blue' },
   IN_PROGRESS: { label: 'In Progress', color: 'blue' },
   COMPLETED: { label: 'Completed', color: 'green' },
   DELIVERED: { label: 'Delivered', color: 'green' },
@@ -351,15 +348,14 @@ export default function JobOrderDetailPage() {
     );
   }
 
-  const status = STATUS_PILL[job.status] || STATUS_PILL.RELEASED;
+  const status = STATUS_PILL[job.status] || STATUS_PILL.SCHEDULED;
   const priority = job.priority ? PRIORITY_PILL[job.priority] : null;
   const overdue =
     job.status !== 'COMPLETED' &&
     job.status !== 'DELIVERED' &&
     job.status !== 'DRAFT' &&
-    job.status !== 'PLANNING' &&
     dayjs(job.dueDate).isBefore(dayjs(), 'day');
-  const isPlanning = job.status === 'DRAFT' || job.status === 'PLANNING';
+  const isDraft = job.status === 'DRAFT';
 
   return (
     <div className="jo-detail-page" style={{ maxWidth: 1200, margin: '0 auto', padding: isWorker ? '0 12px 24px' : undefined }}>
@@ -396,7 +392,7 @@ export default function JobOrderDetailPage() {
           </div>
         </Space>
         <Space wrap>
-          {isPlanning && isAdmin && (
+          {isDraft && isAdmin && (
             <Button
               type="primary"
               onClick={() => navigate(`/job-orders/${job.id}/plan`)}
@@ -409,7 +405,7 @@ export default function JobOrderDetailPage() {
               icon={<EditOutlined />}
               onClick={() => navigate(`/job-orders/${job.id}/edit`)}
             >
-              {isPlanning ? 'Edit PO' : 'Edit'}
+              {isDraft ? 'Edit PO' : 'Edit'}
             </Button>
           )}
           <Button
@@ -458,7 +454,7 @@ export default function JobOrderDetailPage() {
             {dash(job.clientName)}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            {isPlanning ? (
+            {isDraft ? (
               <span
                 style={{
                   fontSize: 12,
@@ -468,7 +464,7 @@ export default function JobOrderDetailPage() {
                   color: '#94a3b8',
                 }}
               >
-                {job.status === 'DRAFT' ? 'Internal draft' : 'Internal planning'}
+                {job.draftStage || 'Draft'}
               </span>
             ) : (
               <StatusPill color={status.color}>{status.label}</StatusPill>

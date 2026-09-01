@@ -212,21 +212,6 @@ export default function UsersPage() {
             },
           });
         }
-        if (status === 'ACTIVE') {
-          items.push({
-            key: 'revoke-devices',
-            label: 'Revoke all devices',
-            onClick: () => {
-              Modal.confirm({
-                title: 'Revoke all device PINs for this user?',
-                onOk: async () => {
-                  await usersApi.revokeDevices(record.id);
-                  message.success('Devices revoked');
-                },
-              });
-            },
-          });
-        }
         if (status !== 'DISABLED') {
           items.push({
             key: 'deactivate',
