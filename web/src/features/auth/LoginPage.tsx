@@ -1,4 +1,4 @@
-import { Form, Input, Button, Alert, Typography } from 'antd';
+import { Form, Input, Button, Alert } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
@@ -7,8 +7,6 @@ import { authApi, getOrCreateDeviceId } from '../../api/auth.api';
 import { getErrorCode, getErrorMessage } from '../../api/client';
 import PinKeypad from './PinKeypad';
 import './LoginPage.css';
-
-const { Text } = Typography;
 
 const DEMO_ACCOUNTS = [
   { key: 'admin', label: 'Admin', identifier: 'admin@bmsc.local', password: 'Admin123!' },
@@ -180,17 +178,17 @@ export default function LoginPage() {
               <Button type="primary" htmlType="submit" block size="large" loading={submitting}>
                 Sign In
               </Button>
+              <div style={{ textAlign: 'center', marginTop: 12 }}>
+                <a href="/forgot-password" style={{ fontSize: 13 }}>
+                  Forgot password?
+                </a>
+              </div>
               {localStorage.getItem('bmsc_has_pin') === '1' && (
                 <Button type="link" block style={{ marginTop: 8 }} onClick={() => setPinMode(true)}>
                   Use PIN instead
                 </Button>
               )}
             </Form>
-          )}
-          {!pinMode && (
-            <Text type="secondary" style={{ display: 'block', marginTop: 12, fontSize: 12 }}>
-              New accounts receive an invite link or SMS code to set their own password.
-            </Text>
           )}
         </div>
       </div>

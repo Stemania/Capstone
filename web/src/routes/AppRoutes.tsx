@@ -9,6 +9,8 @@ import WorkerLayout from '../layouts/WorkerLayout';
 import MyToolsPage from '../features/tool-tracking/MyToolsPage';
 import LoginPage from '../features/auth/LoginPage';
 import SetPasswordPage from '../features/auth/SetPasswordPage';
+import ForgotPasswordPage from '../features/auth/ForgotPasswordPage';
+import ResetPasswordPage from '../features/auth/ResetPasswordPage';
 import AccountSecurityPage from '../features/auth/AccountSecurityPage';
 import JobOrderListPage from '../features/job-orders/JobOrderListPage';
 import JobOrderFormPage from '../features/job-orders/JobOrderFormPage';
@@ -63,6 +65,8 @@ export default function AppRoutes() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/set-password" element={<SetPasswordPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
 
           <Route element={<ProtectedRoute />}>
             <Route

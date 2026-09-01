@@ -53,6 +53,30 @@ export const authApi = {
   changePassword: (currentPassword: string, newPassword: string) =>
     apiClient.post('/auth/password', { currentPassword, newPassword }),
 
+  requestPasswordReset: (identifier: string) =>
+    apiClient.post<{ message: string }>('/auth/password-reset/request', { identifier }),
+
+  validatePasswordReset: (token: string, identifier?: string) =>
+    apiClient.post<{ valid: boolean; email?: string; fullName?: string }>(
+      '/auth/password-reset/validate',
+      { token, ...(identifier ? { identifier } : {}) },
+    ),
+
+  confirmPasswordReset: (
+    token: string,
+    password: string,
+    passwordConfirm: string,
+    identifier?: string,
+  ) =>
+    apiClient.post<LoginResponse>('/auth/password-reset/confirm', {
+      token,
+      password,
+      passwordConfirm,
+      ...(identifier ? { identifier } : {}),
+      deviceId: getOrCreateDeviceId(),
+      deviceLabel: navigator.userAgent.slice(0, 120),
+    }),
+
   pinStatus: () =>
     apiClient.get<{ known: boolean; hasPin: boolean }>('/auth/pin/status', {
       params: { deviceId: getOrCreateDeviceId() },

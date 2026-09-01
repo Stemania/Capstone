@@ -39,7 +39,8 @@ apiClient.interceptors.response.use(
       if (
         url.includes('/auth/login') ||
         url.includes('/auth/pin/unlock') ||
-        url.includes('/auth/invitation/')
+        url.includes('/auth/invitation/') ||
+        url.includes('/auth/password-reset/')
       ) {
         return Promise.reject(error);
       }
