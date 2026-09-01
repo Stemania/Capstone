@@ -54,6 +54,15 @@ class Config:
     AUTH_RATE_LIMIT_INVITE_ACCEPT = os.getenv(
         "AUTH_RATE_LIMIT_INVITE_ACCEPT", "5 per minute"
     )
+    AUTH_RATE_LIMIT_PASSWORD_RESET_REQUEST = os.getenv(
+        "AUTH_RATE_LIMIT_PASSWORD_RESET_REQUEST", "5 per minute"
+    )
+    AUTH_RATE_LIMIT_PASSWORD_RESET_VALIDATE = os.getenv(
+        "AUTH_RATE_LIMIT_PASSWORD_RESET_VALIDATE", "10 per minute"
+    )
+    AUTH_RATE_LIMIT_PASSWORD_RESET_CONFIRM = os.getenv(
+        "AUTH_RATE_LIMIT_PASSWORD_RESET_CONFIRM", "5 per minute"
+    )
 
     # Notifications — default CONSOLE (no credentials required)
     NOTIFICATION_EMAIL_PROVIDER = os.getenv("NOTIFICATION_EMAIL_PROVIDER", "console")

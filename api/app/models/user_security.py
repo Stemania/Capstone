@@ -101,3 +101,41 @@ class UserDevice(db.Model):
             "revokedAt": self.revoked_at.isoformat() if self.revoked_at else None,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class PasswordResetToken(db.Model):
+    __tablename__ = "password_reset_tokens"
+
+    id = db.Column(db.String(36), primary_key=True, default=_uuid)
+    user_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    channel = db.Column(db.Enum(InvitationChannel), nullable=False)
+    expires_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    used_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
+    revoked_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    user = db.relationship("User", backref="password_reset_tokens")
+
+    @property
+    def is_active(self) -> bool:
+        if self.used_at is not None or self.revoked_at is not None:
+            return False
+        exp = self.expires_at
+        if exp is None:
+            return False
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        return exp > _utcnow()
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "userId": self.user_id,
+            "channel": self.channel.value if self.channel else None,
+            "expiresAt": self.expires_at.isoformat() if self.expires_at else None,
+            "usedAt": self.used_at.isoformat() if self.used_at else None,
+            "revokedAt": self.revoked_at.isoformat() if self.revoked_at else None,
+            "createdAt": self.created_at.isoformat() if self.created_at else None,
+            "active": self.is_active,
+        }

@@ -24,6 +24,11 @@ from app.services.device_pin_service import (
     unlock_with_pin,
 )
 from app.services.invitation_service import accept_invitation, validate_invitation_secret
+from app.services.password_reset_service import (
+    complete_password_reset,
+    request_password_reset,
+    validate_reset_secret,
+)
 from app.utils.errors import AppError
 
 auth_bp = Blueprint("auth", __name__)
@@ -52,6 +57,18 @@ def _limit_invite_validate():
 
 def _limit_invite_accept():
     return current_app.config.get("AUTH_RATE_LIMIT_INVITE_ACCEPT", "5 per minute")
+
+
+def _limit_reset_request():
+    return current_app.config.get("AUTH_RATE_LIMIT_PASSWORD_RESET_REQUEST", "5 per minute")
+
+
+def _limit_reset_validate():
+    return current_app.config.get("AUTH_RATE_LIMIT_PASSWORD_RESET_VALIDATE", "10 per minute")
+
+
+def _limit_reset_confirm():
+    return current_app.config.get("AUTH_RATE_LIMIT_PASSWORD_RESET_CONFIRM", "5 per minute")
 
 
 @auth_bp.route("/login", methods=["POST"])
@@ -150,6 +167,64 @@ def change_password():
         data.get("newPassword") or "",
     )
     return jsonify({"message": "Password updated"})
+
+
+@auth_bp.route("/password-reset/request", methods=["POST"])
+@limiter.limit(
+    _limit_reset_request,
+    error_message="Too many reset requests. Please wait a minute and try again.",
+)
+def password_reset_request():
+    data = request.get_json() or {}
+    identifier = data.get("identifier") or data.get("email") or data.get("mobile")
+    if not identifier or not str(identifier).strip():
+        return (
+            jsonify(
+                {
+                    "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "Email or mobile is required",
+                    }
+                }
+            ),
+            400,
+        )
+    result = request_password_reset(str(identifier).strip())
+    return jsonify(result)
+
+
+@auth_bp.route("/password-reset/validate", methods=["POST"])
+@limiter.limit(
+    _limit_reset_validate,
+    error_message="Too many reset checks. Please wait a minute and try again.",
+)
+def password_reset_validate():
+    data = request.get_json() or {}
+    token = data.get("token") or data.get("code")
+    identifier = data.get("identifier") or data.get("email") or data.get("mobile")
+    result = validate_reset_secret(token or "", identifier)
+    return jsonify(result)
+
+
+@auth_bp.route("/password-reset/confirm", methods=["POST"])
+@limiter.limit(
+    _limit_reset_confirm,
+    error_message="Too many reset attempts. Please wait a minute and try again.",
+)
+def password_reset_confirm():
+    data = request.get_json() or {}
+    token = data.get("token") or data.get("code")
+    password = data.get("password")
+    confirm = data.get("passwordConfirm") or data.get("confirmPassword")
+    identifier = data.get("identifier") or data.get("email") or data.get("mobile")
+    result = complete_password_reset(token or "", password or "", confirm or "", identifier)
+    device_id = data.get("deviceId")
+    device_label = data.get("deviceLabel")
+    user = get_user_by_id(result["user"]["id"])
+    register_device_after_password_login(user, device_id, device_label)
+    if device_id:
+        result["device"] = device_pin_status(user.id, device_id)
+    return jsonify(result)
 
 
 @auth_bp.route("/pin/unlock", methods=["POST"])
