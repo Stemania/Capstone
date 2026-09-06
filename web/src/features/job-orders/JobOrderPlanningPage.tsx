@@ -277,11 +277,6 @@ export default function JobOrderPlanningPage() {
   );
 
   const canProposeSchedule = operations.length > 0 && operationsMissingWorkers.length === 0;
-  const proposeTooltip = !canProposeSchedule
-    ? operations.length === 0
-      ? 'Add at least one operation first.'
-      : `Assign a worker to: ${operationsMissingWorkers.map((o) => `#${o.index} ${o.name}`).join(', ')}`
-    : undefined;
 
   const loadRowWorkers = async (
     rowIndex: number,
