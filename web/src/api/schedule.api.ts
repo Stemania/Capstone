@@ -35,6 +35,7 @@ export type ScheduleBoardOperation = {
   projectedCompletion?: string | null;
   scheduleFlag?: 'GREEN' | 'AMBER' | 'RED' | null;
   isLate?: boolean;
+  scheduleColor?: string | null;
 };
 
 export type ScheduleBoardDowntime = {

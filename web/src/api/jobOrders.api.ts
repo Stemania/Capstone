@@ -52,6 +52,7 @@ export const jobOrdersApi = {
     apiClient.post<JobOrder>('/job-orders', data),
   update: (id: string, data: Record<string, unknown>) =>
     apiClient.patch<JobOrder>(`/job-orders/${id}`, data),
+  delete: (id: string) => apiClient.delete(`/job-orders/${id}`),
   release: (id: string) => apiClient.post<JobOrder>(`/job-orders/${id}/release`),
   deliver: (id: string) => apiClient.post<JobOrder>(`/job-orders/${id}/deliver`),
 };

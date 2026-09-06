@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+import re
 
 from sqlalchemy.orm import joinedload
 
@@ -70,6 +71,22 @@ def _normalize_raw_materials(items):
     return normalized
 
 
+_HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+def _normalize_schedule_color(value):
+    if value is None or value == "":
+        return None
+    color = str(value).strip()
+    if not _HEX_COLOR_RE.match(color):
+        raise AppError(
+            "scheduleColor must be a hex color like #2563eb",
+            "VALIDATION_ERROR",
+            400,
+        )
+    return color.upper()
+
+
 def _resolve_machine_type_id(op_data):
     mid = op_data.get("machineTypeId")
     if mid:
@@ -89,8 +106,10 @@ def _resolve_machine_type_id(op_data):
 
 
 def _validate_worker(worker_id, start=None, end=None, exclude_operation_id=None):
+    from app.services.worker_profile_service import is_assignable_worker
+
     worker = User.query.get(worker_id)
-    if not worker or worker.role != UserRole.PRODUCTION_WORKER or not worker.active:
+    if not is_assignable_worker(worker):
         raise AppError("Invalid worker assignment", "VALIDATION_ERROR", 400)
     from app.services.worker_availability import assert_worker_available
 
@@ -440,6 +459,8 @@ def update_job_order(job, data, actor_role=None):
             job.amount = _parse_decimal(data.get("amount"), "amount")
         if "rawMaterials" in data:
             job.raw_materials = _normalize_raw_materials(data.get("rawMaterials"))
+        if "scheduleColor" in data:
+            job.schedule_color = _normalize_schedule_color(data.get("scheduleColor"))
 
         if "operations" in data:
             JobOperation.query.filter_by(job_order_id=job.id).delete()
@@ -507,6 +528,27 @@ def release_job_order(job):
     except AppError:
         db.session.rollback()
         raise
+    except Exception:
+        db.session.rollback()
+        raise
+
+
+def delete_draft_job_order(job):
+    """Permanently remove a DRAFT job that was never released."""
+    if job.status != JobOrderStatus.DRAFT:
+        raise AppError(
+            "Only draft jobs can be deleted",
+            "INVALID_TRANSITION",
+            409,
+        )
+    try:
+        from app.models.tool_event import ToolEvent
+
+        ToolEvent.query.filter_by(job_order_id=job.id).update(
+            {ToolEvent.job_order_id: None}, synchronize_session=False
+        )
+        db.session.delete(job)
+        db.session.commit()
     except Exception:
         db.session.rollback()
         raise

@@ -124,6 +124,8 @@ class JobOrder(db.Model):
     amount = db.Column(db.Numeric(14, 2), nullable=True)
     # [{ "name": "Mild steel plate", "quantity": 2, "unit": "pcs" }, ...]
     raw_materials = db.Column(JSONB, nullable=False, default=list)
+    # Hex color (#RRGGBB) for schedule board distinction; optional.
+    schedule_color = db.Column(db.String(7), nullable=True)
     created_by_id = db.Column(
         db.String(36), db.ForeignKey("users.id"), nullable=False
     )
@@ -190,8 +192,10 @@ class JobOrder(db.Model):
             "quantity": _num(self.quantity),
             "unitOfMeasure": self.unit_of_measure,
             "rawMaterials": self.raw_materials or [],
+            "scheduleColor": self.schedule_color,
             "deliveredAt": self.delivered_at.isoformat() if self.delivered_at else None,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
+            "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
             "opsCompleted": completed,
             "opsTotal": len(ops),
             "nextOperation": next_op.operation_name if next_op else None,

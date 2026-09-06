@@ -74,6 +74,16 @@ def update_job_order(job_id):
     return jsonify(job.to_dict(include_operations=True, viewer_role=role))
 
 
+@job_orders_bp.route("/<job_id>", methods=["DELETE"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def delete_job_order(job_id):
+    role = get_current_user_role()
+    job = jo_service.get_job_order(job_id, get_current_user_id(), role)
+    jo_service.delete_draft_job_order(job)
+    return "", 204
+
+
 @job_orders_bp.route("/<job_id>/release", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN)

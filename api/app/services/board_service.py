@@ -11,7 +11,6 @@ from app.models.job_order import JobOrder, JobOrderStatus
 from app.models.machine import MachineType, MachineUnit
 from app.models.operation import JobOperation, OperationStatus
 from app.models.operation_time import MachineDowntime
-from app.models.user import User, UserRole
 from app.models.client import Client
 from app.services.schedule_calendar import (
     serialize_segments,
@@ -24,6 +23,7 @@ from app.services.schedule_service import (
     compute_schedule_flag,
     operation_working_segments,
 )
+from app.services.worker_profile_service import query_assignable_workers
 from app.utils.errors import AppError
 
 # Same threshold as capacity analytics (running near full).
@@ -191,6 +191,7 @@ def schedule_board(
                 "projectedCompletion": projected.isoformat() if projected else None,
                 "scheduleFlag": schedule_flag,
                 "isLate": is_late,
+                "scheduleColor": job.schedule_color if job else None,
             }
         )
 
@@ -243,8 +244,7 @@ def schedule_board(
     ]
 
     workers = (
-        User.query.filter_by(role=UserRole.PRODUCTION_WORKER, active=True)
-        .order_by(User.full_name)
+        query_assignable_workers()
         .all()
     )
     workers_out = [{"id": w.id, "fullName": w.full_name} for w in workers]

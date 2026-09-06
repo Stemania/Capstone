@@ -304,6 +304,7 @@ export interface JobOrder {
   draftStage?: string | null;
   deliveredAt?: string | null;
   createdAt?: string;
+  updatedAt?: string | null;
   opsCompleted?: number;
   opsTotal?: number;
   nextOperation?: string | null;
@@ -312,6 +313,7 @@ export interface JobOrder {
   operations?: Operation[];
   projectedCompletion?: string | null;
   scheduleFlag?: ScheduleFlag | null;
+  scheduleColor?: string | null;
 }
 
 export type NotificationMilestone =
