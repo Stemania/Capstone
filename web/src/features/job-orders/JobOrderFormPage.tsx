@@ -44,7 +44,8 @@ export default function JobOrderFormPage() {
   const [jobNumber, setJobNumber] = useState<string | null>(null);
   const [reachedStep, setReachedStep] = useState<1 | 2 | 3 | 4>(1);
   const NAVY = '#0f1c2e';
-  const backTo = isEdit && id ? `/job-orders/${id}` : '/job-orders';
+  const backTo =
+    isEdit && id && jobStatus && jobStatus !== 'DRAFT' ? `/job-orders/${id}` : '/job-orders';
   // New jobs are DRAFT; planning entry only applies while still DRAFT.
   const canEnterPlanning = !isEdit || jobStatus === 'DRAFT' || jobStatus === null;
   const showAdminSplit = isAdmin && canEnterPlanning;
@@ -76,9 +77,9 @@ export default function JobOrderFormPage() {
         const { data } = await jobOrdersApi.get(id);
         if (cancelled) return;
 
-        // Admin opening an existing job lands on the step matching status,
-        // unless they explicitly returned to step 1 via the stepper (?step=1).
-        if (isAdmin && !stayOnStep1) {
+        // Edit always uses ?step=1. Only auto-continue drafts that open /edit
+        // without step=1 (legacy links) into the planning wizard.
+        if (isAdmin && !stayOnStep1 && data.status === 'DRAFT') {
           const land = resolveJobFlowStep(data);
           if (land > 1) {
             navigate(`/job-orders/${id}/plan?step=${land}`, { replace: true });
@@ -222,7 +223,7 @@ export default function JobOrderFormPage() {
       <div className="jo-form-page__header">
         <Space wrap size={8}>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(backTo)}>
-            Back
+            Exit
           </Button>
           <div>
             <Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>
@@ -436,7 +437,7 @@ export default function JobOrderFormPage() {
         </Row>
 
         <div className="jo-form__footer">
-          <Button onClick={() => navigate(backTo)}>Cancel</Button>
+          <Button onClick={() => navigate(backTo)}>Back</Button>
           {showAdminSplit ? (
             <SplitActionButton
               loading={submitting}

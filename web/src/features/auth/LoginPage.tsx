@@ -175,7 +175,14 @@ export default function LoginPage() {
                   placeholder="••••••••"
                 />
               </Form.Item>
-              <Button type="primary" htmlType="submit" block size="large" loading={submitting}>
+              <Button
+                type="primary"
+                htmlType="submit"
+                block
+                size="large"
+                loading={submitting}
+                className="login-card__submit"
+              >
                 Sign In
               </Button>
               <div style={{ textAlign: 'center', marginTop: 12 }}>

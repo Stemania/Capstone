@@ -151,7 +151,7 @@ export default function ScoringWeightsPage({
             loading={saving}
             onClick={onSave}
             disabled={!sumOk}
-            style={{ background: NAVY, borderColor: NAVY, fontWeight: 700 }}
+            style={{ fontWeight: 700 }}
           >
             Save ranking
           </Button>
