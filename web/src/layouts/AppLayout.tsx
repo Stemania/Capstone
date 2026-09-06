@@ -106,8 +106,8 @@ export default function AppLayout() {
 
   if (isAdmin || isOfficeStaff) {
     menuItems.push(
-      { key: '/job-orders', icon: <FileTextOutlined />, label: 'Job Orders' },
       { key: '/schedule', icon: <CalendarOutlined />, label: 'Schedule' },
+      { key: '/job-orders', icon: <FileTextOutlined />, label: 'Job Orders' },
       { key: '/machines', icon: <BuildOutlined />, label: 'Machines' },
       { key: '/clients', icon: <ContactsOutlined />, label: 'Clients' },
       { key: '/reports', icon: <FileSearchOutlined />, label: 'Reports' },

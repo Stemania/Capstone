@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Button,
   Input,
   Select,
   Modal,
@@ -23,7 +22,6 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { operationsApi } from '../../api/operations.api';
 import { getErrorMessage } from '../../api/client';
-import StatusPill from '../../components/StatusPill';
 import { DOWNTIME_REASONS } from '../../constants/downtimeReasons';
 import type { MachineUnitStatus } from '../../types';
 
@@ -120,6 +118,9 @@ function MachineUnitCard({
   const footer = cardFooter(unit, nowMs);
   const target = cardNavigateTarget(unit);
   const cur = unit.currentOperation;
+  const typeLabel = unit.machineTypeName || unit.machineTypeCode || 'Machine';
+  const statusLabel =
+    status === 'running' ? 'Running' : status === 'breakdown' ? 'Breakdown' : 'Idle';
 
   const menuItems: MenuProps['items'] = [];
   if (!unit.down) {
@@ -143,6 +144,20 @@ function MachineUnitCard({
     });
   }
 
+  const workerName =
+    status === 'running'
+      ? cur?.assignedWorkerName
+      : status === 'breakdown'
+        ? unit.openDowntime?.reportedByName
+        : unit.nextOperation?.assignedWorkerName;
+
+  const initials = (workerName || unit.label)
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() || '')
+    .join('');
+
   return (
     <article
       className={[
@@ -164,26 +179,17 @@ function MachineUnitCard({
       role={target ? 'button' : undefined}
       tabIndex={target ? 0 : undefined}
     >
-      <div className="machine-card__head">
-        <div className="machine-card__label">{unit.label}</div>
-        <div className="machine-card__menu" onClick={(e) => e.stopPropagation()}>
-          <StatusPill
-            color={status === 'running' ? 'green' : status === 'breakdown' ? 'red' : 'gray'}
-            compact
-          >
-            {status === 'running' ? 'Running' : status === 'breakdown' ? 'Breakdown' : 'Idle'}
-          </StatusPill>
-          <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
-            <Button
-              type="text"
-              size="small"
-              icon={<MoreOutlined style={{ fontSize: 16 }} />}
-              aria-label="Machine actions"
-              style={{ marginLeft: 2 }}
-            />
-          </Dropdown>
+      <header className="machine-card__banner">
+        <div className="machine-card__banner-text">
+          <div className="machine-card__label">{unit.label}</div>
+          <div className="machine-card__type">{typeLabel}</div>
+          <div className="machine-card__status-line">{statusLabel}</div>
         </div>
-      </div>
+        <div className="machine-card__banner-deco" aria-hidden />
+        <div className="machine-card__avatar" aria-hidden>
+          {initials || <UserOutlined />}
+        </div>
+      </header>
 
       <div className="machine-card__body">
         {status === 'running' && cur ? (
@@ -192,7 +198,7 @@ function MachineUnitCard({
             {cur.jobNumber && <div className="machine-card__job">{cur.jobNumber}</div>}
             {cur.assignedWorkerName && (
               <div className="machine-card__worker">
-                <UserOutlined style={{ fontSize: 12, color: '#64748b' }} />
+                <UserOutlined />
                 {cur.assignedWorkerName}
               </div>
             )}
@@ -200,6 +206,9 @@ function MachineUnitCard({
         ) : status === 'breakdown' ? (
           <div className="machine-card__idle-copy">
             {unit.openDowntime?.reason || 'Machine reported down'}
+            {unit.openDowntime?.reportedByName
+              ? ` · ${unit.openDowntime.reportedByName}`
+              : ''}
           </div>
         ) : unit.nextOperation ? (
           <>
@@ -209,11 +218,11 @@ function MachineUnitCard({
             )}
           </>
         ) : (
-          <div className="machine-card__idle-copy">Standing by</div>
+          <div className="machine-card__idle-copy">Standing by — no work queued</div>
         )}
       </div>
 
-      <div
+      <footer
         className={[
           'machine-card__footer',
           footer.breakdown ? 'machine-card__footer--breakdown' : '',
@@ -221,8 +230,15 @@ function MachineUnitCard({
           .filter(Boolean)
           .join(' ')}
       >
-        {footer.text}
-      </div>
+        <span className="machine-card__footer-text">{footer.text}</span>
+        <div className="machine-card__footer-actions" onClick={(e) => e.stopPropagation()}>
+          <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="topRight">
+            <button type="button" className="machine-card__icon-btn" aria-label="Machine actions">
+              <MoreOutlined />
+            </button>
+          </Dropdown>
+        </div>
+      </footer>
     </article>
   );
 }

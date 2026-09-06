@@ -278,9 +278,9 @@ def shop_day_windows_union(period_from: date, period_to: date) -> list[dict]:
     Per calendar date, union of all active workers' effective working hours
     (WorkerSchedule + WorkCalendarException). Used for compressed week-view columns.
     """
-    from app.models.user import User, UserRole
+    from app.services.worker_profile_service import query_assignable_workers
 
-    workers = User.query.filter_by(role=UserRole.PRODUCTION_WORKER, active=True).all()
+    workers = query_assignable_workers().all()
     exceptions = load_calendar_exceptions(period_from, period_to)
     schedules_by_worker = {w.id: load_worker_schedule_maps(w.id) for w in workers}
 

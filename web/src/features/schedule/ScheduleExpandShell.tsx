@@ -2,11 +2,18 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Button, Tooltip } from 'antd';
 import { CompressOutlined, ExpandOutlined } from '@ant-design/icons';
 
+export type ScheduleExpandApi = {
+  expandButton: ReactNode;
+  expanded: boolean;
+};
+
 type Props = {
   title?: string;
   collapsedMaxHeight?: string;
-  children: ReactNode;
+  children: ReactNode | ((api: ScheduleExpandApi) => ReactNode);
   className?: string;
+  /** Put the expand control in the body (via children render prop) instead of the title row. */
+  expandInBody?: boolean;
 };
 
 export default function ScheduleExpandShell({
@@ -14,6 +21,7 @@ export default function ScheduleExpandShell({
   collapsedMaxHeight = 'min(520px, 55vh)',
   children,
   className,
+  expandInBody = false,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
 
@@ -31,6 +39,21 @@ export default function ScheduleExpandShell({
     };
   }, [expanded]);
 
+  const expandButton = (
+    <Tooltip title={expanded ? 'Exit full screen' : 'Expand schedule'}>
+      <Button
+        type="text"
+        size="small"
+        className="sched-expand__btn"
+        icon={expanded ? <CompressOutlined /> : <ExpandOutlined />}
+        aria-label={expanded ? 'Exit full screen' : 'Expand schedule'}
+        onClick={() => setExpanded((v) => !v)}
+      />
+    </Tooltip>
+  );
+
+  const body = typeof children === 'function' ? children({ expandButton, expanded }) : children;
+
   return (
     <div
       className={`sched-expand${expanded ? ' sched-expand--open' : ''}${className ? ` ${className}` : ''}`}
@@ -38,18 +61,9 @@ export default function ScheduleExpandShell({
     >
       <div className="sched-expand__toolbar">
         {title ? <div className="sched-expand__title">{title}</div> : <span className="sched-expand__title-spacer" />}
-        <Tooltip title={expanded ? 'Exit full screen' : 'Expand schedule'}>
-          <Button
-            type="text"
-            size="small"
-            className="sched-expand__btn"
-            icon={expanded ? <CompressOutlined /> : <ExpandOutlined />}
-            aria-label={expanded ? 'Exit full screen' : 'Expand schedule'}
-            onClick={() => setExpanded((v) => !v)}
-          />
-        </Tooltip>
+        {!expandInBody ? expandButton : null}
       </div>
-      <div className="sched-expand__body">{children}</div>
+      <div className="sched-expand__body">{body}</div>
     </div>
   );
 }

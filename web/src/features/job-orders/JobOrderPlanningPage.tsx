@@ -15,7 +15,6 @@ import {
 import SplitActionButton from '../../components/SplitActionButton';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  CalendarOutlined,
   DeleteOutlined,
   PlusOutlined,
   StarFilled,
@@ -126,6 +125,17 @@ function newRowKey() {
   return `op-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function isCheckingType(ot?: OperationType | null, operationName?: string): boolean {
+  if (ot) {
+    return ot.code === 'CHECKING' || ot.name.trim().toLowerCase() === 'checking';
+  }
+  return (operationName || '').trim().toLowerCase() === 'checking';
+}
+
+function findAdminWorker(workers: User[]): User | undefined {
+  return workers.find((w) => w.role === 'ADMIN' && w.active !== false);
+}
+
 export default function JobOrderPlanningPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -168,6 +178,19 @@ export default function JobOrderPlanningPage() {
     setOperations((prev) => {
       const row = prev[rowIndex];
       if (!row) return prev;
+
+      const ot = operationTypes.find((t) => t.id === row.operationTypeId);
+      if (isCheckingType(ot, row.operationName)) {
+        const admin = findAdminWorker(workers);
+        if (!admin || (row.assignedWorkerId === admin.id && !row.machineTypeId)) return prev;
+        const next = [...prev];
+        next[rowIndex] = {
+          ...row,
+          machineTypeId: undefined,
+          assignedWorkerId: admin.id,
+        };
+        return next;
+      }
 
       if (preserveExisting && row.assignedWorkerId) {
         const worker = workers.find((w) => w.id === row.assignedWorkerId);
@@ -290,12 +313,40 @@ export default function JobOrderPlanningPage() {
     options?: { autoAssign?: boolean; preserveExisting?: boolean }
   ) => {
     const { autoAssign = true, preserveExisting = false } = options || {};
+    const seq = (suggestionFetchSeq.current[rowIndex] || 0) + 1;
+    suggestionFetchSeq.current[rowIndex] = seq;
+    const ot = operationTypes.find((t) => t.id === op.operationTypeId);
+    if (isCheckingType(ot, op.operationName)) {
+      setRowSuggestions((prev) => ({ ...prev, [rowIndex]: [] }));
+      try {
+        const { data } = await workersApi.list();
+        if (suggestionFetchSeq.current[rowIndex] !== seq) return;
+        const admin = findAdminWorker(data);
+        setRowWorkers((prev) => ({ ...prev, [rowIndex]: data }));
+        rowDataRef.current[rowIndex] = { workers: data, suggestions: [] };
+        if (admin) {
+          setOperations((prev) => {
+            const row = prev[rowIndex];
+            if (!row) return prev;
+            if (row.assignedWorkerId === admin.id && !row.machineTypeId) return prev;
+            const next = [...prev];
+            next[rowIndex] = {
+              ...row,
+              machineTypeId: undefined,
+              assignedWorkerId: admin.id,
+            };
+            return next;
+          });
+        }
+      } catch {
+        /* keep existing assignment */
+      }
+      return;
+    }
     if (!op.operationTypeId && !op.machineTypeId && !op.operationName) {
       setRowSuggestions((prev) => ({ ...prev, [rowIndex]: [] }));
       return;
     }
-    const seq = (suggestionFetchSeq.current[rowIndex] || 0) + 1;
-    suggestionFetchSeq.current[rowIndex] = seq;
     try {
       const { data } = await workersApi.suggest([], {
         excludeJobId: id,
@@ -414,8 +465,33 @@ export default function JobOrderPlanningPage() {
     });
   };
 
-  const onOperationTypeChange = (index: number, typeId: string) => {
+  const onOperationTypeChange = async (index: number, typeId: string) => {
     const ot = operationTypes.find((t) => t.id === typeId);
+    if (isCheckingType(ot)) {
+      try {
+        const { data } = await workersApi.list();
+        const admin = findAdminWorker(data);
+        setRowWorkers((prev) => ({ ...prev, [index]: data }));
+        setRowSuggestions((prev) => ({ ...prev, [index]: [] }));
+        rowDataRef.current[index] = { workers: data, suggestions: [] };
+        patchRow(index, {
+          operationTypeId: typeId,
+          operationName: ot?.name || 'Checking',
+          machineTypeId: undefined,
+          assignedWorkerId: admin?.id,
+        });
+      } catch (err) {
+        message.error(getErrorMessage(err));
+        patchRow(index, {
+          operationTypeId: typeId,
+          operationName: ot?.name || 'Checking',
+          machineTypeId: undefined,
+          assignedWorkerId: undefined,
+        });
+      }
+      return;
+    }
+
     const machineTypeId = ot?.defaultMachineTypeId || undefined;
     patchRow(index, {
       operationTypeId: typeId,
@@ -433,6 +509,15 @@ export default function JobOrderPlanningPage() {
   };
 
   const onMachineTypeChange = (index: number, machineTypeId?: string) => {
+    const row = operations[index];
+    if (
+      isCheckingType(
+        operationTypes.find((t) => t.id === row?.operationTypeId),
+        row?.operationName
+      )
+    ) {
+      return;
+    }
     patchRow(index, { machineTypeId, assignedWorkerId: undefined });
     void loadRowWorkers(index, machineTypeId);
     void loadSuggestions(index, {
@@ -444,17 +529,20 @@ export default function JobOrderPlanningPage() {
 
   const buildOperationsPayload = () =>
     operations.map((op, i) => {
-      const mt = machines.find((m) => m.id === op.machineTypeId || m.code === op.machineTypeId);
       const ot = operationTypes.find((t) => t.id === op.operationTypeId);
+      const checking = isCheckingType(ot, op.operationName);
+      const mt = checking
+        ? undefined
+        : machines.find((m) => m.id === op.machineTypeId || m.code === op.machineTypeId);
       return {
         id: op.id,
         sequenceNo: i + 1,
         operationTypeId: op.operationTypeId || null,
         operationName: op.operationName || ot?.name,
-        ...(mt?.id ? { machineTypeId: mt.id } : { machinesNeeded: mt ? [mt.code] : [] }),
+        ...(mt?.id ? { machineTypeId: mt.id } : { machinesNeeded: [] }),
         assignedWorkerId: op.assignedWorkerId || null,
         estimatedHours: op.estimatedHours ?? null,
-        machineUnitId: op.machineUnitId || null,
+        machineUnitId: checking ? null : op.machineUnitId || null,
         scheduledStart: op.scheduledStart || null,
         scheduledEnd: op.scheduledEnd || null,
         status: op.status || 'PENDING',
@@ -517,31 +605,23 @@ export default function JobOrderPlanningPage() {
     }
   };
 
-  const handleProposeSchedule = async () => {
-    if (!id || !job) return;
-    setProposing(true);
-    setError('');
-    try {
-      await jobOrdersApi.update(id, { operations: buildOperationsPayload() });
-      const { data } = await jobOrdersApi.proposeSchedule(id, {
-        operations: buildOperationsPayload(),
-      });
-      setScheduleOps(data.operations);
-      setScheduleMeta({
-        projectedCompletion: data.projectedCompletion,
-        scheduleFlag: data.scheduleFlag,
-      });
-      setScheduleWarnings({});
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setProposing(false);
-    }
-  };
-
   const handleScheduleOpChange = (sequenceNo: number, patch: Partial<ProposedOperation>) => {
     setScheduleOps((prev) =>
-      (prev || []).map((op) => (op.sequenceNo === sequenceNo ? { ...op, ...patch } : op))
+      (prev || []).map((op) => {
+        if (op.sequenceNo !== sequenceNo) return op;
+        const next: ProposedOperation = { ...op, ...patch };
+        // Rebuild a single display segment so the week view tracks edits live
+        // (scheduler multi-day segments are discarded once the admin edits).
+        if ('scheduledStart' in patch || 'scheduledEnd' in patch) {
+          if (next.scheduledStart && next.scheduledEnd) {
+            next.segments = [{ start: next.scheduledStart, end: next.scheduledEnd }];
+            next.scheduled = true;
+          } else {
+            next.segments = [];
+          }
+        }
+        return next;
+      })
     );
   };
 
@@ -652,33 +732,45 @@ export default function JobOrderPlanningPage() {
     {
       title: 'Machine',
       width: 180,
-      render: (_: unknown, record: OpFormRow, index: number) => (
-        <Select
-          allowClear
-          style={{ width: '100%' }}
-          placeholder="Machine"
-          value={record.machineTypeId}
-          disabled={readOnly}
-          options={machineOptionsForRow(machines, operations, index)}
-          onChange={(v) => onMachineTypeChange(index, v)}
-        />
-      ),
+      render: (_: unknown, record: OpFormRow, index: number) => {
+        const checking = isCheckingType(
+          operationTypes.find((t) => t.id === record.operationTypeId),
+          record.operationName
+        );
+        return (
+          <Select
+            allowClear={!checking}
+            style={{ width: '100%' }}
+            placeholder={checking ? 'No machine' : 'Machine'}
+            value={checking ? undefined : record.machineTypeId}
+            disabled={readOnly || checking}
+            options={machineOptionsForRow(machines, operations, index)}
+            onChange={(v) => onMachineTypeChange(index, v)}
+          />
+        );
+      },
     },
     {
       title: 'Worker',
       width: 200,
       render: (_: unknown, record: OpFormRow, index: number) => {
+        const checking = isCheckingType(
+          operationTypes.find((t) => t.id === record.operationTypeId),
+          record.operationName
+        );
         const qualifiedWorkers = rowWorkers[index] || [];
         const rowMachineId =
           record.machineTypeId ||
           operationTypes.find((t) => t.id === record.operationTypeId)?.defaultMachineTypeId;
         return (
           <Select
-            allowClear
+            allowClear={!checking}
             style={{ width: '100%' }}
-            placeholder={rowMachineId ? 'Qualified workers' : 'Assign worker'}
+            placeholder={
+              checking ? 'Admin (locked)' : rowMachineId ? 'Qualified workers' : 'Assign worker'
+            }
             value={record.assignedWorkerId}
-            disabled={readOnly}
+            disabled={readOnly || checking}
             options={workerOptions(qualifiedWorkers)}
             onChange={(v) => patchRow(index, { assignedWorkerId: v })}
           />
@@ -750,8 +842,11 @@ export default function JobOrderPlanningPage() {
     <div className="jo-form-page">
       <div className="jo-form-page__header">
         <Space wrap size={8}>
-          <Button icon={<ArrowLeftOutlined />} onClick={goBackStep}>
-            Back
+          <Button
+            icon={<ArrowLeftOutlined />}
+            onClick={() => navigate('/job-orders')}
+          >
+            Exit
           </Button>
           <div>
             <Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>
@@ -822,6 +917,19 @@ export default function JobOrderPlanningPage() {
           columns={columns}
           expandable={{
             expandedRowRender: (_record, index) => {
+              const row = operations[index];
+              if (
+                isCheckingType(
+                  operationTypes.find((t) => t.id === row?.operationTypeId),
+                  row?.operationName
+                )
+              ) {
+                return (
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    Checking is assigned to Admin and does not use a machine.
+                  </Text>
+                );
+              }
               const suggestions = rowSuggestions[index] || [];
               const qualifiedWorkers = rowWorkers[index] || [];
               if (!suggestions.length) return null;
@@ -924,7 +1032,7 @@ export default function JobOrderPlanningPage() {
 
         {wizardStep === 2 && !readOnly ? (
           <div className="jo-plan__footer">
-            <Button onClick={goBackStep}>Cancel</Button>
+            <Button onClick={goBackStep}>Back</Button>
             <Tooltip title={advanceTooltip}>
               <span>
                 <SplitActionButton
@@ -952,48 +1060,52 @@ export default function JobOrderPlanningPage() {
 
       {wizardStep === 3 ? (
       <div className="jo-plan__panel">
-        <div className="jo-plan__section-head">
-          <div>
-            <div className="jo-plan__section-title">Schedule</div>
-            <Text type="secondary" style={{ display: 'block', fontSize: 13 }}>
-              Review the proposed schedule, adjust times if needed, then release to production.
-            </Text>
-          </div>
-          {!readOnly && (
-            <Tooltip title={proposeTooltip}>
-              <span style={{ display: 'inline-block', flexShrink: 0 }}>
-                <Button
-                  icon={<CalendarOutlined />}
-                  loading={proposing}
-                  disabled={!canProposeSchedule}
-                  onClick={handleProposeSchedule}
-                  style={{ fontWeight: 600 }}
-                >
-                  {scheduleOps ? 'Re-propose Schedule' : 'Propose Schedule'}
-                </Button>
-              </span>
-            </Tooltip>
-          )}
-        </div>
+        <div className="jo-plan__section-title">Schedule</div>
+        <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 13 }}>
+          Review times and pick the specific machine unit for each operation. Changes show in the
+          week view immediately. Release when ready.
+        </Text>
 
         {scheduleOps ? (
           <>
             <ScheduleProposalPanel
               operations={scheduleOps}
+              machineUnits={machineUnits}
               projectedCompletion={scheduleMeta?.projectedCompletion}
               scheduleFlag={scheduleMeta?.scheduleFlag}
               warningsBySeq={scheduleWarnings}
               onChangeOp={handleScheduleOpChange}
               onBlurValidate={() => scheduleOps && runValidateSchedule(scheduleOps)}
+              readOnly={readOnly}
             />
-            <ScheduleExpandShell title="Week view" className="jo-plan__week-wrap">
-              <ScheduleWeekView
-                jobId={job.id}
-                jobNumber={job.jobNumber}
-                jobTitle={job.title}
-                operations={scheduleOps}
-                machineUnits={machineUnits}
-              />
+            <ScheduleExpandShell title="Week view" className="jo-plan__week-wrap" expandInBody>
+              {({ expandButton }) => (
+                <ScheduleWeekView
+                  jobId={job.id}
+                  jobNumber={job.jobNumber}
+                  jobTitle={job.title}
+                  operations={scheduleOps}
+                  machineUnits={machineUnits}
+                  expandButton={expandButton}
+                  scheduleColor={job.scheduleColor}
+                  colorPickerDisabled={readOnly}
+                  onScheduleColorChange={async (hex) => {
+                    const prev = job.scheduleColor;
+                    setJob({ ...job, scheduleColor: hex });
+                    try {
+                      const { data } = await jobOrdersApi.update(job.id, {
+                        scheduleColor: hex,
+                      });
+                      setJob((j) =>
+                        j ? { ...j, scheduleColor: data.scheduleColor ?? hex } : j
+                      );
+                    } catch (err) {
+                      setJob((j) => (j ? { ...j, scheduleColor: prev } : j));
+                      message.error(getErrorMessage(err));
+                    }
+                  }}
+                />
+              )}
             </ScheduleExpandShell>
           </>
         ) : (
@@ -1001,13 +1113,13 @@ export default function JobOrderPlanningPage() {
             type="info"
             showIcon
             style={{ marginTop: 12 }}
-            message="Propose a schedule to preview machine and worker timing before release."
+            message="Go back to Operations and use “View proposed schedule” to generate a first draft."
           />
         )}
 
         {wizardStep === 3 && !readOnly ? (
           <div className="jo-plan__footer">
-            <Button onClick={goBackStep}>Cancel</Button>
+            <Button onClick={goBackStep}>Back</Button>
             <Tooltip
               title={!canRelease ? 'Propose a schedule before releasing to production.' : undefined}
             >

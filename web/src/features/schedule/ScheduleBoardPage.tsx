@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Badge,
   Button,
@@ -32,11 +32,13 @@ import {
   TIMELINE_NAVY as NAVY,
   WORKING_HOURS_NOTE,
   buildWeekTimelineLayout,
+  clipSegmentToPeriod,
   dayColumnsForView,
   defaultShopDayWindows,
   leftPx,
   periodBounds,
   pxPerHour,
+  scaleWeekTimelineLayout,
   timelineWidth,
   widthPx,
   type TimelineViewMode,
@@ -192,7 +194,20 @@ export default function ScheduleBoardPage() {
 
   const summary = data?.summary;
   const isPhoneBoard = isMobile && !isWorker;
-  const weekLayout = useMemo(() => {
+  const boardScrollRef = useRef<HTMLDivElement>(null);
+  const [boardAvailW, setBoardAvailW] = useState(0);
+
+  useEffect(() => {
+    const el = boardScrollRef.current;
+    if (!el) return;
+    const measure = () => setBoardAvailW(el.clientWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [loading, data]);
+
+  const naturalWeekLayout = useMemo(() => {
     if (viewMode !== 'week') return null;
     const windows =
       data?.shopDayWindows && data.shopDayWindows.length > 0
@@ -200,6 +215,13 @@ export default function ScheduleBoardPage() {
         : defaultShopDayWindows(from, to);
     return buildWeekTimelineLayout(from, to, windows, isMobile);
   }, [viewMode, data?.shopDayWindows, from, to, isMobile]);
+
+  const weekLayout = useMemo(() => {
+    if (!naturalWeekLayout) return null;
+    const target = Math.max(naturalWeekLayout.totalWidth, Math.max(0, boardAvailW - labelW));
+    return scaleWeekTimelineLayout(naturalWeekLayout, target);
+  }, [naturalWeekLayout, boardAvailW, labelW]);
+
   const boardW = timelineWidth(from, to, viewMode, isMobile, weekLayout);
   const dayColumns = dayColumnsForView(from, to, viewMode, isMobile, weekLayout);
   const pph = pxPerHour(viewMode, isMobile);
@@ -511,6 +533,7 @@ export default function ScheduleBoardPage() {
       ) : (
         <ScheduleExpandShell collapsedMaxHeight={boardCollapsedMaxHeight}>
           <div
+            ref={boardScrollRef}
             className="sched-board-view"
             style={{
               border: `1px solid ${BORDER}`,
@@ -520,7 +543,7 @@ export default function ScheduleBoardPage() {
               WebkitOverflowScrolling: 'touch',
             }}
           >
-          <div style={{ minWidth: labelW + boardW }}>
+          <div style={{ minWidth: labelW + boardW, width: '100%' }}>
             <div
               style={{
                 display: 'flex',
@@ -658,41 +681,49 @@ export default function ScheduleBoardPage() {
                         />
                       ))}
 
-                      {dts.map((d) => (
-                        <Tooltip
-                          key={d.id}
-                          title={
-                            <div>
-                              <div style={{ fontWeight: 600 }}>Machine breakdown</div>
-                              <div>{d.reason}</div>
+                      {dts.flatMap((d) => {
+                        const clipped = clipSegmentToPeriod(
+                          d.segmentStart,
+                          d.segmentEnd,
+                          from,
+                          to
+                        );
+                        if (!clipped) return [];
+                        const barLeft = leftPx(clipped.start, ...posArgs);
+                        const barW = widthPx(clipped.start, clipped.end, ...posArgs);
+                        if (barLeft == null || barW == null || barW <= 0) return [];
+                        return [
+                          <Tooltip
+                            key={d.id}
+                            title={
                               <div>
-                                {formatShopDateTime(d.startedAt)} →{' '}
-                                {d.open ? 'still down' : formatShopDateTime(d.endedAt)}
+                                <div style={{ fontWeight: 600 }}>Machine breakdown</div>
+                                <div>{d.reason}</div>
+                                <div>
+                                  {formatShopDateTime(d.startedAt)} →{' '}
+                                  {d.open ? 'still down' : formatShopDateTime(d.endedAt)}
+                                </div>
                               </div>
-                            </div>
-                          }
-                        >
-                          <div
-                            style={{
-                              position: 'absolute',
-                              top: columnFill ? 0 : 4,
-                              height: columnFill ? rowH : rowH - 8,
-                              left: leftPx(d.segmentStart, ...posArgs),
-                              width: widthPx(
-                                d.segmentStart,
-                                d.segmentEnd,
-                                ...posArgs
-                              ),
-                              background:
-                                'repeating-linear-gradient(-45deg, #fecaca, #fecaca 4px, #fee2e2 4px, #fee2e2 8px)',
-                              border: '1px solid #f87171',
-                              borderRadius: columnFill ? 0 : 4,
-                              opacity: 0.9,
-                              zIndex: 1,
-                            }}
-                          />
-                        </Tooltip>
-                      ))}
+                            }
+                          >
+                            <div
+                              style={{
+                                position: 'absolute',
+                                top: columnFill ? 0 : 4,
+                                height: columnFill ? rowH : rowH - 8,
+                                left: barLeft,
+                                width: barW,
+                                background:
+                                  'repeating-linear-gradient(-45deg, #fecaca, #fecaca 4px, #fee2e2 4px, #fee2e2 8px)',
+                                border: '1px solid #f87171',
+                                borderRadius: columnFill ? 0 : 4,
+                                opacity: 0.9,
+                                zIndex: 1,
+                              }}
+                            />
+                          </Tooltip>,
+                        ];
+                      })}
 
                       {ops.flatMap((op) =>
                         (op.segments.length
@@ -700,10 +731,16 @@ export default function ScheduleBoardPage() {
                           : op.scheduledStart && op.scheduledEnd
                             ? [{ start: op.scheduledStart, end: op.scheduledEnd }]
                             : []
-                        ).map((seg, i) => {
-                          const color = STATUS_COLOR[op.status] || '#2563eb';
+                        ).flatMap((seg, i) => {
+                          const clipped = clipSegmentToPeriod(seg.start, seg.end, from, to);
+                          if (!clipped) return [];
+                          const barLeft = leftPx(clipped.start, ...posArgs);
+                          const barW = widthPx(clipped.start, clipped.end, ...posArgs);
+                          if (barLeft == null || barW == null || barW <= 0) return [];
+                          const color =
+                            op.scheduleColor || STATUS_COLOR[op.status] || '#2563eb';
                           const late = !!op.isLate;
-                          return (
+                          return [
                             <Tooltip
                               key={`${op.id}-${i}`}
                               title={
@@ -745,8 +782,8 @@ export default function ScheduleBoardPage() {
                                   position: 'absolute',
                                   top: columnFill ? 0 : 5,
                                   height: columnFill ? rowH : rowH - 10,
-                                  left: leftPx(seg.start, ...posArgs),
-                                  width: widthPx(seg.start, seg.end, ...posArgs),
+                                  left: barLeft,
+                                  width: barW,
                                   background: color,
                                   border: columnFill ? 'none' : late ? '2px solid #dc2626' : 'none',
                                   borderRadius: columnFill ? 0 : 4,
@@ -773,8 +810,8 @@ export default function ScheduleBoardPage() {
                                   ? op.operationName
                                   : `${op.operationName}${op.jobNumber ? ` · ${op.jobNumber}` : ''}`}
                               </button>
-                            </Tooltip>
-                          );
+                            </Tooltip>,
+                          ];
                         })
                       )}
                     </div>

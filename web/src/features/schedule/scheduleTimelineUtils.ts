@@ -32,7 +32,13 @@ export type WeekTimelineLayout = {
   pph: number;
 };
 
-export const CLOSED_DAY_WIDTH_PX = 28;
+/** Default Mon–Sat shop window used for equal week-column sizing. */
+const DEFAULT_DAY_START_MIN = 8 * 60;
+const DEFAULT_DAY_END_MIN = 17 * 60;
+
+function defaultWorkingDayWidth(pph: number): number {
+  return ((DEFAULT_DAY_END_MIN - DEFAULT_DAY_START_MIN) / 60) * pph;
+}
 
 export function periodBounds(anchor: Dayjs, mode: TimelineViewMode): { from: Dayjs; to: Dayjs } {
   const a = anchor.tz(SHOP_TZ);
@@ -84,43 +90,75 @@ export function buildWeekTimelineLayout(
 ): WeekTimelineLayout {
   const pph = pxPerHour('week', mobile);
   const byDate = new Map(windows.map((w) => [w.date, w]));
-  const days: WeekDayColumn[] = [];
-  let cursor = 0;
   const count = to.diff(from, 'day') + 1;
+  const draft: Omit<WeekDayColumn, 'left' | 'width'>[] = [];
+  let maxDayWidth = defaultWorkingDayWidth(pph);
 
   for (let i = 0; i < count; i++) {
     const d = from.add(i, 'day');
     const date = d.format('YYYY-MM-DD');
     const w = byDate.get(date);
     const isWorking = w?.isWorking ?? d.day() !== 0;
-    let startMinutes = 8 * 60;
-    let endMinutes = 17 * 60;
-    let width = CLOSED_DAY_WIDTH_PX;
+    let startMinutes = DEFAULT_DAY_START_MIN;
+    let endMinutes = DEFAULT_DAY_END_MIN;
     let durationHours = 0;
 
     if (isWorking && w?.startTime && w?.endTime) {
       startMinutes = parseHm(w.startTime);
       endMinutes = parseHm(w.endTime);
       durationHours = Math.max((endMinutes - startMinutes) / 60, 0);
-      width = durationHours * pph;
     } else if (isWorking) {
       durationHours = (endMinutes - startMinutes) / 60;
-      width = durationHours * pph;
     }
 
-    days.push({
+    if (durationHours > 0) {
+      maxDayWidth = Math.max(maxDayWidth, durationHours * pph);
+    }
+
+    draft.push({
       date,
-      left: cursor,
-      width,
       isWorking: isWorking && durationHours > 0,
       startMinutes,
       endMinutes,
       durationHours,
     });
-    cursor += width;
   }
 
-  return { days, totalWidth: cursor, pph };
+  // Equal columns for every day (including Sunday / closed).
+  const colW = maxDayWidth;
+  const refHours =
+    draft.find((d) => d.isWorking && d.durationHours > 0)?.durationHours ||
+    (DEFAULT_DAY_END_MIN - DEFAULT_DAY_START_MIN) / 60;
+  const scaledPph = colW / refHours;
+
+  const days: WeekDayColumn[] = [];
+  let cursor = 0;
+  for (const d of draft) {
+    days.push({ ...d, left: cursor, width: colW });
+    cursor += colW;
+  }
+
+  return { days, totalWidth: cursor, pph: scaledPph };
+}
+
+/** Stretch a week layout to fill a wider container while keeping equal columns. */
+export function scaleWeekTimelineLayout(
+  layout: WeekTimelineLayout,
+  targetWidth: number
+): WeekTimelineLayout {
+  if (targetWidth <= layout.totalWidth + 0.5 || layout.totalWidth <= 0 || layout.days.length === 0) {
+    return layout;
+  }
+  const scale = targetWidth / layout.totalWidth;
+  return {
+    pph: layout.pph * scale,
+    totalWidth: targetWidth,
+    days: layout.days.map((d) => ({
+      ...d,
+      left: d.left * scale,
+      width: d.width * scale,
+    })),
+  };
 }
 
 export function timelineWidth(
@@ -162,11 +200,14 @@ export function leftPx(
   mode: TimelineViewMode,
   mobile: boolean,
   weekLayout?: WeekTimelineLayout | null
-): number {
+): number | null {
   const t = dayjs(iso).tz(SHOP_TZ);
   if (mode === 'week' && weekLayout) {
     const day = weekDayForInstant(t, weekLayout);
-    if (!day || !day.isWorking) return day?.left ?? 0;
+    // Outside the visible week — never fall back to left:0 (that pinned
+    // Sep 8/9 ops onto Mon Aug 31).
+    if (!day) return null;
+    if (!day.isWorking) return day.left;
     const minutes = shopMinutes(t);
     const clamped = Math.min(Math.max(minutes, day.startMinutes), day.endMinutes);
     const offsetHours = (clamped - day.startMinutes) / 60;
@@ -174,6 +215,7 @@ export function leftPx(
   }
 
   const dayIndex = t.startOf('day').diff(from.startOf('day'), 'day');
+  if (dayIndex < 0) return null;
   const pph = pxPerHour(mode, mobile);
   return dayIndex * dayWidthPx(mode, mobile) + shopHourOffset(t) * pph;
 }
@@ -185,13 +227,14 @@ export function widthPx(
   mode: TimelineViewMode,
   mobile: boolean,
   weekLayout?: WeekTimelineLayout | null
-): number {
+): number | null {
   const start = dayjs(startIso).tz(SHOP_TZ);
   const end = dayjs(endIso).tz(SHOP_TZ);
 
   if (mode === 'week' && weekLayout) {
     const startDay = weekDayForInstant(start, weekLayout);
-    if (!startDay || !startDay.isWorking) return 4;
+    if (!startDay) return null;
+    if (!startDay.isWorking) return Math.max(startDay.width, 4);
 
     if (start.startOf('day').isSame(end.startOf('day'))) {
       const startMinutes = Math.min(
@@ -207,11 +250,13 @@ export function widthPx(
     }
 
     const left = leftPx(startIso, from, mode, mobile, weekLayout);
+    if (left == null) return null;
     const dayEndPx = startDay.left + startDay.width;
     return Math.max(dayEndPx - left, 4);
   }
 
   const left = leftPx(startIso, from, mode, mobile, weekLayout);
+  if (left == null) return null;
   const pph = pxPerHour(mode, mobile);
   const dayW = dayWidthPx(mode, mobile);
 
@@ -231,6 +276,31 @@ export function weekStartFromIsoDates(isoDates: string[]): Dayjs {
     .filter((d) => d.isValid());
   if (!dates.length) return dayjs().tz(SHOP_TZ).startOf('week').add(1, 'day');
   return dates.reduce((a, b) => (a.isBefore(b) ? a : b));
+}
+
+/**
+ * Clip a segment to the visible timeline period. Returns null when there is
+ * no overlap — callers must skip rendering (never place at left:0).
+ */
+export function clipSegmentToPeriod(
+  startIso: string,
+  endIso: string,
+  from: Dayjs,
+  to: Dayjs
+): { start: string; end: string } | null {
+  const start = dayjs(startIso).tz(SHOP_TZ);
+  const end = dayjs(endIso).tz(SHOP_TZ);
+  if (!start.isValid() || !end.isValid() || !end.isAfter(start)) return null;
+
+  const rangeStart = from.tz(SHOP_TZ).startOf('day');
+  const rangeEnd = to.tz(SHOP_TZ).endOf('day');
+  if (end.isBefore(rangeStart) || !start.isBefore(rangeEnd)) return null;
+
+  const clippedStart = start.isBefore(rangeStart) ? rangeStart : start;
+  const clippedEnd = end.isAfter(rangeEnd) ? rangeEnd : end;
+  if (!clippedEnd.isAfter(clippedStart)) return null;
+
+  return { start: clippedStart.toISOString(), end: clippedEnd.toISOString() };
 }
 
 export type TimelineDayColumn = {

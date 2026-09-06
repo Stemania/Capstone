@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Tooltip } from 'antd';
 import type { Dayjs } from 'dayjs';
 import type {
@@ -14,10 +14,12 @@ import {
   TIMELINE_NAVY,
   WORKING_HOURS_NOTE,
   buildWeekTimelineLayout,
+  clipSegmentToPeriod,
   dayColumnsForView,
   defaultShopDayWindows,
   leftPx,
   pxPerHour,
+  scaleWeekTimelineLayout,
   timelineWidth,
   widthPx,
   type TimelineViewMode,
@@ -66,6 +68,8 @@ type Props = {
   downtimes?: ScheduleBoardDowntime[];
   rowMode?: 'machine' | 'worker';
   highlightJobId?: string;
+  /** Bar color for highlightJobId when set (planning week view). */
+  highlightColor?: string | null;
   isMobile?: boolean;
   maxHeight?: string;
   onOperationClick?: (op: ScheduleBoardOperation) => void;
@@ -83,6 +87,7 @@ export default function ScheduleTimelineBoard({
   downtimes = [],
   rowMode = 'machine',
   highlightJobId,
+  highlightColor,
   isMobile = false,
   maxHeight,
   onOperationClick,
@@ -92,7 +97,20 @@ export default function ScheduleTimelineBoard({
 }: Props) {
   const labelW = isMobile ? 96 : 168;
   const rowH = isMobile ? 36 : 40;
-  const weekLayout = useMemo(() => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [availW, setAvailW] = useState(0);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setAvailW(el.clientWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const naturalWeekLayout = useMemo(() => {
     if (viewMode !== 'week') return null;
     const windows =
       shopDayWindows && shopDayWindows.length > 0
@@ -100,6 +118,13 @@ export default function ScheduleTimelineBoard({
         : defaultShopDayWindows(from, to);
     return buildWeekTimelineLayout(from, to, windows, isMobile);
   }, [viewMode, shopDayWindows, from, to, isMobile]);
+
+  const weekLayout = useMemo(() => {
+    if (!naturalWeekLayout) return null;
+    const target = Math.max(naturalWeekLayout.totalWidth, Math.max(0, availW - labelW));
+    return scaleWeekTimelineLayout(naturalWeekLayout, target);
+  }, [naturalWeekLayout, availW, labelW]);
+
   const boardW = timelineWidth(from, to, viewMode, isMobile, weekLayout);
   const dayColumns = dayColumnsForView(from, to, viewMode, isMobile, weekLayout);
   const pph = pxPerHour(viewMode, isMobile);
@@ -129,6 +154,7 @@ export default function ScheduleTimelineBoard({
 
   return (
     <div
+      ref={scrollRef}
       className="sched-timeline"
       style={{
         border: `1px solid ${TIMELINE_BORDER}`,
@@ -139,7 +165,7 @@ export default function ScheduleTimelineBoard({
         WebkitOverflowScrolling: 'touch',
       }}
     >
-      <div style={{ minWidth: labelW + boardW }}>
+      <div style={{ minWidth: labelW + boardW, width: '100%' }}>
         <div
           style={{
             display: 'flex',
@@ -279,52 +305,65 @@ export default function ScheduleTimelineBoard({
                     />
                   ))}
 
-                  {dts.map((d) => (
-                    <Tooltip
-                      key={d.id}
-                      title={
-                        <div>
-                          <div style={{ fontWeight: 600 }}>Machine breakdown</div>
-                          <div>{d.reason}</div>
+                  {dts.flatMap((d) => {
+                    const clipped = clipSegmentToPeriod(
+                      d.segmentStart,
+                      d.segmentEnd,
+                      from,
+                      to
+                    );
+                    if (!clipped) return [];
+                    const barLeft = leftPx(clipped.start, ...posArgs);
+                    const barW = widthPx(clipped.start, clipped.end, ...posArgs);
+                    if (barLeft == null || barW == null || barW <= 0) return [];
+                    return [
+                      <Tooltip
+                        key={d.id}
+                        title={
                           <div>
-                            {formatShopDateTime(d.startedAt)} →{' '}
-                            {d.open ? 'still down' : formatShopDateTime(d.endedAt)}
+                            <div style={{ fontWeight: 600 }}>Machine breakdown</div>
+                            <div>{d.reason}</div>
+                            <div>
+                              {formatShopDateTime(d.startedAt)} →{' '}
+                              {d.open ? 'still down' : formatShopDateTime(d.endedAt)}
+                            </div>
                           </div>
-                        </div>
-                      }
-                    >
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: columnFill ? 0 : 4,
-                          height: columnFill ? rowH : rowH - 8,
-                          left: leftPx(d.segmentStart, ...posArgs),
-                          width: widthPx(
-                            d.segmentStart,
-                            d.segmentEnd,
-                            ...posArgs
-                          ),
-                          background:
-                            'repeating-linear-gradient(-45deg, #fecaca, #fecaca 4px, #fee2e2 4px, #fee2e2 8px)',
-                          border: '1px solid #f87171',
-                          borderRadius: columnFill ? 0 : 4,
-                          opacity: 0.9,
-                          zIndex: 1,
-                        }}
-                      />
-                    </Tooltip>
-                  ))}
+                        }
+                      >
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: columnFill ? 0 : 4,
+                            height: columnFill ? rowH : rowH - 8,
+                            left: barLeft,
+                            width: barW,
+                            background:
+                              'repeating-linear-gradient(-45deg, #fecaca, #fecaca 4px, #fee2e2 4px, #fee2e2 8px)',
+                            border: '1px solid #f87171',
+                            borderRadius: columnFill ? 0 : 4,
+                            opacity: 0.9,
+                            zIndex: 1,
+                          }}
+                        />
+                      </Tooltip>,
+                    ];
+                  })}
 
                   {ops.flatMap((op) =>
-                    segmentsForOp(op).map((seg, i) => {
+                    segmentsForOp(op).flatMap((seg, i) => {
+                      const clipped = clipSegmentToPeriod(seg.start, seg.end, from, to);
+                      if (!clipped) return [];
+                      const barLeft = leftPx(clipped.start, ...posArgs);
+                      const barW = widthPx(clipped.start, clipped.end, ...posArgs);
+                      if (barLeft == null || barW == null || barW <= 0) return [];
+
                       const isThisJob =
                         planningHighlight && op.jobOrderId === highlightJobId;
-                      const barW = widthPx(seg.start, seg.end, ...posArgs);
                       const color = isThisJob
-                        ? THIS_JOB_COLOR
+                        ? highlightColor || op.scheduleColor || THIS_JOB_COLOR
                         : planningHighlight
-                          ? OTHER_JOB_COLOR
-                          : STATUS_COLOR[op.status] || '#2563eb';
+                          ? op.scheduleColor || OTHER_JOB_COLOR
+                          : op.scheduleColor || STATUS_COLOR[op.status] || '#2563eb';
                       const late = !!op.isLate;
                       const label =
                         isThisJob && barW >= 28
@@ -368,7 +407,7 @@ export default function ScheduleTimelineBoard({
                         position: 'absolute' as const,
                         top: columnFill ? 0 : 5,
                         height: columnFill ? rowH : rowH - 10,
-                        left: leftPx(seg.start, ...posArgs),
+                        left: barLeft,
                         width: barW,
                         background: color,
                         border: columnFill
@@ -441,7 +480,14 @@ export default function ScheduleTimelineBoard({
         {showLegend ? (
           <div className="jo-week-view__legend">
             <span className="jo-week-view__legend-item">
-              <span className="jo-week-view__legend-swatch jo-week-view__legend-swatch--this" />
+              <span
+                className="jo-week-view__legend-swatch jo-week-view__legend-swatch--this"
+                style={
+                  highlightColor
+                    ? { background: highlightColor, borderColor: highlightColor }
+                    : undefined
+                }
+              />
               This job (labelled)
             </span>
             <span className="jo-week-view__legend-item">

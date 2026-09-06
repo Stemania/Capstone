@@ -1,5 +1,5 @@
-import { DatePicker, Tag, Typography } from 'antd';
-import type { ProposedOperation, ScheduleFlag, ScheduleWarning } from '../../types';
+import { DatePicker, Select, Tag, Typography } from 'antd';
+import type { MachineUnitInfo, ProposedOperation, ScheduleFlag, ScheduleWarning } from '../../types';
 import {
   formatShopDateTime,
   isoToShopDayjs,
@@ -12,11 +12,13 @@ const NAVY = '#0f1c2e';
 
 type Props = {
   operations: ProposedOperation[];
+  machineUnits: MachineUnitInfo[];
   projectedCompletion?: string | null;
   scheduleFlag?: ScheduleFlag | null;
   warningsBySeq: Record<number, ScheduleWarning[]>;
   onChangeOp: (sequenceNo: number, patch: Partial<ProposedOperation>) => void;
   onBlurValidate: () => void;
+  readOnly?: boolean;
 };
 
 function FlagBadge({ flag }: { flag: ScheduleFlag | null | undefined }) {
@@ -42,13 +44,22 @@ function FlagBadge({ flag }: { flag: ScheduleFlag | null | undefined }) {
   );
 }
 
+function unitsForOp(op: ProposedOperation, units: MachineUnitInfo[]) {
+  if (!op.machineTypeId) return [];
+  return units
+    .filter((u) => u.machineTypeId === op.machineTypeId && u.active !== false)
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
 export default function ScheduleProposalPanel({
   operations,
+  machineUnits,
   projectedCompletion,
   scheduleFlag,
   warningsBySeq,
   onChangeOp,
   onBlurValidate,
+  readOnly = false,
 }: Props) {
   return (
     <div className="jo-plan__schedule">
@@ -67,18 +78,22 @@ export default function ScheduleProposalPanel({
             </Text>
           ) : null}
         </div>
-        <Tag style={{ margin: 0 }}>Preview only — not saved yet</Tag>
+        <Tag style={{ margin: 0 }}>Edits update the week view live — not saved until release</Tag>
       </div>
 
       <div className="jo-plan__schedule-table">
         <div className="jo-plan__schedule-row jo-plan__schedule-row--head">
           <div className="jo-plan__schedule-op">Operation</div>
+          <div className="jo-plan__schedule-field">Machine unit</div>
           <div className="jo-plan__schedule-field">Start</div>
           <div className="jo-plan__schedule-field">End</div>
         </div>
 
         {operations.map((op) => {
           const warnings = warningsBySeq[op.sequenceNo] || [];
+          const unitOptions = unitsForOp(op, machineUnits);
+          const needsMachine = Boolean(op.machineTypeId);
+
           return (
             <div
               key={op.sequenceNo}
@@ -93,9 +108,6 @@ export default function ScheduleProposalPanel({
                     <Tag color="default" style={{ margin: 0, fontSize: 11 }}>
                       1.0h assumed
                     </Tag>
-                  ) : null}
-                  {op.machineUnitLabel ? (
-                    <Tag style={{ margin: 0, fontSize: 11 }}>{op.machineUnitLabel}</Tag>
                   ) : null}
                 </div>
                 {!op.scheduled && op.message ? (
@@ -114,6 +126,31 @@ export default function ScheduleProposalPanel({
                 ) : null}
               </div>
 
+              <div className="jo-plan__schedule-field" data-label="Machine unit">
+                {needsMachine ? (
+                  <Select
+                    size="small"
+                    style={{ width: '100%' }}
+                    placeholder="Select unit"
+                    allowClear
+                    disabled={readOnly}
+                    value={op.machineUnitId || undefined}
+                    options={unitOptions.map((u) => ({ value: u.id, label: u.label }))}
+                    onChange={(unitId) => {
+                      const unit = unitOptions.find((u) => u.id === unitId);
+                      onChangeOp(op.sequenceNo, {
+                        machineUnitId: unitId || null,
+                        machineUnitLabel: unit?.label || null,
+                      });
+                    }}
+                  />
+                ) : (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    No machine
+                  </Text>
+                )}
+              </div>
+
               {op.scheduled ? (
                 <>
                   <div className="jo-plan__schedule-field" data-label="Start">
@@ -122,6 +159,7 @@ export default function ScheduleProposalPanel({
                       format="MMM D, YYYY HH:mm"
                       size="small"
                       style={{ width: '100%' }}
+                      disabled={readOnly}
                       value={isoToShopDayjs(op.scheduledStart)}
                       onChange={(v) => {
                         onChangeOp(op.sequenceNo, {
@@ -137,6 +175,7 @@ export default function ScheduleProposalPanel({
                       format="MMM D, YYYY HH:mm"
                       size="small"
                       style={{ width: '100%' }}
+                      disabled={readOnly}
                       value={isoToShopDayjs(op.scheduledEnd)}
                       onChange={(v) => {
                         onChangeOp(op.sequenceNo, {
