@@ -89,7 +89,10 @@ class User(db.Model):
         }
         if include_profile and self.worker_profile:
             data["workerProfile"] = self.worker_profile.to_dict()
-        elif include_profile and self.role == UserRole.PRODUCTION_WORKER:
+        elif include_profile and self.role in (
+            UserRole.PRODUCTION_WORKER,
+            UserRole.ADMIN,
+        ):
             data["workerProfile"] = {
                 "id": None,
                 "userId": self.id,

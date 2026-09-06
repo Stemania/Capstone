@@ -1,5 +1,7 @@
 from datetime import datetime, time
 
+from sqlalchemy.orm import joinedload
+
 from app.extensions import db
 from app.models.machine import MachineType
 from app.models.user import User, UserRole
@@ -12,6 +14,10 @@ from app.models.worker_skill import (
     WorkerSkill,
 )
 from app.utils.errors import AppError
+
+# Production workers always; Admins only when they have a WorkerProfile
+# (so the Production In-charge can be scheduled for Checking, etc.).
+ASSIGNABLE_ROLES = (UserRole.PRODUCTION_WORKER, UserRole.ADMIN)
 
 
 def _parse_time(value):
@@ -33,8 +39,35 @@ def _parse_date(value):
     return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
 
 
+def is_assignable_worker(user: User | None) -> bool:
+    """True if this user can be assigned to a job operation."""
+    if not user or not user.active:
+        return False
+    if user.role == UserRole.PRODUCTION_WORKER:
+        return True
+    if user.role == UserRole.ADMIN and user.worker_profile is not None:
+        return True
+    return False
+
+
+def query_assignable_workers():
+    """Active production workers plus Admins who have a worker profile."""
+    return (
+        User.query.options(joinedload(User.worker_profile))
+        .outerjoin(WorkerProfile, WorkerProfile.user_id == User.id)
+        .filter(
+            User.active.is_(True),
+            db.or_(
+                User.role == UserRole.PRODUCTION_WORKER,
+                db.and_(User.role == UserRole.ADMIN, WorkerProfile.id.isnot(None)),
+            ),
+        )
+        .order_by(User.full_name)
+    )
+
+
 def ensure_worker_profile(user):
-    if user.role != UserRole.PRODUCTION_WORKER:
+    if user.role not in ASSIGNABLE_ROLES:
         return
     if not user.worker_profile:
         db.session.add(WorkerProfile(user_id=user.id))
@@ -43,7 +76,7 @@ def ensure_worker_profile(user):
 
 def get_worker_or_404(worker_id):
     user = User.query.get(worker_id)
-    if not user or user.role != UserRole.PRODUCTION_WORKER:
+    if not user or not is_assignable_worker(user):
         raise AppError("Worker not found", "NOT_FOUND", 404)
     return user
 

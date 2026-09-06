@@ -39,7 +39,7 @@ def assign_operation(operation_id):
 
 @operations_bp.route("/<operation_id>/start", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.PRODUCTION_WORKER)
+@require_roles(UserRole.ADMIN, UserRole.PRODUCTION_WORKER)
 def start_operation(operation_id):
     operation = JobOperation.query.get(operation_id)
     if not operation:
@@ -56,7 +56,7 @@ def start_operation(operation_id):
 
 @operations_bp.route("/<operation_id>/pause", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.PRODUCTION_WORKER)
+@require_roles(UserRole.ADMIN, UserRole.PRODUCTION_WORKER)
 def pause_operation(operation_id):
     operation = JobOperation.query.get(operation_id)
     if not operation:
@@ -80,7 +80,7 @@ def pause_operation(operation_id):
 
 @operations_bp.route("/<operation_id>/resume", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.PRODUCTION_WORKER)
+@require_roles(UserRole.ADMIN, UserRole.PRODUCTION_WORKER)
 def resume_operation(operation_id):
     operation = JobOperation.query.get(operation_id)
     if not operation:
@@ -98,7 +98,7 @@ def resume_operation(operation_id):
 
 @operations_bp.route("/<operation_id>/complete", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.PRODUCTION_WORKER)
+@require_roles(UserRole.ADMIN, UserRole.PRODUCTION_WORKER)
 def complete_operation(operation_id):
     operation = JobOperation.query.get(operation_id)
     if not operation:

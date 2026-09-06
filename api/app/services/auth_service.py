@@ -1,6 +1,5 @@
 from app.extensions import bcrypt, db
 from app.models.user import User, UserRole, UserStatus
-from app.models.worker_profile import WorkerProfile
 from app.services.audit_service import write_audit_event
 from app.services.device_pin_service import revoke_all_devices_for_user
 from app.utils.errors import AppError
@@ -112,8 +111,10 @@ def update_user(user, data):
         revoke_all_devices_for_user(user.id)
         return user
 
-    if user.role == UserRole.PRODUCTION_WORKER and not user.worker_profile:
-        db.session.add(WorkerProfile(user_id=user.id))
+    from app.services.worker_profile_service import ensure_worker_profile
+
+    if user.role in (UserRole.PRODUCTION_WORKER, UserRole.ADMIN):
+        ensure_worker_profile(user)
 
     db.session.commit()
     return user

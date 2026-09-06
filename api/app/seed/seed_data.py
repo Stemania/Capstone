@@ -186,6 +186,12 @@ def seed_database():
     _ensure_scoring_weights()
     inventory_tools = _ensure_inventory_catalog()
     if User.query.first():
+        # Backfill Production In-charge assignability on already-seeded DBs.
+        for admin in User.query.filter_by(role=UserRole.ADMIN, active=True).all():
+            if not admin.worker_profile:
+                db.session.add(WorkerProfile(user_id=admin.id))
+            if not WorkerSchedule.query.filter_by(worker_id=admin.id).first():
+                db.session.add_all(_default_schedule(admin.id))
         print("Database already seeded, skipping.")
         db.session.commit()
         return
@@ -251,6 +257,13 @@ def seed_database():
 
     db.session.add_all([admin, office] + [w for w, _ in workers])
     db.session.flush()
+
+    # Production In-charge can be assigned to Checking (and other no-machine
+    # ops). Skills are machine-typed; Checking has no machine, so Admin is
+    # included via the no-machine "all assignable workers" path once they
+    # have a profile + schedule.
+    db.session.add(WorkerProfile(user_id=admin.id))
+    db.session.add_all(_default_schedule(admin.id))
 
     for w, skill_tokens in workers:
         db.session.add(WorkerProfile(user_id=w.id))

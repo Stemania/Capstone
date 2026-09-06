@@ -10,6 +10,7 @@ from app.models.user import User, UserRole
 from app.models.worker_skill import WorkerSkill
 from app.services.scoring_service import WEIGHT_KEYS, load_scoring_weights, validate_weights_sum
 from app.services.worker_availability import get_busy_workers
+from app.services.worker_profile_service import query_assignable_workers
 from app.services.worker_suggestion_service import suggest_workers
 
 workers_bp = Blueprint("workers", __name__)
@@ -28,13 +29,15 @@ def list_workers():
         end=scheduled_end,
         exclude_operation_id=exclude_operation_id,
     )
-    query = User.query.filter_by(role=UserRole.PRODUCTION_WORKER, active=True)
+    query = query_assignable_workers()
     if machine_type_id:
-        # Only workers with a WorkerSkill row for this machine type
+        # Only workers with a WorkerSkill row for this machine type.
+        # No-machine ops (e.g. Checking) skip this filter so Admin + all
+        # production workers appear.
         query = query.join(WorkerSkill, WorkerSkill.worker_id == User.id).filter(
             WorkerSkill.machine_type_id == machine_type_id
         )
-    workers = query.order_by(User.full_name).all()
+    workers = query.all()
     result = []
     for w in workers:
         data = w.to_dict(include_profile=True, include_skills=True)

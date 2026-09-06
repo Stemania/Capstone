@@ -1,7 +1,6 @@
 """Rank production workers with weighted scoring components."""
 
 from app.models.machine import MachineType
-from app.models.user import User, UserRole
 from app.models.worker_skill import OperationType, WorkerSkill
 from app.services.scoring_service import (
     build_reason,
@@ -16,6 +15,7 @@ from app.services.scoring_service import (
     worker_week_load_hours,
 )
 from app.services.worker_availability import get_busy_workers
+from app.services.worker_profile_service import query_assignable_workers
 
 
 def _resolve_machine_type_id(
@@ -106,8 +106,7 @@ def suggest_workers(
             skill_by_worker[skill.worker_id] = skill
 
     workers = (
-        User.query.filter_by(role=UserRole.PRODUCTION_WORKER, active=True)
-        .order_by(User.full_name)
+        query_assignable_workers()
         .all()
     )
 

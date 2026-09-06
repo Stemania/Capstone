@@ -34,6 +34,7 @@ import type {
   JobPriority,
   NotificationLog,
   Operation,
+  OperationPauseReason,
   OperationStatus,
 } from '../../types';
 import { formatDifferenceFromTarget } from '../analytics/analyticsPeriod';
@@ -98,6 +99,15 @@ const NOTIF_STATUS_LABEL: Record<string, string> = {
   FAILED: 'Failed',
   SKIPPED: 'Skipped',
 };
+
+const PAUSE_REASONS: { value: OperationPauseReason; label: string }[] = [
+  { value: 'END_OF_SHIFT', label: 'End of shift' },
+  { value: 'BREAK', label: 'Break' },
+  { value: 'MACHINE_DOWN', label: 'Machine down' },
+  { value: 'WAITING_MATERIAL', label: 'Waiting for material' },
+  { value: 'WAITING_PRIOR_OPERATION', label: 'Waiting on prior operation' },
+  { value: 'OTHER', label: 'Other' },
+];
 
 const NOTIF_CHANNEL_LABEL: Record<string, string> = {
   EMAIL: 'Email',
@@ -172,7 +182,7 @@ function cardStyle(extra?: CSSProperties): CSSProperties {
 export default function JobOrderDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { isAdmin, isOfficeStaff, isWorker } = useAuth();
+  const { user, isAdmin, isOfficeStaff, isWorker } = useAuth();
   const canManage = isAdmin || isOfficeStaff;
 
   if (isWorker && id) {
@@ -182,6 +192,8 @@ export default function JobOrderDetailPage() {
   const [job, setJob] = useState<JobOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [reworkLoading, setReworkLoading] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [pauseForOp, setPauseForOp] = useState<Operation | null>(null);
   const [delivering, setDelivering] = useState(false);
   const [notifications, setNotifications] = useState<NotificationLog[] | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
@@ -315,6 +327,43 @@ export default function JobOrderDetailPage() {
     });
   };
 
+  const runOpAction = async (op: Operation, action: 'start' | 'resume' | 'complete') => {
+    setActionLoading(op.id);
+    try {
+      const ts = new Date().toISOString();
+      if (action === 'start') await operationsApi.start(op.id, ts);
+      else if (action === 'resume') await operationsApi.resume(op.id, ts);
+      else await operationsApi.complete(op.id, ts);
+      message.success(
+        action === 'start'
+          ? 'Operation started'
+          : action === 'resume'
+            ? 'Operation resumed'
+            : 'Operation completed',
+      );
+      await fetchJob();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const confirmPause = async (reason: OperationPauseReason) => {
+    if (!pauseForOp) return;
+    setActionLoading(pauseForOp.id);
+    try {
+      await operationsApi.pause(pauseForOp.id, reason, undefined, new Date().toISOString());
+      message.success('Operation paused');
+      setPauseForOp(null);
+      await fetchJob();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleDeliver = async () => {
     if (!job) return;
     setDelivering(true);
@@ -403,7 +452,7 @@ export default function JobOrderDetailPage() {
           {canManage && (
             <Button
               icon={<EditOutlined />}
-              onClick={() => navigate(`/job-orders/${job.id}/edit`)}
+              onClick={() => navigate(`/job-orders/${job.id}/edit?step=1`)}
             >
               {isDraft ? 'Edit PO' : 'Edit'}
             </Button>
@@ -557,6 +606,11 @@ export default function JobOrderDetailPage() {
           const active = op.status === 'IN_PROGRESS';
           const isLast = index === ops.length - 1;
           const opSt = OP_STATUS[op.status] || OP_STATUS.PENDING;
+          const isMine = op.assignedWorkerId === user?.id;
+          const canStart =
+            isMine &&
+            (op.status === 'PENDING' || op.status === 'SCHEDULED' || op.status === 'REWORK') &&
+            ops.slice(0, index).every((o) => o.status === 'COMPLETED');
           const machine =
             op.machineUnitLabel ||
             op.machineTypeName ||
@@ -718,6 +772,50 @@ export default function JobOrderDetailPage() {
                   ]}
                 />
 
+                {isMine && (canStart || active) && (
+                  <Space wrap style={{ marginTop: 10 }}>
+                    {canStart && (
+                      <Button
+                        type="primary"
+                        size="small"
+                        loading={actionLoading === op.id}
+                        onClick={() => runOpAction(op, 'start')}
+                      >
+                        Start
+                      </Button>
+                    )}
+                    {active && !op.isPaused && (
+                      <>
+                        <Button
+                          size="small"
+                          loading={actionLoading === op.id}
+                          onClick={() => setPauseForOp(op)}
+                        >
+                          Pause
+                        </Button>
+                        <Button
+                          type="primary"
+                          size="small"
+                          loading={actionLoading === op.id}
+                          onClick={() => runOpAction(op, 'complete')}
+                        >
+                          Complete
+                        </Button>
+                      </>
+                    )}
+                    {active && op.isPaused && (
+                      <Button
+                        type="primary"
+                        size="small"
+                        loading={actionLoading === op.id}
+                        onClick={() => runOpAction(op, 'resume')}
+                      >
+                        Resume
+                      </Button>
+                    )}
+                  </Space>
+                )}
+
                 {canManage && op.status === 'COMPLETED' && (
                   <Button
                     size="small"
@@ -736,6 +834,31 @@ export default function JobOrderDetailPage() {
           <Text type="secondary">No operations on this job yet.</Text>
         )}
       </div>
+
+      <Modal
+        open={Boolean(pauseForOp)}
+        title="Pause operation"
+        onCancel={() => setPauseForOp(null)}
+        footer={null}
+        destroyOnHidden
+        centered
+      >
+        <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+          Why are you pausing {pauseForOp?.operationName || 'this operation'}?
+        </Text>
+        <Space direction="vertical" style={{ width: '100%' }} size={8}>
+          {PAUSE_REASONS.map((r) => (
+            <Button
+              key={r.value}
+              block
+              loading={actionLoading === pauseForOp?.id}
+              onClick={() => confirmPause(r.value)}
+            >
+              {r.label}
+            </Button>
+          ))}
+        </Space>
+      </Modal>
 
       <div style={cardStyle({ marginBottom: 16 })}>
         <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 12 }}>

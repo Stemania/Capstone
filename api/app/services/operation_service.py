@@ -64,11 +64,12 @@ def list_my_operations(worker_id):
 
 def _assert_worker_owns(operation, user_id, user_role):
     check_job_access(operation.job_order, user_id, user_role)
-    if user_role == UserRole.PRODUCTION_WORKER.value:
-        if operation.assigned_worker_id != user_id:
-            raise AppError(
-                "You can only update operations assigned to you", "FORBIDDEN", 403
-            )
+    # Assignment-gated for every role (including Admin): only the assignee
+    # may start/pause/resume/complete.
+    if operation.assigned_worker_id != user_id:
+        raise AppError(
+            "You can only update operations assigned to you", "FORBIDDEN", 403
+        )
 
 
 def _append_log(operation, worker_id, event, event_at, reason=None, note=None):
