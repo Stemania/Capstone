@@ -261,23 +261,6 @@ export default function JobOrderPlanningPage() {
     ? operationsMissingItems.join('; ')
     : undefined;
 
-  const operationsMissingWorkers = useMemo(
-    () =>
-      operations
-        .map((op, index) => {
-          if (op.assignedWorkerId) return null;
-          const name =
-            op.operationName ||
-            operationTypes.find((t) => t.id === op.operationTypeId)?.name ||
-            `Operation ${index + 1}`;
-          return { index: index + 1, name };
-        })
-        .filter((x): x is { index: number; name: string } => x != null),
-    [operations, operationTypes]
-  );
-
-  const canProposeSchedule = operations.length > 0 && operationsMissingWorkers.length === 0;
-
   const loadRowWorkers = async (
     rowIndex: number,
     machineTypeId?: string | null,
