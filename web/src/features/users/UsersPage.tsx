@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Table, Button, Modal, Form, Input, Select, Dropdown, message, Spin, Alert,
+  Table, Button, Modal, Form, Input, Select, Dropdown, message, Spin, Tooltip,
 } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
   PlusOutlined,
   UserAddOutlined,
   SearchOutlined,
-  CheckSquareOutlined,
   MoreOutlined,
   StopOutlined,
   CheckCircleOutlined,
@@ -15,6 +14,7 @@ import {
 import { usersApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
+import SelectMultipleIcon from '../../components/SelectMultipleIcon';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import type { User, UserRole } from '../../types';
 
@@ -270,13 +270,6 @@ export default function UsersPage() {
 
   return (
     <div className="std-list-page">
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="Users are disabled, not deleted"
-        description="Disable stops sign-in but keeps production history, time logs, and audit records. Re-enable restores access."
-      />
       <div className="std-list-toolbar">
         <div className="std-list-filters">
           <Input
@@ -316,21 +309,22 @@ export default function UsersPage() {
           />
         </div>
         <div className="std-list-actions">
-          <Button
-            icon={<CheckSquareOutlined />}
-            type={selectMode ? 'primary' : 'default'}
-            ghost={selectMode}
-            onClick={() => {
-              if (selectMode) {
-                setSelectMode(false);
-                setSelectedKeys([]);
-              } else {
-                setSelectMode(true);
-              }
-            }}
-          >
-            {selectMode ? 'Done selecting' : 'Select multiple'}
-          </Button>
+          <Tooltip title={selectMode ? 'Done selecting' : 'Select multiple'}>
+            <Button
+              icon={<SelectMultipleIcon />}
+              type={selectMode ? 'primary' : 'default'}
+              ghost={selectMode}
+              aria-label={selectMode ? 'Done selecting' : 'Select multiple'}
+              onClick={() => {
+                if (selectMode) {
+                  setSelectMode(false);
+                  setSelectedKeys([]);
+                } else {
+                  setSelectMode(true);
+                }
+              }}
+            />
+          </Tooltip>
           <Button
             type="primary"
             icon={<PlusOutlined />}

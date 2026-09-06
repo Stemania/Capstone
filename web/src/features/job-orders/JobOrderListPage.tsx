@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Table, Button, Typography, Select, Dropdown, Input, Space, Spin, message, Drawer, Badge, Segmented } from 'antd';
+import { Table, Button, Typography, Select, Dropdown, Input, Space, Spin, message, Drawer, Badge, Segmented, Modal, Tooltip } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
   PlusOutlined,
@@ -7,10 +7,9 @@ import {
   CheckOutlined,
   PrinterOutlined,
   EyeOutlined,
-  CalendarOutlined,
+  DeleteOutlined,
   MoreOutlined,
   SearchOutlined,
-  CheckSquareOutlined,
   FilterOutlined,
   CloseOutlined,
 } from '@ant-design/icons';
@@ -20,6 +19,7 @@ import { scheduleFlagStyle } from '../../utils/shopTime';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
+import SelectMultipleIcon from '../../components/SelectMultipleIcon';
 import { useAuth } from '../../hooks/useAuth';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import type { JobOrder, JobOrderStatus, JobPriority } from '../../types';
@@ -46,11 +46,6 @@ const priorityStyle: Record<JobPriority, { label: string; color: PillColor }> = 
   MODERATE: { label: 'Moderate', color: 'amber' },
   LOW: { label: 'Low', color: 'green' },
 };
-
-function formatAmount(n?: number | null) {
-  if (n == null) return '—';
-  return `₱${Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
 
 function isJobOverdue(job: JobOrder) {
   return (
@@ -198,34 +193,90 @@ export default function JobOrderListPage() {
     });
   };
 
+  const handleBulkDeleteDrafts = () => {
+    if (!selectedJobs.length) {
+      message.info('Select drafts to delete.');
+      return;
+    }
+    const count = selectedJobs.length;
+    Modal.confirm({
+      title: count === 1 ? 'Delete this draft?' : `Delete ${count} drafts?`,
+      content: 'Selected drafts will be permanently removed. This cannot be undone.',
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          for (const job of selectedJobs) {
+            await jobOrdersApi.delete(job.id);
+          }
+          message.success(count === 1 ? 'Draft deleted' : `${count} drafts deleted`);
+          setSelectedKeys([]);
+          await fetchJobs();
+        } catch (err) {
+          message.error(getErrorMessage(err));
+          throw err;
+        }
+      },
+    });
+  };
+
   const jobActionItems = (record: JobOrder): MenuProps['items'] => {
     const isDraft = record.status === 'DRAFT';
+
+    if (isDraft) {
+      const items: MenuProps['items'] = [];
+      if (isOfficeStaff || isAdmin) {
+        items.push({
+          key: 'edit',
+          icon: <EditOutlined />,
+          label: 'Edit',
+          onClick: () => navigate(draftOpenPath(record)),
+        });
+        items.push({
+          key: 'delete',
+          icon: <DeleteOutlined />,
+          label: 'Delete',
+          danger: true,
+          onClick: () => {
+            Modal.confirm({
+              title: 'Delete this draft?',
+              content: `${record.jobNumber || 'This draft'} will be permanently removed. This cannot be undone.`,
+              okText: 'Delete',
+              okType: 'danger',
+              cancelText: 'Cancel',
+              onOk: async () => {
+                try {
+                  await jobOrdersApi.delete(record.id);
+                  message.success('Draft deleted');
+                  setSelectedKeys((keys) => keys.filter((k) => k !== record.id));
+                  await fetchJobs();
+                } catch (err) {
+                  message.error(getErrorMessage(err));
+                  throw err;
+                }
+              },
+            });
+          },
+        });
+      }
+      return items;
+    }
+
     const items: MenuProps['items'] = [
       {
         key: 'view',
         icon: <EyeOutlined />,
-        label: isDraft ? 'Continue' : 'View',
-        onClick: () =>
-          navigate(isDraft ? draftOpenPath(record) : `/job-orders/${record.id}`),
+        label: 'View',
+        onClick: () => navigate(`/job-orders/${record.id}`),
       },
     ];
-    if (isDraft && isAdmin) {
-      items.push({
-        key: 'plan',
-        icon: <CalendarOutlined />,
-        label: 'Plan operations',
-        onClick: () => navigate(`/job-orders/${record.id}/plan`),
-      });
-    }
     if (isOfficeStaff || isAdmin) {
       items.push({
         key: 'edit',
         icon: <EditOutlined />,
-        label: isDraft ? 'Edit PO' : 'Edit',
-        onClick: () =>
-          navigate(
-            isDraft ? `/job-orders/${record.id}/edit` : `/job-orders/${record.id}/edit`
-          ),
+        label: 'Edit',
+        onClick: () => navigate(`/job-orders/${record.id}/edit?step=1`),
       });
     }
     items.push({
@@ -282,6 +333,7 @@ export default function JobOrderListPage() {
       title: 'Client',
       dataIndex: 'clientName',
       key: 'clientName',
+      width: 168,
       ellipsis: true,
       sorter: (a, b) => (a.clientName || '').localeCompare(b.clientName || ''),
       render: (v: string | undefined) => (
@@ -289,27 +341,20 @@ export default function JobOrderListPage() {
       ),
     },
     {
-      title: 'Qty',
-      key: 'quantity',
-      width: 72,
-      sorter: (a, b) => (a.quantity ?? 0) - (b.quantity ?? 0),
-      render: (_: unknown, record) => (
-        <span style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
-          {record.quantity != null
-            ? `${record.quantity}${record.unitOfMeasure ? ` ${record.unitOfMeasure}` : ''}`
-            : '—'}
-        </span>
-      ),
-    },
-    {
-      title: 'Amount',
-      dataIndex: 'amount',
-      key: 'amount',
-      width: 100,
-      sorter: (a, b) => (a.amount ?? 0) - (b.amount ?? 0),
-      render: (a: number | null | undefined) => (
-        <span style={{ fontSize: 13, whiteSpace: 'nowrap' }}>{formatAmount(a)}</span>
-      ),
+      title: 'Date last modified',
+      dataIndex: 'updatedAt',
+      key: 'updatedAt',
+      width: 148,
+      sorter: (a, b) =>
+        dayjs(a.updatedAt || a.createdAt).valueOf() - dayjs(b.updatedAt || b.createdAt).valueOf(),
+      render: (_: string | null | undefined, record) => {
+        const d = record.updatedAt || record.createdAt;
+        return (
+          <span style={{ fontSize: 13, whiteSpace: 'nowrap', color: '#0f172a' }}>
+            {d && dayjs(d).isValid() ? dayjs(d).format('MMM D, YYYY') : '—'}
+          </span>
+        );
+      },
     },
     {
       title: 'Priority',
@@ -518,7 +563,7 @@ export default function JobOrderListPage() {
                 onClick={toggleSelectMode}
                 aria-label={selectMode ? 'Done selecting' : 'Select multiple'}
               >
-                <CheckOutlined />
+                <SelectMultipleIcon />
               </button>
               <Badge count={activeFilterCount} size="small" offset={[-4, 4]} className="sched-m__filter">
                 <button
@@ -549,23 +594,37 @@ export default function JobOrderListPage() {
           {selectMode ? (
             <div className="jo-m__bulk">
               <span className="jo-m__bulk-count">{selectedKeys.length} selected</span>
-              <Button
-                size="small"
-                icon={<PrinterOutlined />}
-                disabled={!selectedJobs.length}
-                onClick={handleBulkPrint}
-              >
-                Print
-              </Button>
-              <Button
-                size="small"
-                icon={<CheckOutlined />}
-                loading={delivering}
-                disabled={!selectedCompletable.length}
-                onClick={handleBulkDeliver}
-              >
-                Deliver{selectedCompletable.length ? ` (${selectedCompletable.length})` : ''}
-              </Button>
+              {listTab === 'drafts' ? (
+                <Button
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  disabled={!selectedJobs.length}
+                  onClick={handleBulkDeleteDrafts}
+                >
+                  Delete{selectedJobs.length ? ` (${selectedJobs.length})` : ''}
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    size="small"
+                    icon={<PrinterOutlined />}
+                    disabled={!selectedJobs.length}
+                    onClick={handleBulkPrint}
+                  >
+                    Print
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<CheckOutlined />}
+                    loading={delivering}
+                    disabled={!selectedCompletable.length}
+                    onClick={handleBulkDeliver}
+                  >
+                    Deliver{selectedCompletable.length ? ` (${selectedCompletable.length})` : ''}
+                  </Button>
+                </>
+              )}
             </div>
           ) : null}
         </div>
@@ -620,14 +679,15 @@ export default function JobOrderListPage() {
           />
         </div>
         <div className="jo-list-actions">
-          <Button
-            icon={<CheckSquareOutlined />}
-            type={selectMode ? 'primary' : 'default'}
-            ghost={selectMode}
-            onClick={toggleSelectMode}
-          >
-            {selectMode ? 'Done selecting' : 'Select multiple'}
-          </Button>
+          <Tooltip title={selectMode ? 'Done selecting' : 'Select multiple'}>
+            <Button
+              icon={<SelectMultipleIcon />}
+              type={selectMode ? 'primary' : 'default'}
+              ghost={selectMode}
+              onClick={toggleSelectMode}
+              aria-label={selectMode ? 'Done selecting' : 'Select multiple'}
+            />
+          </Tooltip>
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -650,23 +710,37 @@ export default function JobOrderListPage() {
               : ''}
           </span>
           <Space size={8}>
-            <Button
-              size="small"
-              icon={<PrinterOutlined />}
-              disabled={!selectedJobs.length}
-              onClick={handleBulkPrint}
-            >
-              Print
-            </Button>
-            <Button
-              size="small"
-              icon={<CheckOutlined />}
-              loading={delivering}
-              disabled={!selectedCompletable.length}
-              onClick={handleBulkDeliver}
-            >
-              Mark delivered{selectedCompletable.length ? ` (${selectedCompletable.length})` : ''}
-            </Button>
+            {listTab === 'drafts' ? (
+              <Button
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                disabled={!selectedJobs.length}
+                onClick={handleBulkDeleteDrafts}
+              >
+                Delete{selectedJobs.length ? ` (${selectedJobs.length})` : ''}
+              </Button>
+            ) : (
+              <>
+                <Button
+                  size="small"
+                  icon={<PrinterOutlined />}
+                  disabled={!selectedJobs.length}
+                  onClick={handleBulkPrint}
+                >
+                  Print
+                </Button>
+                <Button
+                  size="small"
+                  icon={<CheckOutlined />}
+                  loading={delivering}
+                  disabled={!selectedCompletable.length}
+                  onClick={handleBulkDeliver}
+                >
+                  Mark delivered{selectedCompletable.length ? ` (${selectedCompletable.length})` : ''}
+                </Button>
+              </>
+            )}
             {selectedKeys.length > 0 && (
               <Button size="small" type="text" onClick={() => setSelectedKeys([])}>
                 Clear
@@ -737,7 +811,14 @@ export default function JobOrderListPage() {
                     </div>
                   </div>
                   <div className="admin-card__row">
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#0f1c2e' }}>{formatAmount(job.amount)}</span>
+                    <span style={{ fontSize: 12, color: '#64748b' }}>
+                      {(() => {
+                        const d = job.updatedAt || job.createdAt;
+                        return d && dayjs(d).isValid()
+                          ? `Modified ${dayjs(d).format('MMM D, YYYY')}`
+                          : '—';
+                      })()}
+                    </span>
                     <StatusPill color={pri.color} compact>
                       {pri.label}
                     </StatusPill>

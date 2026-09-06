@@ -17,13 +17,13 @@ import {
   Col,
   Spin,
   message,
+  Tooltip,
 } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
   PlusOutlined,
   SearchOutlined,
   DownloadOutlined,
-  CheckSquareOutlined,
   MoreOutlined,
   QrcodeOutlined,
   AppstoreAddOutlined,
@@ -31,6 +31,7 @@ import {
 import dayjs, { type Dayjs } from 'dayjs';
 import { inventoryApi, toolsApi } from '../../api/tools.api';
 import StatusPill from '../../components/StatusPill';
+import SelectMultipleIcon from '../../components/SelectMultipleIcon';
 import type {
   InventoryPurchaseSuggestions,
   InventoryUsageByItem,
@@ -351,21 +352,22 @@ export default function ToolsPage() {
               />
             </div>
             <div className="std-list-actions">
-              <Button
-                icon={<CheckSquareOutlined />}
-                type={selectMode ? 'primary' : 'default'}
-                ghost={selectMode}
-                onClick={() => {
-                  if (selectMode) {
-                    setSelectMode(false);
-                    setSelectedKeys([]);
-                  } else {
-                    setSelectMode(true);
-                  }
-                }}
-              >
-                {selectMode ? 'Done selecting' : 'Select multiple'}
-              </Button>
+              <Tooltip title={selectMode ? 'Done selecting' : 'Select multiple'}>
+                <Button
+                  icon={<SelectMultipleIcon />}
+                  type={selectMode ? 'primary' : 'default'}
+                  ghost={selectMode}
+                  aria-label={selectMode ? 'Done selecting' : 'Select multiple'}
+                  onClick={() => {
+                    if (selectMode) {
+                      setSelectMode(false);
+                      setSelectedKeys([]);
+                    } else {
+                      setSelectMode(true);
+                    }
+                  }}
+                />
+              </Tooltip>
               <Button
                 icon={<DownloadOutlined />}
                 onClick={() =>
