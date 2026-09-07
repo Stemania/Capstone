@@ -18,6 +18,7 @@ export const NAV_SECTIONS = [
   '/reports',
   '/schedule',
   '/machines',
+  '/work-calendar',
   '/clients',
   '/tools',
   '/users',

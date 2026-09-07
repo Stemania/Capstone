@@ -23,6 +23,7 @@ import ToolsPage from '../features/tool-tracking/ToolsPage';
 import ScanToolPage from '../features/tool-tracking/ScanToolPage';
 import ClientsPage from '../features/clients/ClientsPage';
 import MachinesPage from '../features/machines/MachinesPage';
+import WorkCalendarPage from '../features/calendar/WorkCalendarPage';
 import ScheduleBoardPage from '../features/schedule/ScheduleBoardPage';
 import ReportsHubPage from '../features/reports/ReportsHubPage';
 import EfficiencyReportPage from '../features/reports/EfficiencyReportPage';
@@ -112,6 +113,7 @@ export default function AppRoutes() {
                     <Route path="/tools" element={<ToolsPage />} />
                     <Route path="/clients" element={<ClientsPage />} />
                     <Route path="/machines" element={<MachinesPage />} />
+                    <Route path="/work-calendar" element={<WorkCalendarPage />} />
                     <Route path="/reports" element={<ReportsHubPage />} />
                     <Route path="/reports/efficiency" element={<EfficiencyReportPage />} />
                     <Route path="/reports/inventory" element={<InventoryReportPage />} />

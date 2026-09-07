@@ -15,6 +15,7 @@ import {
   MenuOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  FieldTimeOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -41,6 +42,10 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
     title: 'Machines',
     subtitle: 'Machine units, breakdowns, and who reported them',
   },
+  '/work-calendar': {
+    title: 'Work calendar',
+    subtitle: 'Shop-wide overtime, special days, and holidays',
+  },
   '/reports': {
     title: 'Reports',
     subtitle: 'Printable production performance, inventory, and worker reports',
@@ -50,7 +55,7 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
     subtitle: 'How the shop is doing — time, sales, and what is coming',
   },
   '/users': { title: 'Users & Roles', subtitle: 'Manage accounts, roles, and who can sign in' },
-  '/tools': { title: 'Inventory', subtitle: 'Stock levels, QR codes, and usage' },
+  '/tools': { title: 'Inventory', subtitle: 'Tools and consumables' },
   '/worker-setup': {
     title: 'Worker setup',
     subtitle: 'Skills, weekly hours, and how the shop ranks workers',
@@ -117,6 +122,7 @@ export default function AppLayout() {
       { key: '/schedule', icon: <CalendarOutlined />, label: 'Schedule' },
       { key: '/job-orders', icon: <FileTextOutlined />, label: 'Job Orders' },
       { key: '/machines', icon: <BuildOutlined />, label: 'Machines' },
+      { key: '/work-calendar', icon: <FieldTimeOutlined />, label: 'Work calendar' },
       { key: '/clients', icon: <ContactsOutlined />, label: 'Clients' },
       { key: '/reports', icon: <FileSearchOutlined />, label: 'Reports' },
       { key: '/analytics', icon: <BarChartOutlined />, label: 'Analytics' },

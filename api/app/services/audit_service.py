@@ -19,6 +19,7 @@ from app.models.operation import JobOperation
 from app.models.operation_time import MachineDowntime, OperationTimeLog
 from app.models.tool import Tool
 from app.models.user import User
+from app.models.worker_skill import WorkCalendarException
 
 
 _REGISTERED = False
@@ -167,6 +168,7 @@ def register_audit_listeners():
         MachineDowntime,
         Client,
         NotificationLog,
+        WorkCalendarException,
     ):
         event.listen(model, "after_insert", _after_insert)
         event.listen(model, "after_update", _after_update)
