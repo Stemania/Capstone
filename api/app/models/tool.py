@@ -21,14 +21,16 @@ def _num(v):
 
 
 class ToolCategory(enum.Enum):
+    """Legacy RETURNABLE_TOOL kept for DB enum compatibility; new stock is CONSUMABLE only."""
+
     RETURNABLE_TOOL = "RETURNABLE_TOOL"
     CONSUMABLE = "CONSUMABLE"
 
 
 class Tool(db.Model):
     """
-    Inventory item TYPE (one QR per type), not a single physical piece.
-    Table name remains `tools` for migration simplicity.
+    Consumable inventory item (stocktake model).
+    Individually tracked tools live in tool_types / tool_units.
     """
 
     __tablename__ = "tools"
@@ -39,7 +41,7 @@ class Tool(db.Model):
     category = db.Column(
         db.Enum(ToolCategory),
         nullable=False,
-        default=ToolCategory.RETURNABLE_TOOL,
+        default=ToolCategory.CONSUMABLE,
         index=True,
     )
     unit = db.Column(db.String(32), nullable=False, default="pcs")
@@ -78,18 +80,8 @@ class Tool(db.Model):
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }
         if include_custody:
-            from app.services.tool_event_service import (
-                get_current_custody,
-                list_outstanding_holders,
-                worker_outstanding_quantity,
-            )
-
-            # Legacy single-holder field: first outstanding holder, if any
-            holders = list_outstanding_holders(self.id)
-            data["holders"] = holders
-            data["custody"] = get_current_custody(self.id)
+            data["holders"] = []
+            data["custody"] = None
             if worker_id:
-                data["myOutstanding"] = _num(
-                    worker_outstanding_quantity(self.id, worker_id)
-                )
+                data["myOutstanding"] = 0
         return data

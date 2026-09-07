@@ -1,4 +1,4 @@
-"""Inventory purchase suggestions and usage analytics (read-only aggregations)."""
+"""Inventory purchase suggestions and usage analytics."""
 
 from __future__ import annotations
 
@@ -6,11 +6,12 @@ from collections import defaultdict
 from datetime import date, time, timedelta
 from decimal import Decimal
 
-from sqlalchemy import case, func
+from sqlalchemy import func
 
 from app.extensions import db
 from app.models.tool import Tool, ToolCategory
 from app.models.tool_event import ToolEvent, ToolEventType
+from app.models.tool_type import ToolType, ToolUnit, ToolUnitStatus
 from app.models.user import User
 from app.services.schedule_calendar import shop_local_to_utc, shop_now
 from app.utils.errors import AppError
@@ -55,55 +56,31 @@ def _working_days(d_from: date, d_to: date) -> int:
     return n
 
 
-def consumption_qty_expr():
-    """Quantity that leaves stock: ISSUE full, BORROW full (RETURN is restock)."""
-    return case(
-        (
-            ToolEvent.type.in_([ToolEventType.ISSUE, ToolEventType.BORROW]),
-            ToolEvent.quantity,
-        ),
-        else_=0,
-    )
-
-
-def item_consumption_rate(tool_id, start_utc, end_utc, working_days):
-    total = (
-        db.session.query(func.coalesce(func.sum(consumption_qty_expr()), 0))
-        .filter(
-            ToolEvent.tool_id == tool_id,
-            ToolEvent.created_at >= start_utc,
-            ToolEvent.created_at < end_utc,
-            ToolEvent.type.in_([ToolEventType.ISSUE, ToolEventType.BORROW]),
-        )
-        .scalar()
-    )
-    total = float(total or 0)
-    per_day = (total / working_days) if working_days else None
-    return total, per_day
-
-
 def purchase_suggestions(lookback_days=30):
-    """
-    Low-stock items with suggested order qty and recent consumption.
-    Suggestion only — never places an order.
-    """
+    """Low-stock consumables only (tools are individual units, not qty reorder)."""
+    from app.services import stocktake_service as st_svc
+
     today = shop_now().date()
     period_from = today - timedelta(days=max(1, int(lookback_days)) - 1)
     period_to = today
-    start_utc = shop_local_to_utc(period_from, time(0, 0))
-    end_utc = shop_local_to_utc(period_to + timedelta(days=1), time(0, 0))
     wd = _working_days(period_from, period_to)
 
     items = []
-    for tool in Tool.query.order_by(Tool.name).all():
+    for tool in (
+        Tool.query.filter_by(category=ToolCategory.CONSUMABLE).order_by(Tool.name).all()
+    ):
         if tool.minimum_stock is None:
             continue
         on_hand = Decimal(str(tool.quantity_on_hand or 0))
         minimum = Decimal(str(tool.minimum_stock))
         if on_hand > minimum:
             continue
-        consumed, per_day = item_consumption_rate(tool.id, start_utc, end_utc, wd)
-        # Restock toward 2× minimum, at least the shortfall
+
+        consumed, pair_wd = st_svc.consumable_consumption_in_period(
+            tool.id, period_from, period_to
+        )
+        rate_days = pair_wd or wd
+        per_day = (consumed / rate_days) if rate_days else None
         target = minimum * 2
         suggested = max(minimum - on_hand, target - on_hand, Decimal("0"))
         items.append(
@@ -120,13 +97,14 @@ def purchase_suggestions(lookback_days=30):
                 "recentConsumptionQuantity": _num(consumed),
                 "consumptionPerWorkingDay": _num(per_day, 4),
                 "lookbackWorkingDays": wd,
+                "consumptionSource": "STOCKTAKE",
             }
         )
     items.sort(key=lambda r: (r["quantityOnHand"] or 0) / max(r["minimumStock"] or 1, 1e-9))
     return {
         "label": "purchaseSuggestions",
         "description": (
-            "Low-stock inventory suggestions for Office review. "
+            "Low-stock consumable suggestions from stocktakes. "
             "Not an automatic purchase order."
         ),
         "period": {"from": period_from.isoformat(), "to": period_to.isoformat()},
@@ -137,6 +115,7 @@ def purchase_suggestions(lookback_days=30):
 
 
 def usage_by_worker(from_s=None, to_s=None):
+    """Per-unit borrow/return activity (individually tracked tools)."""
     period_from, period_to, start_utc, end_utc = _parse_period(from_s, to_s)
     wd = _working_days(period_from, period_to)
 
@@ -144,92 +123,81 @@ def usage_by_worker(from_s=None, to_s=None):
         ToolEvent.query.filter(
             ToolEvent.created_at >= start_utc,
             ToolEvent.created_at < end_utc,
-            ToolEvent.type.in_(
-                [ToolEventType.ISSUE, ToolEventType.BORROW, ToolEventType.RETURN]
-            ),
-        )
-        .all()
+            ToolEvent.tool_unit_id.isnot(None),
+            ToolEvent.type.in_([ToolEventType.BORROW, ToolEventType.RETURN]),
+        ).all()
     )
 
-    # (worker_id, tool_id) -> stats
     buckets = defaultdict(
         lambda: {
-            "issueQty": 0.0,
             "borrowQty": 0.0,
             "returnQty": 0.0,
             "eventCount": 0,
-            "tool": None,
+            "unit": None,
             "worker": None,
         }
     )
     for ev in events:
-        key = (ev.worker_id, ev.tool_id)
+        key = (ev.worker_id, ev.tool_unit_id)
         st = buckets[key]
         st["eventCount"] += 1
-        st["tool"] = ev.tool
+        st["unit"] = ev.tool_unit
         st["worker"] = ev.worker
         q = float(ev.quantity or 0)
-        if ev.type == ToolEventType.ISSUE:
-            st["issueQty"] += q
-        elif ev.type == ToolEventType.BORROW:
+        if ev.type == ToolEventType.BORROW:
             st["borrowQty"] += q
         elif ev.type == ToolEventType.RETURN:
             st["returnQty"] += q
 
     rows = []
-    for (wid, tid), st in buckets.items():
-        tool = st["tool"]
+    for (wid, _uid), st in buckets.items():
+        unit = st["unit"]
         worker = st["worker"]
-        consumed = st["issueQty"] + st["borrowQty"]
         rows.append(
             {
                 "workerId": wid,
                 "workerName": worker.full_name if worker else None,
-                "toolId": tid,
-                "toolName": tool.name if tool else None,
-                "toolCode": tool.code if tool else None,
-                "category": tool.category.value if tool and tool.category else None,
-                "sizeSpec": tool.size_spec if tool else None,
-                "unit": tool.unit if tool else None,
+                "toolUnitId": unit.id if unit else None,
+                "toolId": unit.id if unit else None,
+                "toolName": unit.tool_type.name if unit and unit.tool_type else None,
+                "toolCode": unit.asset_code if unit else None,
+                "assetCode": unit.asset_code if unit else None,
+                "category": "TOOL_UNIT",
+                "sizeSpec": None,
+                "unit": "pcs",
                 "eventCount": st["eventCount"],
-                "issueQuantity": _num(st["issueQty"]),
                 "borrowQuantity": _num(st["borrowQty"]),
                 "returnQuantity": _num(st["returnQty"]),
-                "netConsumptionQuantity": _num(consumed),
+                "netBorrowQuantity": _num(st["borrowQty"]),
             }
         )
-    rows.sort(key=lambda r: (-(r["netConsumptionQuantity"] or 0), r["workerName"] or ""))
-
-    # Outstanding unreturned (current, not period-bound)
-    from app.services.tool_event_service import worker_outstanding_quantity
+    rows.sort(key=lambda r: (-(r["netBorrowQuantity"] or 0), r["workerName"] or ""))
 
     outstanding = []
-    returnable = Tool.query.filter_by(category=ToolCategory.RETURNABLE_TOOL).all()
-    all_workers = User.query.all()
-    for worker in all_workers:
-        total_out = 0.0
-        by_item = []
-        for tool in returnable:
-            q = float(worker_outstanding_quantity(tool.id, worker.id))
-            if q > 0:
-                total_out += q
-                by_item.append(
+    out_units = ToolUnit.query.filter_by(status=ToolUnitStatus.OUT).all()
+    by_worker = defaultdict(list)
+    for u in out_units:
+        if not u.current_holder_id:
+            continue
+        by_worker[u.current_holder_id].append(u)
+    for wid, units in by_worker.items():
+        user = User.query.get(wid)
+        outstanding.append(
+            {
+                "workerId": wid,
+                "workerName": user.full_name if user else None,
+                "totalOutstandingQuantity": _num(len(units)),
+                "items": [
                     {
-                        "toolId": tool.id,
-                        "toolName": tool.name,
-                        "toolCode": tool.code,
-                        "quantity": _num(q),
+                        "toolId": u.id,
+                        "toolName": u.tool_type.name if u.tool_type else u.asset_code,
+                        "toolCode": u.asset_code,
+                        "quantity": 1,
                     }
-                )
-        if total_out > 0:
-            outstanding.append(
-                {
-                    "workerId": worker.id,
-                    "workerName": worker.full_name,
-                    "totalOutstandingQuantity": _num(total_out),
-                    "items": by_item,
-                }
-            )
+                    for u in units
+                ],
+            }
+        )
     outstanding.sort(key=lambda r: -(r["totalOutstandingQuantity"] or 0))
 
     return {
@@ -241,33 +209,69 @@ def usage_by_worker(from_s=None, to_s=None):
 
 
 def usage_by_item(from_s=None, to_s=None):
+    """Borrow counts per tool type in period."""
     period_from, period_to, start_utc, end_utc = _parse_period(from_s, to_s)
     wd = _working_days(period_from, period_to)
 
-    tools = Tool.query.order_by(Tool.name).all()
+    types = ToolType.query.order_by(ToolType.name).all()
+    rows = []
+    for tt in types:
+        unit_ids = [u.id for u in tt.units]
+        if not unit_ids:
+            borrow_qty = 0.0
+        else:
+            borrow_qty = float(
+                db.session.query(func.coalesce(func.sum(ToolEvent.quantity), 0))
+                .filter(
+                    ToolEvent.tool_unit_id.in_(unit_ids),
+                    ToolEvent.created_at >= start_utc,
+                    ToolEvent.created_at < end_utc,
+                    ToolEvent.type == ToolEventType.BORROW,
+                )
+                .scalar()
+                or 0
+            )
+        per_day = (borrow_qty / wd) if wd else None
+        rows.append(
+            {
+                "toolId": tt.id,
+                "name": tt.name,
+                "code": tt.code,
+                "category": "TOOL_UNIT",
+                "sizeSpec": None,
+                "unit": "pcs",
+                "quantityOnHand": tt.to_dict()["availableCount"],
+                "minimumStock": None,
+                "lowStock": False,
+                "borrowQuantity": _num(borrow_qty),
+                "consumptionQuantity": _num(borrow_qty),
+                "consumptionPerWorkingDay": _num(per_day, 4),
+            }
+        )
+    rows.sort(key=lambda r: -(r["consumptionQuantity"] or 0))
+    return {
+        "period": {"from": period_from.isoformat(), "to": period_to.isoformat()},
+        "workingDaysInPeriod": wd,
+        "items": rows,
+    }
+
+
+def usage_consumables(from_s=None, to_s=None):
+    from app.services import stocktake_service as st_svc
+
+    period_from, period_to, _start_utc, _end_utc = _parse_period(from_s, to_s)
+    wd = _working_days(period_from, period_to)
+
+    tools = (
+        Tool.query.filter_by(category=ToolCategory.CONSUMABLE).order_by(Tool.name).all()
+    )
     rows = []
     for tool in tools:
-        consumed, per_day = item_consumption_rate(tool.id, start_utc, end_utc, wd)
-        issue_qty = (
-            db.session.query(func.coalesce(func.sum(ToolEvent.quantity), 0))
-            .filter(
-                ToolEvent.tool_id == tool.id,
-                ToolEvent.created_at >= start_utc,
-                ToolEvent.created_at < end_utc,
-                ToolEvent.type == ToolEventType.ISSUE,
-            )
-            .scalar()
+        consumed, pair_wd = st_svc.consumable_consumption_in_period(
+            tool.id, period_from, period_to
         )
-        borrow_qty = (
-            db.session.query(func.coalesce(func.sum(ToolEvent.quantity), 0))
-            .filter(
-                ToolEvent.tool_id == tool.id,
-                ToolEvent.created_at >= start_utc,
-                ToolEvent.created_at < end_utc,
-                ToolEvent.type == ToolEventType.BORROW,
-            )
-            .scalar()
-        )
+        rate_days = pair_wd or wd
+        per_day = (consumed / rate_days) if rate_days else None
         rows.append(
             {
                 "toolId": tool.id,
@@ -279,15 +283,18 @@ def usage_by_item(from_s=None, to_s=None):
                 "quantityOnHand": _num(tool.quantity_on_hand),
                 "minimumStock": _num(tool.minimum_stock),
                 "lowStock": tool.low_stock,
-                "issueQuantity": _num(issue_qty),
-                "borrowQuantity": _num(borrow_qty),
                 "consumptionQuantity": _num(consumed),
-                "consumptionPerWorkingDay": _num(per_day, 4),
+                "consumptionPerWorkingDay": _num(per_day, 4) if per_day is not None else None,
+                "stocktakeWorkingDays": pair_wd,
             }
         )
     rows.sort(key=lambda r: -(r["consumptionQuantity"] or 0))
     return {
         "period": {"from": period_from.isoformat(), "to": period_to.isoformat()},
         "workingDaysInPeriod": wd,
+        "note": (
+            "Consumable usage is measured between stocktakes, not per person. "
+            "Consumption = previous count + deliveries − current count."
+        ),
         "items": rows,
     }

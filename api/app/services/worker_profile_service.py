@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 from sqlalchemy.orm import joinedload
 
@@ -227,8 +227,32 @@ def replace_worker_schedules(worker_id, schedule_payload):
     return list_worker_schedules(worker_id)
 
 
-def list_calendar_exceptions():
-    return WorkCalendarException.query.order_by(WorkCalendarException.date.desc()).all()
+def list_calendar_exceptions(from_s=None, to_s=None):
+    q = WorkCalendarException.query
+    d0 = _parse_date(from_s)
+    d1 = _parse_date(to_s)
+    if d0:
+        q = q.filter(WorkCalendarException.date >= d0)
+    if d1:
+        q = q.filter(WorkCalendarException.date <= d1)
+    return q.order_by(WorkCalendarException.date.asc()).all()
+
+
+def _default_shop_schedule_by_dow():
+    """Mon–Sat 08:00–17:00 fallback when an op has no worker schedule."""
+    out = {}
+    for dow in range(7):
+        working = dow < 6
+        out[dow] = type(
+            "Sched",
+            (),
+            {
+                "is_working": working,
+                "start_time": time(8, 0) if working else None,
+                "end_time": time(17, 0) if working else None,
+            },
+        )()
+    return out
 
 
 def create_calendar_exception(data):
@@ -236,17 +260,105 @@ def create_calendar_exception(data):
         exc_type = CalendarExceptionType(data["type"])
     except (KeyError, ValueError):
         raise AppError("Invalid calendar exception type", "VALIDATION_ERROR", 400)
-    d = _parse_date(data.get("date"))
-    if not d:
+    d0 = _parse_date(data.get("date") or data.get("from") or data.get("dateFrom"))
+    d1 = _parse_date(data.get("dateTo") or data.get("to") or data.get("date"))
+    if not d0:
         raise AppError("date required", "VALIDATION_ERROR", 400)
-    row = WorkCalendarException(
-        date=d,
-        type=exc_type,
-        start_time=_parse_time(data.get("startTime")),
-        end_time=_parse_time(data.get("endTime")),
-        note=data.get("note"),
-    )
-    db.session.add(row)
+    if not d1:
+        d1 = d0
+    if d1 < d0:
+        raise AppError("'dateTo' must be on or after 'date'", "VALIDATION_ERROR", 400)
+
+    start_t = _parse_time(data.get("startTime"))
+    end_t = _parse_time(data.get("endTime"))
+    if exc_type == CalendarExceptionType.HOLIDAY_NO_WORK:
+        start_t = None
+        end_t = None
+    elif not start_t or not end_t:
+        raise AppError(
+            "startTime and endTime are required for overtime and special working days",
+            "VALIDATION_ERROR",
+            400,
+        )
+    elif end_t <= start_t:
+        raise AppError("endTime must be after startTime", "VALIDATION_ERROR", 400)
+
+    note = data.get("note")
+    created = []
+    cur = d0
+
+    while cur <= d1:
+        existing = WorkCalendarException.query.filter_by(date=cur).first()
+        if existing:
+            raise AppError(
+                f"An exception already exists on {cur.isoformat()}. "
+                "Delete or update it first.",
+                "CONFLICT",
+                409,
+            )
+        row = WorkCalendarException(
+            date=cur,
+            type=exc_type,
+            start_time=start_t,
+            end_time=end_t,
+            note=note,
+        )
+        db.session.add(row)
+        created.append(row)
+        cur += timedelta(days=1)
+    db.session.commit()
+    return created
+
+
+def update_calendar_exception(exc_id, data):
+    row = WorkCalendarException.query.get(exc_id)
+    if not row:
+        raise AppError("Exception not found", "NOT_FOUND", 404)
+
+    if "type" in data and data["type"] is not None:
+        try:
+            row.type = CalendarExceptionType(data["type"])
+        except ValueError:
+            raise AppError("Invalid calendar exception type", "VALIDATION_ERROR", 400)
+
+    if "date" in data and data["date"] is not None:
+        new_d = _parse_date(data["date"])
+        if not new_d:
+            raise AppError("Invalid date", "VALIDATION_ERROR", 400)
+        clash = (
+            WorkCalendarException.query.filter(
+                WorkCalendarException.date == new_d,
+                WorkCalendarException.id != row.id,
+            ).first()
+        )
+        if clash:
+            raise AppError(
+                f"An exception already exists on {new_d.isoformat()}",
+                "CONFLICT",
+                409,
+            )
+        row.date = new_d
+
+    if "note" in data:
+        row.note = data.get("note")
+
+    if row.type == CalendarExceptionType.HOLIDAY_NO_WORK:
+        row.start_time = None
+        row.end_time = None
+    else:
+        if "startTime" in data:
+            row.start_time = _parse_time(data.get("startTime"))
+        if "endTime" in data:
+            row.end_time = _parse_time(data.get("endTime"))
+        if not row.start_time or not row.end_time:
+            raise AppError(
+                "startTime and endTime are required for overtime and special working days",
+                "VALIDATION_ERROR",
+                400,
+            )
+        if row.end_time <= row.start_time:
+            raise AppError("endTime must be after startTime", "VALIDATION_ERROR", 400)
+
     db.session.commit()
     return row
 
@@ -257,6 +369,108 @@ def delete_calendar_exception(exc_id):
         raise AppError("Exception not found", "NOT_FOUND", 404)
     db.session.delete(row)
     db.session.commit()
+
+
+def calendar_exception_delete_impact(exc_id):
+    """
+    Count scheduled ops that would fall outside working hours if this exception
+    (OT / special day) were removed.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.operation import JobOperation, OperationStatus
+    from app.services.schedule_calendar import (
+        SHOP_TZ,
+        effective_hours_for_date,
+        load_calendar_exceptions,
+        load_worker_schedule_maps,
+        utc_to_shop,
+    )
+
+    row = WorkCalendarException.query.get(exc_id)
+    if not row:
+        raise AppError("Exception not found", "NOT_FOUND", 404)
+
+    on_date = row.date
+    exceptions = load_calendar_exceptions(on_date, on_date)
+    exceptions.pop(on_date, None)
+
+    day_start = datetime.combine(on_date, time.min, tzinfo=SHOP_TZ)
+    day_end = day_start + timedelta(days=1)
+    day_start_utc = day_start.astimezone(timezone.utc)
+    day_end_utc = day_end.astimezone(timezone.utc)
+
+    ops = (
+        JobOperation.query.filter(
+            JobOperation.scheduled_start.isnot(None),
+            JobOperation.scheduled_end.isnot(None),
+            JobOperation.scheduled_start < day_end_utc,
+            JobOperation.scheduled_end > day_start_utc,
+            JobOperation.status.in_(
+                (OperationStatus.SCHEDULED, OperationStatus.IN_PROGRESS)
+            ),
+        ).all()
+    )
+
+    default_sched = _default_shop_schedule_by_dow()
+    schedule_cache = {}
+    affected = []
+
+    for op in ops:
+        wid = op.assigned_worker_id
+        if wid:
+            if wid not in schedule_cache:
+                loaded = load_worker_schedule_maps(wid)
+                schedule_cache[wid] = loaded if loaded else default_sched
+            sched = schedule_cache[wid]
+        else:
+            sched = default_sched
+
+        start_t, end_t, is_working = effective_hours_for_date(
+            on_date, sched, exceptions
+        )
+        shop_start = utc_to_shop(op.scheduled_start)
+        shop_end = utc_to_shop(op.scheduled_end)
+        overlap_start = max(shop_start, day_start)
+        overlap_end = min(shop_end, day_end)
+        if overlap_end <= overlap_start:
+            continue
+
+        stranded = False
+        if not is_working or not start_t or not end_t:
+            stranded = True
+        else:
+            win_start = datetime.combine(on_date, start_t, tzinfo=SHOP_TZ)
+            win_end = datetime.combine(on_date, end_t, tzinfo=SHOP_TZ)
+            if overlap_start < win_start or overlap_end > win_end:
+                stranded = True
+
+        if stranded:
+            job = op.job_order
+            year = job.created_at.year if job and job.created_at else on_date.year
+            short = (job.id or "")[:4].upper() if job else ""
+            affected.append(
+                {
+                    "id": op.id,
+                    "jobOrderId": op.job_order_id,
+                    "jobNumber": f"JO-{year}-{short}" if job else None,
+                    "operationName": op.operation_name,
+                    "scheduledStart": op.scheduled_start.isoformat()
+                    if op.scheduled_start
+                    else None,
+                    "scheduledEnd": op.scheduled_end.isoformat()
+                    if op.scheduled_end
+                    else None,
+                }
+            )
+
+    return {
+        "exceptionId": row.id,
+        "date": on_date.isoformat(),
+        "type": row.type.value,
+        "affectedCount": len(affected),
+        "affectedOperations": affected,
+    }
 
 
 def list_operation_types(active_only=True):

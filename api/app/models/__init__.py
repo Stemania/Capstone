@@ -23,6 +23,8 @@ from app.models.operation_time import (
 )
 from app.models.tool import Tool, ToolCategory
 from app.models.tool_event import ToolEvent, ToolEventType
+from app.models.tool_type import ToolType, ToolUnit, ToolUnitStatus
+from app.models.stocktake import Stocktake, StocktakeLine
 from app.models.user import User, UserRole, UserStatus
 from app.models.user_security import InvitationChannel, PasswordResetToken, UserDevice, UserInvitation
 from app.models.worker_profile import WorkerProfile
@@ -70,6 +72,11 @@ __all__ = [
     "ToolCategory",
     "ToolEvent",
     "ToolEventType",
+    "ToolType",
+    "ToolUnit",
+    "ToolUnitStatus",
+    "Stocktake",
+    "StocktakeLine",
     "AuditLog",
     "NotificationLog",
     "NotificationMilestone",

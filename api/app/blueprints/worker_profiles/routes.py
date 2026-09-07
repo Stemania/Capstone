@@ -62,7 +62,10 @@ calendar_bp = Blueprint("calendar", __name__)
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def list_exceptions():
-    rows = wp_service.list_calendar_exceptions()
+    rows = wp_service.list_calendar_exceptions(
+        from_s=request.args.get("from"),
+        to_s=request.args.get("to"),
+    )
     return jsonify([r.to_dict() for r in rows])
 
 
@@ -71,8 +74,24 @@ def list_exceptions():
 @require_roles(UserRole.ADMIN)
 def create_exception():
     data = request.get_json() or {}
-    row = wp_service.create_calendar_exception(data)
-    return jsonify(row.to_dict()), 201
+    rows = wp_service.create_calendar_exception(data)
+    return jsonify([r.to_dict() for r in rows]), 201
+
+
+@calendar_bp.route("/exceptions/<exc_id>", methods=["PATCH"])
+@jwt_required()
+@require_roles(UserRole.ADMIN)
+def update_exception(exc_id):
+    data = request.get_json() or {}
+    row = wp_service.update_calendar_exception(exc_id, data)
+    return jsonify(row.to_dict())
+
+
+@calendar_bp.route("/exceptions/<exc_id>/delete-impact", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def exception_delete_impact(exc_id):
+    return jsonify(wp_service.calendar_exception_delete_impact(exc_id))
 
 
 @calendar_bp.route("/exceptions/<exc_id>", methods=["DELETE"])

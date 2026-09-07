@@ -114,21 +114,18 @@ def _ensure_scoring_weights():
 
 
 def _inventory_catalog():
-    """Client-named item types: one QR per type with stock behind it."""
-    R = ToolCategory.RETURNABLE_TOOL
+    """Consumable item types — stocktake model (one code per size/spec)."""
     C = ToolCategory.CONSUMABLE
     return [
-        # Returnable cutting tools
-        ("Drill bit", "INV-DRILL-06", R, "6mm", "pcs", 30, 10),
-        ("Drill bit", "INV-DRILL-08", R, "8mm", "pcs", 28, 10),
-        ("Drill bit", "INV-DRILL-10", R, "10mm", "pcs", 24, 8),
-        ("Drill bit", "INV-DRILL-12", R, "12mm", "pcs", 18, 6),
-        ("End mill", "INV-ENDMILL-10", R, "10mm", "pcs", 16, 5),
-        ("End mill", "INV-ENDMILL-12", R, "12mm", "pcs", 14, 5),
-        ("Tonga tip", "INV-TONGA-STD", R, None, "pcs", 40, 12),
-        ("Center drill", "INV-CENTER-A", R, "A", "pcs", 20, 6),
-        ("Center drill", "INV-CENTER-B", R, "B", "pcs", 16, 5),
-        # Consumables
+        ("Drill bit", "INV-DRILL-06", C, "6mm", "pcs", 30, 10),
+        ("Drill bit", "INV-DRILL-08", C, "8mm", "pcs", 28, 10),
+        ("Drill bit", "INV-DRILL-10", C, "10mm", "pcs", 24, 8),
+        ("Drill bit", "INV-DRILL-12", C, "12mm", "pcs", 18, 6),
+        ("End mill", "INV-ENDMILL-10", C, "10mm", "pcs", 16, 5),
+        ("End mill", "INV-ENDMILL-12", C, "12mm", "pcs", 14, 5),
+        ("Tonga tip", "INV-TONGA-STD", C, None, "pcs", 40, 12),
+        ("Center drill", "INV-CENTER-A", C, "A", "pcs", 20, 6),
+        ("Center drill", "INV-CENTER-B", C, "B", "pcs", 16, 5),
         ("Cutting oil", "INV-OIL-CUT", C, None, "litre", 20, 5),
         ("Lubricant", "INV-LUBE-GEN", C, None, "litre", 12, 4),
         ("Rugs", "INV-RUG-SHOP", C, None, "pcs", 80, 20),
@@ -138,10 +135,28 @@ def _inventory_catalog():
     ]
 
 
+def _tool_asset_catalog():
+    """
+    Seed placeholders for individually tracked tools (client list pending).
+    Each entry: (name, type_code, description, unit_count)
+    """
+    return [
+        ("Angle grinder", "SEED-ANGLE-GRINDER", "Seed placeholder — client list pending", 3),
+        ("Welding machine SMAW", "SEED-WELD-SMAW", "Seed placeholder — client list pending", 2),
+        ("Welding machine TIG", "SEED-WELD-TIG", "Seed placeholder — client list pending", 1),
+        ("Welding machine MIG", "SEED-WELD-MIG", "Seed placeholder — client list pending", 1),
+        ("Bench vise", "SEED-BENCH-VISE", "Seed placeholder — client list pending", 2),
+        ("Micrometer", "SEED-MICROMETER", "Seed placeholder — client list pending", 2),
+        ("Vernier caliper", "SEED-VERNIER", "Seed placeholder — client list pending", 3),
+        ("Torque wrench", "SEED-TORQUE", "Seed placeholder — client list pending", 1),
+        ("Hand drill", "SEED-HAND-DRILL", "Seed placeholder — client list pending", 2),
+    ]
+
+
 def _ensure_inventory_catalog():
     """
     Replace seeded machine-as-tool rows (duplicates of MachineUnit) with
-    real inventory item types. Safe to re-run: only wipes when legacy codes
+    consumable catalog. Safe to re-run: only wipes when legacy codes
     are present or the catalog is empty.
     """
     legacy_codes = {
@@ -157,9 +172,12 @@ def _ensure_inventory_catalog():
     has_legacy = Tool.query.filter(Tool.code.in_(legacy_codes)).first() is not None
     empty = Tool.query.count() == 0
     if not has_legacy and not empty:
-        return
+        # Reclassify any leftover returnables to consumable (idempotent)
+        for t in Tool.query.filter_by(category=ToolCategory.RETURNABLE_TOOL).all():
+            t.category = ToolCategory.CONSUMABLE
+        return Tool.query.filter_by(category=ToolCategory.CONSUMABLE).all()
 
-    ToolEvent.query.delete()
+    ToolEvent.query.filter(ToolEvent.tool_id.isnot(None)).delete(synchronize_session=False)
     Tool.query.delete()
     db.session.flush()
 
@@ -178,13 +196,46 @@ def _ensure_inventory_catalog():
         )
     db.session.add_all(tools)
     db.session.flush()
-    print(f"Inventory catalog: {len(tools)} item types seeded.")
+    print(f"Consumable catalog: {len(tools)} item types seeded.")
     return tools
+
+
+def _ensure_tool_assets():
+    """Seed placeholder ToolType + ToolUnit rows when none exist."""
+    from app.models.tool_type import ToolType, ToolUnit, ToolUnitStatus
+
+    if ToolType.query.first():
+        return list(ToolType.query.order_by(ToolType.name).all())
+
+    types = []
+    for name, code, desc, count in _tool_asset_catalog():
+        tt = ToolType(
+            name=name,
+            code=code,
+            description=desc,
+            is_seed=True,
+        )
+        db.session.add(tt)
+        db.session.flush()
+        for i in range(1, count + 1):
+            db.session.add(
+                ToolUnit(
+                    tool_type_id=tt.id,
+                    asset_code=f"{code}-{i:03d}",
+                    status=ToolUnitStatus.AVAILABLE,
+                    notes="Seed placeholder unit",
+                )
+            )
+        types.append(tt)
+    db.session.flush()
+    print(f"Tool assets: {len(types)} types seeded (placeholders).")
+    return types
 
 
 def seed_database():
     _ensure_scoring_weights()
     inventory_tools = _ensure_inventory_catalog()
+    tool_types = _ensure_tool_assets()
     if User.query.first():
         # Backfill Production In-charge assignability on already-seeded DBs.
         for admin in User.query.filter_by(role=UserRole.ADMIN, active=True).all():
@@ -277,6 +328,8 @@ def seed_database():
     db.session.flush()
 
     tools = inventory_tools or _ensure_inventory_catalog()
+    tool_types = tool_types or _ensure_tool_assets()
+    _ = tools  # consumables available for stocktake demos
 
     job1 = JobOrder(
         client_id=clients[0].id,
@@ -421,14 +474,25 @@ def seed_database():
     ]
     db.session.add_all(ops)
 
-    event = ToolEvent(
-        tool_id=tools[2].id,  # 10mm drill bit
-        worker_id=workers[0][0].id,
-        type=ToolEventType.BORROW,
-        quantity=Decimal("1"),
-        job_order_id=job1.id,
+    from app.models.tool_type import ToolUnit, ToolUnitStatus
+    from datetime import datetime, timezone
+
+    sample_unit = (
+        ToolUnit.query.filter_by(asset_code="SEED-ANGLE-GRINDER-001").first()
+        or ToolUnit.query.first()
     )
-    tools[2].quantity_on_hand = Decimal(str(tools[2].quantity_on_hand)) - Decimal("1")
-    db.session.add(event)
+    if sample_unit and workers:
+        sample_unit.status = ToolUnitStatus.OUT
+        sample_unit.current_holder_id = workers[0][0].id
+        sample_unit.held_since = datetime.now(timezone.utc)
+        db.session.add(
+            ToolEvent(
+                tool_unit_id=sample_unit.id,
+                worker_id=workers[0][0].id,
+                type=ToolEventType.BORROW,
+                quantity=Decimal("1"),
+                job_order_id=job1.id,
+            )
+        )
 
     db.session.commit()

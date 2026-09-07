@@ -32,8 +32,13 @@ class ToolEvent(db.Model):
     __table_args__ = (db.Index("ix_tool_event_tool_created", "tool_id", "created_at"),)
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
+    # Consumable stock ADJUST (and legacy rows)
     tool_id = db.Column(
-        db.String(36), db.ForeignKey("tools.id"), nullable=False, index=True
+        db.String(36), db.ForeignKey("tools.id"), nullable=True, index=True
+    )
+    # Individually tracked tool BORROW / RETURN
+    tool_unit_id = db.Column(
+        db.String(36), db.ForeignKey("tool_units.id"), nullable=True, index=True
     )
     worker_id = db.Column(
         db.String(36), db.ForeignKey("users.id"), nullable=False, index=True
@@ -47,18 +52,37 @@ class ToolEvent(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, nullable=False)
 
     tool = db.relationship("Tool", back_populates="events")
+    tool_unit = db.relationship("ToolUnit", back_populates="events")
     worker = db.relationship("User", back_populates="tool_events")
     job_order = db.relationship("JobOrder", back_populates="tool_events")
 
     def to_dict(self):
+        unit = self.tool_unit
+        tool = self.tool
         return {
             "id": self.id,
             "toolId": self.tool_id,
-            "toolName": self.tool.name if self.tool else None,
-            "toolCode": self.tool.code if self.tool else None,
-            "toolCategory": self.tool.category.value if self.tool and self.tool.category else None,
-            "toolSizeSpec": self.tool.size_spec if self.tool else None,
-            "quantityOnHandAfter": _num(self.tool.quantity_on_hand) if self.tool else None,
+            "toolUnitId": self.tool_unit_id,
+            "toolName": (
+                unit.tool_type.name
+                if unit and unit.tool_type
+                else (tool.name if tool else None)
+            ),
+            "toolCode": tool.code if tool else None,
+            "assetCode": unit.asset_code if unit else None,
+            "toolCategory": (
+                "TOOL_UNIT"
+                if unit
+                else (tool.category.value if tool and tool.category else None)
+            ),
+            "toolSizeSpec": tool.size_spec if tool else None,
+            "quantityOnHandAfter": _num(tool.quantity_on_hand) if tool else None,
+            "unitStatus": unit.status.value if unit and unit.status else None,
+            "currentHolderName": (
+                unit.current_holder.full_name
+                if unit and unit.current_holder
+                else None
+            ),
             "workerId": self.worker_id,
             "workerName": self.worker.full_name if self.worker else None,
             "type": self.type.value,
