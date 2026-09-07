@@ -10,7 +10,10 @@ from app.models.user import User, UserRole
 from app.models.worker_skill import WorkerSkill
 from app.services.scoring_service import WEIGHT_KEYS, load_scoring_weights, validate_weights_sum
 from app.services.worker_availability import get_busy_workers
-from app.services.worker_profile_service import query_assignable_workers
+from app.services.worker_profile_service import (
+    is_checking_operation,
+    query_assignable_workers,
+)
 from app.services.worker_suggestion_service import suggest_workers
 
 workers_bp = Blueprint("workers", __name__)
@@ -24,16 +27,25 @@ def list_workers():
     scheduled_start = request.args.get("scheduledStart")
     scheduled_end = request.args.get("scheduledEnd")
     machine_type_id = request.args.get("machineTypeId")
+    operation_type_id = request.args.get("operationTypeId")
+    operation_name = request.args.get("operationName")
+    for_checking = str(request.args.get("forChecking") or "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     busy = get_busy_workers(
         start=scheduled_start,
         end=scheduled_end,
         exclude_operation_id=exclude_operation_id,
     )
-    query = query_assignable_workers()
+    # Admin is Checking-only: never list them for machine ops; for no-machine
+    # ops only when the caller is loading Checking.
+    include_admin = (not machine_type_id) and (
+        for_checking or is_checking_operation(operation_type_id, operation_name)
+    )
+    query = query_assignable_workers(include_admin=include_admin)
     if machine_type_id:
-        # Only workers with a WorkerSkill row for this machine type.
-        # No-machine ops (e.g. Checking) skip this filter so Admin + all
-        # production workers appear.
         query = query.join(WorkerSkill, WorkerSkill.worker_id == User.id).filter(
             WorkerSkill.machine_type_id == machine_type_id
         )

@@ -15,7 +15,10 @@ from app.services.scoring_service import (
     worker_week_load_hours,
 )
 from app.services.worker_availability import get_busy_workers
-from app.services.worker_profile_service import query_assignable_workers
+from app.services.worker_profile_service import (
+    is_checking_operation,
+    query_assignable_workers,
+)
 
 
 def _resolve_machine_type_id(
@@ -105,10 +108,10 @@ def suggest_workers(
         for skill in WorkerSkill.query.filter_by(machine_type_id=target_machine_id).all():
             skill_by_worker[skill.worker_id] = skill
 
-    workers = (
-        query_assignable_workers()
-        .all()
-    )
+    workers = query_assignable_workers(
+        include_admin=is_checking_operation(resolved_op_type_id, operation_name)
+        and not target_machine_id
+    ).all()
 
     # Peer set for workload normalization: qualified workers when machine set,
     # otherwise all active workers.

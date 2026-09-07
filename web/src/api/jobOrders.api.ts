@@ -73,6 +73,9 @@ export const workersApi = {
     scheduledStart?: string;
     scheduledEnd?: string;
     machineTypeId?: string;
+    operationTypeId?: string;
+    operationName?: string;
+    forChecking?: boolean;
   }) => apiClient.get<User[]>('/workers', { params }),
   suggest: (
     operations: string[],

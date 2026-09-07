@@ -258,10 +258,8 @@ def seed_database():
     db.session.add_all([admin, office] + [w for w, _ in workers])
     db.session.flush()
 
-    # Production In-charge can be assigned to Checking (and other no-machine
-    # ops). Skills are machine-typed; Checking has no machine, so Admin is
-    # included via the no-machine "all assignable workers" path once they
-    # have a profile + schedule.
+    # Production In-charge can be assigned to Checking only (WorkerProfile for
+    # schedule hours). Machine / other no-machine ops exclude Admin.
     db.session.add(WorkerProfile(user_id=admin.id))
     db.session.add_all(_default_schedule(admin.id))
 

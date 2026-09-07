@@ -16,7 +16,7 @@ from app.models.worker_skill import (
 from app.utils.errors import AppError
 
 # Production workers always; Admins only when they have a WorkerProfile
-# (so the Production In-charge can be scheduled for Checking, etc.).
+# (Production In-charge — Checking only; see is_checking_operation).
 ASSIGNABLE_ROLES = (UserRole.PRODUCTION_WORKER, UserRole.ADMIN)
 
 
@@ -39,6 +39,19 @@ def _parse_date(value):
     return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
 
 
+def is_checking_operation(operation_type_id=None, operation_name=None) -> bool:
+    """True when the operation is Checking (Admin's only assignable work)."""
+    if operation_type_id:
+        ot = OperationType.query.get(operation_type_id)
+        if ot:
+            code = (ot.code or "").strip().upper()
+            name = (ot.name or "").strip().lower()
+            if code == "CHECKING" or name == "checking":
+                return True
+    name = (operation_name or "").strip().lower()
+    return name == "checking"
+
+
 def is_assignable_worker(user: User | None) -> bool:
     """True if this user can be assigned to a job operation."""
     if not user or not user.active:
@@ -50,18 +63,47 @@ def is_assignable_worker(user: User | None) -> bool:
     return False
 
 
-def query_assignable_workers():
-    """Active production workers plus Admins who have a worker profile."""
+def assert_worker_allowed_for_operation(
+    user: User,
+    *,
+    machine_type_id=None,
+    operation_type_id=None,
+    operation_name=None,
+):
+    """Admins may only be assigned to Checking (no machine)."""
+    if user.role != UserRole.ADMIN:
+        return
+    if machine_type_id:
+        raise AppError(
+            "Admin can only be assigned to Checking",
+            "VALIDATION_ERROR",
+            400,
+        )
+    if not is_checking_operation(operation_type_id, operation_name):
+        raise AppError(
+            "Admin can only be assigned to Checking",
+            "VALIDATION_ERROR",
+            400,
+        )
+
+
+def query_assignable_workers(*, include_admin: bool = True):
+    """
+    Active production workers, optionally plus Admins with a worker profile.
+
+    Pass include_admin=False for machine / non-Checking assignment lists so
+    Admin does not appear. Checking and shop calendars keep include_admin=True.
+    """
+    role_filter = User.role == UserRole.PRODUCTION_WORKER
+    if include_admin:
+        role_filter = db.or_(
+            role_filter,
+            db.and_(User.role == UserRole.ADMIN, WorkerProfile.id.isnot(None)),
+        )
     return (
         User.query.options(joinedload(User.worker_profile))
         .outerjoin(WorkerProfile, WorkerProfile.user_id == User.id)
-        .filter(
-            User.active.is_(True),
-            db.or_(
-                User.role == UserRole.PRODUCTION_WORKER,
-                db.and_(User.role == UserRole.ADMIN, WorkerProfile.id.isnot(None)),
-            ),
-        )
+        .filter(User.active.is_(True), role_filter)
         .order_by(User.full_name)
     )
 
