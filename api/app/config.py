@@ -24,6 +24,12 @@ class Config:
     # development | production — controls console invite secret logging
     ENV = os.getenv("FLASK_ENV", os.getenv("ENV", "production"))
     DEBUG = os.getenv("FLASK_DEBUG", "0").lower() in ("1", "true", "yes")
+    # Log method/path/duration for every request (off by default)
+    REQUEST_TIMING = os.getenv("REQUEST_TIMING", "0").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
     SQLALCHEMY_DATABASE_URI = _normalize_database_url(
         os.getenv("DATABASE_URL", "postgresql+psycopg://bmsc:bmsc_dev@localhost:5432/bmsc")

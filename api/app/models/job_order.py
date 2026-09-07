@@ -88,6 +88,8 @@ def draft_stage_label(job: "JobOrder") -> str:
         return "No operations yet"
     n = len(meaningful)
     word = "operation" if n == 1 else "operations"
+    if all(o.scheduled_start and o.scheduled_end for o in meaningful):
+        return f"{n} {word}, schedule ready"
     return f"{n} {word}, not scheduled"
 
 
@@ -152,6 +154,51 @@ class JobOrder(db.Model):
         cascade="all, delete-orphan",
     )
 
+    def _serialize_operations(self, ops):
+        """Serialize ops with request-scoped schedule/downtime caches (no N+1)."""
+        from app.models.operation_time import MachineDowntime
+        from app.services.schedule_calendar import (
+            load_calendar_exceptions,
+            load_worker_schedule_maps_many,
+            utc_to_shop,
+        )
+
+        worker_ids = {op.assigned_worker_id for op in ops if op.assigned_worker_id}
+        schedule_by_worker = load_worker_schedule_maps_many(worker_ids)
+
+        starts = [op.scheduled_start for op in ops if op.scheduled_start]
+        ends = [op.scheduled_end for op in ops if op.scheduled_end]
+        if starts and ends:
+            calendar_exceptions = load_calendar_exceptions(
+                utc_to_shop(min(starts)).date(),
+                utc_to_shop(max(ends)).date(),
+            )
+        else:
+            calendar_exceptions = {}
+
+        unit_ids = {op.machine_unit_id for op in ops if op.machine_unit_id}
+        if unit_ids:
+            open_downtime_unit_ids = {
+                uid
+                for (uid,) in db.session.query(MachineDowntime.machine_unit_id)
+                .filter(
+                    MachineDowntime.machine_unit_id.in_(unit_ids),
+                    MachineDowntime.ended_at.is_(None),
+                )
+                .all()
+            }
+        else:
+            open_downtime_unit_ids = set()
+
+        return [
+            op.to_dict(
+                schedule_by_worker=schedule_by_worker,
+                calendar_exceptions=calendar_exceptions,
+                open_downtime_unit_ids=open_downtime_unit_ids,
+            )
+            for op in ops
+        ]
+
     def to_dict(self, include_operations=False, viewer_role=None):
         from app.models.operation import OperationStatus
         from app.models.user import UserRole
@@ -215,7 +262,7 @@ class JobOrder(db.Model):
             data["createdByName"] = self.created_by.full_name if self.created_by else None
             data["amount"] = _num(self.amount)
         if include_operations:
-            data["operations"] = [op.to_dict() for op in ops]
+            data["operations"] = self._serialize_operations(ops)
         scheduled_ends = [op.scheduled_end for op in ops if op.scheduled_end]
         if scheduled_ends:
             from app.services.schedule_service import compute_schedule_flag

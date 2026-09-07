@@ -1,8 +1,9 @@
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 
-from flask import Flask
+from flask import Flask, g, request
 from flask_cors import CORS
 from flask_migrate import Migrate
 
@@ -34,6 +35,25 @@ def create_app(config_object=None):
     if isinstance(cors_origins, str):
         cors_origins = [o.strip() for o in cors_origins.split(",")]
     CORS(app, origins=cors_origins, supports_credentials=True)
+
+
+    if app.config.get("REQUEST_TIMING"):
+        @app.before_request
+        def _request_timing_start():
+            g._request_started_at = time.perf_counter()
+
+        @app.after_request
+        def _request_timing_end(response):
+            started = getattr(g, "_request_started_at", None)
+            if started is not None:
+                duration_ms = (time.perf_counter() - started) * 1000.0
+                app.logger.info(
+                    "request_timing method=%s path=%s duration_ms=%.1f",
+                    request.method,
+                    request.path,
+                    duration_ms,
+                )
+            return response
 
     register_error_handlers(app)
     _register_blueprints(app)

@@ -104,7 +104,12 @@ class JobOperation(db.Model):
         order_by="OperationTimeLog.event_at",
     )
 
-    def to_dict(self):
+    def to_dict(
+        self,
+        schedule_by_worker=None,
+        calendar_exceptions=None,
+        open_downtime_unit_ids=None,
+    ):
         def _num(v):
             if v is None:
                 return None
@@ -140,7 +145,7 @@ class JobOperation(db.Model):
             "estimatedHours": _num(self.estimated_hours),
             "scheduledStart": self.scheduled_start.isoformat() if self.scheduled_start else None,
             "scheduledEnd": self.scheduled_end.isoformat() if self.scheduled_end else None,
-            "segments": self._derived_segments(),
+            "segments": self._derived_segments(schedule_by_worker, calendar_exceptions),
             "actualStart": self.actual_start.isoformat() if self.actual_start else None,
             "actualEnd": self.actual_end.isoformat() if self.actual_end else None,
             "actualWorkedHours": _num(self.actual_worked_hours),
@@ -155,7 +160,7 @@ class JobOperation(db.Model):
             "notes": self.notes,
             "timeLogs": [log.to_dict() for log in (self.time_logs or [])],
             "isPaused": self._is_paused(),
-            "machineDown": self._is_machine_down(),
+            "machineDown": self._is_machine_down(open_downtime_unit_ids),
             # Legacy-shaped fields for gradual UI migration
             "seq": self.sequence_no,
             "name": self.operation_name,
@@ -174,9 +179,11 @@ class JobOperation(db.Model):
         last = logs[-1]
         return last.event.value == "PAUSE" if last.event else False
 
-    def _is_machine_down(self):
+    def _is_machine_down(self, open_downtime_unit_ids=None):
         if not self.machine_unit_id:
             return False
+        if open_downtime_unit_ids is not None:
+            return self.machine_unit_id in open_downtime_unit_ids
         from app.models.operation_time import MachineDowntime
 
         return (
@@ -186,8 +193,7 @@ class JobOperation(db.Model):
             is not None
         )
 
-
-    def _derived_segments(self):
+    def _derived_segments(self, schedule_by_worker=None, calendar_exceptions=None):
         if not self.scheduled_start or not self.scheduled_end or not self.assigned_worker_id:
             return []
         from app.services.schedule_calendar import (
@@ -200,10 +206,16 @@ class JobOperation(db.Model):
 
         start = self.scheduled_start
         end = self.scheduled_end
-        schedule_by_dow = load_worker_schedule_maps(self.assigned_worker_id)
-        exceptions = load_calendar_exceptions(
-            utc_to_shop(start).date(), utc_to_shop(end).date()
-        )
+        if schedule_by_worker is not None:
+            schedule_by_dow = schedule_by_worker.get(self.assigned_worker_id) or {}
+        else:
+            schedule_by_dow = load_worker_schedule_maps(self.assigned_worker_id)
+        if calendar_exceptions is not None:
+            exceptions = calendar_exceptions
+        else:
+            exceptions = load_calendar_exceptions(
+                utc_to_shop(start).date(), utc_to_shop(end).date()
+            )
         return serialize_segments(
             derive_working_segments(start, end, schedule_by_dow, exceptions)
         )

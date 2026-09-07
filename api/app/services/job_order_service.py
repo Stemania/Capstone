@@ -105,12 +105,30 @@ def _resolve_machine_type_id(op_data):
     return None
 
 
-def _validate_worker(worker_id, start=None, end=None, exclude_operation_id=None):
-    from app.services.worker_profile_service import is_assignable_worker
+def _validate_worker(
+    worker_id,
+    start=None,
+    end=None,
+    exclude_operation_id=None,
+    *,
+    machine_type_id=None,
+    operation_type_id=None,
+    operation_name=None,
+):
+    from app.services.worker_profile_service import (
+        assert_worker_allowed_for_operation,
+        is_assignable_worker,
+    )
 
     worker = User.query.get(worker_id)
     if not is_assignable_worker(worker):
         raise AppError("Invalid worker assignment", "VALIDATION_ERROR", 400)
+    assert_worker_allowed_for_operation(
+        worker,
+        machine_type_id=machine_type_id,
+        operation_type_id=operation_type_id,
+        operation_name=operation_name,
+    )
     from app.services.worker_availability import assert_worker_available
 
     assert_worker_available(
@@ -252,13 +270,25 @@ def list_job_orders(user_id, user_role, status=None, scope=None):
 
 
 def get_job_order(job_id, user_id, user_role):
-    job = JobOrder.query.options(
-        joinedload(JobOrder.operations).joinedload(JobOperation.assigned_worker),
-        joinedload(JobOrder.operations).joinedload(JobOperation.machine_type),
-        joinedload(JobOrder.operations).joinedload(JobOperation.operation_type),
-        joinedload(JobOrder.operations).joinedload(JobOperation.time_logs),
-        joinedload(JobOrder.client),
-    ).get(job_id)
+    from app.models.operation_time import OperationTimeLog
+
+    # Use filter().first() (not Query.get) so loader options always apply even
+    # when the JobOrder is already present in the identity map.
+    job = (
+        JobOrder.query.options(
+            joinedload(JobOrder.client),
+            joinedload(JobOrder.created_by),
+            joinedload(JobOrder.operations).joinedload(JobOperation.assigned_worker),
+            joinedload(JobOrder.operations).joinedload(JobOperation.machine_type),
+            joinedload(JobOrder.operations).joinedload(JobOperation.operation_type),
+            joinedload(JobOrder.operations).joinedload(JobOperation.machine_unit),
+            joinedload(JobOrder.operations)
+            .joinedload(JobOperation.time_logs)
+            .joinedload(OperationTimeLog.worker),
+        )
+        .filter(JobOrder.id == job_id)
+        .first()
+    )
     if not job:
         raise AppError("Job order not found", "NOT_FOUND", 404)
     check_job_access(job, user_id, user_role)
@@ -280,22 +310,24 @@ def _build_operation(job_id, op_data, seq_fallback):
     start = op_data.get("scheduledStart")
     end = op_data.get("scheduledEnd")
     exclude_id = op_data.get("id")
+    machine_type_id = _resolve_machine_type_id(op_data)
+    if not machine_type_id and op_type and op_type.default_machine_type_id:
+        machine_type_id = op_type.default_machine_type_id
     if worker_id:
         _validate_worker(
             worker_id,
             start=start,
             end=end,
             exclude_operation_id=exclude_id,
+            machine_type_id=machine_type_id,
+            operation_type_id=op_type_id,
+            operation_name=name,
         )
     status_raw = op_data.get("status", "PENDING")
     try:
         status = OperationStatus(status_raw)
     except ValueError:
         status = OperationStatus.PENDING
-
-    machine_type_id = _resolve_machine_type_id(op_data)
-    if not machine_type_id and op_type and op_type.default_machine_type_id:
-        machine_type_id = op_type.default_machine_type_id
 
     kwargs = {
         "job_order_id": job_id,
@@ -533,14 +565,8 @@ def release_job_order(job):
         raise
 
 
-def delete_draft_job_order(job):
-    """Permanently remove a DRAFT job that was never released."""
-    if job.status != JobOrderStatus.DRAFT:
-        raise AppError(
-            "Only draft jobs can be deleted",
-            "INVALID_TRANSITION",
-            409,
-        )
+def delete_job_order(job):
+    """Permanently remove a job order, its operations, and schedule data."""
     try:
         from app.models.tool_event import ToolEvent
 
@@ -560,6 +586,9 @@ def assign_operation_worker(operation, worker_id):
         start=operation.scheduled_start,
         end=operation.scheduled_end,
         exclude_operation_id=operation.id,
+        machine_type_id=operation.machine_type_id,
+        operation_type_id=operation.operation_type_id,
+        operation_name=operation.operation_name,
     )
     try:
         operation.assigned_worker_id = worker_id

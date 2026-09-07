@@ -7,6 +7,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 from sqlalchemy import case, func
+from sqlalchemy.orm import joinedload
 
 from app.extensions import db
 from app.models.job_order import JobOrder, JobOrderStatus
@@ -768,7 +769,11 @@ def _expected_completion_shop_date(job: JobOrder) -> date:
 
 def _completed_jobs_in_period(period_from: date, period_to: date):
     jobs = (
-        JobOrder.query.filter(JobOrder.status == JobOrderStatus.COMPLETED)
+        JobOrder.query.options(
+            joinedload(JobOrder.operations),
+            joinedload(JobOrder.client),
+        )
+        .filter(JobOrder.status == JobOrderStatus.COMPLETED)
         .all()
     )
     out = []
@@ -861,9 +866,11 @@ def sales_forecast(from_s=None, to_s=None):
     thin_sample = sample_weeks < THIN_SAMPLE_WEEKS
 
     # Committed pipeline: accepted but not delivered (fact)
-    pipeline_jobs = JobOrder.query.filter(
-        JobOrder.status != JobOrderStatus.COMPLETED
-    ).all()
+    pipeline_jobs = (
+        JobOrder.query.options(joinedload(JobOrder.operations))
+        .filter(JobOrder.status != JobOrderStatus.COMPLETED)
+        .all()
+    )
     by_exp_month = defaultdict(lambda: {"amount": 0.0, "jobCount": 0})
     pipeline_total = 0.0
     for job in pipeline_jobs:

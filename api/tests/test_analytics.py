@@ -140,10 +140,11 @@ def test_committed_pipeline_excludes_completed_jobs():
     )
 
     mock_job = MagicMock()
-    mock_job.query.filter.return_value.all.return_value = [open_job]
+    mock_job.query.options.return_value.filter.return_value.all.return_value = [open_job]
 
     with (
         patch.object(svc, "JobOrder", mock_job),
+        patch.object(svc, "joinedload", return_value=MagicMock()),
         patch.object(
             svc,
             "_completed_jobs_in_period",
@@ -168,17 +169,18 @@ def test_committed_pipeline_excludes_completed_jobs():
     assert result["projectedRevenue"]["sampleCompletedJobs"] == 1
     assert result["projectedRevenue"]["sampleWorkingDays"] == result["workingDaysInSample"]
     assert result["projectedRevenue"]["label"] == "projectedRevenue"
-    assert "estimate" in result["projectedRevenue"]["description"].lower()
+    assert "guess" in result["projectedRevenue"]["description"].lower()
 
 
 def test_projection_states_sample_size_and_thin_flag():
     from app.services import analytics_service as svc
 
     mock_job = MagicMock()
-    mock_job.query.filter.return_value.all.return_value = []
+    mock_job.query.options.return_value.filter.return_value.all.return_value = []
 
     with (
         patch.object(svc, "JobOrder", mock_job),
+        patch.object(svc, "joinedload", return_value=MagicMock()),
         patch.object(svc, "_completed_jobs_in_period", return_value=[]),
         patch.object(
             svc,
