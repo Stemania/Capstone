@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   InputNumber,
   Button,
@@ -105,7 +105,7 @@ function workerOptions(workers: User[]) {
       disabled: !free,
       label: free
         ? w.fullName
-        : `${w.fullName} (unavailable${title ? ` · ${title}` : ''})`,
+        : `${w.fullName} (unavailable${title ? ` Â· ${title}` : ''})`,
     };
   });
 }
@@ -438,7 +438,7 @@ export default function JobOrderPlanningPage() {
                 machineUnitLabel: op.machineUnitId
                   ? unitsRes.data?.find((u) => u.id === op.machineUnitId)?.label || null
                   : null,
-                estimatedHours: op.estimatedHours,
+                estimatedHours: op.estimatedHours ?? undefined,
                 scheduledStart: start,
                 scheduledEnd: end,
                 segments: scheduled && start && end ? [{ start, end }] : [],
@@ -802,7 +802,7 @@ export default function JobOrderPlanningPage() {
   const qtyLabel =
     job.quantity != null
       ? `${job.quantity}${job.unitOfMeasure ? ` ${job.unitOfMeasure}` : ''}`
-      : '—';
+      : 'â€”';
   const readOnly = !isPlanningStatus(job.status);
   const canRelease = Boolean(scheduleOps?.some((o) => o.scheduled));
 
@@ -971,11 +971,11 @@ export default function JobOrderPlanningPage() {
 
       <div className="jo-plan__summary">
         {[
-          ['Client', job.clientName || '—'],
+          ['Client', job.clientName || 'â€”'],
           ['Title', job.title],
-          ['Date required', job.dueDate ? dayjs(job.dueDate).format('MMM D, YYYY') : '—'],
+          ['Date required', job.dueDate ? dayjs(job.dueDate).format('MMM D, YYYY') : 'â€”'],
           ['Quantity', qtyLabel],
-          ['Job type', job.jobType?.replace(/_/g, ' ') || '—'],
+          ['Job type', job.jobType?.replace(/_/g, ' ') || 'â€”'],
         ].map(([label, value]) => (
           <div key={label}>
             <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
@@ -1041,7 +1041,7 @@ export default function JobOrderPlanningPage() {
               return (
                 <div style={{ padding: '4px 0' }}>
                   <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
-                    Best match auto-selected — click another to override
+                    Best match auto-selected â€” click another to override
                   </Text>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                     {qualified.slice(0, 5).map((s) => {
@@ -1215,7 +1215,7 @@ export default function JobOrderPlanningPage() {
             type="info"
             showIcon
             style={{ marginTop: 12 }}
-            message="Go back to Operations and use “View proposed schedule” to generate a first draft."
+            message="Go back to Operations and use â€œView proposed scheduleâ€ to generate a first draft."
           />
         )}
 
