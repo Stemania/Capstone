@@ -9,6 +9,7 @@ import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
 import { DOWNTIME_REASONS } from '../../constants/downtimeReasons';
+import { SHOP_TZ } from '../../utils/shopTime';
 import type { JobOrder, Operation, OperationPauseReason, PartCondition } from '../../types';
 
 const PAUSE_REASONS: { value: OperationPauseReason; label: string }[] = [
@@ -394,10 +395,11 @@ export default function AssignmentDetailPage() {
                     opacity: done ? 0.85 : isMine ? 1 : 0.7,
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <span style={{ fontWeight: 800, fontSize: 15 }}>{opName}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
+                    <span style={{ fontWeight: 800, fontSize: 15, lineHeight: 1.3 }}>{opName}</span>
                     <span
                       style={{
+                        flexShrink: 0,
                         fontSize: 11,
                         fontWeight: 700,
                         padding: '3px 10px',
@@ -424,89 +426,111 @@ export default function AssignmentDetailPage() {
                     </span>
                   </div>
 
-                  {machineLabel ? (
-                    <div
-                      style={{
-                        fontSize: 12,
-                        color: colors.textSecondary,
-                        marginBottom: 8,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      <span>
-                        Machine: {machineLabel}
-                      </span>
-                      {op.machineDown && (
-                        <span
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 700,
-                            padding: '2px 8px',
-                            borderRadius: 999,
-                            background: 'rgba(220,38,38,0.12)',
-                            color: colors.red,
-                          }}
-                        >
-                          Down
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4,
+                      marginBottom: 12,
+                      fontSize: 12,
+                      color: colors.textSecondary,
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    {machineLabel ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span>
+                          <span style={{ fontWeight: 600, color: colors.text }}>Machine</span>
+                          {': '}
+                          {machineLabel}
                         </span>
-                      )}
-                    </div>
-                  ) : null}
-
-                  {isMine && op.machineUnitId && !op.machineDown && !done && (
-                    <Button
-                      type="default"
-                      block
-                      size="large"
-                      loading={actionLoading === op.id}
-                      onClick={() => {
-                        setReportNote('');
-                        setReportForOp(op);
-                      }}
-                      style={{ height: 44, fontWeight: 700, marginBottom: 8 }}
-                    >
-                      Report breakdown
-                    </Button>
-                  )}
-
-                  {!isMine && op.assignedWorkerName && (
-                    <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 8 }}>
-                      Assigned to {op.assignedWorkerName}
-                    </div>
-                  )}
-
-                  {(started || completed) && (
-                    <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 10 }}>
-                      {started && `Started ${dayjs(started).format('MMM D, h:mm A')}`}
-                      {completed && ` · Done ${dayjs(completed).format('MMM D, h:mm A')}`}
-                    </div>
-                  )}
-
-                  {isMine && active && (
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: colors.accent }}>
-                      Worked {formatElapsed(workedSecondsSoFar(op, nowMs))}
-                      {op.isPaused ? ' (paused)' : ''}
-                    </div>
-                  )}
-
-                  {op.actualWorkedHours != null && done && (
-                    <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 10 }}>
-                      Worked {op.actualWorkedHours}h
-                      {op.estimatedHours != null ? ` / target ${op.estimatedHours}h` : ''}
-                    </div>
-                  )}
+                        {op.machineDown && (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              padding: '2px 8px',
+                              borderRadius: 999,
+                              background: 'rgba(220,38,38,0.12)',
+                              color: colors.red,
+                            }}
+                          >
+                            Down
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <div>
+                        <span style={{ fontWeight: 600, color: colors.text }}>Machine</span>
+                        {': No machine'}
+                      </div>
+                    )}
+                    {op.scheduledStart || op.scheduledEnd ? (
+                      <div>
+                        <span style={{ fontWeight: 600, color: colors.text }}>Scheduled</span>
+                        {': '}
+                        {op.scheduledStart
+                          ? dayjs(op.scheduledStart).tz(SHOP_TZ).format('MMM D, h:mm A')
+                          : '—'}
+                        {op.scheduledEnd
+                          ? ` → ${dayjs(op.scheduledEnd)
+                              .tz(SHOP_TZ)
+                              .format(
+                                op.scheduledStart &&
+                                  dayjs(op.scheduledStart)
+                                    .tz(SHOP_TZ)
+                                    .isSame(dayjs(op.scheduledEnd).tz(SHOP_TZ), 'day')
+                                  ? 'h:mm A'
+                                  : 'MMM D, h:mm A'
+                              )}`
+                          : ''}
+                      </div>
+                    ) : null}
+                    {op.estimatedHours != null ? (
+                      <div>
+                        <span style={{ fontWeight: 600, color: colors.text }}>Target</span>
+                        {`: ${op.estimatedHours}h`}
+                      </div>
+                    ) : null}
+                    {!isMine && op.assignedWorkerName ? (
+                      <div>
+                        <span style={{ fontWeight: 600, color: colors.text }}>Assigned</span>
+                        {`: ${op.assignedWorkerName}`}
+                      </div>
+                    ) : null}
+                    {(started || completed) && (
+                      <div>
+                        {started && `Started ${dayjs(started).format('MMM D, h:mm A')}`}
+                        {completed && ` · Done ${dayjs(completed).format('MMM D, h:mm A')}`}
+                      </div>
+                    )}
+                    {isMine && active && (
+                      <div style={{ fontSize: 13, fontWeight: 700, color: colors.accent, marginTop: 2 }}>
+                        Worked {formatElapsed(workedSecondsSoFar(op, nowMs))}
+                        {op.isPaused ? ' (paused)' : ''}
+                      </div>
+                    )}
+                    {op.actualWorkedHours != null && done && (
+                      <div>
+                        Worked {op.actualWorkedHours}h
+                        {op.estimatedHours != null ? ` / target ${op.estimatedHours}h` : ''}
+                      </div>
+                    )}
+                  </div>
 
                   {canStart && (
                     <Button
-                      type="default"
+                      type="primary"
                       block
                       size="large"
                       loading={actionLoading === op.id}
                       onClick={() => runAction(op, 'start')}
-                      style={{ height: 44, fontWeight: 700 }}
+                      style={{
+                        height: 46,
+                        fontWeight: 700,
+                        background: colors.accent,
+                        borderColor: colors.accent,
+                      }}
                     >
                       Start Operation
                     </Button>
@@ -529,25 +553,62 @@ export default function AssignmentDetailPage() {
                         size="large"
                         loading={actionLoading === op.id}
                         onClick={() => runAction(op, 'complete')}
-                        style={{ height: 44, fontWeight: 700 }}
+                        style={{
+                          height: 46,
+                          fontWeight: 700,
+                          background: colors.accent,
+                          borderColor: colors.accent,
+                        }}
                       >
                         Mark Complete
                       </Button>
                     </div>
                   )}
                   {isMine && active && op.isPaused && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <Button
-                        type="primary"
-                        block
-                        size="large"
-                        loading={actionLoading === op.id}
-                        onClick={() => runAction(op, 'resume')}
-                        style={{ height: 44, fontWeight: 700 }}
-                      >
-                        Resume
-                      </Button>
-                    </div>
+                    <Button
+                      type="primary"
+                      block
+                      size="large"
+                      loading={actionLoading === op.id}
+                      onClick={() => runAction(op, 'resume')}
+                      style={{
+                        height: 46,
+                        fontWeight: 700,
+                        background: colors.accent,
+                        borderColor: colors.accent,
+                      }}
+                    >
+                      Resume
+                    </Button>
+                  )}
+
+                  {isMine && op.machineUnitId && !op.machineDown && !done && (
+                    <button
+                      type="button"
+                      disabled={actionLoading === op.id}
+                      onClick={() => {
+                        setReportNote('');
+                        setReportForOp(op);
+                      }}
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        marginTop: 10,
+                        padding: 0,
+                        border: 'none',
+                        background: 'transparent',
+                        color: colors.textSecondary,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        textAlign: 'center',
+                        textDecoration: 'underline',
+                        textUnderlineOffset: 2,
+                        cursor: actionLoading === op.id ? 'wait' : 'pointer',
+                        opacity: actionLoading === op.id ? 0.6 : 1,
+                      }}
+                    >
+                      Report breakdown
+                    </button>
                   )}
                 </div>
               </div>

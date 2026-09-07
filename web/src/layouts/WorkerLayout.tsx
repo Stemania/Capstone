@@ -6,14 +6,15 @@ import {
   ToolOutlined,
   CalendarOutlined,
   LeftOutlined,
-  DownOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { confirmLogout } from '../utils/confirmLogout';
 import PinOfferModal from '../features/auth/PinOfferModal';
+import KeepAliveOutlet from '../navigation/KeepAliveOutlet';
+import { useNavMemory } from '../navigation/navMemory';
 
 export interface WorkerPalette {
   bg: string;
@@ -87,6 +88,7 @@ export function WorkerPageHeader({
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { resolveSectionNav } = useNavMemory();
   const onSchedule = location.pathname.startsWith('/schedule');
   const [accountOpen, setAccountOpen] = useState(false);
 
@@ -225,18 +227,21 @@ export function WorkerPageHeader({
         {showSchedule && !onSchedule && (
           <button
             type="button"
-            onClick={() => navigate('/schedule')}
+            onClick={() => {
+              const { to } = resolveSectionNav('/schedule');
+              navigate(to);
+            }}
             aria-label="Schedule"
             title="Schedule"
             style={{
-              background: 'rgba(255,255,255,0.08)',
+              background: 'transparent',
               border: 'none',
               color: colors.headerText,
-              width: 36,
-              height: 36,
-              borderRadius: 10,
+              width: 44,
+              height: 44,
+              padding: 0,
               cursor: 'pointer',
-              fontSize: 16,
+              fontSize: 24,
               flexShrink: 0,
               display: 'flex',
               alignItems: 'center',
@@ -268,7 +273,7 @@ export function WorkerPageHeader({
                 maxWidth: 168,
                 display: 'flex',
                 alignItems: 'center',
-                gap: 4,
+                gap: 8,
                 padding: '7px 8px 7px 12px',
                 flexShrink: 0,
                 background: 'rgba(255,255,255,0.1)',
@@ -292,7 +297,23 @@ export function WorkerPageHeader({
                 </div>
                 <div style={{ fontSize: 11, opacity: 0.7 }}>Worker</div>
               </div>
-              <DownOutlined style={{ fontSize: 11, opacity: 0.75, flexShrink: 0 }} />
+              <span
+                aria-hidden
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: '#94a3b8',
+                  color: '#fff',
+                  fontSize: 14,
+                }}
+              >
+                <UserOutlined />
+              </span>
             </button>
           </Popover>
         )}
@@ -305,14 +326,25 @@ export default function WorkerLayout() {
   const { logout: authLogout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { resolveSectionNav } = useNavMemory();
   const colors = lightPalette;
   const isScan = location.pathname.startsWith('/scan');
 
   const logout = () => {
     confirmLogout(() => {
       authLogout();
+      try {
+        sessionStorage.removeItem('bmsc.navMemory.v1');
+      } catch {
+        /* ignore */
+      }
       navigate('/login');
     }, 'You will need to sign in again to see your jobs.');
+  };
+
+  const goSection = (sectionKey: string) => {
+    const { to } = resolveSectionNav(sectionKey);
+    navigate(to);
   };
 
   const tabs = [
@@ -359,8 +391,17 @@ export default function WorkerLayout() {
             overflow: 'hidden',
           }}
         >
-          <main style={{ flex: 1, paddingBottom: 100, overflowY: 'auto' }}>
-            <Outlet />
+          <main
+            style={{
+              flex: 1,
+              minHeight: 0,
+              overflowY: 'auto',
+              WebkitOverflowScrolling: 'touch',
+              // Clear fixed nav (~56) + Scan FAB peek (~22) without a large empty strip
+              paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
+            }}
+          >
+            <KeepAliveOutlet />
           </main>
           <PinOfferModal />
 
@@ -410,7 +451,7 @@ export default function WorkerLayout() {
                   >
                     <button
                       type="button"
-                      onClick={() => navigate(tab.key)}
+                      onClick={() => goSection(tab.key)}
                       aria-label={tab.label}
                       style={{
                         width: 56,
@@ -454,7 +495,7 @@ export default function WorkerLayout() {
                 <button
                   key={tab.key}
                   type="button"
-                  onClick={() => navigate(tab.key)}
+                  onClick={() => goSection(tab.key)}
                   style={{
                     background: 'none',
                     border: 'none',

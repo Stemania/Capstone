@@ -1,13 +1,30 @@
 import { Modal } from 'antd';
+import { LogoutOutlined } from '@ant-design/icons';
+import { createElement } from 'react';
 
 export function confirmLogout(onOk: () => void, content?: string) {
   Modal.confirm({
     title: 'Log out?',
     content: content || 'You will need to sign in again.',
-    okText: 'Log out',
-    cancelText: 'Stay signed in',
+    icon: null,
     centered: true,
-    okButtonProps: { style: { background: '#611020', borderColor: '#611020' } },
+    closable: false,
+    maskClosable: true,
+    width: 300,
+    className: 'logout-confirm',
+    okText: createElement(
+      'span',
+      { className: 'logout-confirm__ok-label' },
+      createElement(LogoutOutlined),
+      'Log out'
+    ),
+    cancelText: 'Stay signed in',
+    okButtonProps: {
+      className: 'logout-confirm__ok',
+    },
+    cancelButtonProps: {
+      className: 'logout-confirm__cancel',
+    },
     onOk,
   });
 }

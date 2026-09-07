@@ -15,12 +15,13 @@ import {
   MenuOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  DownOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { confirmLogout } from '../utils/confirmLogout';
+import KeepAliveOutlet from '../navigation/KeepAliveOutlet';
+import { useNavMemory } from '../navigation/navMemory';
 
 const { Header, Sider, Content } = Layout;
 
@@ -101,6 +102,13 @@ export default function AppLayout() {
   const { user, logout, isAdmin, isOfficeStaff } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { resolveSectionNav } = useNavMemory();
+
+  const goSection = (sectionKey: string) => {
+    const { to } = resolveSectionNav(sectionKey);
+    navigate(to);
+    setMobileOpen(false);
+  };
 
   const menuItems = [];
 
@@ -132,6 +140,11 @@ export default function AppLayout() {
   const handleLogout = () => {
     confirmLogout(() => {
       logout();
+      try {
+        sessionStorage.removeItem('bmsc.navMemory.v1');
+      } catch {
+        /* ignore */
+      }
       setMobileOpen(false);
       navigate('/login');
     });
@@ -146,8 +159,7 @@ export default function AppLayout() {
       items={menuItems}
       style={{ background: 'transparent', border: 'none', padding: '8px' }}
       onClick={({ key }) => {
-        navigate(key);
-        setMobileOpen(false);
+        goSection(key);
       }}
     />
   );
@@ -339,7 +351,7 @@ export default function AppLayout() {
                     <button
                       type="button"
                       className="app-shell__cal"
-                      onClick={() => navigate('/schedule')}
+                      onClick={() => goSection('/schedule')}
                       aria-label="Schedule"
                       title="Schedule"
                     >
@@ -367,7 +379,9 @@ export default function AppLayout() {
                           <div className="app-shell__who-name">{user.fullName}</div>
                           <div className="app-shell__who-role">{roleLabel(user.role)}</div>
                         </div>
-                        <DownOutlined className="app-shell__who-caret" />
+                        <span className="app-shell__who-avatar" aria-hidden>
+                          <UserOutlined />
+                        </span>
                       </button>
                     </Popover>
                   )}
@@ -406,7 +420,7 @@ export default function AppLayout() {
         </Header>
         <div className="app-shell__scroll">
           <Content className="app-shell__content">
-            <Outlet />
+            <KeepAliveOutlet />
           </Content>
         </div>
 
@@ -419,7 +433,7 @@ export default function AppLayout() {
                   key={tab.key}
                   type="button"
                   className={`app-phone-nav__item${active ? ' is-active' : ''}`}
-                  onClick={() => navigate(tab.key)}
+                  onClick={() => goSection(tab.key)}
                 >
                   <span className="app-phone-nav__icon">{tab.icon}</span>
                   <span>{tab.label}</span>
