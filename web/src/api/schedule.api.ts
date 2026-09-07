@@ -54,6 +54,8 @@ export type ScheduleBoardResponse = {
   period: { from: string; to: string };
   timezone: string;
   shopDayWindows: ShopDayWindow[];
+  /** Present when board is filtered by workerId — that worker's hours + exceptions. */
+  workerDayWindows?: ShopDayWindow[] | null;
   machineUnits: {
     id: string;
     label: string;

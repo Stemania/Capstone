@@ -13,6 +13,7 @@ import {
   TIMELINE_BORDER,
   TIMELINE_NAVY,
   WORKING_HOURS_NOTE,
+  assignOverlapLanes,
   buildWeekTimelineLayout,
   clipSegmentToPeriod,
   dayColumnsForView,
@@ -20,9 +21,15 @@ import {
   leftPx,
   pxPerHour,
   scaleWeekTimelineLayout,
+  scheduleBarLabel,
+  scheduleBarTextStyle,
+  SCHEDULE_BAR_LABEL_SPAN_STYLE,
+  mergeAdjacentWeekPieces,
+  splitSegmentAcrossWeekDays,
   timelineWidth,
   widthPx,
   type TimelineViewMode,
+  type WeekTimelineLayout,
 } from './scheduleTimelineUtils';
 
 export type TimelineRow = {
@@ -51,12 +58,22 @@ function statusLabel(s: string) {
   return s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, ' ');
 }
 
-function segmentsForOp(op: ScheduleBoardOperation) {
-  if (op.segments?.length) return op.segments;
-  if (op.scheduledStart && op.scheduledEnd) {
-    return [{ start: op.scheduledStart, end: op.scheduledEnd }];
-  }
-  return [];
+function segmentsForOp(
+  op: ScheduleBoardOperation,
+  weekLayout?: WeekTimelineLayout | null
+) {
+  const raw =
+    op.segments?.length
+      ? op.segments
+      : op.scheduledStart && op.scheduledEnd
+        ? [{ start: op.scheduledStart, end: op.scheduledEnd }]
+        : [];
+  if (!weekLayout || raw.length === 0) return raw;
+  // Per-day working pieces, then merge overnight neighbors into one bar.
+  const pieces = raw.flatMap((seg) =>
+    splitSegmentAcrossWeekDays(seg.start, seg.end, weekLayout)
+  );
+  return mergeAdjacentWeekPieces(pieces);
 }
 
 type Props = {
@@ -96,7 +113,7 @@ export default function ScheduleTimelineBoard({
   shopDayWindows,
 }: Props) {
   const labelW = isMobile ? 96 : 168;
-  const rowH = isMobile ? 36 : 40;
+  const rowH = isMobile ? 40 : 44;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [availW, setAvailW] = useState(0);
 
@@ -229,6 +246,27 @@ export default function ScheduleTimelineBoard({
           const ops = opsForRow(row);
           const dts = downtimesForRow(row);
           const focused = rowHasHighlight(row);
+          const stackLanes = Boolean(row.noMachine);
+          const laneItems = stackLanes
+            ? ops
+                .map((op) => {
+                  const segs = segmentsForOp(op, weekLayout);
+                  if (!segs.length) return null;
+                  let start = segs[0].start;
+                  let end = segs[0].end;
+                  for (const seg of segs) {
+                    if (seg.start < start) start = seg.start;
+                    if (seg.end > end) end = seg.end;
+                  }
+                  return { id: op.id, start, end };
+                })
+                .filter((x): x is { id: string; start: string; end: string } => x != null)
+            : [];
+          const { laneById, laneCount } = stackLanes
+            ? assignOverlapLanes(laneItems)
+            : { laneById: new Map<string, number>(), laneCount: 1 };
+          const trackH = rowH * laneCount;
+
           return (
             <div key={row.key}>
               {row.group ? (
@@ -253,7 +291,7 @@ export default function ScheduleTimelineBoard({
               <div
                 style={{
                   display: 'flex',
-                  minHeight: rowH,
+                  minHeight: trackH,
                   borderBottom: '1px solid #f1f5f9',
                   background: focused ? '#f0f9ff' : undefined,
                 }}
@@ -276,6 +314,7 @@ export default function ScheduleTimelineBoard({
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
+                    minHeight: trackH,
                   }}
                 >
                   {row.label}
@@ -284,7 +323,8 @@ export default function ScheduleTimelineBoard({
                   style={{
                     position: 'relative',
                     width: boardW,
-                    minHeight: rowH,
+                    minHeight: trackH,
+                    height: trackH,
                     backgroundImage:
                       viewMode === 'day'
                         ? `repeating-linear-gradient(90deg, transparent, transparent ${pph - 1}px, #f1f5f9 ${pph - 1}px, #f1f5f9 ${pph}px)`
@@ -305,10 +345,39 @@ export default function ScheduleTimelineBoard({
                     />
                   ))}
 
+                  {laneCount > 1
+                    ? Array.from({ length: laneCount - 1 }, (_, i) => (
+                        <div
+                          key={`lane-rule-${i}`}
+                          style={{
+                            position: 'absolute',
+                            left: 0,
+                            right: 0,
+                            top: rowH * (i + 1),
+                            height: 1,
+                            background: '#e2e8f0',
+                            zIndex: 0,
+                            pointerEvents: 'none',
+                          }}
+                        />
+                      ))
+                    : null}
+
                   {dts.flatMap((d) => {
+                    const pieces =
+                      weekLayout
+                        ? mergeAdjacentWeekPieces(
+                            splitSegmentAcrossWeekDays(
+                              d.segmentStart,
+                              d.segmentEnd,
+                              weekLayout
+                            )
+                          )
+                        : [{ start: d.segmentStart, end: d.segmentEnd }];
+                    return pieces.flatMap((seg) => {
                     const clipped = clipSegmentToPeriod(
-                      d.segmentStart,
-                      d.segmentEnd,
+                      seg.start,
+                      seg.end,
                       from,
                       to
                     );
@@ -318,7 +387,7 @@ export default function ScheduleTimelineBoard({
                     if (barLeft == null || barW == null || barW <= 0) return [];
                     return [
                       <Tooltip
-                        key={d.id}
+                        key={`${d.id}-${clipped.start}`}
                         title={
                           <div>
                             <div style={{ fontWeight: 600 }}>Machine breakdown</div>
@@ -334,7 +403,7 @@ export default function ScheduleTimelineBoard({
                           style={{
                             position: 'absolute',
                             top: columnFill ? 0 : 4,
-                            height: columnFill ? rowH : rowH - 8,
+                            height: columnFill ? trackH : trackH - 8,
                             left: barLeft,
                             width: barW,
                             background:
@@ -347,10 +416,15 @@ export default function ScheduleTimelineBoard({
                         />
                       </Tooltip>,
                     ];
+                    });
                   })}
 
-                  {ops.flatMap((op) =>
-                    segmentsForOp(op).flatMap((seg, i) => {
+                  {ops.flatMap((op) => {
+                    const lane = laneById.get(op.id) ?? 0;
+                    const barTop = columnFill ? lane * rowH : lane * rowH + 4;
+                    const barHeight = columnFill ? rowH : rowH - 8;
+
+                    return segmentsForOp(op, weekLayout).flatMap((seg, i) => {
                       const clipped = clipSegmentToPeriod(seg.start, seg.end, from, to);
                       if (!clipped) return [];
                       const barLeft = leftPx(clipped.start, ...posArgs);
@@ -362,19 +436,25 @@ export default function ScheduleTimelineBoard({
                       const color = isThisJob
                         ? highlightColor || op.scheduleColor || THIS_JOB_COLOR
                         : planningHighlight
-                          ? op.scheduleColor || OTHER_JOB_COLOR
+                          ? OTHER_JOB_COLOR
                           : op.scheduleColor || STATUS_COLOR[op.status] || '#2563eb';
                       const late = !!op.isLate;
-                      const label =
-                        isThisJob && barW >= 28
-                          ? isMobile
-                            ? op.operationName
-                            : `${op.operationName}${op.jobNumber ? ` · ${op.jobNumber}` : ''}`
-                          : !planningHighlight
-                            ? isMobile
-                              ? op.operationName
-                              : `${op.operationName}${op.jobNumber ? ` · ${op.jobNumber}` : ''}`
-                            : '';
+                      const showLabel =
+                        barW >= 22 &&
+                        (isThisJob || !planningHighlight);
+                      const label = showLabel
+                        ? scheduleBarLabel(
+                            op.operationName,
+                            op.jobNumber,
+                            barW,
+                            isMobile
+                          )
+                        : '';
+                      const textStyle = scheduleBarTextStyle({
+                        mobile: isMobile,
+                        barWidthPx: barW,
+                        columnFill,
+                      });
 
                       const tooltip = (
                         <div style={{ maxWidth: 260 }}>
@@ -405,8 +485,8 @@ export default function ScheduleTimelineBoard({
 
                       const barStyle = {
                         position: 'absolute' as const,
-                        top: columnFill ? 0 : 5,
-                        height: columnFill ? rowH : rowH - 10,
+                        top: barTop,
+                        height: barHeight,
                         left: barLeft,
                         width: barW,
                         background: color,
@@ -421,14 +501,8 @@ export default function ScheduleTimelineBoard({
                                 : 'none',
                         borderRadius: columnFill ? 0 : 4,
                         color: isThisJob || !planningHighlight ? '#fff' : '#475569',
-                        fontSize: isMobile ? 9 : 10,
-                        fontWeight: 700,
-                        overflow: 'hidden',
-                        whiteSpace: 'nowrap' as const,
-                        textOverflow: 'ellipsis',
-                        padding: columnFill ? '0 6px' : '0 4px',
+                        ...textStyle,
                         cursor: onOperationClick ? 'pointer' : 'default',
-                        textAlign: 'left' as const,
                         zIndex: isThisJob ? 3 : 2,
                         boxShadow: columnFill
                           ? isThisJob
@@ -449,15 +523,21 @@ export default function ScheduleTimelineBoard({
                               onClick={() => onOperationClick(op)}
                               style={barStyle}
                             >
-                              {label}
+                              {label ? (
+                                <span style={SCHEDULE_BAR_LABEL_SPAN_STYLE}>{label}</span>
+                              ) : null}
                             </button>
                           ) : (
-                            <div style={barStyle}>{label}</div>
+                            <div style={barStyle}>
+                              {label ? (
+                                <span style={SCHEDULE_BAR_LABEL_SPAN_STYLE}>{label}</span>
+                              ) : null}
+                            </div>
                           )}
                         </Tooltip>
                       );
-                    })
-                  )}
+                    });
+                  })}
                 </div>
               </div>
             </div>

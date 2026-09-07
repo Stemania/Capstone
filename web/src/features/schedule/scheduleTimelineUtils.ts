@@ -82,6 +82,12 @@ export function defaultShopDayWindows(from: Dayjs, to: Dayjs): ShopDayWindow[] {
   return days;
 }
 
+/**
+ * Week columns use a fixed shop window (08:00–17:00) for geometry so a job
+ * that starts at opening sits flush on every day. API shopDayWindows only
+ * decide which days are working — the board's per-day union of worker hours
+ * can start earlier on some weekdays and inset bars (the Tuesday gap).
+ */
 export function buildWeekTimelineLayout(
   from: Dayjs,
   to: Dayjs,
@@ -91,54 +97,99 @@ export function buildWeekTimelineLayout(
   const pph = pxPerHour('week', mobile);
   const byDate = new Map(windows.map((w) => [w.date, w]));
   const count = to.diff(from, 'day') + 1;
-  const draft: Omit<WeekDayColumn, 'left' | 'width'>[] = [];
-  let maxDayWidth = defaultWorkingDayWidth(pph);
+  const colW = defaultWorkingDayWidth(pph);
+  const durationHours = (DEFAULT_DAY_END_MIN - DEFAULT_DAY_START_MIN) / 60;
 
+  const days: WeekDayColumn[] = [];
+  let cursor = 0;
   for (let i = 0; i < count; i++) {
     const d = from.add(i, 'day');
     const date = d.format('YYYY-MM-DD');
     const w = byDate.get(date);
     const isWorking = w?.isWorking ?? d.day() !== 0;
-    let startMinutes = DEFAULT_DAY_START_MIN;
-    let endMinutes = DEFAULT_DAY_END_MIN;
-    let durationHours = 0;
-
-    if (isWorking && w?.startTime && w?.endTime) {
-      startMinutes = parseHm(w.startTime);
-      endMinutes = parseHm(w.endTime);
-      durationHours = Math.max((endMinutes - startMinutes) / 60, 0);
-    } else if (isWorking) {
-      durationHours = (endMinutes - startMinutes) / 60;
-    }
-
-    if (durationHours > 0) {
-      maxDayWidth = Math.max(maxDayWidth, durationHours * pph);
-    }
-
-    draft.push({
+    days.push({
       date,
-      isWorking: isWorking && durationHours > 0,
-      startMinutes,
-      endMinutes,
-      durationHours,
+      isWorking,
+      startMinutes: isWorking ? DEFAULT_DAY_START_MIN : 0,
+      endMinutes: isWorking ? DEFAULT_DAY_END_MIN : 0,
+      durationHours: isWorking ? durationHours : 0,
+      left: cursor,
+      width: colW,
     });
-  }
-
-  // Equal columns for every day (including Sunday / closed).
-  const colW = maxDayWidth;
-  const refHours =
-    draft.find((d) => d.isWorking && d.durationHours > 0)?.durationHours ||
-    (DEFAULT_DAY_END_MIN - DEFAULT_DAY_START_MIN) / 60;
-  const scaledPph = colW / refHours;
-
-  const days: WeekDayColumn[] = [];
-  let cursor = 0;
-  for (const d of draft) {
-    days.push({ ...d, left: cursor, width: colW });
     cursor += colW;
   }
 
-  return { days, totalWidth: cursor, pph: scaledPph };
+  return { days, totalWidth: cursor, pph };
+}
+
+/**
+ * Split a wall-clock / overnight envelope into per-day pieces clipped to each
+ * day's shop window. Mon 13:00 → Tue 09:00 becomes Mon 13–17 and Tue 08–09 so
+ * geometry stays inside working columns.
+ */
+export function splitSegmentAcrossWeekDays(
+  startIso: string,
+  endIso: string,
+  weekLayout: WeekTimelineLayout
+): { start: string; end: string }[] {
+  const start = dayjs(startIso).tz(SHOP_TZ);
+  const end = dayjs(endIso).tz(SHOP_TZ);
+  if (!start.isValid() || !end.isValid() || !end.isAfter(start)) return [];
+
+  const pieces: { start: string; end: string }[] = [];
+  for (const day of weekLayout.days) {
+    if (!day.isWorking || day.durationHours <= 0) continue;
+    const dayStart = dayjs
+      .tz(day.date, SHOP_TZ)
+      .startOf('day')
+      .add(day.startMinutes, 'minute');
+    const dayEnd = dayjs
+      .tz(day.date, SHOP_TZ)
+      .startOf('day')
+      .add(day.endMinutes, 'minute');
+    if (!dayStart.isValid() || !dayEnd.isValid()) continue;
+    const segStart = start.isAfter(dayStart) ? start : dayStart;
+    const segEnd = end.isBefore(dayEnd) ? end : dayEnd;
+    if (segEnd.isAfter(segStart)) {
+      pieces.push({ start: segStart.toISOString(), end: segEnd.toISOString() });
+    }
+  }
+  return pieces;
+}
+
+/**
+ * Join overnight / next-day pieces into one visual span so the week board
+ * draws a single bar (one label) across adjacent day columns. Gaps of 2+
+ * calendar days (e.g. weekend / holiday) stay separate.
+ */
+export function mergeAdjacentWeekPieces(
+  pieces: { start: string; end: string }[]
+): { start: string; end: string }[] {
+  if (pieces.length <= 1) return pieces;
+  const sorted = [...pieces].sort(
+    (a, b) => dayjs(a.start).valueOf() - dayjs(b.start).valueOf()
+  );
+  const merged: { start: string; end: string }[] = [];
+  let cur = { ...sorted[0] };
+  for (let i = 1; i < sorted.length; i++) {
+    const next = sorted[i];
+    const curEndDay = dayjs(cur.end).tz(SHOP_TZ).startOf('day');
+    const nextStartDay = dayjs(next.start).tz(SHOP_TZ).startOf('day');
+    const daysApart = nextStartDay.diff(curEndDay, 'day');
+    if (daysApart <= 1) {
+      const nextEnd = dayjs(next.end);
+      const curEnd = dayjs(cur.end);
+      cur = {
+        start: cur.start,
+        end: nextEnd.isAfter(curEnd) ? next.end : cur.end,
+      };
+    } else {
+      merged.push(cur);
+      cur = { ...next };
+    }
+  }
+  merged.push(cur);
+  return merged;
 }
 
 /** Stretch a week layout to fill a wider container while keeping equal columns. */
@@ -207,11 +258,13 @@ export function leftPx(
     // Outside the visible week — never fall back to left:0 (that pinned
     // Sep 8/9 ops onto Mon Aug 31).
     if (!day) return null;
-    if (!day.isWorking) return day.left;
+    if (!day.isWorking || day.durationHours <= 0) return day.left;
+    const span = day.endMinutes - day.startMinutes;
+    if (span <= 0) return day.left;
     const minutes = shopMinutes(t);
     const clamped = Math.min(Math.max(minutes, day.startMinutes), day.endMinutes);
-    const offsetHours = (clamped - day.startMinutes) / 60;
-    return day.left + offsetHours * weekLayout.pph;
+    // Fraction of the day column — stays aligned after equal-column stretch.
+    return day.left + ((clamped - day.startMinutes) / span) * day.width;
   }
 
   const dayIndex = t.startOf('day').diff(from.startOf('day'), 'day');
@@ -234,25 +287,18 @@ export function widthPx(
   if (mode === 'week' && weekLayout) {
     const startDay = weekDayForInstant(start, weekLayout);
     if (!startDay) return null;
-    if (!startDay.isWorking) return Math.max(startDay.width, 4);
-
-    if (start.startOf('day').isSame(end.startOf('day'))) {
-      const startMinutes = Math.min(
-        Math.max(shopMinutes(start), startDay.startMinutes),
-        startDay.endMinutes
-      );
-      const endMinutes = Math.min(
-        Math.max(shopMinutes(end), startDay.startMinutes),
-        startDay.endMinutes
-      );
-      const width = ((endMinutes - startMinutes) / 60) * weekLayout.pph;
-      return Math.max(width, 4);
+    if (!startDay.isWorking || startDay.durationHours <= 0) {
+      return Math.max(startDay.width, 4);
     }
 
+    const span = startDay.endMinutes - startDay.startMinutes;
+    if (span <= 0) return Math.max(startDay.width, 4);
+
+    // Multi-day span: continuous bar across adjacent day columns (one label).
     const left = leftPx(startIso, from, mode, mobile, weekLayout);
-    if (left == null) return null;
-    const dayEndPx = startDay.left + startDay.width;
-    return Math.max(dayEndPx - left, 4);
+    const right = leftPx(endIso, from, mode, mobile, weekLayout);
+    if (left == null || right == null) return null;
+    return Math.max(right - left, 4);
   }
 
   const left = leftPx(startIso, from, mode, mobile, weekLayout);
@@ -343,3 +389,114 @@ export function dayColumnsForView(
     };
   });
 }
+
+/**
+ * Bar caption: prefer the operation name. Only append the job number when the
+ * bar is wide enough — otherwise short cells show "Facing - J…" instead of "Facing".
+ */
+export function scheduleBarLabel(
+  operationName: string,
+  jobNumber: string | null | undefined,
+  barWidthPx: number,
+  mobile = false
+): string {
+  const name = (operationName || 'Op').trim();
+  if (!name) return '';
+  const job = jobNumber?.trim();
+  const minForJob = mobile ? 140 : 120;
+  if (job && barWidthPx >= minForJob) return `${name} · ${job}`;
+  return name;
+}
+
+/** Shared text layout for schedule bars — larger type, vertically centered. */
+export function scheduleBarTextStyle(opts: {
+  mobile?: boolean;
+  barWidthPx: number;
+  columnFill?: boolean;
+}): {
+  display: 'flex';
+  alignItems: 'center';
+  boxSizing: 'border-box';
+  margin: number;
+  fontSize: number;
+  fontWeight: number;
+  letterSpacing: string;
+  lineHeight: number;
+  padding: string;
+  overflow: 'hidden';
+  textAlign: 'left';
+} {
+  const narrow = opts.barWidthPx < 64;
+  const fontSize = opts.mobile ? (narrow ? 11 : 12) : narrow ? 12 : 13;
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    boxSizing: 'border-box',
+    margin: 0,
+    fontSize,
+    fontWeight: 800,
+    letterSpacing: narrow ? '-0.02em' : '-0.01em',
+    lineHeight: 1.1,
+    padding: opts.columnFill
+      ? narrow
+        ? '0 3px'
+        : '0 7px'
+      : narrow
+        ? '0 3px'
+        : '0 6px',
+    overflow: 'hidden',
+    textAlign: 'left',
+  };
+}
+
+/** Inner span so ellipsis works inside flex-centered bars. */
+export const SCHEDULE_BAR_LABEL_SPAN_STYLE = {
+  overflow: 'hidden' as const,
+  textOverflow: 'ellipsis' as const,
+  whiteSpace: 'nowrap' as const,
+  minWidth: 0,
+  width: '100%',
+};
+
+/**
+ * Pack overlapping intervals into the fewest lanes (greedy left-edge sort).
+ * Used for the shared "No machine" timeline row so concurrent worker-only
+ * ops stack instead of painting on top of each other.
+ */
+export function assignOverlapLanes(
+  items: { id: string; start: string; end: string }[]
+): { laneById: Map<string, number>; laneCount: number } {
+  const sorted = [...items].sort((a, b) => {
+    const as = dayjs(a.start).valueOf();
+    const bs = dayjs(b.start).valueOf();
+    if (as !== bs) return as - bs;
+    const ae = dayjs(a.end).valueOf();
+    const be = dayjs(b.end).valueOf();
+    if (ae !== be) return ae - be;
+    return a.id.localeCompare(b.id);
+  });
+
+  const laneEnds: number[] = [];
+  const laneById = new Map<string, number>();
+
+  for (const item of sorted) {
+    const start = dayjs(item.start).valueOf();
+    const end = dayjs(item.end).valueOf();
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+      laneById.set(item.id, 0);
+      if (laneEnds.length === 0) laneEnds.push(end || start);
+      continue;
+    }
+    let lane = laneEnds.findIndex((laneEnd) => laneEnd <= start);
+    if (lane < 0) {
+      lane = laneEnds.length;
+      laneEnds.push(end);
+    } else {
+      laneEnds[lane] = end;
+    }
+    laneById.set(item.id, lane);
+  }
+
+  return { laneById, laneCount: Math.max(1, laneEnds.length) };
+}
+

@@ -24,13 +24,13 @@ import { useNavigate } from 'react-router-dom';
 import { scheduleApi, type ScheduleBoardOperation, type ScheduleBoardResponse } from '../../api/schedule.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
-import { WorkerPageHeader } from '../../layouts/WorkerLayout';
 import {
   HOUR_END,
   HOUR_START,
   TIMELINE_BORDER as BORDER,
   TIMELINE_NAVY as NAVY,
   WORKING_HOURS_NOTE,
+  assignOverlapLanes,
   buildWeekTimelineLayout,
   clipSegmentToPeriod,
   dayColumnsForView,
@@ -39,12 +39,18 @@ import {
   periodBounds,
   pxPerHour,
   scaleWeekTimelineLayout,
+  scheduleBarLabel,
+  scheduleBarTextStyle,
+  SCHEDULE_BAR_LABEL_SPAN_STYLE,
+  mergeAdjacentWeekPieces,
+  splitSegmentAcrossWeekDays,
   timelineWidth,
   widthPx,
   type TimelineViewMode,
 } from './scheduleTimelineUtils';
 import { formatShopDateTime, SHOP_TZ } from '../../utils/shopTime';
 import ScheduleExpandShell from './ScheduleExpandShell';
+import WorkerPersonalSchedule from './WorkerPersonalSchedule';
 
 const { Text } = Typography;
 
@@ -75,21 +81,23 @@ type RowDef = {
 };
 
 export default function ScheduleBoardPage() {
+  const { isWorker } = useAuth();
+  if (isWorker) return <WorkerPersonalSchedule />;
+  return <AdminOfficeScheduleBoard />;
+}
+
+function AdminOfficeScheduleBoard() {
   const navigate = useNavigate();
-  const { isWorker, user } = useAuth();
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
   const labelW = isMobile ? 96 : 168;
-  const rowH = isMobile ? 36 : 40;
-
-  const [viewMode, setViewMode] = useState<ViewMode>(() => (isWorker ? 'day' : 'week'));
+  const rowH = isMobile ? 40 : 44;
+  const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [rowMode, setRowMode] = useState<RowMode>('machine');
   const [anchor, setAnchor] = useState(() => dayjs().tz(SHOP_TZ));
   const [includeCompleted, setIncludeCompleted] = useState(true);
   const [machineTypeId, setMachineTypeId] = useState<string | undefined>();
-  const [workerId, setWorkerId] = useState<string | undefined>(() =>
-    isWorker ? user?.id : undefined
-  );
+  const [workerId, setWorkerId] = useState<string | undefined>();
   const [clientId, setClientId] = useState<string | undefined>();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [data, setData] = useState<ScheduleBoardResponse | null>(null);
@@ -172,7 +180,7 @@ export default function ScheduleBoardPage() {
   const clearBoardFilters = () => {
     setMachineTypeId(undefined);
     setClientId(undefined);
-    if (!isWorker) setWorkerId(undefined);
+    setWorkerId(undefined);
     setIncludeCompleted(true);
   };
 
@@ -193,7 +201,7 @@ export default function ScheduleBoardPage() {
   };
 
   const summary = data?.summary;
-  const isPhoneBoard = isMobile && !isWorker;
+  const isPhoneBoard = isMobile;
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const [boardAvailW, setBoardAvailW] = useState(0);
 
@@ -227,9 +235,7 @@ export default function ScheduleBoardPage() {
   const pph = pxPerHour(viewMode, isMobile);
   const columnFill = viewMode === 'week' || viewMode === 'month';
   const posArgs = [from, viewMode, isMobile, weekLayout] as const;
-  const boardCollapsedMaxHeight = isWorker
-    ? 'calc(100dvh - 280px)'
-    : isPhoneBoard
+  const boardCollapsedMaxHeight = isPhoneBoard
       ? 'calc(100dvh - 340px)'
       : isMobile
         ? 'calc(100dvh - 260px)'
@@ -238,8 +244,8 @@ export default function ScheduleBoardPage() {
   const showingToday = !today.isBefore(from, 'day') && !today.isAfter(to, 'day');
   const nearFull = summary?.machinesNearFullCapacity || [];
   const atRiskCount = summary?.jobsAtRisk?.length ?? 0;
-  const activeFilterCount = [machineTypeId, workerId && !(isWorker && workerId === user?.id) ? workerId : undefined, clientId]
-    .filter(Boolean).length + (includeCompleted ? 0 : 1);
+  const activeFilterCount =
+    [machineTypeId, workerId, clientId].filter(Boolean).length + (includeCompleted ? 0 : 1);
 
   const periodLabel =
     viewMode === 'day'
@@ -269,21 +275,19 @@ export default function ScheduleBoardPage() {
         onChange={setMachineTypeId}
         options={machineTypes.map((t) => ({ value: t.id, label: t.name }))}
       />
-      {!isWorker && (
-        <Select
-          allowClear
-          showSearch
-          optionFilterProp="label"
-          placeholder="Worker"
-          style={{ width: isMobile ? '100%' : 160 }}
-          value={workerId}
-          onChange={setWorkerId}
-          options={(data?.workers || []).map((w) => ({
-            value: w.id,
-            label: w.fullName,
-          }))}
-        />
-      )}
+      <Select
+        allowClear
+        showSearch
+        optionFilterProp="label"
+        placeholder="Worker"
+        style={{ width: isMobile ? '100%' : 160 }}
+        value={workerId}
+        onChange={setWorkerId}
+        options={(data?.workers || []).map((w) => ({
+          value: w.id,
+          label: w.fullName,
+        }))}
+      />
       <Select
         allowClear
         showSearch
@@ -317,7 +321,6 @@ export default function ScheduleBoardPage() {
         gap: isMobile ? 10 : 12,
         minHeight: 0,
         minWidth: 0,
-        padding: isWorker ? (isMobile ? '12px 12px 8px' : '16px') : undefined,
       }}
     >
       {isPhoneBoard ? (
@@ -416,45 +419,9 @@ export default function ScheduleBoardPage() {
           flexWrap: 'wrap',
           gap: 10,
           alignItems: isMobile ? 'stretch' : 'center',
-          justifyContent: 'space-between',
+          justifyContent: 'flex-start',
         }}
       >
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 8,
-            alignItems: 'center',
-          }}
-        >
-          <Segmented
-            value={viewMode}
-            onChange={(v) => setViewMode(v as ViewMode)}
-            size={isMobile ? 'middle' : 'middle'}
-            options={[
-              { label: 'Day', value: 'day' },
-              { label: 'Week', value: 'week' },
-              { label: 'Month', value: 'month' },
-            ]}
-          />
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: isMobile ? 1 : undefined }}>
-            <Button icon={<LeftOutlined />} onClick={() => shiftPeriod(-1)} />
-            <Button
-              icon={<AimOutlined />}
-              onClick={() => setAnchor(dayjs().tz(SHOP_TZ))}
-              style={{ flex: isMobile ? 1 : undefined }}
-            >
-              Today
-            </Button>
-            <Button icon={<RightOutlined />} onClick={() => shiftPeriod(1)} />
-          </div>
-          <Text strong style={{ color: NAVY, fontSize: isMobile ? 13 : 14 }}>
-            {viewMode === 'day'
-              ? from.format('ddd, MMM D')
-              : `${from.format('MMM D')} – ${to.format('MMM D, YYYY')}`}
-          </Text>
-        </div>
-
         {isMobile ? (
           <Button icon={<FilterOutlined />} onClick={() => setFiltersOpen(true)} block>
             Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}
@@ -531,7 +498,40 @@ export default function ScheduleBoardPage() {
           <Spin size="large" />
         </div>
       ) : (
-        <ScheduleExpandShell collapsedMaxHeight={boardCollapsedMaxHeight}>
+        <ScheduleExpandShell
+          collapsedMaxHeight={boardCollapsedMaxHeight}
+          title={
+            !isPhoneBoard ? (
+              <>
+                <Segmented
+                  value={viewMode}
+                  onChange={(v) => setViewMode(v as ViewMode)}
+                  size="middle"
+                  options={[
+                    { label: 'Day', value: 'day' },
+                    { label: 'Week', value: 'week' },
+                    { label: 'Month', value: 'month' },
+                  ]}
+                />
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <Button icon={<LeftOutlined />} onClick={() => shiftPeriod(-1)} />
+                  <Button
+                    icon={<AimOutlined />}
+                    onClick={() => setAnchor(dayjs().tz(SHOP_TZ))}
+                  >
+                    Today
+                  </Button>
+                  <Button icon={<RightOutlined />} onClick={() => shiftPeriod(1)} />
+                </div>
+                <Text strong style={{ color: NAVY, fontSize: isMobile ? 13 : 14 }}>
+                  {viewMode === 'day'
+                    ? from.format('ddd, MMM D')
+                    : `${from.format('MMM D')} – ${to.format('MMM D, YYYY')}`}
+                </Text>
+              </>
+            ) : undefined
+          }
+        >
           <div
             ref={boardScrollRef}
             className="sched-board-view"
@@ -606,6 +606,32 @@ export default function ScheduleBoardPage() {
             {rows.map((row) => {
               const ops = opsForRow(row);
               const dts = downtimesForRow(row);
+              const stackLanes = Boolean(row.noMachine);
+              const laneItems = stackLanes
+                ? ops
+                    .map((op) => {
+                      const segs =
+                        op.segments.length > 0
+                          ? op.segments
+                          : op.scheduledStart && op.scheduledEnd
+                            ? [{ start: op.scheduledStart, end: op.scheduledEnd }]
+                            : [];
+                      if (!segs.length) return null;
+                      let start = segs[0].start;
+                      let end = segs[0].end;
+                      for (const seg of segs) {
+                        if (seg.start < start) start = seg.start;
+                        if (seg.end > end) end = seg.end;
+                      }
+                      return { id: op.id, start, end };
+                    })
+                    .filter((x): x is { id: string; start: string; end: string } => x != null)
+                : [];
+              const { laneById, laneCount } = stackLanes
+                ? assignOverlapLanes(laneItems)
+                : { laneById: new Map<string, number>(), laneCount: 1 };
+              const trackH = rowH * laneCount;
+
               return (
                 <div key={row.key}>
                   {row.group ? (
@@ -630,7 +656,7 @@ export default function ScheduleBoardPage() {
                   <div
                     style={{
                       display: 'flex',
-                      minHeight: rowH,
+                      minHeight: trackH,
                       borderBottom: `1px solid #f1f5f9`,
                     }}
                   >
@@ -652,6 +678,7 @@ export default function ScheduleBoardPage() {
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
+                        minHeight: trackH,
                       }}
                     >
                       {row.label}
@@ -660,7 +687,8 @@ export default function ScheduleBoardPage() {
                       style={{
                         position: 'relative',
                         width: boardW,
-                        minHeight: rowH,
+                        minHeight: trackH,
+                        height: trackH,
                         backgroundImage:
                           viewMode === 'day'
                             ? `repeating-linear-gradient(90deg, transparent, transparent ${pph - 1}px, #f1f5f9 ${pph - 1}px, #f1f5f9 ${pph}px)`
@@ -680,6 +708,24 @@ export default function ScheduleBoardPage() {
                           }}
                         />
                       ))}
+
+                      {laneCount > 1
+                        ? Array.from({ length: laneCount - 1 }, (_, i) => (
+                            <div
+                              key={`lane-rule-${i}`}
+                              style={{
+                                position: 'absolute',
+                                left: 0,
+                                right: 0,
+                                top: rowH * (i + 1),
+                                height: 1,
+                                background: '#e2e8f0',
+                                zIndex: 0,
+                                pointerEvents: 'none',
+                              }}
+                            />
+                          ))
+                        : null}
 
                       {dts.flatMap((d) => {
                         const clipped = clipSegmentToPeriod(
@@ -710,7 +756,7 @@ export default function ScheduleBoardPage() {
                               style={{
                                 position: 'absolute',
                                 top: columnFill ? 0 : 4,
-                                height: columnFill ? rowH : rowH - 8,
+                                height: columnFill ? trackH : trackH - 8,
                                 left: barLeft,
                                 width: barW,
                                 background:
@@ -725,13 +771,26 @@ export default function ScheduleBoardPage() {
                         ];
                       })}
 
-                      {ops.flatMap((op) =>
-                        (op.segments.length
-                          ? op.segments
-                          : op.scheduledStart && op.scheduledEnd
-                            ? [{ start: op.scheduledStart, end: op.scheduledEnd }]
-                            : []
-                        ).flatMap((seg, i) => {
+                      {ops.flatMap((op) => {
+                        const lane = laneById.get(op.id) ?? 0;
+                        const barTop = columnFill ? lane * rowH : lane * rowH + 4;
+                        const barHeight = columnFill ? rowH : rowH - 8;
+                        const rawSegs =
+                          op.segments.length > 0
+                            ? op.segments
+                            : op.scheduledStart && op.scheduledEnd
+                              ? [{ start: op.scheduledStart, end: op.scheduledEnd }]
+                              : [];
+                        const dayPieces = rawSegs.flatMap((seg) =>
+                          viewMode === 'week' && weekLayout
+                            ? splitSegmentAcrossWeekDays(seg.start, seg.end, weekLayout)
+                            : [seg]
+                        );
+                        const spans =
+                          viewMode === 'week' && weekLayout
+                            ? mergeAdjacentWeekPieces(dayPieces)
+                            : dayPieces;
+                        return spans.flatMap((seg, i) => {
                           const clipped = clipSegmentToPeriod(seg.start, seg.end, from, to);
                           if (!clipped) return [];
                           const barLeft = leftPx(clipped.start, ...posArgs);
@@ -740,6 +799,20 @@ export default function ScheduleBoardPage() {
                           const color =
                             op.scheduleColor || STATUS_COLOR[op.status] || '#2563eb';
                           const late = !!op.isLate;
+                          const label =
+                            barW >= 22
+                              ? scheduleBarLabel(
+                                  op.operationName,
+                                  op.jobNumber,
+                                  barW,
+                                  isMobile
+                                )
+                              : '';
+                          const textStyle = scheduleBarTextStyle({
+                            mobile: isMobile,
+                            barWidthPx: barW,
+                            columnFill,
+                          });
                           return [
                             <Tooltip
                               key={`${op.id}-${i}`}
@@ -771,31 +844,19 @@ export default function ScheduleBoardPage() {
                             >
                               <button
                                 type="button"
-                                onClick={() =>
-                                  navigate(
-                                    isWorker
-                                      ? `/my-assignments/${op.jobOrderId}`
-                                      : `/job-orders/${op.jobOrderId}`
-                                  )
-                                }
+                                onClick={() => navigate(`/job-orders/${op.jobOrderId}`)}
                                 style={{
                                   position: 'absolute',
-                                  top: columnFill ? 0 : 5,
-                                  height: columnFill ? rowH : rowH - 10,
+                                  top: barTop,
+                                  height: barHeight,
                                   left: barLeft,
                                   width: barW,
                                   background: color,
                                   border: columnFill ? 'none' : late ? '2px solid #dc2626' : 'none',
                                   borderRadius: columnFill ? 0 : 4,
                                   color: '#fff',
-                                  fontSize: isMobile ? 9 : 10,
-                                  fontWeight: 700,
-                                  overflow: 'hidden',
-                                  whiteSpace: 'nowrap',
-                                  textOverflow: 'ellipsis',
-                                  padding: columnFill ? '0 6px' : '0 4px',
+                                  ...textStyle,
                                   cursor: 'pointer',
-                                  textAlign: 'left',
                                   zIndex: 2,
                                   boxShadow: columnFill
                                     ? late
@@ -806,14 +867,14 @@ export default function ScheduleBoardPage() {
                                       : undefined,
                                 }}
                               >
-                                {isMobile
-                                  ? op.operationName
-                                  : `${op.operationName}${op.jobNumber ? ` · ${op.jobNumber}` : ''}`}
+                                {label ? (
+                                  <span style={SCHEDULE_BAR_LABEL_SPAN_STYLE}>{label}</span>
+                                ) : null}
                               </button>
                             </Tooltip>,
                           ];
-                        })
-                      )}
+                        });
+                      })}
                     </div>
                   </div>
                 </div>
@@ -824,7 +885,6 @@ export default function ScheduleBoardPage() {
             {viewMode === 'week' && weekLayout
               ? `${WORKING_HOURS_NOTE} Scroll sideways for more days.`
               : `${HOUR_START}:00–${HOUR_END}:00. Scroll sideways for more days.`}
-            {isWorker ? ' Read-only.' : ''}
           </div>
           </div>
         </ScheduleExpandShell>
@@ -910,8 +970,7 @@ export default function ScheduleBoardPage() {
                   options={machineTypes.map((t) => ({ value: t.id, label: t.name }))}
                 />
               </div>
-              {!isWorker ? (
-                <div className="sched-f__row">
+              <div className="sched-f__row">
                   <span className="sched-f__row-k">Worker</span>
                   <Select
                     allowClear
@@ -928,7 +987,6 @@ export default function ScheduleBoardPage() {
                     }))}
                   />
                 </div>
-              ) : null}
               <div className="sched-f__row">
                 <span className="sched-f__row-k">Client</span>
                 <Select
@@ -973,20 +1031,6 @@ export default function ScheduleBoardPage() {
       </Drawer>
     </div>
   );
-
-  if (isWorker) {
-    return (
-      <div>
-        <WorkerPageHeader
-          title="Schedule"
-          subtitle="Shop-wide production board"
-          onBack={() => navigate('/my-assignments')}
-          showSchedule={false}
-        />
-        {board}
-      </div>
-    );
-  }
 
   return board;
 }

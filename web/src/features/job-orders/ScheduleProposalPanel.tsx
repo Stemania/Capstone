@@ -17,6 +17,12 @@ type Props = {
   scheduleFlag?: ScheduleFlag | null;
   warningsBySeq: Record<number, ScheduleWarning[]>;
   onChangeOp: (sequenceNo: number, patch: Partial<ProposedOperation>) => void;
+  /** Machine change should re-fit start/end on the selected unit. */
+  onMachineUnitChange?: (
+    sequenceNo: number,
+    machineUnitId: string | null,
+    machineUnitLabel: string | null
+  ) => void;
   onBlurValidate: () => void;
   readOnly?: boolean;
 };
@@ -58,6 +64,7 @@ export default function ScheduleProposalPanel({
   scheduleFlag,
   warningsBySeq,
   onChangeOp,
+  onMachineUnitChange,
   onBlurValidate,
   readOnly = false,
 }: Props) {
@@ -138,10 +145,16 @@ export default function ScheduleProposalPanel({
                     options={unitOptions.map((u) => ({ value: u.id, label: u.label }))}
                     onChange={(unitId) => {
                       const unit = unitOptions.find((u) => u.id === unitId);
-                      onChangeOp(op.sequenceNo, {
-                        machineUnitId: unitId || null,
-                        machineUnitLabel: unit?.label || null,
-                      });
+                      const machineUnitId = unitId || null;
+                      const machineUnitLabel = unit?.label || null;
+                      if (onMachineUnitChange) {
+                        onMachineUnitChange(op.sequenceNo, machineUnitId, machineUnitLabel);
+                      } else {
+                        onChangeOp(op.sequenceNo, {
+                          machineUnitId,
+                          machineUnitLabel,
+                        });
+                      }
                     }}
                   />
                 ) : (

@@ -37,7 +37,7 @@ function buildMachineRows(units: MachineUnitInfo[]): TimelineRow[] {
     });
     lastType = group;
   }
-  rows.push({ key: '__none__', label: 'Worker only', noMachine: true });
+  rows.push({ key: '__none__', label: 'No machine', noMachine: true });
   return rows;
 }
 
@@ -61,11 +61,12 @@ function buildWorkerRows(workers: BoardWorker[], ops: ScheduleBoardOperation[]):
 }
 
 function segmentsForOp(op: ProposedOperation) {
-  // Prefer explicit start/end so live edits in the schedule panel update the week view.
+  // Prefer scheduler working segments (already split across days). Fall back to
+  // the overnight envelope — ScheduleTimelineBoard splits that for week view.
+  if (op.segments && op.segments.length > 0) return op.segments;
   if (op.scheduledStart && op.scheduledEnd) {
     return [{ start: op.scheduledStart, end: op.scheduledEnd }];
   }
-  if (op.segments && op.segments.length > 0) return op.segments;
   return [];
 }
 

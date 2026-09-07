@@ -8,7 +8,8 @@ export type ScheduleExpandApi = {
 };
 
 type Props = {
-  title?: string;
+  /** Plain string gets the uppercase title style; custom nodes sit on the left of the expand control. */
+  title?: ReactNode;
   collapsedMaxHeight?: string;
   children: ReactNode | ((api: ScheduleExpandApi) => ReactNode);
   className?: string;
@@ -54,13 +55,22 @@ export default function ScheduleExpandShell({
 
   const body = typeof children === 'function' ? children({ expandButton, expanded }) : children;
 
+  const leading =
+    title == null || title === false ? (
+      <span className="sched-expand__title-spacer" />
+    ) : typeof title === 'string' || typeof title === 'number' ? (
+      <div className="sched-expand__title">{title}</div>
+    ) : (
+      <div className="sched-expand__leading">{title}</div>
+    );
+
   return (
     <div
       className={`sched-expand${expanded ? ' sched-expand--open' : ''}${className ? ` ${className}` : ''}`}
       style={{ ['--sched-view-max-h' as string]: collapsedMaxHeight }}
     >
       <div className="sched-expand__toolbar">
-        {title ? <div className="sched-expand__title">{title}</div> : <span className="sched-expand__title-spacer" />}
+        {leading}
         {!expandInBody ? expandButton : null}
       </div>
       <div className="sched-expand__body">{body}</div>
