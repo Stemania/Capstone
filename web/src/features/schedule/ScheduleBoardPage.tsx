@@ -51,6 +51,11 @@ import {
 import { formatShopDateTime, SHOP_TZ } from '../../utils/shopTime';
 import ScheduleExpandShell from './ScheduleExpandShell';
 import WorkerPersonalSchedule from './WorkerPersonalSchedule';
+import {
+  buildJobConnectorPaths,
+  collectJobBarAnchors,
+  tracksBlockHeight,
+} from './scheduleJobConnectors';
 
 const { Text } = Typography;
 
@@ -96,6 +101,7 @@ function AdminOfficeScheduleBoard() {
   const [rowMode, setRowMode] = useState<RowMode>('machine');
   const [anchor, setAnchor] = useState(() => dayjs().tz(SHOP_TZ));
   const [includeCompleted, setIncludeCompleted] = useState(true);
+  const [showJobConnections, setShowJobConnections] = useState(false);
   const [machineTypeId, setMachineTypeId] = useState<string | undefined>();
   const [workerId, setWorkerId] = useState<string | undefined>();
   const [clientId, setClientId] = useState<string | undefined>();
@@ -247,6 +253,40 @@ function AdminOfficeScheduleBoard() {
   const activeFilterCount =
     [machineTypeId, workerId, clientId].filter(Boolean).length + (includeCompleted ? 0 : 1);
 
+  const jobConnectorPaths = useMemo(() => {
+    if (!showJobConnections || !data) return [];
+    const anchors = collectJobBarAnchors({
+      rows,
+      opsForRow: (row) => opsForRow(row as RowDef),
+      rowH,
+      columnFill,
+      viewMode,
+      weekLayout,
+      from,
+      to,
+      posArgs: [...posArgs],
+      colorForOp: (op) => op.scheduleColor || STATUS_COLOR[op.status] || '#2563eb',
+    });
+    return buildJobConnectorPaths(anchors);
+  }, [
+    showJobConnections,
+    data,
+    rows,
+    rowH,
+    columnFill,
+    viewMode,
+    weekLayout,
+    from,
+    to,
+    isMobile,
+    rowMode,
+  ]);
+
+  const tracksH = useMemo(() => {
+    if (!showJobConnections) return 0;
+    return tracksBlockHeight(rows, (row) => opsForRow(row as RowDef), rowH);
+  }, [showJobConnections, rows, rowH, data, rowMode]);
+
   const periodLabel =
     viewMode === 'day'
       ? from.format('ddd, MMM D')
@@ -309,6 +349,18 @@ function AdminOfficeScheduleBoard() {
       >
         <Switch size="small" checked={includeCompleted} onChange={setIncludeCompleted} />
         Show completed
+      </label>
+      <label
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 13,
+          width: isMobile ? '100%' : undefined,
+        }}
+      >
+        <Switch size="small" checked={showJobConnections} onChange={setShowJobConnections} />
+        Job stage links
       </label>
     </>
   );
@@ -603,6 +655,37 @@ function AdminOfficeScheduleBoard() {
               </div>
             </div>
 
+            <div style={{ position: 'relative' }}>
+              {showJobConnections && jobConnectorPaths.length > 0 && tracksH > 0 ? (
+                <svg
+                  width={boardW}
+                  height={tracksH}
+                  viewBox={`0 0 ${boardW} ${tracksH}`}
+                  aria-hidden
+                  style={{
+                    position: 'absolute',
+                    left: labelW,
+                    top: 0,
+                    width: boardW,
+                    height: tracksH,
+                    pointerEvents: 'none',
+                    zIndex: 2,
+                    overflow: 'visible',
+                  }}
+                >
+                  {jobConnectorPaths.map((p) => (
+                    <path
+                      key={p.key}
+                      d={p.d}
+                      fill="none"
+                      stroke={p.color}
+                      strokeWidth={1.75}
+                      strokeOpacity={0.72}
+                      strokeLinecap="round"
+                    />
+                  ))}
+                </svg>
+              ) : null}
             {rows.map((row) => {
               const ops = opsForRow(row);
               const dts = downtimesForRow(row);
@@ -880,6 +963,7 @@ function AdminOfficeScheduleBoard() {
                 </div>
               );
             })}
+            </div>
           </div>
           <div style={{ padding: '8px 12px', fontSize: 11, color: '#94a3b8' }}>
             {viewMode === 'week' && weekLayout
@@ -1020,6 +1104,25 @@ function AdminOfficeScheduleBoard() {
                 onClick={() => setIncludeCompleted(false)}
               >
                 Hide done
+              </button>
+            </div>
+            <div className="sched-f__label" style={{ marginTop: 12 }}>
+              Job stage links
+            </div>
+            <div className="sched-m__pills" role="tablist" aria-label="Job stage links">
+              <button
+                type="button"
+                className={`sched-m__pill${showJobConnections ? ' is-on' : ''}`}
+                onClick={() => setShowJobConnections(true)}
+              >
+                On
+              </button>
+              <button
+                type="button"
+                className={`sched-m__pill${!showJobConnections ? ' is-on' : ''}`}
+                onClick={() => setShowJobConnections(false)}
+              >
+                Off
               </button>
             </div>
           </div>
