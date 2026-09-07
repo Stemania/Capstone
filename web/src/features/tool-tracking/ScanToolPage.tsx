@@ -12,12 +12,13 @@ import {
 import { Html5Qrcode } from 'html5-qrcode';
 import { toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
+import { useAuth } from '../../hooks/useAuth';
 import { useWorkerTheme } from '../../layouts/WorkerLayout';
-import type { Tool, ToolEvent } from '../../types';
+import type { ToolEvent, ToolUnit } from '../../types';
 import { useNavigate } from 'react-router-dom';
 
 type CameraState = 'starting' | 'scanning' | 'denied';
-type ScanIntent = 'BORROW' | 'RETURN' | 'ISSUE';
+type ScanIntent = 'BORROW' | 'RETURN';
 
 const corner = (color: string, pos: React.CSSProperties): React.CSSProperties => ({
   position: 'absolute',
@@ -31,11 +32,12 @@ const corner = (color: string, pos: React.CSSProperties): React.CSSProperties =>
 
 export default function ScanToolPage() {
   const { colors, logout } = useWorkerTheme();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const [cameraState, setCameraState] = useState<CameraState>('starting');
   const [detectedCode, setDetectedCode] = useState('');
-  const [detectedTool, setDetectedTool] = useState<Tool | null>(null);
+  const [detectedUnit, setDetectedUnit] = useState<ToolUnit | null>(null);
   const [detectedIntent, setDetectedIntent] = useState<ScanIntent | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
@@ -49,52 +51,49 @@ export default function ScanToolPage() {
   const clearDetected = useCallback(() => {
     detectedCodeRef.current = '';
     setDetectedCode('');
-    setDetectedTool(null);
+    setDetectedUnit(null);
     setDetectedIntent(null);
     setLookupError(null);
     setLookingUp(false);
   }, []);
 
   const resolveIntent = useCallback(
-    (match: Tool): { intent: ScanIntent | null; error: string | null } => {
-      if (match.category === 'CONSUMABLE') {
-        if ((match.quantityOnHand ?? 0) <= 0) {
-          return { intent: null, error: 'Out of stock' };
-        }
-        return { intent: 'ISSUE', error: null };
+    (unit: ToolUnit): { intent: ScanIntent | null; error: string | null } => {
+      if (unit.status === 'RETIRED') {
+        return { intent: null, error: 'This tool is retired' };
       }
-      const mine = match.myOutstanding ?? 0;
-      if (mine > 0) {
+      if (unit.status === 'UNDER_REPAIR') {
+        return { intent: null, error: 'This tool is under repair' };
+      }
+      if (unit.status === 'OUT') {
+        if (unit.currentHolderId && user?.id && unit.currentHolderId !== user.id) {
+          return {
+            intent: null,
+            error: `Already out with ${unit.currentHolderName || 'another worker'}`,
+          };
+        }
         return { intent: 'RETURN', error: null };
       }
-      if ((match.quantityOnHand ?? 0) <= 0) {
-        return { intent: null, error: 'None available on the shelf' };
+      if (unit.status === 'AVAILABLE') {
+        return { intent: 'BORROW', error: null };
       }
-      return { intent: 'BORROW', error: null };
+      return { intent: null, error: 'Cannot scan this unit' };
     },
-    []
+    [user?.id]
   );
 
-  const lookupTool = useCallback(
+  const lookupUnit = useCallback(
     async (code: string) => {
       const seq = ++lookupSeq.current;
       setLookingUp(true);
       setLookupError(null);
-      setDetectedTool(null);
+      setDetectedUnit(null);
       setDetectedIntent(null);
       try {
-        const { data: tools } = await toolsApi.list();
+        const { data: unit } = await toolsApi.lookupUnit(code);
         if (seq !== lookupSeq.current || detectedCodeRef.current !== code) return;
-
-        const match = tools.find((t) => t.code.toUpperCase() === code.toUpperCase());
-        if (!match) {
-          setLookupError('Item not found');
-          setLookingUp(false);
-          return;
-        }
-
-        setDetectedTool(match);
-        const { intent, error } = resolveIntent(match);
+        setDetectedUnit(unit);
+        const { intent, error } = resolveIntent(unit);
         setDetectedIntent(intent);
         setLookupError(error);
       } catch (err) {
@@ -114,16 +113,16 @@ export default function ScanToolPage() {
       if (!code || code === detectedCodeRef.current) return;
       detectedCodeRef.current = code;
       setDetectedCode(code);
-      void lookupTool(code);
+      void lookupUnit(code);
     },
-    [lookupTool]
+    [lookupUnit]
   );
 
   const submit = async (code: string, intent: ScanIntent) => {
     if (submitting) return;
     setSubmitting(true);
     try {
-      const { data } = await toolsApi.scan(code.trim(), { intent, quantity: 1 });
+      const { data } = await toolsApi.scan(code.trim(), { intent });
       setResult(data);
       setManualOpen(false);
       setManualCode('');
@@ -144,18 +143,12 @@ export default function ScanToolPage() {
     setDetectedCode(code);
     setLookingUp(true);
     setLookupError(null);
-    setDetectedTool(null);
+    setDetectedUnit(null);
     setDetectedIntent(null);
     try {
-      const { data: tools } = await toolsApi.list();
-      const match = tools.find((t) => t.code.toUpperCase() === code.toUpperCase());
-      if (!match) {
-        setLookupError('Item not found');
-        message.error('Item not found');
-        return;
-      }
-      setDetectedTool(match);
-      const { intent, error } = resolveIntent(match);
+      const { data: unit } = await toolsApi.lookupUnit(code);
+      setDetectedUnit(unit);
+      const { intent, error } = resolveIntent(unit);
       if (!intent) {
         setDetectedIntent(null);
         setLookupError(error);
@@ -200,12 +193,7 @@ export default function ScanToolPage() {
     };
   }, [onCodeDetected]);
 
-  const actionLabel =
-    detectedIntent === 'RETURN'
-      ? 'Return'
-      : detectedIntent === 'ISSUE'
-        ? 'Issue'
-        : 'Borrow';
+  const actionLabel = detectedIntent === 'RETURN' ? 'Return' : 'Borrow';
   const canSubmit = Boolean(detectedIntent) && !submitting && !lookingUp;
 
   return (
@@ -233,7 +221,7 @@ export default function ScanToolPage() {
       >
         <div>
           <div style={{ fontSize: 18, fontWeight: 800 }}>Scan QR</div>
-          <div style={{ fontSize: 12, opacity: 0.75 }}>Item type QR — one tap to take or return</div>
+          <div style={{ fontSize: 12, opacity: 0.75 }}>Individual tool units — borrow or return</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
@@ -284,7 +272,6 @@ export default function ScanToolPage() {
         }}
       >
         <div id="qr-camera-view" style={{ width: '100%', height: '100%' }} />
-
         <div
           style={{
             position: 'absolute',
@@ -302,7 +289,6 @@ export default function ScanToolPage() {
             <div style={corner('#22c55e', { bottom: 0, right: 0, borderBottomWidth: 4, borderRightWidth: 4, borderBottomRightRadius: 10 })} />
           </div>
         </div>
-
         {cameraState !== 'scanning' && (
           <div
             style={{
@@ -365,22 +351,21 @@ export default function ScanToolPage() {
             </div>
             {lookingUp ? (
               <div style={{ textAlign: 'center', fontSize: 13, color: colors.textSecondary, marginBottom: 12 }}>
-                Looking up item…
+                Looking up unit…
               </div>
-            ) : detectedTool ? (
+            ) : detectedUnit ? (
               <div style={{ textAlign: 'center', marginBottom: lookupError ? 6 : 12 }}>
-                <div style={{ fontSize: 16, fontWeight: 800 }}>{detectedTool.name}</div>
+                <div style={{ fontSize: 16, fontWeight: 800 }}>{detectedUnit.toolTypeName}</div>
                 <div style={{ fontSize: 13, color: colors.textSecondary, marginTop: 2 }}>
-                  {[detectedTool.sizeSpec, detectedTool.category === 'CONSUMABLE' ? 'Consumable' : 'Returnable']
-                    .filter(Boolean)
-                    .join(' · ')}
+                  {detectedUnit.assetCode} · {detectedUnit.status}
                 </div>
-                <div style={{ fontSize: 13, fontWeight: 700, marginTop: 4 }}>
-                  In stock: {detectedTool.quantityOnHand} {detectedTool.unit}
-                  {detectedTool.myOutstanding
-                    ? ` · You hold ${detectedTool.myOutstanding}`
-                    : ''}
-                </div>
+                {detectedUnit.currentHolderName ? (
+                  <div style={{ fontSize: 13, fontWeight: 700, marginTop: 4 }}>
+                    Held by {detectedUnit.currentHolderName}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 13, fontWeight: 700, marginTop: 4 }}>Available</div>
+                )}
               </div>
             ) : null}
             {lookupError && (
@@ -402,23 +387,12 @@ export default function ScanToolPage() {
                 block
                 size="large"
                 loading={submitting}
-                icon={
-                  detectedIntent === 'RETURN' ? (
-                    <ArrowDownOutlined />
-                  ) : (
-                    <ArrowUpOutlined />
-                  )
-                }
+                icon={detectedIntent === 'RETURN' ? <ArrowDownOutlined /> : <ArrowUpOutlined />}
                 onClick={() => submit(detectedCode, detectedIntent)}
                 style={{
                   height: 50,
                   fontWeight: 800,
-                  background:
-                    detectedIntent === 'RETURN'
-                      ? '#2563eb'
-                      : detectedIntent === 'ISSUE'
-                        ? '#0f1c2e'
-                        : colors.green,
+                  background: detectedIntent === 'RETURN' ? '#2563eb' : colors.green,
                   marginBottom: 10,
                 }}
               >
@@ -428,25 +402,19 @@ export default function ScanToolPage() {
           </>
         ) : (
           <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, textAlign: 'center' }}>
-            Point the camera at the item&apos;s QR code
+            Point the camera at a tool unit&apos;s QR code
           </div>
         )}
 
         <Button block onClick={() => setManualOpen(true)} style={{ fontWeight: 600 }}>
-          Enter code manually
+          Enter asset code manually
         </Button>
       </div>
 
-      <Modal
-        open={manualOpen}
-        onCancel={() => setManualOpen(false)}
-        footer={null}
-        title="Enter item code"
-        centered
-      >
+      <Modal open={manualOpen} onCancel={() => setManualOpen(false)} footer={null} title="Enter asset code" centered>
         <Input
           size="large"
-          placeholder="e.g. INV-DRILL-10"
+          placeholder="e.g. SEED-ANGLE-GRINDER-001"
           value={manualCode}
           onChange={(e) => setManualCode(e.target.value)}
           onPressEnter={() => void handleManual()}
@@ -467,29 +435,13 @@ export default function ScanToolPage() {
 
       <Modal open={Boolean(result)} onCancel={() => setResult(null)} footer={null} centered closable={false}>
         <div style={{ textAlign: 'center', padding: '16px 0' }}>
-          <CheckCircleFilled
-            style={{
-              fontSize: 64,
-              color: colors.green,
-              marginBottom: 16,
-            }}
-          />
+          <CheckCircleFilled style={{ fontSize: 64, color: colors.green, marginBottom: 16 }} />
           <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: 2, marginBottom: 4 }}>
-            {result?.type === 'RETURN'
-              ? 'RETURNED'
-              : result?.type === 'ISSUE'
-                ? 'ISSUED'
-                : 'BORROWED'}
+            {result?.type === 'RETURN' ? 'RETURNED' : 'BORROWED'}
           </div>
           <div style={{ fontSize: 16, marginBottom: 4 }}>{result?.toolName}</div>
           <div style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 8 }}>
-            {[result?.toolSizeSpec, result?.toolCode].filter(Boolean).join(' · ')}
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 24 }}>
-            Qty {result?.quantity}
-            {result?.quantityOnHandAfter != null
-              ? ` · ${result.quantityOnHandAfter} left in stock`
-              : ''}
+            {result?.assetCode}
           </div>
           <Button
             type="primary"

@@ -3,7 +3,12 @@ import { DatePicker, Spin, Table, message } from 'antd';
 import dayjs from 'dayjs';
 import { inventoryApi, toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
-import type { InventoryUsageByItem, InventoryUsageByWorker, Tool } from '../../types';
+import type {
+  InventoryUsageByItem,
+  InventoryUsageByWorker,
+  InventoryUsageConsumables,
+  Tool,
+} from '../../types';
 import {
   defaultAnalyticsRange,
   formatNum,
@@ -18,6 +23,9 @@ export default function InventoryReportPage() {
   const [tools, setTools] = useState<Tool[]>([]);
   const [usageItem, setUsageItem] = useState<InventoryUsageByItem | null>(null);
   const [usageWorker, setUsageWorker] = useState<InventoryUsageByWorker | null>(null);
+  const [usageConsumables, setUsageConsumables] = useState<InventoryUsageConsumables | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -25,15 +33,17 @@ export default function InventoryReportPage() {
     (async () => {
       setLoading(true);
       try {
-        const [t, byItem, byWorker] = await Promise.all([
+        const [t, byItem, byWorker, byCons] = await Promise.all([
           toolsApi.list(),
           inventoryApi.usageByItem(params),
           inventoryApi.usageByWorker(params),
+          inventoryApi.usageConsumables(params),
         ]);
         if (!cancelled) {
           setTools(t.data);
           setUsageItem(byItem.data);
           setUsageWorker(byWorker.data);
+          setUsageConsumables(byCons.data);
         }
       } catch (err) {
         if (!cancelled) message.error(getErrorMessage(err));
@@ -156,25 +166,19 @@ export default function InventoryReportPage() {
             />
           </ReportSection>
 
-          <ReportSection title="Amount used over period">
+          <ReportSection title="Returnable tools borrowed over period">
             <Table
               size="small"
               pagination={false}
               rowKey="toolId"
               dataSource={usageItem?.items || []}
-              locale={{ emptyText: 'No usage recorded in this period yet' }}
+              locale={{ emptyText: 'No borrow activity in this period yet' }}
               columns={[
-                { title: 'Item', dataIndex: 'name' },
+                { title: 'Tool', dataIndex: 'name' },
                 { title: 'Code', dataIndex: 'code', width: 100 },
                 {
-                  title: 'Category',
-                  dataIndex: 'category',
-                  width: 120,
-                  render: (v: string) => displayOrDash(v),
-                },
-                {
-                  title: 'Amount used',
-                  dataIndex: 'consumptionQuantity',
+                  title: 'Borrowed',
+                  dataIndex: 'borrowQuantity',
                   width: 110,
                   align: 'right',
                   render: (v: number | null) => (v == null ? '—' : formatNum(v, 2)),
@@ -186,10 +190,37 @@ export default function InventoryReportPage() {
                   align: 'right',
                   render: (v: number | null) => (v == null ? '—' : formatNum(v, 2)),
                 },
+              ]}
+            />
+          </ReportSection>
+
+          <ReportSection
+            title="Consumable use between stocktakes"
+            note={
+              usageConsumables?.note ||
+              'Usage is measured between stocktakes, not per person.'
+            }
+          >
+            <Table
+              size="small"
+              pagination={false}
+              rowKey="toolId"
+              dataSource={usageConsumables?.items || []}
+              locale={{ emptyText: 'No stocktake-based consumption in this period yet' }}
+              columns={[
+                { title: 'Item', dataIndex: 'name' },
+                { title: 'Code', dataIndex: 'code', width: 100 },
                 {
-                  title: 'Issues',
-                  dataIndex: 'issueQuantity',
-                  width: 80,
+                  title: 'Consumed',
+                  dataIndex: 'consumptionQuantity',
+                  width: 110,
+                  align: 'right',
+                  render: (v: number | null) => (v == null ? '—' : formatNum(v, 2)),
+                },
+                {
+                  title: 'Per working day',
+                  dataIndex: 'consumptionPerWorkingDay',
+                  width: 120,
                   align: 'right',
                   render: (v: number | null) => (v == null ? '—' : formatNum(v, 2)),
                 },

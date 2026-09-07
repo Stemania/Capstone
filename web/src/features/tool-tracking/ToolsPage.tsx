@@ -6,13 +6,13 @@ import {
   Form,
   Input,
   InputNumber,
-  Typography,
   Space,
   Select,
   Segmented,
   DatePicker,
   Alert,
   Dropdown,
+  Drawer,
   Row,
   Col,
   Spin,
@@ -25,51 +25,56 @@ import {
   SearchOutlined,
   DownloadOutlined,
   MoreOutlined,
-  QrcodeOutlined,
   AppstoreAddOutlined,
+  HistoryOutlined,
+  EditOutlined,
+  AuditOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { inventoryApi, toolsApi } from '../../api/tools.api';
 import StatusPill from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
-import type {
-  InventoryPurchaseSuggestions,
-  InventoryUsageByItem,
-  InventoryUsageByWorker,
-  Tool,
-  ToolCategory,
-} from '../../types';
-import apiClient, { getErrorMessage } from '../../api/client';
+import InfoTip from '../../components/InfoTip';
+import type { InventoryUsageConsumables, Tool } from '../../types';
+import { getErrorMessage } from '../../api/client';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import { exportCsv } from '../../utils/csvExport';
+import StocktakePanel from './StocktakePanel';
+import ToolEventsPage from './ToolEventsPage';
+import ToolsAssetsPanel from './ToolsAssetsPanel';
 
+type PageTab = 'tools' | 'consumables';
 type StockFilter = 'low' | 'ok';
-type PageTab = 'stock' | 'suggestions' | 'usage';
+type CountsDrawerTab = 'stocktake' | 'consumption';
 
 function sectionLabel(text: string) {
   return <div className="app-form-section">{text}</div>;
 }
 
 export default function ToolsPage() {
-  const [tab, setTab] = useState<PageTab>('stock');
+  const [tab, setTab] = useState<PageTab>('tools');
   const [tools, setTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editTool, setEditTool] = useState<Tool | null>(null);
   const [adjustTool, setAdjustTool] = useState<Tool | null>(null);
-  const [qrTool, setQrTool] = useState<Tool | null>(null);
+  const [eventsOpen, setEventsOpen] = useState(false);
+  const [countsOpen, setCountsOpen] = useState(false);
+  const [countsTab, setCountsTab] = useState<CountsDrawerTab>('stocktake');
   const [query, setQuery] = useState('');
   const [stockFilter, setStockFilter] = useState<StockFilter[]>([]);
-  const [categoryFilter, setCategoryFilter] = useState<ToolCategory[]>([]);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [form] = Form.useForm();
+  const [editForm] = Form.useForm();
   const [adjustForm] = Form.useForm();
   const [creating, setCreating] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
   const isPhone = useIsPhone();
 
-  const [suggestions, setSuggestions] = useState<InventoryPurchaseSuggestions | null>(null);
-  const [usageWorker, setUsageWorker] = useState<InventoryUsageByWorker | null>(null);
-  const [usageItem, setUsageItem] = useState<InventoryUsageByItem | null>(null);
+  const [usageConsumables, setUsageConsumables] = useState<InventoryUsageConsumables | null>(
+    null
+  );
   const [usageRange, setUsageRange] = useState<[Dayjs, Dayjs]>([
     dayjs().subtract(29, 'day').startOf('day'),
     dayjs().endOf('day'),
@@ -79,7 +84,7 @@ export default function ToolsPage() {
   const fetchTools = async () => {
     setLoading(true);
     try {
-      const { data } = await toolsApi.list();
+      const { data } = await toolsApi.list({ category: 'CONSUMABLE' });
       setTools(data);
     } catch (err) {
       message.error(getErrorMessage(err));
@@ -88,28 +93,14 @@ export default function ToolsPage() {
     }
   };
 
-  const fetchSuggestions = async () => {
-    try {
-      const { data } = await inventoryApi.purchaseSuggestions({ lookbackDays: 30 });
-      setSuggestions(data);
-    } catch (err) {
-      message.error(getErrorMessage(err));
-    }
-  };
-
   const fetchUsage = async () => {
     setUsageLoading(true);
     try {
-      const params = {
+      const c = await inventoryApi.usageConsumables({
         from: usageRange[0].format('YYYY-MM-DD'),
         to: usageRange[1].format('YYYY-MM-DD'),
-      };
-      const [w, i] = await Promise.all([
-        inventoryApi.usageByWorker(params),
-        inventoryApi.usageByItem(params),
-      ]);
-      setUsageWorker(w.data);
-      setUsageItem(i.data);
+      });
+      setUsageConsumables(c.data);
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
@@ -118,13 +109,28 @@ export default function ToolsPage() {
   };
 
   useEffect(() => {
-    fetchTools();
-  }, []);
+    if (tab === 'consumables') {
+      void fetchTools();
+    }
+  }, [tab]);
 
   useEffect(() => {
-    if (tab === 'suggestions') void fetchSuggestions();
-    if (tab === 'usage') void fetchUsage();
-  }, [tab]);
+    if (countsOpen && countsTab === 'consumption') {
+      void fetchUsage();
+    }
+  }, [countsOpen, countsTab]);
+
+  useEffect(() => {
+    if (editTool) {
+      editForm.setFieldsValue({
+        name: editTool.name,
+        code: editTool.code,
+        unit: editTool.unit,
+        sizeSpec: editTool.sizeSpec,
+        minimumStock: editTool.minimumStock,
+      });
+    }
+  }, [editTool, editForm]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -132,7 +138,6 @@ export default function ToolsPage() {
       if (q && !`${t.name} ${t.code} ${t.sizeSpec || ''}`.toLowerCase().includes(q)) {
         return false;
       }
-      if (categoryFilter.length && !categoryFilter.includes(t.category)) return false;
       if (stockFilter.length) {
         const ok = !t.lowStock;
         const match = stockFilter.some((f) => (f === 'low' ? t.lowStock : ok));
@@ -140,19 +145,13 @@ export default function ToolsPage() {
       }
       return true;
     });
-  }, [tools, query, stockFilter, categoryFilter]);
+  }, [tools, query, stockFilter]);
 
-  const selectedTools = useMemo(
-    () => filtered.filter((t) => selectedKeys.includes(t.id)),
-    [filtered, selectedKeys]
-  );
-
-  const closeCreateModal = () => setModalOpen(false);
+  const lowCount = tools.filter((t) => t.lowStock).length;
 
   const onCreate = async (values: {
     name: string;
     code?: string;
-    category: ToolCategory;
     unit: string;
     quantityOnHand: number;
     minimumStock?: number | null;
@@ -160,15 +159,36 @@ export default function ToolsPage() {
   }) => {
     try {
       setCreating(true);
-      await toolsApi.create(values);
-      message.success('Inventory item added');
+      await toolsApi.create({ ...values, category: 'CONSUMABLE' });
+      message.success('Consumable added');
       setModalOpen(false);
       form.resetFields();
-      fetchTools();
+      await fetchTools();
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
       setCreating(false);
+    }
+  };
+
+  const onEdit = async (values: {
+    name: string;
+    code: string;
+    unit: string;
+    minimumStock?: number | null;
+    sizeSpec?: string;
+  }) => {
+    if (!editTool) return;
+    try {
+      setSavingEdit(true);
+      await toolsApi.update(editTool.id, values);
+      message.success('Item updated');
+      setEditTool(null);
+      await fetchTools();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -179,11 +199,17 @@ export default function ToolsPage() {
       message.success('Stock adjusted');
       setAdjustTool(null);
       adjustForm.resetFields();
-      fetchTools();
+      await fetchTools();
+      void fetchUsage();
     } catch (err) {
       message.error(getErrorMessage(err));
     }
   };
+
+  const actionItems = (record: Tool): MenuProps['items'] => [
+    { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => setEditTool(record) },
+    { key: 'adjust', label: 'Adjust stock', onClick: () => setAdjustTool(record) },
+  ];
 
   const columns: TableColumnsType<Tool> = [
     {
@@ -193,27 +219,20 @@ export default function ToolsPage() {
       render: (_: unknown, r) => (
         <div>
           <div style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>{r.name}</div>
-          <div style={{ fontSize: 12, color: '#64748b' }}>
-            {[r.sizeSpec, r.code].filter(Boolean).join(' · ')}
-          </div>
+          <div style={{ fontSize: 12, color: '#64748b' }}>{r.code}</div>
         </div>
       ),
     },
     {
-      title: 'Category',
-      dataIndex: 'category',
-      width: 130,
-      render: (c: ToolCategory) =>
-        c === 'CONSUMABLE' ? (
-          <StatusPill color="gray" compact>Consumable</StatusPill>
-        ) : (
-          <StatusPill color="blue" compact>Returnable</StatusPill>
-        ),
+      title: 'Size',
+      dataIndex: 'sizeSpec',
+      width: 100,
+      render: (v: string | null) => v || '—',
     },
     {
       title: 'In stock',
       key: 'stock',
-      width: 120,
+      width: 110,
       sorter: (a, b) => (a.quantityOnHand ?? 0) - (b.quantityOnHand ?? 0),
       render: (_: unknown, r) => (
         <span style={{ fontWeight: r.lowStock ? 700 : 500, color: r.lowStock ? '#b45309' : '#475569' }}>
@@ -224,14 +243,13 @@ export default function ToolsPage() {
     {
       title: 'Reorder level',
       dataIndex: 'minimumStock',
-      width: 130,
-      sorter: (a, b) => (a.minimumStock ?? 0) - (b.minimumStock ?? 0),
+      width: 120,
       render: (v: number | null, r) => (v == null ? '—' : `${v} ${r.unit}`),
     },
     {
       title: 'Status',
       key: 'status',
-      width: 120,
+      width: 110,
       render: (_: unknown, r) =>
         r.lowStock ? (
           <StatusPill color="amber" compact>Low stock</StatusPill>
@@ -240,600 +258,412 @@ export default function ToolsPage() {
         ),
     },
     {
-      title: 'Holders',
-      key: 'holders',
-      width: 140,
-      render: (_: unknown, r) => {
-        if (r.category === 'CONSUMABLE') return '—';
-        const n = r.holders?.length ?? 0;
-        if (!n) return <span style={{ color: '#94a3b8' }}>None out</span>;
-        return (
-          <span>
-            {n} worker{n === 1 ? '' : 's'}
-          </span>
-        );
-      },
-    },
-    {
       title: '',
       key: 'actions',
       width: 56,
-      align: 'center',
-      render: (_: unknown, record) => {
-        const items: MenuProps['items'] = [
-          {
-            key: 'qr',
-            icon: <QrcodeOutlined />,
-            label: 'QR',
-            onClick: () => setQrTool(record),
-          },
-          {
-            key: 'adjust',
-            label: 'Adjust stock',
-            onClick: () => setAdjustTool(record),
-          },
-        ];
-        return (
-          <Dropdown menu={{ items }} trigger={['click']} placement="bottomRight">
-            <Button
-              type="text"
-              size="small"
-              icon={<MoreOutlined style={{ fontSize: 18 }} />}
-              aria-label="More actions"
-            />
-          </Dropdown>
-        );
-      },
+      render: (_: unknown, record) => (
+        <Dropdown menu={{ items: actionItems(record) }} trigger={['click']}>
+          <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} />
+        </Dropdown>
+      ),
     },
   ];
 
   const stockCsvFields = [
     { key: 'name', header: 'Name', value: (r: Tool) => r.name },
     { key: 'code', header: 'Code', value: (r: Tool) => r.code },
-    { key: 'category', header: 'Category', value: (r: Tool) => r.category },
+    { key: 'size', header: 'Size', value: (r: Tool) => r.sizeSpec },
     { key: 'unit', header: 'Unit', value: (r: Tool) => r.unit },
     { key: 'onHand', header: 'QuantityOnHand', value: (r: Tool) => r.quantityOnHand },
     { key: 'min', header: 'MinimumStock', value: (r: Tool) => r.minimumStock },
     { key: 'low', header: 'LowStock', value: (r: Tool) => (r.lowStock ? 'yes' : 'no') },
   ];
 
+  const stockEmpty =
+    tools.length === 0
+      ? 'No consumables in the catalog yet. Add items, then use stocktake to count the shelf.'
+      : stockFilter.includes('low') && !stockFilter.includes('ok') && lowCount === 0
+        ? 'No items are at or below reorder level right now.'
+        : 'No items match your search or stock filter.';
+
   return (
     <div>
       <div className="admin-h-scroll">
-      <Segmented
-        style={{ marginBottom: 16 }}
-        value={tab}
-        onChange={(v) => setTab(v as PageTab)}
-        options={[
-          { label: 'Stock', value: 'stock' },
-          { label: 'Items to buy', value: 'suggestions' },
-          { label: 'Usage', value: 'usage' },
-        ]}
-      />
+        <Segmented
+          style={{ marginBottom: 16 }}
+          value={tab}
+          onChange={(v) => setTab(v as PageTab)}
+          options={[
+            { label: 'Tools', value: 'tools' },
+            { label: 'Consumables', value: 'consumables' },
+          ]}
+        />
       </div>
 
-      {tab === 'stock' && (
-        <div className="std-list-page">
-          <div className="std-list-toolbar">
-            <div className="std-list-filters">
-              <Input
-                allowClear
-                placeholder="Search item, code, size…"
-                prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                className="std-list-search"
-              />
-              <Select
-                mode="multiple"
-                allowClear
-                maxTagCount="responsive"
-                placeholder="Category"
-                className="std-list-filter std-list-filter--sm"
-                value={categoryFilter}
-                onChange={setCategoryFilter}
-                options={[
-                  { value: 'RETURNABLE_TOOL', label: 'Returnable' },
-                  { value: 'CONSUMABLE', label: 'Consumable' },
-                ]}
-              />
-              <Select
-                mode="multiple"
-                allowClear
-                maxTagCount="responsive"
-                placeholder="Stock"
-                className="std-list-filter std-list-filter--sm"
-                value={stockFilter}
-                onChange={setStockFilter}
-                options={[
-                  { value: 'low', label: 'Low stock' },
-                  { value: 'ok', label: 'OK' },
-                ]}
-              />
-            </div>
-            <div className="std-list-actions">
-              <Tooltip title={selectMode ? 'Done selecting' : 'Select multiple'}>
-                <Button
-                  icon={<SelectMultipleIcon />}
-                  type={selectMode ? 'primary' : 'default'}
-                  ghost={selectMode}
-                  aria-label={selectMode ? 'Done selecting' : 'Select multiple'}
-                  onClick={() => {
-                    if (selectMode) {
-                      setSelectMode(false);
-                      setSelectedKeys([]);
-                    } else {
-                      setSelectMode(true);
-                    }
-                  }}
+      {tab === 'tools' && <ToolsAssetsPanel />}
+
+      {tab === 'consumables' && (
+        <>
+          <div className="std-list-page">
+            <div className="std-list-toolbar">
+              <div className="std-list-filters">
+                <Input
+                  allowClear
+                  placeholder="Search item, code, size…"
+                  prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  className="std-list-search"
                 />
-              </Tooltip>
-              <Button
-                icon={<DownloadOutlined />}
-                onClick={() =>
-                  exportCsv('inventory-stock.csv', filtered, stockCsvFields)
-                }
-              >
-                Export CSV
-              </Button>
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setModalOpen(true)}
-                style={{ fontWeight: 700 }}
-              >
-                Add item
-              </Button>
-            </div>
-          </div>
-
-          {selectMode && (
-            <div className="std-list-bulk">
-              <span className="std-list-bulk__count">
-                {selectedKeys.length
-                  ? `${selectedKeys.length} selected`
-                  : 'Select items to export'}
-              </span>
-              <Space size={8}>
-                <Button
-                  size="small"
-                  icon={<DownloadOutlined />}
-                  disabled={!selectedTools.length}
-                  onClick={() => exportCsv('inventory-stock.csv', selectedTools, stockCsvFields)}
-                >
-                  Export selected
-                </Button>
-                {selectedKeys.length > 0 && (
-                  <Button size="small" type="text" onClick={() => setSelectedKeys([])}>
-                    Clear
-                  </Button>
-                )}
-              </Space>
-            </div>
-          )}
-
-          {isPhone ? (
-            <div className="admin-cards">
-              {loading && (
-                <div className="page-spinner">
-                  <Spin />
-                </div>
-              )}
-              {!loading && filtered.length === 0 && (
-                <div className="admin-cards__empty">No inventory items match your filters yet</div>
-              )}
-              {!loading &&
-                filtered.map((r) => (
-                  <div key={r.id} className="admin-card">
-                    <div className="admin-card__top">
-                      <div>
-                        <div className="admin-card__title">{r.name}</div>
-                        <div className="admin-card__meta">
-                          {[r.sizeSpec, r.code, r.category === 'CONSUMABLE' ? 'Consumable' : 'Returnable']
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </div>
-                      </div>
-                      <Dropdown
-                        menu={{
-                          items: [
-                            { key: 'qr', icon: <QrcodeOutlined />, label: 'QR', onClick: () => setQrTool(r) },
-                            { key: 'adjust', label: 'Adjust stock', onClick: () => setAdjustTool(r) },
-                          ],
-                        }}
-                        trigger={['click']}
-                        placement="bottomRight"
-                      >
-                        <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} aria-label="More actions" />
-                      </Dropdown>
-                    </div>
-                    <div className="admin-card__row">
-                      <span style={{ fontWeight: r.lowStock ? 800 : 600, color: r.lowStock ? '#b45309' : '#0f1c2e' }}>
-                        {r.quantityOnHand} {r.unit}
-                      </span>
-                      {r.lowStock ? (
-                        <StatusPill color="amber" compact>Low stock</StatusPill>
-                      ) : (
-                        <StatusPill color="green" compact>OK</StatusPill>
-                      )}
-                    </div>
-                  </div>
-                ))}
-            </div>
-          ) : (
-          <Table
-            className="std-list-table"
-            rowKey="id"
-            size="small"
-            columns={columns}
-            dataSource={filtered}
-            loading={loading}
-            rowClassName={(r) => (r.lowStock ? 'inventory-low-stock' : '')}
-            locale={{ emptyText: 'No inventory items match your filters yet' }}
-            scroll={{ x: 960 }}
-            pagination={{
-              pageSize: 20,
-              showSizeChanger: true,
-              pageSizeOptions: [10, 20, 50],
-              showTotal: (total) => `${total} item${total === 1 ? '' : 's'}`,
-            }}
-            rowSelection={
-              selectMode
-                ? {
-                    selectedRowKeys: selectedKeys,
-                    onChange: (keys) => setSelectedKeys(keys.map(String)),
-                    preserveSelectedRowKeys: true,
-                  }
-                : undefined
-            }
-          />
-          )}
-        </div>
-      )}
-
-      {tab === 'suggestions' && (
-        <div>
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 16 }}
-            message="Suggestions for Office to review — nothing is ordered automatically"
-            description={suggestions?.description}
-          />
-          <Table
-            className="std-list-table"
-            size="small"
-            rowKey="toolId"
-            loading={!suggestions}
-            dataSource={suggestions?.items || []}
-            locale={{ emptyText: 'No items are at or below reorder level right now' }}
-            columns={[
-              {
-                title: 'Item',
-                render: (_: unknown, r) => (
-                  <div>
-                    <div style={{ fontWeight: 600 }}>{r.name}</div>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>
-                      {[r.sizeSpec, r.code].filter(Boolean).join(' · ')}
-                    </div>
-                  </div>
-                ),
-              },
-              {
-                title: 'In stock',
-                dataIndex: 'quantityOnHand',
-                align: 'right',
-                render: (v: number, r) => `${v} ${r.unit}`,
-              },
-              {
-                title: 'Reorder level',
-                dataIndex: 'minimumStock',
-                align: 'right',
-                render: (v: number, r) => `${v} ${r.unit}`,
-              },
-              {
-                title: 'Suggested order',
-                dataIndex: 'suggestedOrderQuantity',
-                align: 'right',
-                render: (v: number, r) => (
-                  <span style={{ fontWeight: 700 }}>{v} {r.unit}</span>
-                ),
-              },
-              {
-                title: 'Recent use / day',
-                dataIndex: 'consumptionPerWorkingDay',
-                align: 'right',
-                render: (v: number | null) => (v == null ? '—' : v.toFixed(2)),
-              },
-            ]}
-          />
-        </div>
-      )}
-
-      {tab === 'usage' && (
-        <div>
-          <Space style={{ marginBottom: 16 }} wrap>
-            <DatePicker.RangePicker
-              value={usageRange}
-              allowClear={false}
-              onChange={(vals) => {
-                if (vals?.[0] && vals?.[1]) {
-                  setUsageRange([vals[0].startOf('day'), vals[1].endOf('day')]);
-                }
-              }}
-            />
-            <Button type="primary" onClick={() => void fetchUsage()} loading={usageLoading}>
-              Refresh
-            </Button>
-          </Space>
-
-          <Typography.Title level={5} style={{ color: '#0f1c2e' }}>
-            Outstanding unreturned tools
-          </Typography.Title>
-          <Table
-            className="std-list-table"
-            size="small"
-            style={{ marginBottom: 24 }}
-            rowKey="workerId"
-            loading={usageLoading}
-            dataSource={usageWorker?.outstandingUnreturned || []}
-            locale={{ emptyText: 'No returnable tools still out with workers' }}
-            columns={[
-              { title: 'Worker', dataIndex: 'workerName' },
-              {
-                title: 'Total outstanding',
-                dataIndex: 'totalOutstandingQuantity',
-                align: 'right',
-              },
-              {
-                title: 'Items',
-                render: (_: unknown, r) =>
-                  r.items.map((i) => `${i.toolName} (${i.quantity})`).join(', '),
-              },
-            ]}
-          />
-
-          <Typography.Title level={5} style={{ color: '#0f1c2e' }}>
-            Usage by worker × item
-          </Typography.Title>
-          <Table
-            className="std-list-table"
-            size="small"
-            style={{ marginBottom: 24 }}
-            rowKey={(r) => `${r.workerId}-${r.toolId}`}
-            loading={usageLoading}
-            dataSource={usageWorker?.byWorkerItem || []}
-            columns={[
-              { title: 'Worker', dataIndex: 'workerName' },
-              {
-                title: 'Item',
-                render: (_: unknown, r) =>
-                  [r.toolName, r.sizeSpec].filter(Boolean).join(' · '),
-              },
-              { title: 'Issued', dataIndex: 'issueQuantity', align: 'right', width: 80 },
-              { title: 'Borrowed', dataIndex: 'borrowQuantity', align: 'right', width: 90 },
-              { title: 'Returned', dataIndex: 'returnQuantity', align: 'right', width: 90 },
-              {
-                title: 'Net take',
-                dataIndex: 'netConsumptionQuantity',
-                align: 'right',
-                width: 90,
-                render: (v: number) => <span style={{ fontWeight: 700 }}>{v}</span>,
-              },
-            ]}
-          />
-
-          <Typography.Title level={5} style={{ color: '#0f1c2e' }}>
-            Consumption by item
-          </Typography.Title>
-          <Table
-            className="std-list-table"
-            size="small"
-            rowKey="toolId"
-            loading={usageLoading}
-            dataSource={usageItem?.items || []}
-            columns={[
-              {
-                title: 'Item',
-                render: (_: unknown, r) => (
-                  <div>
-                    <div style={{ fontWeight: 600 }}>{r.name}</div>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>
-                      {[r.sizeSpec, r.code].filter(Boolean).join(' · ')}
-                    </div>
-                  </div>
-                ),
-              },
-              {
-                title: 'Consumed',
-                dataIndex: 'consumptionQuantity',
-                align: 'right',
-                render: (v: number, r) => `${v} ${r.unit}`,
-              },
-              {
-                title: 'Per working day',
-                dataIndex: 'consumptionPerWorkingDay',
-                align: 'right',
-                render: (v: number | null) => (v == null ? '—' : v.toFixed(3)),
-              },
-              {
-                title: 'In stock',
-                dataIndex: 'quantityOnHand',
-                align: 'right',
-                render: (v: number, r) => (
-                  <span style={{ color: r.lowStock ? '#b45309' : undefined, fontWeight: r.lowStock ? 700 : 400 }}>
-                    {v} {r.unit}
-                  </span>
-                ),
-              },
-            ]}
-          />
-        </div>
-      )}
-
-      <Modal
-        open={modalOpen}
-        onCancel={closeCreateModal}
-        footer={null}
-        width={560}
-        centered
-        destroyOnHidden
-        className="app-form-modal"
-        styles={{
-          container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
-          body: { padding: 0 },
-        }}
-        closable={false}
-      >
-        <div className="app-form-modal__head">
-          <div className="app-form-modal__icon">
-            <AppstoreAddOutlined />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="app-form-modal__title">Add inventory item</div>
-            <div className="app-form-modal__sub">Name, category, and starting stock for the shop floor.</div>
-          </div>
-          <button type="button" className="app-form-modal__close" onClick={closeCreateModal} aria-label="Close">
-            ×
-          </button>
-        </div>
-
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={onCreate}
-          style={{ padding: '20px 24px 8px' }}
-          initialValues={{ category: 'RETURNABLE_TOOL', unit: 'pcs', quantityOnHand: 0 }}
-        >
-          {sectionLabel('Item details')}
-          <Form.Item
-            name="name"
-            label="Name"
-            rules={[{ required: true, message: 'Name is required' }]}
-            style={{ marginBottom: 14 }}
-          >
-            <Input placeholder="e.g. End mill" />
-          </Form.Item>
-          <Row gutter={12}>
-            <Col span={14}>
-              <Form.Item
-                name="category"
-                label="Category"
-                rules={[{ required: true }]}
-                style={{ marginBottom: 14 }}
-              >
                 <Select
+                  mode="multiple"
+                  allowClear
+                  maxTagCount="responsive"
+                  placeholder="Stock"
+                  className="std-list-filter std-list-filter--sm"
+                  value={stockFilter}
+                  onChange={setStockFilter}
                   options={[
-                    { value: 'RETURNABLE_TOOL', label: 'Returnable tool' },
-                    { value: 'CONSUMABLE', label: 'Consumable' },
+                    { value: 'low', label: lowCount ? `Low stock (${lowCount})` : 'Low stock' },
+                    { value: 'ok', label: 'OK' },
                   ]}
                 />
-              </Form.Item>
-            </Col>
-            <Col span={10}>
-              <Form.Item name="code" label="Code" style={{ marginBottom: 14 }}>
-                <Input placeholder="Auto-generated if empty" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Form.Item name="sizeSpec" label="Size / spec" style={{ marginBottom: 18 }}>
-            <Input placeholder="e.g. 10mm" />
-          </Form.Item>
+              </div>
+              <div className="std-list-actions">
+                <Tooltip title={selectMode ? 'Done selecting' : 'Select multiple'}>
+                  <Button
+                    icon={<SelectMultipleIcon />}
+                    type={selectMode ? 'primary' : 'default'}
+                    ghost={selectMode}
+                    onClick={() => {
+                      if (selectMode) {
+                        setSelectMode(false);
+                        setSelectedKeys([]);
+                      } else setSelectMode(true);
+                    }}
+                  />
+                </Tooltip>
+                <Button icon={<AuditOutlined />} onClick={() => setCountsOpen(true)}>
+                  Stocktake
+                </Button>
+                <Button icon={<HistoryOutlined />} onClick={() => setEventsOpen(true)}>
+                  Event log
+                </Button>
+                <Button
+                  icon={<DownloadOutlined />}
+                  onClick={() => exportCsv('consumables-stock.csv', filtered, stockCsvFields)}
+                >
+                  Export CSV
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => setModalOpen(true)}
+                  style={{ fontWeight: 700 }}
+                >
+                  Add consumable
+                </Button>
+              </div>
+            </div>
 
-          {sectionLabel('Stock levels')}
-          <Row gutter={12}>
-            <Col span={8}>
-              <Form.Item
-                name="unit"
-                label="Unit"
-                rules={[{ required: true, message: 'Required' }]}
-                style={{ marginBottom: 14 }}
-              >
-                <Input placeholder="pcs" />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item
-                name="quantityOnHand"
-                label="In stock"
-                rules={[{ required: true, message: 'Required' }]}
-                style={{ marginBottom: 14 }}
-              >
-                <InputNumber min={0} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="minimumStock" label="Reorder level" style={{ marginBottom: 14 }}>
-                <InputNumber min={0} style={{ width: '100%' }} placeholder="Optional" />
-              </Form.Item>
-            </Col>
-          </Row>
-        </Form>
+            {lowCount > 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message={`${lowCount} item${lowCount === 1 ? '' : 's'} at or below reorder level`}
+                action={
+                  <Button size="small" onClick={() => setStockFilter(['low'])}>
+                    Show low stock only
+                  </Button>
+                }
+              />
+            )}
 
-        <div className="app-form-modal__footer">
-          <Button onClick={closeCreateModal} style={{ minWidth: 96 }}>
-            Cancel
-          </Button>
-          <Button type="primary" loading={creating} onClick={() => form.submit()} style={{ fontWeight: 700, minWidth: 120 }}>
-            Create
-          </Button>
-        </div>
-      </Modal>
-
-      <Modal
-        title={adjustTool ? `Adjust stock: ${adjustTool.name}` : 'Adjust'}
-        open={Boolean(adjustTool)}
-        onCancel={() => setAdjustTool(null)}
-        footer={null}
-      >
-        <Form form={adjustForm} layout="vertical" onFinish={onAdjust}>
-          <Form.Item
-            name="quantity"
-            label="Quantity change (+ add / − remove)"
-            rules={[{ required: true }]}
-          >
-            <InputNumber style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="reason" label="Reason" rules={[{ required: true }]}>
-            <Input.TextArea rows={2} placeholder="Required — why you’re changing the count" />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" block>
-            Save adjustment
-          </Button>
-        </Form>
-      </Modal>
-
-      <Modal
-        title={qrTool ? `QR: ${qrTool.name}` : 'QR Code'}
-        open={Boolean(qrTool)}
-        onCancel={() => setQrTool(null)}
-        footer={null}
-      >
-        {qrTool && (
-          <div style={{ textAlign: 'center' }}>
-            <AuthenticatedQrImage toolId={qrTool.id} code={qrTool.code} />
+            {isPhone ? (
+              <div className="admin-cards">
+                {loading && (
+                  <div className="page-spinner">
+                    <Spin />
+                  </div>
+                )}
+                {!loading && filtered.length === 0 && (
+                  <div className="admin-cards__empty">{stockEmpty}</div>
+                )}
+                {!loading &&
+                  filtered.map((r) => (
+                    <div key={r.id} className="admin-card">
+                      <div className="admin-card__top">
+                        <div>
+                          <div className="admin-card__title">{r.name}</div>
+                          <div className="admin-card__meta">
+                            {[r.sizeSpec, r.code].filter(Boolean).join(' · ')}
+                          </div>
+                        </div>
+                        <Dropdown menu={{ items: actionItems(r) }} trigger={['click']}>
+                          <Button type="text" size="small" icon={<MoreOutlined />} />
+                        </Dropdown>
+                      </div>
+                      <div className="admin-card__row">
+                        <span style={{ fontWeight: r.lowStock ? 800 : 600 }}>
+                          {r.quantityOnHand} {r.unit}
+                        </span>
+                        {r.lowStock ? (
+                          <StatusPill color="amber" compact>Low stock</StatusPill>
+                        ) : (
+                          <StatusPill color="green" compact>OK</StatusPill>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              <Table
+                className="std-list-table"
+                rowKey="id"
+                size="small"
+                columns={columns}
+                dataSource={filtered}
+                loading={loading}
+                rowClassName={(r) => (r.lowStock ? 'inventory-low-stock' : '')}
+                locale={{ emptyText: stockEmpty }}
+                scroll={{ x: 820 }}
+                pagination={{ pageSize: 20, showSizeChanger: true }}
+                rowSelection={
+                  selectMode
+                    ? {
+                        selectedRowKeys: selectedKeys,
+                        onChange: (keys) => setSelectedKeys(keys.map(String)),
+                      }
+                    : undefined
+                }
+              />
+            )}
           </div>
-        )}
-      </Modal>
-    </div>
-  );
-}
 
-function AuthenticatedQrImage({ toolId, code }: { toolId: string; code: string }) {
-  const [src, setSrc] = useState<string>('');
+          <Drawer
+            title="Stocktake & consumption"
+            open={countsOpen}
+            onClose={() => setCountsOpen(false)}
+            width={isPhone ? '100%' : 880}
+            destroyOnHidden
+          >
+            <Segmented
+              style={{ marginBottom: 16 }}
+              value={countsTab}
+              onChange={(v) => setCountsTab(v as CountsDrawerTab)}
+              options={[
+                { label: 'Stocktake', value: 'stocktake' },
+                { label: 'Consumption', value: 'consumption' },
+              ]}
+            />
+            {countsTab === 'stocktake' && (
+              <StocktakePanel
+                hideTitle
+                onSaved={() => {
+                  void fetchTools();
+                  void fetchUsage();
+                }}
+              />
+            )}
+            {countsTab === 'consumption' && (
+              <>
+                <Space style={{ marginBottom: 12 }} wrap align="center">
+                  <InfoTip
+                    title="Consumption"
+                    content="Usage is measured between stocktakes, not per person."
+                    label="About consumption"
+                  />
+                  <DatePicker.RangePicker
+                    value={usageRange}
+                    allowClear={false}
+                    onChange={(vals) => {
+                      if (vals?.[0] && vals?.[1]) {
+                        setUsageRange([vals[0].startOf('day'), vals[1].endOf('day')]);
+                      }
+                    }}
+                  />
+                  <Button type="primary" onClick={() => void fetchUsage()} loading={usageLoading}>
+                    Refresh
+                  </Button>
+                </Space>
+                <Table
+                  className="std-list-table"
+                  size="small"
+                  rowKey="toolId"
+                  loading={usageLoading}
+                  dataSource={usageConsumables?.items || []}
+                  locale={{
+                    emptyText:
+                      'No stocktake yet. Count the shelf to start tracking consumption between counts.',
+                  }}
+                  columns={[
+                    {
+                      title: 'Item',
+                      render: (_: unknown, r) => (
+                        <div>
+                          <div style={{ fontWeight: 600 }}>{r.name}</div>
+                          <div style={{ fontSize: 12, color: '#64748b' }}>
+                            {[r.sizeSpec, r.code].filter(Boolean).join(' · ')}
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      title: 'Consumed',
+                      dataIndex: 'consumptionQuantity',
+                      align: 'right',
+                      render: (v: number, r) => `${v ?? 0} ${r.unit}`,
+                    },
+                    {
+                      title: 'Per working day',
+                      dataIndex: 'consumptionPerWorkingDay',
+                      align: 'right',
+                      render: (v: number | null) => (v == null ? '—' : v.toFixed(3)),
+                    },
+                    {
+                      title: 'In stock',
+                      dataIndex: 'quantityOnHand',
+                      align: 'right',
+                      render: (v: number, r) => `${v} ${r.unit}`,
+                    },
+                  ]}
+                />
+              </>
+            )}
+          </Drawer>
 
-  useEffect(() => {
-    apiClient
-      .get(`/tools/${toolId}/qr`, { responseType: 'blob' })
-      .then(({ data }) => setSrc(URL.createObjectURL(data)));
-  }, [toolId]);
+          <Drawer
+            title="Consumable event log"
+            open={eventsOpen}
+            onClose={() => setEventsOpen(false)}
+            width={isPhone ? '100%' : 720}
+            destroyOnHidden
+          >
+            <ToolEventsPage category="CONSUMABLE" />
+          </Drawer>
 
-  return (
-    <div>
-      {src && <img src={src} alt={`QR for ${code}`} style={{ maxWidth: '100%' }} />}
-      <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-        {code}
-      </Typography.Text>
+          <Modal
+            open={modalOpen}
+            onCancel={() => setModalOpen(false)}
+            footer={null}
+            width={560}
+            centered
+            destroyOnHidden
+            className="app-form-modal"
+            styles={{
+              container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
+              body: { padding: 0 },
+            }}
+            closable={false}
+          >
+            <div className="app-form-modal__head">
+              <div className="app-form-modal__icon">
+                <AppstoreAddOutlined />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div className="app-form-modal__title">Add consumable</div>
+                <div className="app-form-modal__sub">Tracked with periodic stocktake counts.</div>
+              </div>
+              <button type="button" className="app-form-modal__close" onClick={() => setModalOpen(false)}>
+                ×
+              </button>
+            </div>
+            <Form
+              form={form}
+              layout="vertical"
+              onFinish={onCreate}
+              style={{ padding: '20px 24px 8px' }}
+              initialValues={{ unit: 'pcs', quantityOnHand: 0 }}
+            >
+              {sectionLabel('Item details')}
+              <Form.Item name="name" label="Name" rules={[{ required: true }]}>
+                <Input placeholder="e.g. Cutting disc" />
+              </Form.Item>
+              <Row gutter={12}>
+                <Col span={14}>
+                  <Form.Item name="code" label="Code">
+                    <Input placeholder="Auto-generated if empty" />
+                  </Form.Item>
+                </Col>
+                <Col span={10}>
+                  <Form.Item name="sizeSpec" label="Size / spec">
+                    <Input placeholder="e.g. 10mm" />
+                  </Form.Item>
+                </Col>
+              </Row>
+              {sectionLabel('Stock levels')}
+              <Row gutter={12}>
+                <Col span={8}>
+                  <Form.Item name="unit" label="Unit" rules={[{ required: true }]}>
+                    <Input />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item name="quantityOnHand" label="In stock" rules={[{ required: true }]}>
+                    <InputNumber min={0} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item name="minimumStock" label="Reorder level">
+                    <InputNumber min={0} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </Form>
+            <div className="app-form-modal__footer">
+              <Button onClick={() => setModalOpen(false)}>Cancel</Button>
+              <Button type="primary" loading={creating} onClick={() => form.submit()} style={{ fontWeight: 700 }}>
+                Create
+              </Button>
+            </div>
+          </Modal>
+
+          <Modal title={editTool ? `Edit: ${editTool.name}` : 'Edit'} open={Boolean(editTool)} onCancel={() => setEditTool(null)} footer={null} destroyOnHidden>
+            <Form form={editForm} layout="vertical" onFinish={onEdit}>
+              <Form.Item name="name" label="Name" rules={[{ required: true }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item name="code" label="Code" rules={[{ required: true }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item name="sizeSpec" label="Size / spec">
+                <Input />
+              </Form.Item>
+              <Row gutter={12}>
+                <Col span={12}>
+                  <Form.Item name="unit" label="Unit" rules={[{ required: true }]}>
+                    <Input />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="minimumStock" label="Reorder level">
+                    <InputNumber min={0} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Button type="primary" htmlType="submit" block loading={savingEdit}>
+                Save changes
+              </Button>
+            </Form>
+          </Modal>
+
+          <Modal title={adjustTool ? `Adjust stock: ${adjustTool.name}` : 'Adjust'} open={Boolean(adjustTool)} onCancel={() => setAdjustTool(null)} footer={null}>
+            <Form form={adjustForm} layout="vertical" onFinish={onAdjust}>
+              <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Use a positive quantity for deliveries so stocktakes do not treat them as consumption." />
+              <Form.Item name="quantity" label="Quantity change (+ add / − remove)" rules={[{ required: true }]}>
+                <InputNumber style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="reason" label="Reason" rules={[{ required: true }]}>
+                <Input.TextArea rows={2} />
+              </Form.Item>
+              <Button type="primary" htmlType="submit" block>
+                Save adjustment
+              </Button>
+            </Form>
+          </Modal>
+        </>
+      )}
     </div>
   );
 }

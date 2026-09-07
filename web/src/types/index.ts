@@ -373,6 +373,8 @@ export interface WorkerSuggestion {
 
 export type ToolCategory = 'RETURNABLE_TOOL' | 'CONSUMABLE';
 
+export type ToolUnitStatus = 'AVAILABLE' | 'OUT' | 'UNDER_REPAIR' | 'RETIRED';
+
 export interface ToolHolder {
   holderId: string;
   holderName: string | null;
@@ -401,16 +403,50 @@ export interface Tool {
   } | null;
 }
 
+export interface ToolUnit {
+  id: string;
+  toolTypeId: string;
+  toolTypeName: string | null;
+  toolTypeCode: string | null;
+  assetCode: string;
+  status: ToolUnitStatus;
+  notes: string | null;
+  currentHolderId: string | null;
+  currentHolderName: string | null;
+  heldSince: string | null;
+  createdAt?: string;
+  isSeed?: boolean;
+}
+
+export interface ToolType {
+  id: string;
+  name: string;
+  code: string;
+  description: string | null;
+  isSeed: boolean;
+  createdAt?: string;
+  totalUnits: number;
+  availableCount: number;
+  outCount: number;
+  repairCount: number;
+  retiredCount: number;
+  units?: ToolUnit[];
+}
+
 export type ToolEventType = 'BORROW' | 'RETURN' | 'ISSUE' | 'ADJUST';
 
 export interface ToolEvent {
   id: string;
-  toolId: string;
+  toolId?: string | null;
+  toolUnitId?: string | null;
   toolName?: string;
   toolCode?: string;
-  toolCategory?: ToolCategory | null;
+  assetCode?: string | null;
+  toolCategory?: ToolCategory | 'TOOL_UNIT' | null;
   toolSizeSpec?: string | null;
   quantityOnHandAfter?: number | null;
+  unitStatus?: ToolUnitStatus | null;
+  currentHolderName?: string | null;
   workerId: string;
   workerName?: string;
   type: ToolEventType;
@@ -433,6 +469,7 @@ export interface InventoryPurchaseSuggestion {
   recentConsumptionQuantity: number | null;
   consumptionPerWorkingDay: number | null;
   lookbackWorkingDays: number;
+  consumptionSource?: 'STOCKTAKE' | 'BORROW' | string;
 }
 
 export interface InventoryPurchaseSuggestions {
@@ -453,14 +490,17 @@ export interface InventoryUsageByWorker {
     toolId: string;
     toolName: string | null;
     toolCode: string | null;
-    category: ToolCategory | null;
+    assetCode?: string | null;
+    category: ToolCategory | 'TOOL_UNIT' | null;
     sizeSpec: string | null;
     unit: string | null;
     eventCount: number;
-    issueQuantity: number | null;
     borrowQuantity: number | null;
     returnQuantity: number | null;
-    netConsumptionQuantity: number | null;
+    netBorrowQuantity: number | null;
+    /** @deprecated legacy field */
+    issueQuantity?: number | null;
+    netConsumptionQuantity?: number | null;
   }[];
   outstandingUnreturned: {
     workerId: string;
@@ -488,11 +528,77 @@ export interface InventoryUsageByItem {
     quantityOnHand: number | null;
     minimumStock: number | null;
     lowStock: boolean;
-    issueQuantity: number | null;
     borrowQuantity: number | null;
     consumptionQuantity: number | null;
     consumptionPerWorkingDay: number | null;
+    issueQuantity?: number | null;
   }[];
+}
+
+export interface InventoryUsageConsumables {
+  period: { from: string; to: string };
+  workingDaysInPeriod: number;
+  note: string;
+  items: {
+    toolId: string;
+    name: string;
+    code: string;
+    category: ToolCategory;
+    sizeSpec: string | null;
+    unit: string;
+    quantityOnHand: number | null;
+    minimumStock: number | null;
+    lowStock: boolean;
+    consumptionQuantity: number | null;
+    consumptionPerWorkingDay: number | null;
+    stocktakeWorkingDays: number;
+  }[];
+}
+
+export interface StocktakeFormItem {
+  toolId: string;
+  name: string;
+  code: string;
+  unit: string;
+  sizeSpec: string | null;
+  quantityOnHand: number | null;
+  minimumStock: number | null;
+  lowStock: boolean;
+  lastCountedOn: string | null;
+  lastCountedQuantity: number | null;
+}
+
+export interface StocktakeForm {
+  previousStocktakeOn: string | null;
+  previousCountedByName: string | null;
+  items: StocktakeFormItem[];
+}
+
+export interface StocktakeSummary {
+  id: string;
+  countedOn: string;
+  countedById: string;
+  countedByName: string | null;
+  notes: string | null;
+  createdAt: string;
+  lineCount: number;
+}
+
+export interface StocktakeLine {
+  id: string;
+  stocktakeId: string;
+  toolId: string;
+  toolName: string | null;
+  toolCode: string | null;
+  unit: string | null;
+  sizeSpec: string | null;
+  previousQuantity: number | null;
+  countedQuantity: number | null;
+  delta: number | null;
+}
+
+export interface StocktakeDetail extends StocktakeSummary {
+  lines: StocktakeLine[];
 }
 
 export interface LoginResponse {

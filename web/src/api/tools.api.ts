@@ -3,13 +3,20 @@ import type {
   InventoryPurchaseSuggestions,
   InventoryUsageByItem,
   InventoryUsageByWorker,
+  InventoryUsageConsumables,
+  StocktakeDetail,
+  StocktakeForm,
+  StocktakeSummary,
   Tool,
   ToolEvent,
   ToolCategory,
+  ToolType,
+  ToolUnit,
 } from '../types';
 
 export const toolsApi = {
-  list: () => apiClient.get<Tool[]>('/tools'),
+  list: (params?: { category?: ToolCategory }) =>
+    apiClient.get<Tool[]>('/tools', { params }),
   create: (data: {
     name: string;
     code?: string;
@@ -19,48 +26,71 @@ export const toolsApi = {
     minimumStock?: number | null;
     sizeSpec?: string | null;
   }) => apiClient.post<Tool>('/tools', data),
-  get: (id: string) => apiClient.get<Tool>(`/tools/${id}`),
-  getQrUrl: (id: string) => `${import.meta.env.VITE_API_BASE_URL || '/api/v1'}/tools/${id}/qr`,
+  update: (
+    id: string,
+    data: {
+      name?: string;
+      code?: string;
+      unit?: string;
+      minimumStock?: number | null;
+      sizeSpec?: string | null;
+    }
+  ) => apiClient.patch<Tool>(`/tools/${id}`, data),
   scan: (
     code: string,
     options?: {
-      jobOrderId?: string;
-      intent?: 'BORROW' | 'RETURN' | 'ISSUE';
+      intent?: 'BORROW' | 'RETURN';
       quantity?: number;
     }
   ) =>
     apiClient.post<ToolEvent>('/tools/scan', {
       code,
-      jobOrderId: options?.jobOrderId,
       intent: options?.intent,
       quantity: options?.quantity,
     }),
   adjust: (id: string, data: { quantity: number; reason: string }) =>
     apiClient.post<ToolEvent>(`/tools/${id}/adjust`, data),
-  myTools: () =>
-    apiClient.get<
-      {
-        id: string;
-        name: string;
-        code: string;
-        category: string;
-        sizeSpec: string | null;
-        unit: string;
-        quantity: number;
-        quantityOnHand: number;
-        since: string | null;
-      }[]
-    >('/tools/my'),
+  myTools: () => apiClient.get<ToolUnit[]>('/tools/my'),
   myHistory: (params?: { page?: number; perPage?: number }) =>
     apiClient.get<{ items: ToolEvent[]; total: number; page: number; pages: number }>(
       '/tools/my/history',
       { params }
     ),
-  listEvents: (params?: { toolId?: string; page?: number; perPage?: number }) =>
+  listEvents: (params?: {
+    toolId?: string;
+    category?: 'CONSUMABLE' | 'TOOL' | 'RETURNABLE_TOOL' | ToolCategory;
+    page?: number;
+    perPage?: number;
+  }) =>
     apiClient.get<{ items: ToolEvent[]; total: number; page: number; pages: number }>(
       '/tools/events',
       { params }
     ),
+
+  listTypes: (params?: { onlyWithOut?: boolean; includeUnits?: boolean }) =>
+    apiClient.get<ToolType[]>('/tools/types', {
+      params: {
+        onlyWithOut: params?.onlyWithOut ? 'true' : undefined,
+        includeUnits: params?.includeUnits ? 'true' : undefined,
+      },
+    }),
+  getType: (id: string) => apiClient.get<ToolType>(`/tools/types/${id}`),
+  createType: (data: { name: string; code?: string; description?: string }) =>
+    apiClient.post<ToolType>('/tools/types', data),
+  updateType: (
+    id: string,
+    data: { name?: string; code?: string; description?: string }
+  ) => apiClient.patch<ToolType>(`/tools/types/${id}`, data),
+  createUnit: (
+    typeId: string,
+    data: { assetCode?: string; notes?: string; status?: string }
+  ) => apiClient.post<ToolUnit>(`/tools/types/${typeId}/units`, data),
+  updateUnit: (
+    id: string,
+    data: { assetCode?: string; notes?: string; status?: string }
+  ) => apiClient.patch<ToolUnit>(`/tools/units/${id}`, data),
+  lookupUnit: (code: string) =>
+    apiClient.get<ToolUnit>('/tools/units/lookup', { params: { code } }),
 };
 
 export const inventoryApi = {
@@ -72,4 +102,18 @@ export const inventoryApi = {
     apiClient.get<InventoryUsageByWorker>('/inventory/usage/by-worker', { params }),
   usageByItem: (params?: { from?: string; to?: string }) =>
     apiClient.get<InventoryUsageByItem>('/inventory/usage/by-item', { params }),
+  usageConsumables: (params?: { from?: string; to?: string }) =>
+    apiClient.get<InventoryUsageConsumables>('/inventory/usage/consumables', { params }),
+  stocktakeForm: () => apiClient.get<StocktakeForm>('/inventory/stocktakes/form'),
+  listStocktakes: (params?: { page?: number; perPage?: number }) =>
+    apiClient.get<{ items: StocktakeSummary[]; total: number; page: number; pages: number }>(
+      '/inventory/stocktakes',
+      { params }
+    ),
+  getStocktake: (id: string) => apiClient.get<StocktakeDetail>(`/inventory/stocktakes/${id}`),
+  submitStocktake: (data: {
+    countedOn?: string;
+    notes?: string;
+    lines: { toolId: string; countedQuantity: number }[];
+  }) => apiClient.post<StocktakeDetail>('/inventory/stocktakes', data),
 };

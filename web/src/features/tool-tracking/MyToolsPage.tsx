@@ -5,34 +5,27 @@ import dayjs from 'dayjs';
 import { toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
-import type { Tool } from '../../types';
+import type { ToolEvent, ToolUnit } from '../../types';
 
-interface HeldTool {
-  id: string;
-  name: string;
-  code: string;
-  category: string;
-  sizeSpec: string | null;
-  unit: string;
-  quantity: number;
-  quantityOnHand: number;
-  since: string | null;
-}
+type TabKey = 'borrowed' | 'history';
 
 export default function MyToolsPage() {
   const { colors } = useWorkerTheme();
-  const [tools, setTools] = useState<HeldTool[]>([]);
-  const [allTools, setAllTools] = useState<Tool[]>([]);
+  const [held, setHeld] = useState<ToolUnit[]>([]);
+  const [history, setHistory] = useState<ToolEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [returning, setReturning] = useState<string | null>(null);
-  const [tab, setTab] = useState<'borrowed' | 'all'>('borrowed');
+  const [tab, setTab] = useState<TabKey>('borrowed');
   const [query, setQuery] = useState('');
 
   const fetchData = async () => {
     try {
-      const [held, all] = await Promise.all([toolsApi.myTools(), toolsApi.list()]);
-      setTools(held.data);
-      setAllTools(all.data);
+      const [h, hist] = await Promise.all([
+        toolsApi.myTools(),
+        toolsApi.myHistory({ page: 1, perPage: 50 }),
+      ]);
+      setHeld(h.data);
+      setHistory(hist.data.items);
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
@@ -41,14 +34,14 @@ export default function MyToolsPage() {
   };
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
   }, []);
 
-  const handleReturn = async (tool: HeldTool) => {
-    setReturning(tool.id);
+  const handleReturn = async (unit: ToolUnit) => {
+    setReturning(unit.id);
     try {
-      await toolsApi.scan(tool.code, { intent: 'RETURN', quantity: 1 });
-      message.success(`Returned: ${tool.name}`);
+      await toolsApi.scan(unit.assetCode, { intent: 'RETURN' });
+      message.success(`Returned: ${unit.toolTypeName} (${unit.assetCode})`);
       setLoading(true);
       await fetchData();
     } catch (err) {
@@ -58,41 +51,26 @@ export default function MyToolsPage() {
     }
   };
 
-  const filteredTools = useMemo(() => {
+  const filteredHeld = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return tools;
-    return tools.filter(
+    if (!q) return held;
+    return held.filter(
       (t) =>
-        t.name.toLowerCase().includes(q) ||
-        t.code.toLowerCase().includes(q) ||
-        (t.sizeSpec || '').toLowerCase().includes(q)
+        (t.toolTypeName || '').toLowerCase().includes(q) ||
+        t.assetCode.toLowerCase().includes(q)
     );
-  }, [tools, query]);
-
-  const filteredAllTools = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return allTools;
-    return allTools.filter(
-      (t) =>
-        t.name.toLowerCase().includes(q) ||
-        t.code.toLowerCase().includes(q) ||
-        (t.sizeSpec || '').toLowerCase().includes(q)
-    );
-  }, [allTools, query]);
+  }, [held, query]);
 
   return (
     <div>
-      <WorkerPageHeader
-        title="Tool Logs"
-        subtitle="Outstanding returnables and shop stock"
-      />
+      <WorkerPageHeader title="Tool Logs" subtitle="Units you are holding and borrow history" />
 
       <div style={{ padding: 16 }}>
         <Input
           allowClear
           size="large"
           prefix={<SearchOutlined style={{ color: colors.textSecondary }} />}
-          placeholder="Search items..."
+          placeholder="Search units..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={{
@@ -115,8 +93,8 @@ export default function MyToolsPage() {
         >
           {(
             [
-              { key: 'borrowed' as const, label: `Holding (${tools.length})` },
-              { key: 'all' as const, label: 'All items' },
+              { key: 'borrowed' as const, label: `Holding (${held.length})` },
+              { key: 'history' as const, label: 'History' },
             ] as const
           ).map((t) => (
             <button
@@ -145,13 +123,13 @@ export default function MyToolsPage() {
             <Spin />
           </div>
         ) : tab === 'borrowed' ? (
-          filteredTools.length === 0 ? (
-            <Empty description="No tools or items still out with you" style={{ marginTop: 40 }} />
+          filteredHeld.length === 0 ? (
+            <Empty description="No tool units currently out with you" style={{ marginTop: 40 }} />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {filteredTools.map((tool) => (
+              {filteredHeld.map((unit) => (
                 <div
-                  key={tool.id}
+                  key={unit.id}
                   style={{
                     background: colors.card,
                     border: `1px solid ${colors.cardBorder}`,
@@ -178,21 +156,18 @@ export default function MyToolsPage() {
                     <ToolOutlined />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 800, fontSize: 15 }}>{tool.name}</div>
-                    <div style={{ fontSize: 12, color: colors.textSecondary }}>
-                      {[tool.sizeSpec, tool.code].filter(Boolean).join(' · ')}
-                    </div>
+                    <div style={{ fontWeight: 800, fontSize: 15 }}>{unit.toolTypeName}</div>
+                    <div style={{ fontSize: 12, color: colors.textSecondary }}>{unit.assetCode}</div>
                     <div style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>
-                      Holding {tool.quantity} {tool.unit}
-                      {tool.since
-                        ? ` · since ${dayjs(tool.since).format('MMM D, h:mm A')}`
-                        : ''}
+                      {unit.heldSince
+                        ? `Since ${dayjs(unit.heldSince).format('MMM D, h:mm A')}`
+                        : 'Out'}
                     </div>
                   </div>
                   <Button
                     type="primary"
-                    loading={returning === tool.id}
-                    onClick={() => handleReturn(tool)}
+                    loading={returning === unit.id}
+                    onClick={() => handleReturn(unit)}
                     style={{ fontWeight: 700, background: '#2563eb' }}
                   >
                     Return
@@ -201,62 +176,30 @@ export default function MyToolsPage() {
               ))}
             </div>
           )
-        ) : filteredAllTools.length === 0 ? (
-          <Empty description="No inventory items match your search" style={{ marginTop: 40 }} />
+        ) : history.length === 0 ? (
+          <Empty description="No borrow/return history yet" style={{ marginTop: 40 }} />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {filteredAllTools.map((tool) => {
-              const mine = tool.myOutstanding ?? 0;
-              return (
-                <div
-                  key={tool.id}
-                  style={{
-                    background: colors.card,
-                    border: `1px solid ${
-                      tool.lowStock ? '#f59e0b' : colors.cardBorder
-                    }`,
-                    borderRadius: 14,
-                    padding: 14,
-                    display: 'flex',
-                    gap: 12,
-                    alignItems: 'center',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 44,
-                      height: 44,
-                      borderRadius: 12,
-                      background: colors.inputBg,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: colors.textSecondary,
-                      flexShrink: 0,
-                    }}
-                  >
-                    <ToolOutlined />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 800, fontSize: 15 }}>{tool.name}</div>
-                    <div style={{ fontSize: 12, color: colors.textSecondary }}>
-                      {[
-                        tool.sizeSpec,
-                        tool.category === 'CONSUMABLE' ? 'Consumable' : 'Returnable',
-                        tool.code,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </div>
-                    <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>
-                      On hand {tool.quantityOnHand} {tool.unit}
-                      {mine > 0 ? ` · you hold ${mine}` : ''}
-                      {tool.lowStock ? ' · low stock' : ''}
-                    </div>
-                  </div>
+            {history.map((ev) => (
+              <div
+                key={ev.id}
+                style={{
+                  background: colors.card,
+                  border: `1px solid ${colors.cardBorder}`,
+                  borderRadius: 14,
+                  padding: 14,
+                }}
+              >
+                <div style={{ fontWeight: 800, fontSize: 15 }}>{ev.toolName}</div>
+                <div style={{ fontSize: 12, color: colors.textSecondary }}>{ev.assetCode}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, marginTop: 4 }}>
+                  {ev.type === 'RETURN' ? 'Returned' : 'Borrowed'}
                 </div>
-              );
-            })}
+                <div style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>
+                  {dayjs(ev.createdAt).format('MMM D, YYYY h:mm A')}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
