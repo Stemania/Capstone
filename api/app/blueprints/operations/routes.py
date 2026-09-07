@@ -135,7 +135,42 @@ def rework_operation(operation_id):
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def list_machine_unit_status():
-    return jsonify(op_service.list_machine_unit_statuses())
+    include_inactive = str(request.args.get("includeInactive", "")).lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    return jsonify(op_service.list_machine_unit_statuses(include_inactive=include_inactive))
+
+
+@operations_bp.route("/machine-units", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def create_machine_unit():
+    data = request.get_json() or {}
+    unit = op_service.create_machine_unit(
+        machine_type_id=data.get("machineTypeId") or data.get("machine_type_id"),
+        label=data.get("label"),
+    )
+    return jsonify(unit.to_dict()), 201
+
+
+@operations_bp.route("/machine-units/<unit_id>", methods=["PATCH"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def patch_machine_unit(unit_id):
+    data = request.get_json() or {}
+    if "active" not in data:
+        return jsonify(
+            {"error": {"code": "VALIDATION_ERROR", "message": "active is required"}}
+        ), 400
+    unit = op_service.set_machine_unit_active(unit_id, bool(data.get("active")))
+    payload = unit.to_dict()
+    if not unit.active:
+        affected = op_service.list_affected_operations(unit_id)
+        payload["affectedCount"] = len(affected)
+        payload["affectedOperations"] = affected
+    return jsonify(payload)
 
 
 @operations_bp.route("/machine-units/<unit_id>/downtime", methods=["POST"])

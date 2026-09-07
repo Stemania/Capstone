@@ -8,6 +8,8 @@ import {
   Dropdown,
   Spin,
   message,
+  Button,
+  Checkbox,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -17,15 +19,17 @@ import {
   UserOutlined,
   DownOutlined,
   RightOutlined,
+  PlusOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
+import { jobOrdersApi } from '../../api/jobOrders.api';
 import { operationsApi } from '../../api/operations.api';
 import { getErrorMessage } from '../../api/client';
 import { DOWNTIME_REASONS } from '../../constants/downtimeReasons';
-import type { MachineUnitStatus } from '../../types';
+import type { MachineInfo, MachineUnitStatus } from '../../types';
 
-type CardStatus = 'running' | 'idle' | 'breakdown';
+type CardStatus = 'running' | 'idle' | 'breakdown' | 'retired';
 type StatusFilter = CardStatus;
 
 function formatOpenDuration(startedAt: string, nowMs: number): string {
@@ -43,6 +47,7 @@ function formatOpenDuration(startedAt: string, nowMs: number): string {
 }
 
 function cardStatus(unit: MachineUnitStatus): CardStatus {
+  if (unit.active === false) return 'retired';
   if (unit.down) return 'breakdown';
   if (unit.currentOperation) return 'running';
   return 'idle';
@@ -75,6 +80,9 @@ function unitSearchText(unit: MachineUnitStatus): string {
 
 function cardFooter(unit: MachineUnitStatus, nowMs: number): { text: string; breakdown?: boolean } {
   const status = cardStatus(unit);
+  if (status === 'retired') {
+    return { text: 'Removed from shop floor' };
+  }
   if (status === 'breakdown' && unit.openDowntime?.startedAt) {
     return {
       text: `Down ${formatOpenDuration(unit.openDowntime.startedAt, nowMs)}`,
@@ -106,41 +114,66 @@ function MachineUnitCard({
   onReport,
   onClose,
   onOpenSchedule,
+  onRetire,
+  onRestore,
 }: {
   unit: MachineUnitStatus;
   nowMs: number;
   onReport: (unit: MachineUnitStatus) => void;
   onClose: (unit: MachineUnitStatus) => void;
   onOpenSchedule: () => void;
+  onRetire: (unit: MachineUnitStatus) => void;
+  onRestore: (unit: MachineUnitStatus) => void;
 }) {
   const navigate = useNavigate();
   const status = cardStatus(unit);
   const footer = cardFooter(unit, nowMs);
-  const target = cardNavigateTarget(unit);
+  const target = status === 'retired' ? null : cardNavigateTarget(unit);
   const cur = unit.currentOperation;
   const typeLabel = unit.machineTypeName || unit.machineTypeCode || 'Machine';
   const statusLabel =
-    status === 'running' ? 'Running' : status === 'breakdown' ? 'Breakdown' : 'Idle';
+    status === 'running'
+      ? 'Running'
+      : status === 'breakdown'
+        ? 'Breakdown'
+        : status === 'retired'
+          ? 'Removed'
+          : 'Idle';
 
   const menuItems: MenuProps['items'] = [];
-  if (!unit.down) {
+  if (status === 'retired') {
     menuItems.push({
-      key: 'report',
-      label: 'Report breakdown',
-      onClick: () => onReport(unit),
+      key: 'restore',
+      label: 'Restore machine',
+      onClick: () => onRestore(unit),
     });
   } else {
+    if (!unit.down) {
+      menuItems.push({
+        key: 'report',
+        label: 'Report breakdown',
+        onClick: () => onReport(unit),
+      });
+    } else {
+      menuItems.push({
+        key: 'close',
+        label: 'Close breakdown',
+        onClick: () => onClose(unit),
+      });
+    }
+    if (unit.affectedCount > 0) {
+      menuItems.push({
+        key: 'schedule',
+        label: 'Open schedule',
+        onClick: onOpenSchedule,
+      });
+    }
+    menuItems.push({ type: 'divider' });
     menuItems.push({
-      key: 'close',
-      label: 'Close breakdown',
-      onClick: () => onClose(unit),
-    });
-  }
-  if (unit.affectedCount > 0) {
-    menuItems.push({
-      key: 'schedule',
-      label: 'Open schedule',
-      onClick: onOpenSchedule,
+      key: 'retire',
+      label: 'Remove machine',
+      danger: true,
+      onClick: () => onRetire(unit),
     });
   }
 
@@ -192,7 +225,11 @@ function MachineUnitCard({
       </header>
 
       <div className="machine-card__body">
-        {status === 'running' && cur ? (
+        {status === 'retired' ? (
+          <div className="machine-card__idle-copy">
+            Taken off the floor — history kept. Restore or add a replacement if needed.
+          </div>
+        ) : status === 'running' && cur ? (
           <>
             <div className="machine-card__op">{cur.operationName}</div>
             {cur.jobNumber && <div className="machine-card__job">{cur.jobNumber}</div>}
@@ -246,21 +283,25 @@ function MachineUnitCard({
 export default function MachinesPage() {
   const navigate = useNavigate();
   const [units, setUnits] = useState<MachineUnitStatus[]>([]);
+  const [machineTypes, setMachineTypes] = useState<MachineInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter[]>([]);
+  const [showRemoved, setShowRemoved] = useState(false);
   const [collapsedTypes, setCollapsedTypes] = useState<Record<string, boolean>>({});
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [reportFor, setReportFor] = useState<MachineUnitStatus | null>(null);
   const [closeFor, setCloseFor] = useState<MachineUnitStatus | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [reportForm] = Form.useForm();
   const [closeForm] = Form.useForm();
+  const [addForm] = Form.useForm();
 
-  const fetchUnits = async () => {
+  const fetchUnits = async (includeRemoved = showRemoved) => {
     setLoading(true);
     try {
-      const { data } = await operationsApi.machineUnitStatus();
+      const { data } = await operationsApi.machineUnitStatus(includeRemoved);
       setUnits(data);
     } catch (err) {
       message.error(getErrorMessage(err));
@@ -271,6 +312,17 @@ export default function MachinesPage() {
 
   useEffect(() => {
     fetchUnits();
+  }, [showRemoved]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await jobOrdersApi.machines();
+        setMachineTypes(data || []);
+      } catch {
+        /* add form can still open; types load best-effort */
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -363,6 +415,75 @@ export default function MachinesPage() {
     }
   };
 
+  const retireUnit = (unit: MachineUnitStatus) => {
+    Modal.confirm({
+      title: `Remove ${unit.label}?`,
+      icon: <WarningOutlined />,
+      content:
+        'Use this when the machine is scrapped or replaced. It leaves the shop floor but keeps history. For a temporary repair, use Report breakdown instead.',
+      okText: 'Remove machine',
+      okButtonProps: { danger: true },
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          const { data } = await operationsApi.setMachineUnitActive(unit.id, false);
+          message.success(`${unit.label} removed from shop floor`);
+          await fetchUnits();
+          const count = data.affectedCount || 0;
+          if (count > 0) {
+            Modal.confirm({
+              title: `${count} operation${count === 1 ? '' : 's'} still point at this machine`,
+              icon: <WarningOutlined />,
+              content: 'Reschedule them onto a replacement unit from the schedule board.',
+              okText: 'Open Schedule',
+              cancelText: 'Stay here',
+              onOk: () => navigate('/schedule'),
+            });
+          }
+        } catch (err) {
+          message.error(getErrorMessage(err));
+          throw err;
+        }
+      },
+    });
+  };
+
+  const restoreUnit = async (unit: MachineUnitStatus) => {
+    try {
+      await operationsApi.setMachineUnitActive(unit.id, true);
+      message.success(`${unit.label} restored`);
+      await fetchUnits();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    }
+  };
+
+  const submitAdd = async () => {
+    try {
+      const values = await addForm.validateFields();
+      setSaving(true);
+      const { data } = await operationsApi.createMachineUnit(
+        values.machineTypeId,
+        values.label?.trim() || undefined
+      );
+      message.success(`${data.label} added`);
+      setAddOpen(false);
+      addForm.resetFields();
+      await fetchUnits();
+      try {
+        const { data: types } = await jobOrdersApi.machines();
+        setMachineTypes(types || []);
+      } catch {
+        /* ignore */
+      }
+    } catch (err) {
+      if (err && typeof err === 'object' && 'errorFields' in err) return;
+      message.error(getErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const toggleType = (typeId: string) => {
     setCollapsedTypes((prev) => ({ ...prev, [typeId]: !prev[typeId] }));
   };
@@ -370,7 +491,8 @@ export default function MachinesPage() {
   return (
     <div className="std-list-page">
       <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-        Shop floor status at a glance. Report a breakdown to block the unit on the schedule.
+        Shop floor status at a glance. Report a temporary breakdown, or add/remove units when
+        machines are replaced.
       </Typography.Text>
 
       <div className="std-list-toolbar">
@@ -395,8 +517,29 @@ export default function MachinesPage() {
               { value: 'running', label: 'Running' },
               { value: 'idle', label: 'Idle' },
               { value: 'breakdown', label: 'Breakdown' },
+              ...(showRemoved ? [{ value: 'retired' as const, label: 'Removed' }] : []),
             ]}
           />
+          <Checkbox
+            checked={showRemoved}
+            onChange={(e) => setShowRemoved(e.target.checked)}
+            style={{ whiteSpace: 'nowrap' }}
+          >
+            Show removed
+          </Checkbox>
+        </div>
+        <div className="std-list-actions">
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              addForm.resetFields();
+              setAddOpen(true);
+            }}
+            style={{ fontWeight: 700 }}
+          >
+            Add machine
+          </Button>
         </div>
       </div>
 
@@ -444,6 +587,8 @@ export default function MachinesPage() {
                           setCloseFor(u);
                         }}
                         onOpenSchedule={() => navigate('/schedule')}
+                        onRetire={retireUnit}
+                        onRestore={restoreUnit}
                       />
                     ))}
                   </div>
@@ -453,6 +598,43 @@ export default function MachinesPage() {
           })}
         </div>
       )}
+
+      <Modal
+        title="Add machine"
+        open={addOpen}
+        onCancel={() => setAddOpen(false)}
+        onOk={submitAdd}
+        confirmLoading={saving}
+        okText="Add machine"
+        destroyOnHidden
+      >
+        <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 12 }}>
+          Add a replacement or extra unit to the floor. Label is optional — we&apos;ll number it
+          automatically (e.g. Milling #9).
+        </Typography.Paragraph>
+        <Form form={addForm} layout="vertical">
+          <Form.Item
+            name="machineTypeId"
+            label="Machine type"
+            rules={[{ required: true, message: 'Choose a machine type' }]}
+          >
+            <Select
+              placeholder="Lathe, Milling, …"
+              options={machineTypes
+                .filter((t): t is MachineInfo & { id: string } => Boolean(t.id))
+                .map((t) => ({
+                  value: t.id,
+                  label: `${t.name} (${t.units} active)`,
+                }))}
+              showSearch
+              optionFilterProp="label"
+            />
+          </Form.Item>
+          <Form.Item name="label" label="Label (optional)">
+            <Input placeholder="Leave blank for next number" maxLength={64} />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         title={reportFor ? `Report breakdown — ${reportFor.label}` : 'Report breakdown'}

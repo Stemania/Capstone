@@ -401,6 +401,12 @@ def open_machine_downtime(machine_unit_id, reported_by_id, reason, note=None, st
     unit = MachineUnit.query.get(machine_unit_id)
     if not unit:
         raise AppError("Machine unit not found", "NOT_FOUND", 404)
+    if not unit.active:
+        raise AppError(
+            "Cannot report downtime on a removed machine. Restore it first, or add a replacement.",
+            "CONFLICT",
+            409,
+        )
     if not reason or not str(reason).strip():
         raise AppError("reason is required", "VALIDATION_ERROR", 400)
 
@@ -488,16 +494,14 @@ def list_affected_operations(machine_unit_id):
     return [_serialize_affected_operation(op) for op in rows]
 
 
-def list_machine_unit_statuses():
+def list_machine_unit_statuses(include_inactive=False):
     from sqlalchemy.orm import joinedload
     from app.models.machine import MachineType, MachineUnit
 
-    units = (
-        MachineUnit.query.filter_by(active=True)
-        .join(MachineType)
-        .order_by(MachineType.name, MachineUnit.label)
-        .all()
-    )
+    query = MachineUnit.query.join(MachineType)
+    if not include_inactive:
+        query = query.filter(MachineUnit.active.is_(True))
+    units = query.order_by(MachineType.name, MachineUnit.label).all()
     open_by = {
         row.machine_unit_id: row
         for row in MachineDowntime.query.filter(MachineDowntime.ended_at.is_(None)).all()
@@ -557,6 +561,105 @@ def list_machine_unit_statuses():
         payload["nextOperation"] = _serialize_affected_operation(nxt) if nxt else None
         out.append(payload)
     return out
+
+
+def _sync_machine_type_unit_count(machine_type):
+    """Keep MachineType.units aligned with active MachineUnit rows."""
+    from app.models.machine import MachineUnit
+
+    machine_type.units = (
+        MachineUnit.query.filter_by(machine_type_id=machine_type.id, active=True).count()
+    )
+
+
+def _next_machine_unit_label(machine_type):
+    import re
+
+    from app.models.machine import MachineUnit
+
+    units = MachineUnit.query.filter_by(machine_type_id=machine_type.id).all()
+    nums = []
+    for u in units:
+        m = re.search(r"#(\d+)\s*$", u.label or "")
+        if m:
+            nums.append(int(m.group(1)))
+    next_n = (max(nums) if nums else len(units)) + 1
+    return f"{machine_type.name} #{next_n}"
+
+
+def create_machine_unit(machine_type_id, label=None):
+    """Add a physical unit to a machine type (shop floor replacement / expansion)."""
+    from app.models.machine import MachineType, MachineUnit
+
+    if not machine_type_id:
+        raise AppError("machineTypeId is required", "VALIDATION_ERROR", 400)
+    mt = MachineType.query.get(machine_type_id)
+    if not mt:
+        raise AppError("Machine type not found", "NOT_FOUND", 404)
+
+    cleaned = (label or "").strip()
+    if not cleaned:
+        cleaned = _next_machine_unit_label(mt)
+    existing = MachineUnit.query.filter_by(machine_type_id=mt.id, label=cleaned).first()
+    if existing:
+        raise AppError(
+            f"A unit named '{cleaned}' already exists for {mt.name}",
+            "CONFLICT",
+            409,
+        )
+
+    unit = MachineUnit(
+        machine_type_id=mt.id,
+        label=cleaned,
+        active=True,
+    )
+    db.session.add(unit)
+    db.session.flush()
+    _sync_machine_type_unit_count(mt)
+    db.session.commit()
+    return unit
+
+
+def set_machine_unit_active(unit_id, active: bool):
+    """
+    Soft-remove (retire) or restore a machine unit.
+    History on operations/downtime is kept; hard delete is not used.
+    """
+    from app.models.machine import MachineUnit
+
+    unit = MachineUnit.query.get(unit_id)
+    if not unit:
+        raise AppError("Machine unit not found", "NOT_FOUND", 404)
+
+    if bool(unit.active) == bool(active):
+        return unit
+
+    if not active:
+        in_progress = JobOperation.query.filter_by(
+            machine_unit_id=unit.id, status=OperationStatus.IN_PROGRESS
+        ).first()
+        if in_progress:
+            raise AppError(
+                "Cannot remove a machine that is still running an operation. "
+                "Finish or reassign that work first.",
+                "CONFLICT",
+                409,
+            )
+        open_dt = MachineDowntime.query.filter_by(
+            machine_unit_id=unit.id, ended_at=None
+        ).first()
+        if open_dt:
+            open_dt.ended_at = datetime.now(timezone.utc)
+            note = (open_dt.note or "").strip()
+            suffix = "Closed when machine was removed from shop floor."
+            open_dt.note = f"{note} {suffix}".strip() if note else suffix
+
+    unit.active = bool(active)
+    db.session.flush()
+    if unit.machine_type:
+        _sync_machine_type_unit_count(unit.machine_type)
+    db.session.commit()
+    return unit
 
 
 def open_downtime_intervals_by_unit():

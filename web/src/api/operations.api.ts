@@ -1,6 +1,7 @@
 import apiClient from './client';
 import type {
   MachineDowntimeRecord,
+  MachineUnitInfo,
   MachineUnitStatus,
   Operation,
   OperationPauseReason,
@@ -20,7 +21,17 @@ export const operationsApi = {
     apiClient.post<Operation>(`/operations/${id}/rework`, { reason }),
   assign: (id: string, assignedWorkerId: string) =>
     apiClient.patch<Operation>(`/operations/${id}/assign`, { assignedWorkerId }),
-  machineUnitStatus: () => apiClient.get<MachineUnitStatus[]>('/operations/machine-units/status'),
+  machineUnitStatus: (includeInactive = false) =>
+    apiClient.get<MachineUnitStatus[]>('/operations/machine-units/status', {
+      params: includeInactive ? { includeInactive: true } : undefined,
+    }),
+  createMachineUnit: (machineTypeId: string, label?: string) =>
+    apiClient.post<MachineUnitInfo>('/operations/machine-units', {
+      machineTypeId,
+      label: label || undefined,
+    }),
+  setMachineUnitActive: (unitId: string, active: boolean) =>
+    apiClient.patch<MachineUnitStatus>(`/operations/machine-units/${unitId}`, { active }),
   openDowntime: (unitId: string, reason: string, note?: string) =>
     apiClient.post<MachineDowntimeRecord>(`/operations/machine-units/${unitId}/downtime`, {
       reason,
