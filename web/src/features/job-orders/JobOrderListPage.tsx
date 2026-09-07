@@ -13,7 +13,7 @@ import {
   FilterOutlined,
   CloseOutlined,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { scheduleFlagStyle } from '../../utils/shopTime';
 import { jobOrdersApi } from '../../api/jobOrders.api';
@@ -25,6 +25,10 @@ import { useIsPhone } from '../../hooks/useIsPhone';
 import type { JobOrder, JobOrderStatus, JobPriority } from '../../types';
 
 type ListTab = 'production' | 'drafts';
+
+function tabFromSearch(param: string | null): ListTab {
+  return param === 'drafts' ? 'drafts' : 'production';
+}
 
 const PRODUCTION_STATUS_OPTIONS: { value: JobOrderStatus; label: string }[] = [
   { value: 'SCHEDULED', label: 'Scheduled' },
@@ -84,7 +88,10 @@ export default function JobOrderListPage() {
   const [jobs, setJobs] = useState<JobOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [listTab, setListTab] = useState<ListTab>('production');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [listTab, setListTab] = useState<ListTab>(() =>
+    tabFromSearch(searchParams.get('tab'))
+  );
   const [draftCount, setDraftCount] = useState(0);
   const [statusFilter, setStatusFilter] = useState<JobOrderStatus[]>([]);
   const [priorityFilter, setPriorityFilter] = useState<JobPriority[]>([]);
@@ -98,12 +105,26 @@ export default function JobOrderListPage() {
   const { isAdmin, isOfficeStaff } = useAuth();
   const isPhone = useIsPhone();
 
+  useEffect(() => {
+    const next = tabFromSearch(searchParams.get('tab'));
+    setListTab((prev) => (prev === next ? prev : next));
+  }, [searchParams]);
+
+  const selectListTab = (tab: ListTab) => {
+    setListTab(tab);
+    setStatusFilter([]);
+    setSelectedKeys([]);
+    setSearchParams(tab === 'drafts' ? { tab: 'drafts' } : {}, { replace: true });
+  };
+
   const fetchJobs = async (tab: ListTab = listTab) => {
     setLoading(true);
     try {
       const { data } = await jobOrdersApi.list({ scope: tab });
       setJobs(data);
-      if (tab === 'production' && (isAdmin || isOfficeStaff)) {
+      if (tab === 'drafts') {
+        setDraftCount(data.length);
+      } else if (isAdmin || isOfficeStaff) {
         const drafts = await jobOrdersApi.list({ scope: 'drafts' });
         setDraftCount(drafts.data.length);
       }
@@ -221,6 +242,31 @@ export default function JobOrderListPage() {
     });
   };
 
+  const confirmDeleteJob = (record: JobOrder) => {
+    const label = record.jobNumber || 'This job order';
+    const isDraft = record.status === 'DRAFT';
+    Modal.confirm({
+      title: isDraft ? 'Delete this draft?' : 'Delete this job order?',
+      content: isDraft
+        ? `${label} will be permanently removed. This cannot be undone.`
+        : `${label} and all of its scheduled operations will be permanently removed from the shop schedule. This cannot be undone.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await jobOrdersApi.delete(record.id);
+          message.success(isDraft ? 'Draft deleted' : 'Job order deleted');
+          setSelectedKeys((keys) => keys.filter((k) => k !== record.id));
+          await fetchJobs();
+        } catch (err) {
+          message.error(getErrorMessage(err));
+          throw err;
+        }
+      },
+    });
+  };
+
   const jobActionItems = (record: JobOrder): MenuProps['items'] => {
     const isDraft = record.status === 'DRAFT';
 
@@ -238,26 +284,7 @@ export default function JobOrderListPage() {
           icon: <DeleteOutlined />,
           label: 'Delete',
           danger: true,
-          onClick: () => {
-            Modal.confirm({
-              title: 'Delete this draft?',
-              content: `${record.jobNumber || 'This draft'} will be permanently removed. This cannot be undone.`,
-              okText: 'Delete',
-              okType: 'danger',
-              cancelText: 'Cancel',
-              onOk: async () => {
-                try {
-                  await jobOrdersApi.delete(record.id);
-                  message.success('Draft deleted');
-                  setSelectedKeys((keys) => keys.filter((k) => k !== record.id));
-                  await fetchJobs();
-                } catch (err) {
-                  message.error(getErrorMessage(err));
-                  throw err;
-                }
-              },
-            });
-          },
+          onClick: () => confirmDeleteJob(record),
         });
       }
       return items;
@@ -286,7 +313,6 @@ export default function JobOrderListPage() {
       onClick: () => navigate(`/job-orders/${record.id}/print`),
     });
     if (record.status === 'COMPLETED') {
-      items.push({ type: 'divider' });
       items.push({
         key: 'deliver',
         icon: <CheckOutlined />,
@@ -300,6 +326,16 @@ export default function JobOrderListPage() {
             message.error(getErrorMessage(err));
           }
         },
+      });
+    }
+    if (isOfficeStaff || isAdmin) {
+      items.push({ type: 'divider' });
+      items.push({
+        key: 'delete',
+        icon: <DeleteOutlined />,
+        label: 'Delete',
+        danger: true,
+        onClick: () => confirmDeleteJob(record),
       });
     }
     return items;
@@ -341,7 +377,7 @@ export default function JobOrderListPage() {
       ),
     },
     {
-      title: 'Date last modified',
+      title: 'Last Modified Date',
       dataIndex: 'updatedAt',
       key: 'updatedAt',
       width: 148,
@@ -487,15 +523,20 @@ export default function JobOrderListPage() {
       ),
     },
     {
-      title: 'Created',
-      key: 'createdAt',
-      width: 112,
-      sorter: (a, b) => dayjs(a.createdAt).valueOf() - dayjs(b.createdAt).valueOf(),
-      render: (v: string | undefined) => (
-        <span style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
-          {v ? dayjs(v).format('MMM D, YYYY') : '—'}
-        </span>
-      ),
+      title: 'Last Modified Date',
+      dataIndex: 'updatedAt',
+      key: 'updatedAt',
+      width: 148,
+      sorter: (a, b) =>
+        dayjs(a.updatedAt || a.createdAt).valueOf() - dayjs(b.updatedAt || b.createdAt).valueOf(),
+      render: (_: string | null | undefined, record) => {
+        const d = record.updatedAt || record.createdAt;
+        return (
+          <span style={{ fontSize: 13, whiteSpace: 'nowrap', color: '#0f172a' }}>
+            {d && dayjs(d).isValid() ? dayjs(d).format('MMM D, YYYY') : '—'}
+          </span>
+        );
+      },
     },
     productionColumns[productionColumns.length - 1],
   ];
@@ -507,11 +548,7 @@ export default function JobOrderListPage() {
       <Segmented
         block={isPhone}
         value={listTab}
-        onChange={(v) => {
-          setListTab(v as ListTab);
-          setStatusFilter([]);
-          setSelectedKeys([]);
-        }}
+        onChange={(v) => selectListTab(v as ListTab)}
         options={[
           { label: 'Job orders', value: 'production' },
           {

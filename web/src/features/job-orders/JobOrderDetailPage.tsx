@@ -17,6 +17,7 @@ import {
   ArrowLeftOutlined,
   CheckCircleFilled,
   CheckOutlined,
+  DeleteOutlined,
   EditOutlined,
   PrinterOutlined,
 } from '@ant-design/icons';
@@ -39,6 +40,7 @@ import type {
 } from '../../types';
 import { formatDifferenceFromTarget } from '../analytics/analyticsPeriod';
 import { WorkerPageHeader } from '../../layouts/WorkerLayout';
+import { jobOrdersListPath } from './jobOrderListPaths';
 
 const { Title, Text } = Typography;
 
@@ -268,7 +270,9 @@ export default function JobOrderDetailPage() {
     };
   }, [ops]);
 
-  const backTo = isWorker ? '/my-assignments' : '/job-orders';
+  const backTo = isWorker
+    ? '/my-assignments'
+    : jobOrdersListPath(job?.status);
 
   const refreshNotifications = useCallback(async () => {
     if (!id || !canManage) return;
@@ -378,6 +382,30 @@ export default function JobOrderDetailPage() {
     }
   };
 
+  const handleDelete = () => {
+    if (!job) return;
+    const label = job.jobNumber || 'This job order';
+    Modal.confirm({
+      title: isDraft ? 'Delete this draft?' : 'Delete this job order?',
+      content: isDraft
+        ? `${label} will be permanently removed. This cannot be undone.`
+        : `${label} and all of its scheduled operations will be permanently removed from the shop schedule. This cannot be undone.`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          await jobOrdersApi.delete(job.id);
+          message.success(isDraft ? 'Draft deleted' : 'Job order deleted');
+          navigate(backTo, { replace: true });
+        } catch (err) {
+          message.error(getErrorMessage(err));
+          throw err;
+        }
+      },
+    });
+  };
+
   if (loading && !job) {
     return (
       <div style={{ padding: 48, textAlign: 'center' }}>
@@ -471,6 +499,11 @@ export default function JobOrderDetailPage() {
               onClick={handleDeliver}
             >
               Deliver
+            </Button>
+          )}
+          {canManage && (
+            <Button danger icon={<DeleteOutlined />} onClick={handleDelete}>
+              Delete
             </Button>
           )}
         </Space>

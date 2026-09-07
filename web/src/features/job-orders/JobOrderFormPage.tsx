@@ -22,6 +22,7 @@ import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import type { Client } from '../../types';
 import JobOrderFlowSteps, { resolveJobFlowStep } from './JobOrderFlowSteps';
+import { jobOrdersDraftsListPath, jobOrdersListPath } from './jobOrderListPaths';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -45,7 +46,9 @@ export default function JobOrderFormPage() {
   const [reachedStep, setReachedStep] = useState<1 | 2 | 3 | 4>(1);
   const NAVY = '#0f1c2e';
   const backTo =
-    isEdit && id && jobStatus && jobStatus !== 'DRAFT' ? `/job-orders/${id}` : '/job-orders';
+    isEdit && id && jobStatus && jobStatus !== 'DRAFT'
+      ? `/job-orders/${id}`
+      : jobOrdersDraftsListPath();
   // New jobs are DRAFT; planning entry only applies while still DRAFT.
   const canEnterPlanning = !isEdit || jobStatus === 'DRAFT' || jobStatus === null;
   const showAdminSplit = isAdmin && canEnterPlanning;
@@ -197,11 +200,11 @@ export default function JobOrderFormPage() {
       if (destination === 'plan' && jobId) {
         navigate(`/job-orders/${jobId}/plan?step=2`);
       } else if (destination === 'list') {
-        navigate('/job-orders');
+        navigate(jobOrdersListPath(jobStatus || 'DRAFT'));
       } else if (jobId) {
         navigate(`/job-orders/${jobId}`);
       } else {
-        navigate('/job-orders');
+        navigate(jobOrdersDraftsListPath());
       }
     } catch (err) {
       setError(getErrorMessage(err));

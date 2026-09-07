@@ -36,6 +36,7 @@ import JobOrderFlowSteps, {
   resolveJobFlowStep,
   type JobFlowStepId,
 } from './JobOrderFlowSteps';
+import { jobOrdersListPath } from './jobOrderListPaths';
 import type {
   JobOrder,
   MachineInfo,
@@ -221,7 +222,7 @@ export default function JobOrderPlanningPage() {
 
   const goBackStep = () => {
     if (!job) {
-      navigate('/job-orders');
+      navigate(jobOrdersListPath('DRAFT'));
       return;
     }
     if (!isPlanningStatus(job.status) || wizardStep === 4) {
@@ -236,7 +237,7 @@ export default function JobOrderPlanningPage() {
       goToStep(2);
       return;
     }
-    navigate('/job-orders');
+    navigate(jobOrdersListPath(job.status));
   };
 
   const operationsMissingItems = useMemo(() => {
@@ -297,11 +298,13 @@ export default function JobOrderPlanningPage() {
     if (isCheckingType(ot, op.operationName)) {
       setRowSuggestions((prev) => ({ ...prev, [rowIndex]: [] }));
       try {
-        const { data } = await workersApi.list();
+        const { data } = await workersApi.list({ forChecking: true });
         if (suggestionFetchSeq.current[rowIndex] !== seq) return;
         const admin = findAdminWorker(data);
-        setRowWorkers((prev) => ({ ...prev, [rowIndex]: data }));
-        rowDataRef.current[rowIndex] = { workers: data, suggestions: [] };
+        // Checking: Admin only in the assign list.
+        const checkingWorkers = admin ? [admin] : [];
+        setRowWorkers((prev) => ({ ...prev, [rowIndex]: checkingWorkers }));
+        rowDataRef.current[rowIndex] = { workers: checkingWorkers, suggestions: [] };
         if (admin) {
           setOperations((prev) => {
             const row = prev[rowIndex];
@@ -376,8 +379,6 @@ export default function JobOrderPlanningPage() {
           initial = requested && requested <= land ? requested : 4;
         } else if (initial === 4) {
           initial = land >= 2 ? land : 2;
-        } else if (initial === 3 && j.status === 'DRAFT') {
-          initial = 2;
         } else if (initial < 2) {
           initial = 2;
         }
@@ -419,6 +420,54 @@ export default function JobOrderPlanningPage() {
                 },
               ];
         setOperations(rows);
+
+        // Restore schedule stage from persisted draft windows.
+        if (initial === 3) {
+          const restored: ProposedOperation[] = rows
+            .map((op, i) => {
+              const start = op.scheduledStart || null;
+              const end = op.scheduledEnd || null;
+              const scheduled = Boolean(start && end);
+              return {
+                id: op.id,
+                sequenceNo: i + 1,
+                operationName: op.operationName,
+                assignedWorkerId: op.assignedWorkerId || null,
+                machineTypeId: op.machineTypeId || null,
+                machineUnitId: op.machineUnitId || null,
+                machineUnitLabel: op.machineUnitId
+                  ? unitsRes.data?.find((u) => u.id === op.machineUnitId)?.label || null
+                  : null,
+                estimatedHours: op.estimatedHours,
+                scheduledStart: start,
+                scheduledEnd: end,
+                segments: scheduled && start && end ? [{ start, end }] : [],
+                scheduled,
+              };
+            })
+            .filter((op) => op.scheduled);
+          if (restored.length > 0) {
+            setScheduleOps(restored);
+            const ends = restored
+              .map((op) => op.scheduledEnd)
+              .filter((v): v is string => Boolean(v));
+            const projected =
+              ends.length > 0
+                ? ends.reduce((a, b) => (dayjs(a).isAfter(dayjs(b)) ? a : b))
+                : null;
+            setScheduleMeta({
+              projectedCompletion: projected,
+              scheduleFlag: j.scheduleFlag ?? null,
+            });
+          } else {
+            setScheduleOps(null);
+            setScheduleMeta(null);
+          }
+        } else {
+          setScheduleOps(null);
+          setScheduleMeta(null);
+        }
+
         rows.forEach((row, index) => {
           void loadRowWorkers(index, row.machineTypeId, false);
           void loadSuggestions(index, row, { preserveExisting: true });
@@ -447,11 +496,12 @@ export default function JobOrderPlanningPage() {
     const ot = operationTypes.find((t) => t.id === typeId);
     if (isCheckingType(ot)) {
       try {
-        const { data } = await workersApi.list();
+        const { data } = await workersApi.list({ forChecking: true });
         const admin = findAdminWorker(data);
-        setRowWorkers((prev) => ({ ...prev, [index]: data }));
+        const checkingWorkers = admin ? [admin] : [];
+        setRowWorkers((prev) => ({ ...prev, [index]: checkingWorkers }));
         setRowSuggestions((prev) => ({ ...prev, [index]: [] }));
-        rowDataRef.current[index] = { workers: data, suggestions: [] };
+        rowDataRef.current[index] = { workers: checkingWorkers, suggestions: [] };
         patchRow(index, {
           operationTypeId: typeId,
           operationName: ot?.name || 'Checking',
@@ -536,19 +586,47 @@ export default function JobOrderPlanningPage() {
         scheduledStart: proposed.scheduledStart || null,
         scheduledEnd: proposed.scheduledEnd || null,
         machineUnitId: proposed.machineUnitId || op.machineUnitId,
+        assignedWorkerId: proposed.assignedWorkerId || op.assignedWorkerId,
         status: 'SCHEDULED',
       };
     });
+
+  const buildDraftSchedulePayload = () =>
+    buildReleasePayload().map((op) => ({
+      ...op,
+      // Stay PENDING until release; windows alone mark schedule stage.
+      status: op.status === 'SCHEDULED' ? 'PENDING' : op.status || 'PENDING',
+    }));
 
   const savePlanning = async (exit = false) => {
     if (!id) return;
     setSaving(true);
     setError('');
     try {
-      const { data } = await jobOrdersApi.update(id, { operations: buildOperationsPayload() });
+      const operationsPayload =
+        wizardStep === 3 && scheduleOps?.some((o) => o.scheduled)
+          ? buildDraftSchedulePayload()
+          : buildOperationsPayload();
+      const { data } = await jobOrdersApi.update(id, { operations: operationsPayload });
       setJob(data);
+      // Keep form rows in sync with persisted schedule so reopen lands on step 3.
+      if (wizardStep === 3 && scheduleOps?.some((o) => o.scheduled)) {
+        setOperations((prev) =>
+          prev.map((row, i) => {
+            const proposed = scheduleOps.find((p) => p.sequenceNo === i + 1);
+            if (!proposed?.scheduled) return row;
+            return {
+              ...row,
+              scheduledStart: proposed.scheduledStart || undefined,
+              scheduledEnd: proposed.scheduledEnd || undefined,
+              machineUnitId: proposed.machineUnitId || row.machineUnitId,
+              assignedWorkerId: proposed.assignedWorkerId || row.assignedWorkerId,
+            };
+          })
+        );
+      }
       message.success(exit ? 'Saved' : 'Planning saved');
-      if (exit) navigate('/job-orders');
+      if (exit) navigate(jobOrdersListPath(job?.status || 'DRAFT'));
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -601,6 +679,51 @@ export default function JobOrderPlanningPage() {
         return next;
       })
     );
+  };
+
+  const handleMachineUnitChange = async (
+    sequenceNo: number,
+    machineUnitId: string | null,
+    machineUnitLabel: string | null
+  ) => {
+    if (!id || !job || !scheduleOps) return;
+    const nextOps = scheduleOps.map((op) =>
+      op.sequenceNo === sequenceNo
+        ? { ...op, machineUnitId, machineUnitLabel }
+        : op
+    );
+    setScheduleOps(nextOps);
+    setProposing(true);
+    setError('');
+    try {
+      const { data } = await jobOrdersApi.proposeSchedule(id, {
+        operations: nextOps.map((op) => ({
+          id: op.id,
+          sequenceNo: op.sequenceNo,
+          operationName: op.operationName,
+          assignedWorkerId: op.assignedWorkerId,
+          machineTypeId: op.machineTypeId,
+          machineUnitId: op.machineUnitId,
+          machineUnitLabel: op.machineUnitLabel,
+          estimatedHours: op.estimatedHours,
+          scheduledStart: op.scheduledStart,
+          scheduledEnd: op.scheduledEnd,
+        })),
+        lockBeforeSequence: sequenceNo,
+        honorMachinePins: true,
+      });
+      setScheduleOps(data.operations);
+      setScheduleMeta({
+        projectedCompletion: data.projectedCompletion,
+        scheduleFlag: data.scheduleFlag,
+      });
+      setScheduleWarnings({});
+    } catch (err) {
+      setError(getErrorMessage(err));
+      message.error(getErrorMessage(err));
+    } finally {
+      setProposing(false);
+    }
   };
 
   const runValidateSchedule = async (ops: ProposedOperation[]) => {
@@ -822,7 +945,7 @@ export default function JobOrderPlanningPage() {
         <Space wrap size={8}>
           <Button
             icon={<ArrowLeftOutlined />}
-            onClick={() => navigate('/job-orders')}
+            onClick={() => navigate(jobOrdersListPath(job.status))}
           >
             Exit
           </Button>
@@ -1053,6 +1176,7 @@ export default function JobOrderPlanningPage() {
               scheduleFlag={scheduleMeta?.scheduleFlag}
               warningsBySeq={scheduleWarnings}
               onChangeOp={handleScheduleOpChange}
+              onMachineUnitChange={readOnly ? undefined : handleMachineUnitChange}
               onBlurValidate={() => scheduleOps && runValidateSchedule(scheduleOps)}
               readOnly={readOnly}
             />
