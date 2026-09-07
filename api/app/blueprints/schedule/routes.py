@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 
-from app.middleware.rbac import require_roles
+from app.middleware.rbac import get_current_user_id, get_current_user_role, require_roles
 from app.models.user import UserRole
 from app.services import board_service
 
@@ -19,13 +19,17 @@ def _bool_arg(name: str, default: bool = True) -> bool:
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF, UserRole.PRODUCTION_WORKER)
 def board():
+    worker_id = request.args.get("workerId") or request.args.get("worker_id")
+    # Workers may only see their own assignments.
+    if get_current_user_role() == UserRole.PRODUCTION_WORKER.value:
+        worker_id = get_current_user_id()
     return jsonify(
         board_service.schedule_board(
             from_s=request.args.get("from"),
             to_s=request.args.get("to"),
             machine_type_id=request.args.get("machineTypeId")
             or request.args.get("machine_type_id"),
-            worker_id=request.args.get("workerId") or request.args.get("worker_id"),
+            worker_id=worker_id,
             client_id=request.args.get("clientId") or request.args.get("client_id"),
             include_completed=_bool_arg("includeCompleted", True),
         )

@@ -128,8 +128,10 @@ def _load_external_bookings(exclude_job_id=None, exclude_operation_ids=None):
             continue
         if op.assigned_worker_id:
             worker_busy.setdefault(op.assigned_worker_id, []).extend(intervals)
+            worker_busy.setdefault(str(op.assigned_worker_id), []).extend(intervals)
         if op.machine_unit_id:
             machine_busy.setdefault(op.machine_unit_id, []).extend(intervals)
+            machine_busy.setdefault(str(op.machine_unit_id), []).extend(intervals)
 
     # Open machine downtimes block units for scheduling
     from app.services.operation_service import open_downtime_intervals_by_unit
@@ -297,13 +299,74 @@ def _worker_free_intervals(
         schedule_by_dow, exceptions_by_date, anchor_utc, end_utc
     )
     busy = merge_intervals(
-        worker_busy.get(worker_id, []) + in_job_busy.get(worker_id, [])
+        worker_busy.get(worker_id, [])
+        + worker_busy.get(str(worker_id), [])
+        + in_job_busy.get(worker_id, [])
+        + in_job_busy.get(str(worker_id), [])
     )
     return subtract_intervals(working, busy)
 
 
+def _busy_seconds_in_horizon(intervals, anchor_utc, end_utc) -> float:
+    total = 0.0
+    for s, e in merge_intervals(intervals or []):
+        s = max(ensure_utc(s), anchor_utc)
+        e = min(ensure_utc(e), end_utc)
+        if e > s:
+            total += (e - s).total_seconds()
+    return total
+
+
+def _qualified_worker_ids(
+    machine_type_id,
+    preferred_worker_id=None,
+    *,
+    operation_type_id=None,
+    operation_name=None,
+) -> list:
+    """
+    Assignable workers skilled for machine_type_id.
+    Preferred worker is first (kept on ties) and included even without a skill row
+    so an explicit assignment still participates in the search.
+
+    Admins are only included for Checking (no machine).
+    """
+    from app.models.worker_skill import WorkerSkill
+    from app.services.worker_profile_service import (
+        is_checking_operation,
+        query_assignable_workers,
+    )
+
+    checking = is_checking_operation(operation_type_id, operation_name)
+    include_admin = checking and not machine_type_id
+    assignable_users = query_assignable_workers(include_admin=include_admin).all()
+    assignable = {w.id for w in assignable_users}
+
+    if not machine_type_id:
+        ordered: list = []
+        if preferred_worker_id and preferred_worker_id in assignable:
+            ordered.append(preferred_worker_id)
+        for wid in sorted(assignable):
+            if wid not in ordered:
+                ordered.append(wid)
+        return ordered
+
+    skilled = [
+        s.worker_id
+        for s in WorkerSkill.query.filter_by(machine_type_id=machine_type_id).all()
+        if s.worker_id in assignable
+    ]
+    ordered = []
+    if preferred_worker_id and preferred_worker_id in assignable:
+        ordered.append(preferred_worker_id)
+    for wid in skilled:
+        if wid not in ordered:
+            ordered.append(wid)
+    return ordered
+
+
 def _find_earliest_slot(
-    worker_id,
+    worker_ids,
     machine_type_id,
     duration: timedelta,
     not_before: datetime,
@@ -315,59 +378,137 @@ def _find_earliest_slot(
     in_job_machine_busy,
     exceptions_by_date,
     units_by_type,
+    preferred_unit_id=None,
+    preferred_worker_id=None,
 ):
-    worker_free = _worker_free_intervals(
-        worker_id,
-        anchor_utc,
-        end_utc,
-        worker_busy,
-        in_job_worker_busy,
-        exceptions_by_date,
-    )
+    """
+    Earliest feasible (worker, unit) assignment.
+    Rank: earliest start → least occupied machine → keep preferred worker → label.
+    """
+    if isinstance(worker_ids, str):
+        worker_ids = [worker_ids]
+    worker_ids = [w for w in (worker_ids or []) if w]
+    if not worker_ids:
+        return None, None, None, None, 0.0
 
     if not machine_type_id:
-        start, end, placeable = place_duration(worker_free, duration, not_before, end_utc)
-        if start and end:
-            return start, end, None, placeable
-        required = duration.total_seconds() / 3600.0
-        return None, None, None, placeable
+        best = None
+        max_placeable = 0.0
+        for wid in worker_ids:
+            worker_free = _worker_free_intervals(
+                wid,
+                anchor_utc,
+                end_utc,
+                worker_busy,
+                in_job_worker_busy,
+                exceptions_by_date,
+            )
+            start, end, placeable = place_duration(
+                worker_free, duration, not_before, end_utc
+            )
+            max_placeable = max(max_placeable, placeable)
+            if not start or not end:
+                continue
+            keep_pref = 0 if preferred_worker_id and wid == preferred_worker_id else 1
+            candidate = (start, keep_pref, wid, end, placeable)
+            if best is None or candidate[:2] < best[:2] or (
+                candidate[:2] == best[:2] and candidate[2] < best[2]
+            ):
+                best = candidate
+        if best:
+            start, _k, wid, end, placeable = best
+            return start, end, None, wid, placeable
+        return None, None, None, None, max_placeable
 
-    units = units_by_type.get(machine_type_id, [])
+    units = list(units_by_type.get(machine_type_id, []))
+    if preferred_unit_id:
+        pref = str(preferred_unit_id)
+        units = [u for u in units if str(u.id) == pref]
     if not units:
-        required = duration.total_seconds() / 3600.0
-        return None, None, None, 0.0
+        return None, None, None, None, 0.0
 
+    # (start, busy_secs, keep_preferred_worker, label, end, unit_id, worker_id, placeable)
     best = None
-    best_placeable = 0.0
-    for unit in units:
-        machine_free = subtract_intervals(
-            full_horizon_interval(anchor_utc, end_utc),
-            merge_intervals(
-                machine_busy.get(unit.id, []) + in_job_machine_busy.get(unit.id, [])
-            ),
+    max_placeable = 0.0
+
+    for wid in worker_ids:
+        worker_free = _worker_free_intervals(
+            wid,
+            anchor_utc,
+            end_utc,
+            worker_busy,
+            in_job_worker_busy,
+            exceptions_by_date,
         )
-        combined = intersect_intervals(worker_free, machine_free)
-        start, end, placeable = place_duration(combined, duration, not_before, end_utc)
-        if start and end and (best is None or start < best[0]):
-            best = (start, end, unit.id)
-            best_placeable = placeable
+        for unit in units:
+            unit_busy = merge_intervals(
+                machine_busy.get(unit.id, [])
+                + machine_busy.get(str(unit.id), [])
+                + in_job_machine_busy.get(unit.id, [])
+                + in_job_machine_busy.get(str(unit.id), [])
+            )
+            machine_free = subtract_intervals(
+                full_horizon_interval(anchor_utc, end_utc),
+                unit_busy,
+            )
+            combined = intersect_intervals(worker_free, machine_free)
+            start, end, placeable = place_duration(combined, duration, not_before, end_utc)
+            max_placeable = max(max_placeable, placeable)
+            if not start or not end:
+                continue
+            busy_secs = _busy_seconds_in_horizon(unit_busy, anchor_utc, end_utc)
+            keep_pref = 0 if preferred_worker_id and wid == preferred_worker_id else 1
+            candidate = (
+                start,
+                busy_secs,
+                keep_pref,
+                unit.label or "",
+                end,
+                unit.id,
+                wid,
+                placeable,
+            )
+            if best is None or candidate[:4] < best[:4]:
+                best = candidate
 
     if best:
-        return best[0], best[1], best[2], best_placeable
+        start, _b, _k, _lab, end, unit_id, wid, placeable = best
+        return start, end, unit_id, wid, placeable
+    return None, None, None, None, max_placeable
 
-    # Report best placeable seen across units for diagnostics
-    max_placeable = 0.0
-    for unit in units:
-        machine_free = subtract_intervals(
-            full_horizon_interval(anchor_utc, end_utc),
-            merge_intervals(
-                machine_busy.get(unit.id, []) + in_job_machine_busy.get(unit.id, [])
-            ),
+
+def _lock_existing_window(op: dict) -> dict | None:
+    """Keep a previously proposed window when partially re-proposing."""
+    start = op.get("scheduledStart")
+    end = op.get("scheduledEnd")
+    if not start or not end:
+        return None
+    return _result_from_slot(
+        op,
+        start,
+        end,
+        op.get("machineUnitId"),
+        scheduled=True,
+        message=None,
+        machine_unit_label=op.get("machineUnitLabel"),
+    )
+
+
+def _record_in_job_busy(op_result, op, in_job_worker_busy, in_job_machine_busy):
+    wid = op_result.get("assignedWorkerId") or op.get("assignedWorkerId")
+    uid = op_result.get("machineUnitId")
+    segments = [
+        (
+            ensure_utc(datetime.fromisoformat(s["start"].replace("Z", "+00:00"))),
+            ensure_utc(datetime.fromisoformat(s["end"].replace("Z", "+00:00"))),
         )
-        combined = intersect_intervals(worker_free, machine_free)
-        _, _, placeable = place_duration(combined, duration, not_before, end_utc)
-        max_placeable = max(max_placeable, placeable)
-    return None, None, None, max_placeable
+        for s in (op_result.get("segments") or [])
+    ]
+    if wid and segments:
+        in_job_worker_busy.setdefault(wid, []).extend(segments)
+    if uid and segments:
+        in_job_machine_busy.setdefault(uid, []).extend(segments)
+        in_job_machine_busy.setdefault(str(uid), []).extend(segments)
 
 
 def propose_schedule(
@@ -376,10 +517,15 @@ def propose_schedule(
     *,
     exclude_job_id=None,
     anchor_utc=None,
+    lock_before_sequence=None,
+    honor_machine_pins=False,
 ):
     """
     Earliest-fit proposal for a job's operations. Does not write to the database.
-    Every operation must have assignedWorkerId; missing workers are skipped per op.
+
+    lock_before_sequence: keep scheduled windows for ops with sequenceNo < this
+      (used when re-fitting after a machine/time edit).
+    honor_machine_pins: place each op on its machineUnitId when set (partial re-fit).
     """
     anchor_utc = ensure_utc(anchor_utc or shop_now().astimezone(timezone.utc))
     end_utc = horizon_end_utc(anchor_utc)
@@ -409,40 +555,29 @@ def propose_schedule(
     in_job_worker_busy = {}
     in_job_machine_busy = {}
     results = []
-    # Predecessor floor: never start an op before the search anchor or before
-    # the previous op in this job ends (including COMPLETED / IN_PROGRESS frozen ends).
     prev_end = anchor_utc
 
     for op in normalized:
         frozen = _frozen_result(op)
-        if frozen:
-            results.append(frozen)
-            frozen_start = ensure_utc(
-                datetime.fromisoformat(frozen["scheduledStart"].replace("Z", "+00:00"))
-            )
+        locked = None
+        if (
+            not frozen
+            and lock_before_sequence is not None
+            and op["sequenceNo"] < int(lock_before_sequence)
+        ):
+            locked = _lock_existing_window(op)
+
+        kept = frozen or locked
+        if kept:
+            results.append(kept)
             frozen_end = ensure_utc(
-                datetime.fromisoformat(frozen["scheduledEnd"].replace("Z", "+00:00"))
+                datetime.fromisoformat(kept["scheduledEnd"].replace("Z", "+00:00"))
             )
-            # Sequence constraint applies to frozen ops too. Use max so a
-            # completed op that finished before the anchor does not pull the
-            # floor earlier, and one that finishes after the anchor pushes it.
             prev_end = max(prev_end, frozen_end)
-            wid = op.get("assignedWorkerId")
-            uid = frozen.get("machineUnitId")
-            frozen_segments = [
-                (
-                    ensure_utc(datetime.fromisoformat(s["start"].replace("Z", "+00:00"))),
-                    ensure_utc(datetime.fromisoformat(s["end"].replace("Z", "+00:00"))),
-                )
-                for s in (frozen.get("segments") or [])
-            ]
-            if wid and frozen_segments:
-                in_job_worker_busy.setdefault(wid, []).extend(frozen_segments)
-            if uid and frozen_segments:
-                in_job_machine_busy.setdefault(uid, []).extend(frozen_segments)
+            _record_in_job_busy(kept, op, in_job_worker_busy, in_job_machine_busy)
             continue
 
-        if not op.get("assignedWorkerId"):
+        if not op.get("assignedWorkerId") and not op.get("machineTypeId"):
             results.append(
                 _failure_result(op, MISSING_WORKER_MESSAGE, required_hours=op["estimatedHours"])
             )
@@ -450,8 +585,24 @@ def propose_schedule(
 
         duration = timedelta(hours=float(op["estimatedHours"]))
         not_before = prev_end
-        start, end, unit_id, placeable = _find_earliest_slot(
-            op["assignedWorkerId"],
+        preferred_unit = op.get("machineUnitId") if honor_machine_pins else None
+        preferred_worker = op.get("assignedWorkerId")
+        worker_ids = _qualified_worker_ids(
+            op.get("machineTypeId"),
+            preferred_worker,
+            operation_type_id=op.get("operationTypeId"),
+            operation_name=op.get("operationName"),
+        )
+        if not worker_ids and preferred_worker:
+            worker_ids = [preferred_worker]
+        if not worker_ids:
+            results.append(
+                _failure_result(op, MISSING_WORKER_MESSAGE, required_hours=op["estimatedHours"])
+            )
+            continue
+
+        start, end, unit_id, chosen_worker_id, placeable = _find_earliest_slot(
+            worker_ids,
             op.get("machineTypeId"),
             duration,
             not_before,
@@ -463,6 +614,8 @@ def propose_schedule(
             in_job_machine_busy,
             exceptions_by_date,
             units_by_type,
+            preferred_unit_id=preferred_unit,
+            preferred_worker_id=preferred_worker,
         )
 
         required = float(op["estimatedHours"])
@@ -471,6 +624,11 @@ def propose_schedule(
                 msg = (
                     f"could not schedule within {SCHEDULE_HORIZON_DAYS} days "
                     f"(no machine units configured; {required:.1f}h required)"
+                )
+            elif preferred_unit and placeable <= 0:
+                msg = (
+                    f"could not schedule within {SCHEDULE_HORIZON_DAYS} days "
+                    f"(selected machine unit unavailable; 0.0h placeable of {required:.1f}h required)"
                 )
             elif op.get("machineTypeId") and placeable <= 0:
                 msg = (
@@ -492,8 +650,9 @@ def propose_schedule(
             )
             continue
 
+        placed_op = {**op, "assignedWorkerId": chosen_worker_id or preferred_worker}
         slot = _result_from_slot(
-            op,
+            placed_op,
             start.isoformat(),
             end.isoformat(),
             unit_id,
@@ -504,18 +663,7 @@ def propose_schedule(
         )
         results.append(slot)
         prev_end = end
-        wid = op["assignedWorkerId"]
-        slot_segments = [
-            (
-                ensure_utc(datetime.fromisoformat(s["start"].replace("Z", "+00:00"))),
-                ensure_utc(datetime.fromisoformat(s["end"].replace("Z", "+00:00"))),
-            )
-            for s in (slot.get("segments") or [])
-        ]
-        if slot_segments:
-            in_job_worker_busy.setdefault(wid, []).extend(slot_segments)
-            if unit_id:
-                in_job_machine_busy.setdefault(unit_id, []).extend(slot_segments)
+        _record_in_job_busy(slot, placed_op, in_job_worker_busy, in_job_machine_busy)
 
     scheduled_ends = [
         ensure_utc(datetime.fromisoformat(r["scheduledEnd"].replace("Z", "+00:00")))

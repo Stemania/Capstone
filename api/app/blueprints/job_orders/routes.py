@@ -80,7 +80,7 @@ def update_job_order(job_id):
 def delete_job_order(job_id):
     role = get_current_user_role()
     job = jo_service.get_job_order(job_id, get_current_user_id(), role)
-    jo_service.delete_draft_job_order(job)
+    jo_service.delete_job_order(job)
     return "", 204
 
 
@@ -127,6 +127,8 @@ def propose_job_schedule(job_id):
         job.due_date,
         exclude_job_id=job.id,
         anchor_utc=jo_service._parse_datetime(data.get("anchor")) if data.get("anchor") else None,
+        lock_before_sequence=data.get("lockBeforeSequence"),
+        honor_machine_pins=bool(data.get("honorMachinePins")),
     )
     return jsonify(result)
 
@@ -150,6 +152,8 @@ def propose_draft_schedule():
         due,
         exclude_job_id=data.get("excludeJobId"),
         anchor_utc=jo_service._parse_datetime(data.get("anchor")) if data.get("anchor") else None,
+        lock_before_sequence=data.get("lockBeforeSequence"),
+        honor_machine_pins=bool(data.get("honorMachinePins")),
     )
     return jsonify(result)
 

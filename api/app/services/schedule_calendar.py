@@ -273,6 +273,18 @@ def load_worker_schedule_maps(worker_id):
     return schedule_by_dow
 
 
+def load_worker_schedule_maps_many(worker_ids):
+    """Batch-load WorkerSchedule rows for many workers (one query)."""
+    ids = [wid for wid in {*(worker_ids or [])} if wid]
+    if not ids:
+        return {}
+    schedules = WorkerSchedule.query.filter(WorkerSchedule.worker_id.in_(ids)).all()
+    by_worker = {wid: {} for wid in ids}
+    for s in schedules:
+        by_worker.setdefault(s.worker_id, {})[s.day_of_week] = s
+    return by_worker
+
+
 def shop_day_windows_union(period_from: date, period_to: date) -> list[dict]:
     """
     Per calendar date, union of all active workers' effective working hours
@@ -305,6 +317,41 @@ def shop_day_windows_union(period_from: date, period_to: date) -> list[dict]:
                     "date": cur.isoformat(),
                     "startTime": min(starts).strftime("%H:%M"),
                     "endTime": max(ends).strftime("%H:%M"),
+                    "isWorking": True,
+                }
+            )
+        else:
+            out.append(
+                {
+                    "date": cur.isoformat(),
+                    "startTime": None,
+                    "endTime": None,
+                    "isWorking": False,
+                }
+            )
+        cur += timedelta(days=1)
+    return out
+
+
+def worker_day_windows(worker_id: str, period_from: date, period_to: date) -> list[dict]:
+    """
+    Per calendar date, one worker's effective hours (WorkerSchedule + exceptions).
+    Used for the personal production-worker schedule grid.
+    """
+    exceptions = load_calendar_exceptions(period_from, period_to)
+    schedule_by_dow = load_worker_schedule_maps(worker_id)
+    out = []
+    cur = period_from
+    while cur <= period_to:
+        day_start, day_end, is_working = effective_hours_for_date(
+            cur, schedule_by_dow, exceptions
+        )
+        if is_working and day_start and day_end:
+            out.append(
+                {
+                    "date": cur.isoformat(),
+                    "startTime": day_start.strftime("%H:%M"),
+                    "endTime": day_end.strftime("%H:%M"),
                     "isWorking": True,
                 }
             )

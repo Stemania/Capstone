@@ -18,6 +18,7 @@ from app.services.schedule_calendar import (
     shop_local_to_utc,
     shop_now,
     utc_to_shop,
+    worker_day_windows,
 )
 from app.services.schedule_service import (
     compute_schedule_flag,
@@ -342,6 +343,9 @@ def schedule_board(
         "period": {"from": period_from.isoformat(), "to": period_to.isoformat()},
         "timezone": "Asia/Manila",
         "shopDayWindows": shop_day_windows_union(period_from, period_to),
+        "workerDayWindows": (
+            worker_day_windows(worker_id, period_from, period_to) if worker_id else None
+        ),
         "machineUnits": machine_units_out,
         "workers": workers_out,
         "clients": clients_out,

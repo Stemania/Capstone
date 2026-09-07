@@ -71,6 +71,12 @@ def schedule_patches(monkeypatch):
         "app.services.schedule_service._machine_units_by_type",
         lambda: _lathe_units(lathe_id),
     )
+    monkeypatch.setattr(
+        "app.services.schedule_service._qualified_worker_ids",
+        lambda machine_type_id, preferred_worker_id=None: (
+            [preferred_worker_id] if preferred_worker_id else ["worker-1"]
+        ),
+    )
     return {"lathe_id": lathe_id, "schedule_by_dow": schedule_by_dow}
 
 
@@ -109,6 +115,12 @@ def test_six_hour_op_from_1400_finishes_next_day_no_outside_hours_warning(monkey
     monkeypatch.setattr(
         "app.services.schedule_service._machine_units_by_type",
         lambda: {},
+    )
+    monkeypatch.setattr(
+        "app.services.schedule_service._qualified_worker_ids",
+        lambda machine_type_id, preferred_worker_id=None: (
+            [preferred_worker_id] if preferred_worker_id else [worker_id]
+        ),
     )
 
     anchor = shop_local_to_utc(date(2026, 8, 10), time(14, 0))  # Monday
@@ -330,7 +342,11 @@ def test_no_machine_type_worker_only(schedule_patches):
     assert op["machineUnitId"] is None
 
 
-def test_missing_worker_not_proposed(schedule_patches):
+def test_missing_worker_not_proposed(schedule_patches, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.schedule_service._qualified_worker_ids",
+        lambda machine_type_id, preferred_worker_id=None: [],
+    )
     result = propose_schedule(
         [
             {
@@ -347,6 +363,29 @@ def test_missing_worker_not_proposed(schedule_patches):
     op = result["operations"][0]
     assert not op["scheduled"]
     assert op["message"] == MISSING_WORKER_MESSAGE
+
+
+def test_machine_type_without_assigned_worker_uses_qualified(schedule_patches, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.schedule_service._qualified_worker_ids",
+        lambda machine_type_id, preferred_worker_id=None: ["worker-skill"],
+    )
+    result = propose_schedule(
+        [
+            {
+                "sequenceNo": 1,
+                "operationName": "Turning",
+                "assignedWorkerId": None,
+                "machineTypeId": schedule_patches["lathe_id"],
+                "estimatedHours": 2,
+            }
+        ],
+        date(2026, 8, 20),
+        anchor_utc=_anchor(hour=8),
+    )
+    op = result["operations"][0]
+    assert op["scheduled"] is True
+    assert op["assignedWorkerId"] == "worker-skill"
 
 
 def test_estimated_hours_default_flag(schedule_patches):
@@ -515,3 +554,119 @@ def test_completed_predecessor_after_anchor_blocks_next(schedule_patches):
     assert start2 >= completed_end
     # Must not fall back to the anchor when the frozen predecessor ends later
     assert start2 > anchor
+
+
+def test_reassigns_worker_to_earliest_free_machine(schedule_patches, monkeypatch):
+    """
+    Preferred worker busy on Lathe #1 until noon — another qualified worker on
+    free Lathe #2 must start at the predecessor/anchor time, not trail Lathe #1.
+    """
+    f = schedule_patches
+    busy_worker = "worker-busy"
+    free_worker = "worker-free"
+    anchor = _anchor(hour=8)
+    block_end = _anchor(hour=12)
+    monkeypatch.setattr(
+        "app.services.schedule_service._load_external_bookings",
+        lambda **kwargs: (
+            {busy_worker: [(anchor, block_end)]},
+            {"u1": [(anchor, block_end)]},
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.schedule_service._qualified_worker_ids",
+        lambda machine_type_id, preferred_worker_id=None: [busy_worker, free_worker],
+    )
+    result = propose_schedule(
+        [
+            {
+                "sequenceNo": 1,
+                "operationName": "Blanking",
+                "assignedWorkerId": busy_worker,
+                "machineTypeId": f["lathe_id"],
+                "estimatedHours": 2,
+            }
+        ],
+        date(2026, 8, 20),
+        anchor_utc=anchor,
+    )
+    op = result["operations"][0]
+    assert op["scheduled"] is True
+    assert op["machineUnitId"] == "u2"
+    assert op["machineUnitLabel"] == "Lathe #2"
+    assert op["assignedWorkerId"] == free_worker
+    assert op["scheduledStart"] == anchor.isoformat()
+
+
+def test_pinned_unit_refits_with_free_worker(schedule_patches, monkeypatch):
+    """Machine pin to Lathe #2 must pull start forward when another worker is free."""
+    f = schedule_patches
+    busy_worker = "worker-busy"
+    free_worker = "worker-free"
+    anchor = _anchor(hour=8)
+    block_end = _anchor(hour=12)
+    monkeypatch.setattr(
+        "app.services.schedule_service._load_external_bookings",
+        lambda **kwargs: (
+            {busy_worker: [(anchor, block_end)]},
+            {"u1": [(anchor, block_end)]},
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.schedule_service._qualified_worker_ids",
+        lambda machine_type_id, preferred_worker_id=None: [busy_worker, free_worker],
+    )
+    result = propose_schedule(
+        [
+            {
+                "sequenceNo": 1,
+                "operationName": "Blanking",
+                "assignedWorkerId": busy_worker,
+                "machineTypeId": f["lathe_id"],
+                "machineUnitId": "u2",
+                "estimatedHours": 2,
+            }
+        ],
+        date(2026, 8, 20),
+        anchor_utc=anchor,
+        honor_machine_pins=True,
+    )
+    op = result["operations"][0]
+    assert op["scheduled"] is True
+    assert op["machineUnitId"] == "u2"
+    assert op["assignedWorkerId"] == free_worker
+    assert op["scheduledStart"] == anchor.isoformat()
+
+
+def test_no_machine_op_reassigns_busy_preferred_worker(schedule_patches, monkeypatch):
+    """Checking / heat-treat should not trail another job when a free worker exists."""
+    busy_worker = "worker-busy"
+    free_worker = "worker-free"
+    anchor = _anchor(hour=8)
+    block_end = _anchor(hour=12)
+    monkeypatch.setattr(
+        "app.services.schedule_service._load_external_bookings",
+        lambda **kwargs: ({busy_worker: [(anchor, block_end)]}, {}),
+    )
+    monkeypatch.setattr(
+        "app.services.schedule_service._qualified_worker_ids",
+        lambda machine_type_id, preferred_worker_id=None: [busy_worker, free_worker],
+    )
+    result = propose_schedule(
+        [
+            {
+                "sequenceNo": 1,
+                "operationName": "Checking",
+                "assignedWorkerId": busy_worker,
+                "machineTypeId": None,
+                "estimatedHours": 2,
+            }
+        ],
+        date(2026, 8, 20),
+        anchor_utc=anchor,
+    )
+    op = result["operations"][0]
+    assert op["scheduled"] is True
+    assert op["machineUnitId"] is None
+    assert op["assignedWorkerId"] == free_worker
+    assert op["scheduledStart"] == anchor.isoformat()
