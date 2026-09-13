@@ -160,17 +160,26 @@ def create_machine_unit():
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def patch_machine_unit(unit_id):
     data = request.get_json() or {}
-    if "active" not in data:
-        return jsonify(
-            {"error": {"code": "VALIDATION_ERROR", "message": "active is required"}}
-        ), 400
-    unit = op_service.set_machine_unit_active(unit_id, bool(data.get("active")))
-    payload = unit.to_dict()
-    if not unit.active:
-        affected = op_service.list_affected_operations(unit_id)
-        payload["affectedCount"] = len(affected)
-        payload["affectedOperations"] = affected
-    return jsonify(payload)
+    if "active" in data:
+        unit = op_service.set_machine_unit_active(unit_id, bool(data.get("active")))
+        payload = unit.to_dict()
+        if not unit.active:
+            affected = op_service.list_affected_operations(unit_id)
+            payload["affectedCount"] = len(affected)
+            payload["affectedOperations"] = affected
+        return jsonify(payload)
+    if "defaultOperatorId" in data or "default_operator_id" in data:
+        raw = data.get("defaultOperatorId", data.get("default_operator_id"))
+        unit = op_service.set_machine_unit_default_operator(unit_id, raw)
+        return jsonify(unit.to_dict())
+    return jsonify(
+        {
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Provide active and/or defaultOperatorId",
+            }
+        }
+    ), 400
 
 
 @operations_bp.route("/machine-units/<unit_id>/downtime", methods=["POST"])

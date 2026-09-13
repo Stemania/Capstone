@@ -498,7 +498,10 @@ def list_machine_unit_statuses(include_inactive=False):
     from sqlalchemy.orm import joinedload
     from app.models.machine import MachineType, MachineUnit
 
-    query = MachineUnit.query.join(MachineType)
+    query = MachineUnit.query.options(
+        joinedload(MachineUnit.machine_type),
+        joinedload(MachineUnit.default_operator),
+    ).join(MachineType)
     if not include_inactive:
         query = query.filter(MachineUnit.active.is_(True))
     units = query.order_by(MachineType.name, MachineUnit.label).all()
@@ -658,6 +661,34 @@ def set_machine_unit_active(unit_id, active: bool):
     db.session.flush()
     if unit.machine_type:
         _sync_machine_type_unit_count(unit.machine_type)
+    db.session.commit()
+    return unit
+
+
+def set_machine_unit_default_operator(unit_id, operator_id):
+    """Set or clear the usual operator for a machine unit (null = shared)."""
+    from app.models.machine import MachineUnit
+    from app.models.user import User, UserRole
+
+    unit = MachineUnit.query.get(unit_id)
+    if not unit:
+        raise AppError("Machine unit not found", "NOT_FOUND", 404)
+
+    if operator_id in (None, ""):
+        unit.default_operator_id = None
+        db.session.commit()
+        return unit
+
+    user = User.query.get(operator_id)
+    if not user or not user.active:
+        raise AppError("Worker not found", "NOT_FOUND", 404)
+    if user.role != UserRole.PRODUCTION_WORKER:
+        raise AppError(
+            "Default operator must be a production worker",
+            "VALIDATION_ERROR",
+            400,
+        )
+    unit.default_operator_id = user.id
     db.session.commit()
     return unit
 

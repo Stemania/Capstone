@@ -20,17 +20,23 @@ import {
   DownOutlined,
   RightOutlined,
   PlusOutlined,
+  ClusterOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { operationsApi } from '../../api/operations.api';
+import { usersApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import { DOWNTIME_REASONS } from '../../constants/downtimeReasons';
-import type { MachineInfo, MachineUnitStatus } from '../../types';
+import type { MachineInfo, MachineUnitStatus, User } from '../../types';
 
 type CardStatus = 'running' | 'idle' | 'breakdown' | 'retired';
 type StatusFilter = CardStatus;
+
+function sectionLabel(text: string) {
+  return <div className="app-form-section">{text}</div>;
+}
 
 function formatOpenDuration(startedAt: string, nowMs: number): string {
   const ms = Math.max(0, nowMs - dayjs(startedAt).valueOf());
@@ -65,6 +71,7 @@ function unitSearchText(unit: MachineUnitStatus): string {
     unit.label,
     unit.machineTypeName,
     unit.machineTypeCode,
+    unit.defaultOperatorName,
     unit.openDowntime?.reason,
     unit.openDowntime?.reportedByName,
     cur?.operationName,
@@ -116,6 +123,8 @@ function MachineUnitCard({
   onOpenSchedule,
   onRetire,
   onRestore,
+  onSetDefaultOperator,
+  onClearDefaultOperator,
 }: {
   unit: MachineUnitStatus;
   nowMs: number;
@@ -124,6 +133,8 @@ function MachineUnitCard({
   onOpenSchedule: () => void;
   onRetire: (unit: MachineUnitStatus) => void;
   onRestore: (unit: MachineUnitStatus) => void;
+  onSetDefaultOperator: (unit: MachineUnitStatus) => void;
+  onClearDefaultOperator: (unit: MachineUnitStatus) => void;
 }) {
   const navigate = useNavigate();
   const status = cardStatus(unit);
@@ -148,6 +159,19 @@ function MachineUnitCard({
       onClick: () => onRestore(unit),
     });
   } else {
+    menuItems.push({
+      key: 'defaultOp',
+      label: unit.defaultOperatorId ? 'Change default operator' : 'Set default operator',
+      onClick: () => onSetDefaultOperator(unit),
+    });
+    if (unit.defaultOperatorId) {
+      menuItems.push({
+        key: 'clearDefault',
+        label: 'Clear default operator',
+        onClick: () => onClearDefaultOperator(unit),
+      });
+    }
+    menuItems.push({ type: 'divider' });
     if (!unit.down) {
       menuItems.push({
         key: 'report',
@@ -177,20 +201,6 @@ function MachineUnitCard({
     });
   }
 
-  const workerName =
-    status === 'running'
-      ? cur?.assignedWorkerName
-      : status === 'breakdown'
-        ? unit.openDowntime?.reportedByName
-        : unit.nextOperation?.assignedWorkerName;
-
-  const initials = (workerName || unit.label)
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() || '')
-    .join('');
-
   return (
     <article
       className={[
@@ -219,12 +229,14 @@ function MachineUnitCard({
           <div className="machine-card__status-line">{statusLabel}</div>
         </div>
         <div className="machine-card__banner-deco" aria-hidden />
-        <div className="machine-card__avatar" aria-hidden>
-          {initials || <UserOutlined />}
-        </div>
       </header>
 
       <div className="machine-card__body">
+        <div className="machine-card__idle-copy" style={{ marginBottom: status === 'idle' ? 0 : 8 }}>
+          {unit.defaultOperatorName
+            ? `Operator: ${unit.defaultOperatorName}`
+            : 'Shared — no default operator'}
+        </div>
         {status === 'retired' ? (
           <div className="machine-card__idle-copy">
             Taken off the floor — history kept. Restore or add a replacement if needed.
@@ -254,7 +266,7 @@ function MachineUnitCard({
               <div className="machine-card__job">{unit.nextOperation.jobNumber}</div>
             )}
           </>
-        ) : (
+        ) : status !== 'idle' ? null : (
           <div className="machine-card__idle-copy">Standing by — no work queued</div>
         )}
       </div>
@@ -293,10 +305,13 @@ export default function MachinesPage() {
   const [reportFor, setReportFor] = useState<MachineUnitStatus | null>(null);
   const [closeFor, setCloseFor] = useState<MachineUnitStatus | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [operatorFor, setOperatorFor] = useState<MachineUnitStatus | null>(null);
+  const [workers, setWorkers] = useState<User[]>([]);
   const [saving, setSaving] = useState(false);
   const [reportForm] = Form.useForm();
   const [closeForm] = Form.useForm();
   const [addForm] = Form.useForm();
+  const [operatorForm] = Form.useForm();
 
   const fetchUnits = async (includeRemoved = showRemoved) => {
     setLoading(true);
@@ -321,6 +336,21 @@ export default function MachinesPage() {
         setMachineTypes(data || []);
       } catch {
         /* add form can still open; types load best-effort */
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await usersApi.list();
+        setWorkers(
+          data
+            .filter((u) => u.role === 'PRODUCTION_WORKER' && u.active !== false)
+            .sort((a, b) => a.fullName.localeCompare(b.fullName))
+        );
+      } catch {
+        /* operator picker best-effort */
       }
     })();
   }, []);
@@ -484,6 +514,27 @@ export default function MachinesPage() {
     }
   };
 
+  const submitDefaultOperator = async () => {
+    if (!operatorFor) return;
+    try {
+      const values = await operatorForm.validateFields();
+      setSaving(true);
+      await operationsApi.setMachineUnitDefaultOperator(
+        operatorFor.id,
+        values.defaultOperatorId || null
+      );
+      message.success(`Default operator updated for ${operatorFor.label}`);
+      setOperatorFor(null);
+      operatorForm.resetFields();
+      await fetchUnits();
+    } catch (err) {
+      if (err && typeof err === 'object' && 'errorFields' in err) return;
+      message.error(getErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const toggleType = (typeId: string) => {
     setCollapsedTypes((prev) => ({ ...prev, [typeId]: !prev[typeId] }));
   };
@@ -589,6 +640,24 @@ export default function MachinesPage() {
                         onOpenSchedule={() => navigate('/schedule')}
                         onRetire={retireUnit}
                         onRestore={restoreUnit}
+                        onSetDefaultOperator={(u) => {
+                          operatorForm.setFieldsValue({
+                            defaultOperatorId: u.defaultOperatorId || undefined,
+                          });
+                          setOperatorFor(u);
+                        }}
+                        onClearDefaultOperator={async (u) => {
+                          try {
+                            setSaving(true);
+                            await operationsApi.setMachineUnitDefaultOperator(u.id, null);
+                            message.success(`Cleared default operator for ${u.label}`);
+                            await fetchUnits();
+                          } catch (err) {
+                            message.error(getErrorMessage(err));
+                          } finally {
+                            setSaving(false);
+                          }
+                        }}
                       />
                     ))}
                   </div>
@@ -600,23 +669,47 @@ export default function MachinesPage() {
       )}
 
       <Modal
-        title="Add machine"
         open={addOpen}
         onCancel={() => setAddOpen(false)}
-        onOk={submitAdd}
-        confirmLoading={saving}
-        okText="Add machine"
+        footer={null}
+        width={560}
+        centered
         destroyOnHidden
+        className="app-form-modal"
+        styles={{
+          container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
+          body: { padding: 0 },
+        }}
+        closable={false}
       >
-        <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 12 }}>
-          Add a replacement or extra unit to the floor. Label is optional — we&apos;ll number it
-          automatically (e.g. Milling #9).
-        </Typography.Paragraph>
-        <Form form={addForm} layout="vertical">
+        <div className="app-form-modal__head">
+          <div className="app-form-modal__icon">
+            <ClusterOutlined />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="app-form-modal__title">Add machine</div>
+            <div className="app-form-modal__sub">
+              Add a replacement or extra unit to the floor. Label is optional — we&apos;ll number it
+              automatically (e.g. Milling #9).
+            </div>
+          </div>
+          <button
+            type="button"
+            className="app-form-modal__close"
+            onClick={() => setAddOpen(false)}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <Form form={addForm} layout="vertical" style={{ padding: '20px 24px 8px' }}>
+          {sectionLabel('Machine')}
           <Form.Item
             name="machineTypeId"
             label="Machine type"
             rules={[{ required: true, message: 'Choose a machine type' }]}
+            style={{ marginBottom: 14 }}
           >
             <Select
               placeholder="Lathe, Milling, …"
@@ -624,16 +717,30 @@ export default function MachinesPage() {
                 .filter((t): t is MachineInfo & { id: string } => Boolean(t.id))
                 .map((t) => ({
                   value: t.id,
-                  label: `${t.name} (${t.units} active)`,
+                  label: t.name,
                 }))}
               showSearch
               optionFilterProp="label"
             />
           </Form.Item>
-          <Form.Item name="label" label="Label (optional)">
+          <Form.Item name="label" label="Label (optional)" style={{ marginBottom: 14 }}>
             <Input placeholder="Leave blank for next number" maxLength={64} />
           </Form.Item>
         </Form>
+
+        <div className="app-form-modal__footer">
+          <Button onClick={() => setAddOpen(false)} style={{ minWidth: 96 }}>
+            Cancel
+          </Button>
+          <Button
+            type="primary"
+            loading={saving}
+            onClick={submitAdd}
+            style={{ fontWeight: 700, minWidth: 120 }}
+          >
+            Add machine
+          </Button>
+        </div>
       </Modal>
 
       <Modal
@@ -685,6 +792,32 @@ export default function MachinesPage() {
         <Form form={closeForm} layout="vertical">
           <Form.Item name="note" label="Resolution note (optional)">
             <Input.TextArea rows={3} placeholder="What fixed it, parts used…" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={operatorFor ? `Default operator — ${operatorFor.label}` : 'Default operator'}
+        open={!!operatorFor}
+        onCancel={() => setOperatorFor(null)}
+        onOk={submitDefaultOperator}
+        confirmLoading={saving}
+        okText="Save"
+        destroyOnHidden
+      >
+        <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
+          Usual operator for this unit. Leave empty for shared machines. This only prefers the unit
+          when scheduling — it does not block other workers.
+        </Typography.Paragraph>
+        <Form form={operatorForm} layout="vertical">
+          <Form.Item name="defaultOperatorId" label="Operator">
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="Shared — anyone qualified"
+              options={workers.map((w) => ({ value: w.id, label: w.fullName }))}
+            />
           </Form.Item>
         </Form>
       </Modal>

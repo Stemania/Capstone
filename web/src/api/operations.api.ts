@@ -32,6 +32,10 @@ export const operationsApi = {
     }),
   setMachineUnitActive: (unitId: string, active: boolean) =>
     apiClient.patch<MachineUnitStatus>(`/operations/machine-units/${unitId}`, { active }),
+  setMachineUnitDefaultOperator: (unitId: string, defaultOperatorId: string | null) =>
+    apiClient.patch<MachineUnitInfo>(`/operations/machine-units/${unitId}`, {
+      defaultOperatorId,
+    }),
   openDowntime: (unitId: string, reason: string, note?: string) =>
     apiClient.post<MachineDowntimeRecord>(`/operations/machine-units/${unitId}/downtime`, {
       reason,

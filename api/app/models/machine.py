@@ -46,8 +46,15 @@ class MachineUnit(db.Model):
     )
     label = db.Column(db.String(64), nullable=False)
     active = db.Column(db.Boolean, nullable=False, default=True)
+    default_operator_id = db.Column(
+        db.String(36),
+        db.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     machine_type = db.relationship("MachineType", back_populates="machine_units")
+    default_operator = db.relationship("User", foreign_keys=[default_operator_id])
     operations = db.relationship("JobOperation", back_populates="machine_unit")
     downtimes = db.relationship(
         "MachineDowntime",
@@ -57,6 +64,7 @@ class MachineUnit(db.Model):
     )
 
     def to_dict(self):
+        op = self.default_operator
         return {
             "id": self.id,
             "machineTypeId": self.machine_type_id,
@@ -64,4 +72,6 @@ class MachineUnit(db.Model):
             "active": self.active,
             "machineTypeCode": self.machine_type.code if self.machine_type else None,
             "machineTypeName": self.machine_type.name if self.machine_type else None,
+            "defaultOperatorId": self.default_operator_id,
+            "defaultOperatorName": op.full_name if op else None,
         }
