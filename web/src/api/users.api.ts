@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { OperationType, User, WorkerSchedule, WorkerSkill } from '../types';
+import type { OperationType, User, WorkerSchedule, WorkerSkill, WorkerWorkHistory } from '../types';
 
 export const usersApi = {
   list: () => apiClient.get<User[]>('/users'),
@@ -31,6 +31,10 @@ export const workerProfileApi = {
     apiClient.put<WorkerSchedule[]>(`/workers/${workerId}/schedule`, { schedule }),
   getDetail: (workerId: string) =>
     apiClient.get<User>(`/workers/${workerId}`),
+  getHistory: (
+    workerId: string,
+    params?: { from?: string; to?: string; page?: number; perPage?: number }
+  ) => apiClient.get<WorkerWorkHistory>(`/workers/${workerId}/history`, { params }),
 };
 
 export const operationTypesApi = {

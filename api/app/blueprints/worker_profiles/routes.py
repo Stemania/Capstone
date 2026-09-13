@@ -55,6 +55,23 @@ def get_worker_detail(worker_id):
     )
 
 
+@worker_profiles_bp.route("/<worker_id>/history", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN)
+def get_worker_history(worker_id):
+    from app.services.worker_history_service import worker_work_history
+
+    return jsonify(
+        worker_work_history(
+            worker_id,
+            from_s=request.args.get("from"),
+            to_s=request.args.get("to"),
+            page=request.args.get("page", 1),
+            per_page=request.args.get("perPage", 20),
+        )
+    )
+
+
 calendar_bp = Blueprint("calendar", __name__)
 
 

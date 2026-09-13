@@ -17,14 +17,14 @@ import { useSearchParams } from 'react-router-dom';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { usersApi, workerProfileApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
-import ScoringWeightsPage from '../settings/ScoringWeightsPage';
 import type { User, WorkerSchedule, WorkerSkill } from '../../types';
+import WorkerHistoryPanel from './WorkerHistoryPanel';
 
 const { Text } = Typography;
 
 const DAY_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-type Tab = 'roster' | 'ranking';
+type DetailTab = 'skills' | 'hours' | 'history';
 
 type SkillRow = {
   machineTypeId: string;
@@ -46,8 +46,13 @@ function defaultSchedule(): WorkerSchedule[] {
 
 export default function WorkerSetupPage() {
   const [params, setParams] = useSearchParams();
-  const tab: Tab = params.get('tab') === 'ranking' ? 'ranking' : 'roster';
   const workerId = params.get('worker') || '';
+  const detailTab: DetailTab =
+    params.get('panel') === 'hours'
+      ? 'hours'
+      : params.get('panel') === 'history'
+        ? 'history'
+        : 'skills';
 
   const [workers, setWorkers] = useState<User[]>([]);
   const [query, setQuery] = useState('');
@@ -58,16 +63,17 @@ export default function WorkerSetupPage() {
   const [savingSkills, setSavingSkills] = useState(false);
   const [savingSchedule, setSavingSchedule] = useState(false);
 
-  const setTab = (next: Tab) => {
+  const setWorker = (id: string) => {
     const nextParams = new URLSearchParams(params);
-    nextParams.set('tab', next);
+    nextParams.delete('tab');
+    nextParams.set('worker', id);
+    if (!nextParams.get('panel')) nextParams.set('panel', 'skills');
     setParams(nextParams, { replace: true });
   };
 
-  const setWorker = (id: string) => {
+  const setDetailTab = (next: DetailTab) => {
     const nextParams = new URLSearchParams(params);
-    nextParams.set('tab', 'roster');
-    nextParams.set('worker', id);
+    nextParams.set('panel', next);
     setParams(nextParams, { replace: true });
   };
 
@@ -82,8 +88,9 @@ export default function WorkerSetupPage() {
         setWorkers(production);
         if (!workerId && production[0]) {
           const nextParams = new URLSearchParams(params);
-          if (!nextParams.get('tab')) nextParams.set('tab', 'roster');
+          nextParams.delete('tab');
           nextParams.set('worker', production[0].id);
+          nextParams.set('panel', 'skills');
           setParams(nextParams, { replace: true });
         }
       } catch (err) {
@@ -144,25 +151,21 @@ export default function WorkerSetupPage() {
 
   const saveSkills = async () => {
     if (!workerId) return;
+    const enabled = skillRows.filter((r) => r.enabled);
+    if (enabled.length && !enabled.some((r) => r.isPrimary)) {
+      message.warning('Mark one enabled skill as primary');
+      return;
+    }
     setSavingSkills(true);
     try {
-      const payload = skillRows
-        .filter((r) => r.enabled && r.machineTypeId)
-        .map((r) => ({
+      await workerProfileApi.putSkills(
+        workerId,
+        enabled.map((r) => ({
           machineTypeId: r.machineTypeId,
           proficiency: r.proficiency,
           isPrimary: r.isPrimary,
-        }));
-      if (payload.filter((p) => p.isPrimary).length > 1) {
-        let seen = false;
-        payload.forEach((p) => {
-          if (p.isPrimary) {
-            if (seen) p.isPrimary = false;
-            else seen = true;
-          }
-        });
-      }
-      await workerProfileApi.putSkills(workerId, payload);
+        }))
+      );
       message.success('Skills saved');
     } catch (err) {
       message.error(getErrorMessage(err));
@@ -177,14 +180,14 @@ export default function WorkerSetupPage() {
     try {
       await workerProfileApi.putSchedule(
         workerId,
-        schedule.map((s) => ({
-          dayOfWeek: s.dayOfWeek,
-          isWorking: s.isWorking,
-          startTime: s.isWorking ? s.startTime || '08:00' : null,
-          endTime: s.isWorking ? s.endTime || '17:00' : null,
+        schedule.map((d) => ({
+          dayOfWeek: d.dayOfWeek,
+          isWorking: d.isWorking,
+          startTime: d.isWorking ? d.startTime : null,
+          endTime: d.isWorking ? d.endTime : null,
         }))
       );
-      message.success('Schedule saved');
+      message.success('Hours saved');
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
@@ -194,67 +197,76 @@ export default function WorkerSetupPage() {
 
   const skillColumns = [
     {
-      title: 'Machine',
-      key: 'machine',
-      render: (_: unknown, row: SkillRow) => (
-        <span style={{ fontWeight: 600 }}>{row.machineTypeName}</span>
-      ),
-    },
-    {
       title: 'Can operate',
-      key: 'enabled',
-      width: 120,
-      render: (_: unknown, row: SkillRow, index: number) => (
+      dataIndex: 'enabled',
+      width: 100,
+      render: (_: unknown, row: SkillRow) => (
         <Switch
           checked={row.enabled}
           onChange={(checked) => {
-            setSkillRows((prev) => {
-              const next = [...prev];
-              next[index] = {
-                ...next[index],
-                enabled: checked,
-                isPrimary: checked ? next[index].isPrimary : false,
-              };
-              return next;
-            });
+            setSkillRows((prev) =>
+              prev.map((r) =>
+                r.machineTypeId === row.machineTypeId
+                  ? {
+                      ...r,
+                      enabled: checked,
+                      isPrimary: checked ? r.isPrimary : false,
+                    }
+                  : r
+              )
+            );
           }}
         />
       ),
     },
     {
-      title: 'Skill (1–5)',
-      key: 'proficiency',
+      title: 'Machine',
+      key: 'machine',
+      render: (_: unknown, row: SkillRow) => (
+        <span>
+          <strong>{row.machineTypeName}</strong>
+          <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+            {row.machineTypeCode}
+          </Text>
+        </span>
+      ),
+    },
+    {
+      title: 'Level',
+      dataIndex: 'proficiency',
       width: 120,
-      render: (_: unknown, row: SkillRow, index: number) => (
+      render: (_: unknown, row: SkillRow) => (
         <InputNumber
           min={1}
           max={5}
           value={row.proficiency}
           disabled={!row.enabled}
           onChange={(v) => {
-            setSkillRows((prev) => {
-              const next = [...prev];
-              next[index] = { ...next[index], proficiency: Number(v) || 1 };
-              return next;
-            });
+            setSkillRows((prev) =>
+              prev.map((r) =>
+                r.machineTypeId === row.machineTypeId
+                  ? { ...r, proficiency: Number(v) || 1 }
+                  : r
+              )
+            );
           }}
         />
       ),
     },
     {
       title: 'Primary',
-      key: 'primary',
+      dataIndex: 'isPrimary',
       width: 90,
-      render: (_: unknown, row: SkillRow, index: number) => (
+      render: (_: unknown, row: SkillRow) => (
         <Checkbox
           checked={row.isPrimary}
           disabled={!row.enabled}
           onChange={(e) => {
-            const checked = e.target.checked;
+            const on = e.target.checked;
             setSkillRows((prev) =>
-              prev.map((r, i) => ({
+              prev.map((r) => ({
                 ...r,
-                isPrimary: i === index ? checked : checked ? false : r.isPrimary,
+                isPrimary: r.machineTypeId === row.machineTypeId ? on : on ? false : r.isPrimary,
               }))
             );
           }}
@@ -266,67 +278,69 @@ export default function WorkerSetupPage() {
   const scheduleColumns = [
     {
       title: 'Day',
-      key: 'day',
-      render: (_: unknown, row: WorkerSchedule) => DAY_LABELS[row.dayOfWeek] || row.dayOfWeek,
+      dataIndex: 'dayOfWeek',
+      render: (dow: number) => DAY_LABELS[dow],
     },
     {
       title: 'Working',
-      key: 'working',
-      width: 100,
-      render: (_: unknown, row: WorkerSchedule, index: number) => (
+      dataIndex: 'isWorking',
+      width: 90,
+      render: (_: unknown, row: WorkerSchedule) => (
         <Switch
           checked={row.isWorking}
           onChange={(checked) => {
-            setSchedule((prev) => {
-              const next = [...prev];
-              next[index] = {
-                ...next[index],
-                isWorking: checked,
-                startTime: checked ? next[index].startTime || '08:00' : null,
-                endTime: checked ? next[index].endTime || '17:00' : null,
-              };
-              return next;
-            });
+            setSchedule((prev) =>
+              prev.map((d) =>
+                d.dayOfWeek === row.dayOfWeek
+                  ? {
+                      ...d,
+                      isWorking: checked,
+                      startTime: checked ? d.startTime || '08:00' : null,
+                      endTime: checked ? d.endTime || '17:00' : null,
+                    }
+                  : d
+              )
+            );
           }}
         />
       ),
     },
     {
       title: 'Start',
-      key: 'start',
-      width: 110,
-      render: (_: unknown, row: WorkerSchedule, index: number) => (
+      dataIndex: 'startTime',
+      render: (_: unknown, row: WorkerSchedule) => (
         <Select
           disabled={!row.isWorking}
           value={row.startTime || undefined}
-          style={{ width: '100%' }}
-          options={['06:00', '07:00', '08:00', '09:00', '10:00'].map((t) => ({ value: t, label: t }))}
+          style={{ width: 110 }}
+          options={Array.from({ length: 24 }, (_, h) => {
+            const v = `${String(h).padStart(2, '0')}:00`;
+            return { value: v, label: v };
+          })}
           onChange={(v) => {
-            setSchedule((prev) => {
-              const next = [...prev];
-              next[index] = { ...next[index], startTime: v };
-              return next;
-            });
+            setSchedule((prev) =>
+              prev.map((d) => (d.dayOfWeek === row.dayOfWeek ? { ...d, startTime: v } : d))
+            );
           }}
         />
       ),
     },
     {
       title: 'End',
-      key: 'end',
-      width: 110,
-      render: (_: unknown, row: WorkerSchedule, index: number) => (
+      dataIndex: 'endTime',
+      render: (_: unknown, row: WorkerSchedule) => (
         <Select
           disabled={!row.isWorking}
           value={row.endTime || undefined}
-          style={{ width: '100%' }}
-          options={['16:00', '17:00', '18:00', '20:00', '22:00'].map((t) => ({ value: t, label: t }))}
+          style={{ width: 110 }}
+          options={Array.from({ length: 24 }, (_, h) => {
+            const v = `${String(h).padStart(2, '0')}:00`;
+            return { value: v, label: v };
+          })}
           onChange={(v) => {
-            setSchedule((prev) => {
-              const next = [...prev];
-              next[index] = { ...next[index], endTime: v };
-              return next;
-            });
+            setSchedule((prev) =>
+              prev.map((d) => (d.dayOfWeek === row.dayOfWeek ? { ...d, endTime: v } : d))
+            );
           }}
         />
       ),
@@ -336,80 +350,83 @@ export default function WorkerSetupPage() {
   return (
     <div>
       <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-        Set who can run which machines, weekly work hours, and how the shop ranks workers when
-        suggesting an assignment. Add or deactivate accounts under Users & Roles.
+        Set who can run which machines and weekly work hours. Work history is built from completed
+        operations and tool activity. Add or deactivate accounts under Users & Roles.
       </Text>
 
-      <Segmented
-        size="large"
-        value={tab}
-        onChange={(v) => setTab(v as Tab)}
-        style={{ marginBottom: 20 }}
-        options={[
-          { label: 'Skills & hours', value: 'roster' },
-          { label: 'Ranking', value: 'ranking' },
-        ]}
-      />
+      <div className="worker-setup-grid">
+        <aside className="worker-setup-list">
+          <Input
+            allowClear
+            placeholder="Search workers…"
+            prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            style={{ marginBottom: 10 }}
+          />
+          {listLoading ? (
+            <div style={{ padding: 24, textAlign: 'center' }}>
+              <Spin />
+            </div>
+          ) : filteredWorkers.length === 0 ? (
+            <Text type="secondary">No production workers yet. Create them under Users & Roles.</Text>
+          ) : (
+            <div className="worker-setup-list__items">
+              {filteredWorkers.map((w) => {
+                const active = w.id === workerId;
+                return (
+                  <button
+                    key={w.id}
+                    type="button"
+                    className={`worker-setup-list__item${active ? ' is-active' : ''}`}
+                    onClick={() => setWorker(w.id)}
+                  >
+                    <div className="worker-setup-list__name">{w.fullName}</div>
+                    <div className="worker-setup-list__email">{w.email}</div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </aside>
 
-      {tab === 'ranking' ? (
-        <ScoringWeightsPage embedded />
-      ) : (
-        <div className="worker-setup-grid">
-          <aside className="worker-setup-list">
-            <Input
-              allowClear
-              placeholder="Search workers…"
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              style={{ marginBottom: 10 }}
-            />
-            {listLoading ? (
-              <div style={{ padding: 24, textAlign: 'center' }}>
-                <Spin />
-              </div>
-            ) : filteredWorkers.length === 0 ? (
-              <Text type="secondary">No production workers yet. Create them under Users & Roles.</Text>
-            ) : (
-              <div className="worker-setup-list__items">
-                {filteredWorkers.map((w) => {
-                  const active = w.id === workerId;
-                  return (
-                    <button
-                      key={w.id}
-                      type="button"
-                      className={`worker-setup-list__item${active ? ' is-active' : ''}`}
-                      onClick={() => setWorker(w.id)}
-                    >
-                      <div className="worker-setup-list__name">{w.fullName}</div>
-                      <div className="worker-setup-list__email">{w.email}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </aside>
-
-          <div className="worker-setup-detail">
-            {!workerId ? (
-              <Text type="secondary">Select a worker to edit skills and hours.</Text>
-            ) : detailLoading ? (
-              <div style={{ padding: 48, textAlign: 'center' }}>
-                <Spin size="large" />
-              </div>
-            ) : (
-              <>
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: '#0f1c2e' }}>
-                    {selected?.fullName || 'Worker'}
-                  </div>
-                  <Text type="secondary">{selected?.email}</Text>
+        <div className="worker-setup-detail">
+          {!workerId ? (
+            <Text type="secondary">Select a worker to edit skills, hours, or history.</Text>
+          ) : detailLoading ? (
+            <div style={{ padding: 48, textAlign: 'center' }}>
+              <Spin size="large" />
+            </div>
+          ) : (
+            <>
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: '#0f1c2e' }}>
+                  {selected?.fullName || 'Worker'}
                 </div>
+                <Text type="secondary">{selected?.email}</Text>
+              </div>
 
+              <Segmented
+                value={detailTab}
+                onChange={(v) => setDetailTab(v as DetailTab)}
+                style={{ marginBottom: 16 }}
+                options={[
+                  { label: 'Skills', value: 'skills' },
+                  { label: 'Weekly hours', value: 'hours' },
+                  { label: 'History', value: 'history' },
+                ]}
+              />
+
+              {detailTab === 'skills' ? (
                 <div className="worker-setup-panel">
                   <div className="worker-setup-panel__head">
                     <span>Skills</span>
-                    <Button type="primary" loading={savingSkills} onClick={saveSkills} style={{ fontWeight: 600 }}>
+                    <Button
+                      type="primary"
+                      loading={savingSkills}
+                      onClick={saveSkills}
+                      style={{ fontWeight: 600 }}
+                    >
                       Save skills
                     </Button>
                   </div>
@@ -424,7 +441,9 @@ export default function WorkerSetupPage() {
                     Only machines they can operate should be switched on. One primary skill only.
                   </Text>
                 </div>
+              ) : null}
 
+              {detailTab === 'hours' ? (
                 <div className="worker-setup-panel">
                   <div className="worker-setup-panel__head">
                     <span>Weekly hours</span>
@@ -445,11 +464,20 @@ export default function WorkerSetupPage() {
                     dataSource={schedule}
                   />
                 </div>
-              </>
-            )}
-          </div>
+              ) : null}
+
+              {detailTab === 'history' ? (
+                <div className="worker-setup-panel">
+                  <div className="worker-setup-panel__head">
+                    <span>History</span>
+                  </div>
+                  <WorkerHistoryPanel workerId={workerId} />
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
