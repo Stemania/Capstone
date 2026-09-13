@@ -4,7 +4,12 @@ from flask_jwt_extended import jwt_required
 from app.middleware.rbac import get_current_user_id, get_current_user_role, require_roles
 from app.models.user import UserRole
 from app.services import job_order_service as jo_service
-from app.services.schedule_service import propose_schedule, validate_schedule
+from app.services.schedule_service import (
+    material_constraint_label,
+    propose_schedule,
+    resolve_material_not_before_utc,
+    validate_schedule,
+)
 
 job_orders_bp = Blueprint("job_orders", __name__)
 
@@ -36,8 +41,15 @@ def list_machine_units():
 def list_job_orders():
     status = request.args.get("status")
     scope = request.args.get("scope", "production")
+    awaiting = str(request.args.get("awaitingMaterial", "")).lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     role = get_current_user_role()
-    jobs = jo_service.list_job_orders(get_current_user_id(), role, status, scope)
+    jobs = jo_service.list_job_orders(
+        get_current_user_id(), role, status, scope, awaiting_material=awaiting
+    )
     return jsonify([j.to_dict(viewer_role=role) for j in jobs])
 
 
@@ -90,8 +102,18 @@ def delete_job_order(job_id):
 def release_job_order(job_id):
     role = get_current_user_role()
     job = jo_service.get_job_order(job_id, get_current_user_id(), role)
-    job = jo_service.release_job_order(job)
-    return jsonify(job.to_dict(include_operations=True, viewer_role=role))
+    return jsonify(jo_service.release_job_order(job))
+
+
+@job_orders_bp.route("/<job_id>/material-received", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def mark_material_received(job_id):
+    role = get_current_user_role()
+    job = jo_service.get_job_order(job_id, get_current_user_id(), role)
+    data = request.get_json() or {}
+    updated = jo_service.mark_material_received(job, data.get("receivedDate"))
+    return jsonify(updated.to_dict(include_operations=True, viewer_role=role))
 
 
 @job_orders_bp.route("/<job_id>/deliver", methods=["POST"])
@@ -122,6 +144,11 @@ def propose_job_schedule(job_id):
         ops = operations
     else:
         ops = list(job.operations)
+    material_nb = resolve_material_not_before_utc(
+        job.material_status,
+        job.material_received_date,
+        job.material_expected_date,
+    )
     result = propose_schedule(
         ops,
         job.due_date,
@@ -129,6 +156,12 @@ def propose_job_schedule(job_id):
         anchor_utc=jo_service._parse_datetime(data.get("anchor")) if data.get("anchor") else None,
         lock_before_sequence=data.get("lockBeforeSequence"),
         honor_machine_pins=bool(data.get("honorMachinePins")),
+        material_not_before_utc=material_nb,
+        material_constraint_reason=material_constraint_label(
+            job.material_status,
+            job.material_received_date,
+            job.material_expected_date,
+        ),
     )
     return jsonify(result)
 
@@ -147,6 +180,11 @@ def propose_draft_schedule():
         return jsonify(
             {"error": {"code": "VALIDATION_ERROR", "message": "dueDate is required"}}
         ), 400
+    material_nb = resolve_material_not_before_utc(
+        data.get("materialStatus", "NOT_REQUIRED"),
+        jo_service._parse_date(data.get("materialReceivedDate")),
+        jo_service._parse_date(data.get("materialExpectedDate")),
+    )
     result = propose_schedule(
         data["operations"],
         due,
@@ -154,6 +192,12 @@ def propose_draft_schedule():
         anchor_utc=jo_service._parse_datetime(data.get("anchor")) if data.get("anchor") else None,
         lock_before_sequence=data.get("lockBeforeSequence"),
         honor_machine_pins=bool(data.get("honorMachinePins")),
+        material_not_before_utc=material_nb,
+        material_constraint_reason=material_constraint_label(
+            data.get("materialStatus", "NOT_REQUIRED"),
+            jo_service._parse_date(data.get("materialReceivedDate")),
+            jo_service._parse_date(data.get("materialExpectedDate")),
+        ),
     )
     return jsonify(result)
 

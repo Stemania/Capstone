@@ -66,6 +66,20 @@ class JobType(enum.Enum):
     REPAIR = "REPAIR"
 
 
+class MaterialStatus(enum.Enum):
+    NOT_REQUIRED = "NOT_REQUIRED"
+    TO_ORDER = "TO_ORDER"
+    ORDERED = "ORDERED"
+    RECEIVED = "RECEIVED"
+
+
+def default_material_status(job_type: JobType) -> MaterialStatus:
+    """REPAIR/MODIFICATION use client-supplied parts; fabrication needs steel ordered."""
+    if job_type in (JobType.REPAIR, JobType.MODIFICATION):
+        return MaterialStatus.NOT_REQUIRED
+    return MaterialStatus.TO_ORDER
+
+
 class PartCondition(enum.Enum):
     RAW_MATERIAL = "RAW_MATERIAL"
     CLIENT_SUPPLIED_ITEM = "CLIENT_SUPPLIED_ITEM"
@@ -126,6 +140,16 @@ class JobOrder(db.Model):
     amount = db.Column(db.Numeric(14, 2), nullable=True)
     # [{ "name": "Mild steel plate", "quantity": 2, "unit": "pcs" }, ...]
     raw_materials = db.Column(JSONB, nullable=False, default=list)
+    material_status = db.Column(
+        db.Enum(MaterialStatus),
+        nullable=False,
+        default=MaterialStatus.TO_ORDER,
+        index=True,
+    )
+    material_expected_date = db.Column(db.Date, nullable=True)
+    material_received_date = db.Column(db.Date, nullable=True)
+    # Free-text supplier PO / invoice number — no supplier entity.
+    supplier_reference = db.Column(db.String(120), nullable=True)
     # Hex color (#RRGGBB) for schedule board distinction; optional.
     schedule_color = db.Column(db.String(7), nullable=True)
     created_by_id = db.Column(
@@ -239,6 +263,22 @@ class JobOrder(db.Model):
             "quantity": _num(self.quantity),
             "unitOfMeasure": self.unit_of_measure,
             "rawMaterials": self.raw_materials or [],
+            "materialStatus": (
+                self.material_status.value
+                if self.material_status
+                else MaterialStatus.TO_ORDER.value
+            ),
+            "materialExpectedDate": (
+                self.material_expected_date.isoformat()
+                if self.material_expected_date
+                else None
+            ),
+            "materialReceivedDate": (
+                self.material_received_date.isoformat()
+                if self.material_received_date
+                else None
+            ),
+            "supplierReference": self.supplier_reference,
             "scheduleColor": self.schedule_color,
             "deliveredAt": self.delivered_at.isoformat() if self.delivered_at else None,
             "createdAt": self.created_at.isoformat() if self.created_at else None,

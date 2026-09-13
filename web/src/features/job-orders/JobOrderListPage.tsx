@@ -96,6 +96,7 @@ export default function JobOrderListPage() {
   const [statusFilter, setStatusFilter] = useState<JobOrderStatus[]>([]);
   const [priorityFilter, setPriorityFilter] = useState<JobPriority[]>([]);
   const [clientFilter, setClientFilter] = useState<string[]>([]);
+  const [awaitingMaterialOnly, setAwaitingMaterialOnly] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [selectMode, setSelectMode] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -113,6 +114,7 @@ export default function JobOrderListPage() {
   const selectListTab = (tab: ListTab) => {
     setListTab(tab);
     setStatusFilter([]);
+    setAwaitingMaterialOnly(false);
     setSelectedKeys([]);
     setSearchParams(tab === 'drafts' ? { tab: 'drafts' } : {}, { replace: true });
   };
@@ -120,7 +122,10 @@ export default function JobOrderListPage() {
   const fetchJobs = async (tab: ListTab = listTab) => {
     setLoading(true);
     try {
-      const { data } = await jobOrdersApi.list({ scope: tab });
+      const { data } = await jobOrdersApi.list({
+        scope: tab,
+        awaitingMaterial: tab === 'production' && awaitingMaterialOnly ? true : undefined,
+      });
       setJobs(data);
       if (tab === 'drafts') {
         setDraftCount(data.length);
@@ -137,7 +142,7 @@ export default function JobOrderListPage() {
 
   useEffect(() => {
     fetchJobs(listTab);
-  }, [listTab]);
+  }, [listTab, awaitingMaterialOnly]);
 
   const clientOptions = useMemo(() => {
     const names = new Set<string>();
@@ -164,7 +169,10 @@ export default function JobOrderListPage() {
   );
   const selectedCompletable = selectedJobs.filter((j) => j.status === 'COMPLETED');
   const activeFilterCount =
-    (statusFilter.length ? 1 : 0) + (priorityFilter.length ? 1 : 0) + (clientFilter.length ? 1 : 0);
+    (statusFilter.length ? 1 : 0) +
+    (priorityFilter.length ? 1 : 0) +
+    (clientFilter.length ? 1 : 0) +
+    (awaitingMaterialOnly ? 1 : 0);
   const overdueCount = filtered.filter(isJobOverdue).length;
   const doneCount = filtered.filter((j) => j.status === 'COMPLETED' || j.status === 'DELIVERED').length;
 
@@ -172,6 +180,7 @@ export default function JobOrderListPage() {
     setStatusFilter([]);
     setPriorityFilter([]);
     setClientFilter([]);
+    setAwaitingMaterialOnly(false);
   };
 
   const toggleSelectMode = () => {
@@ -688,6 +697,16 @@ export default function JobOrderListPage() {
             options={PRODUCTION_STATUS_OPTIONS}
           />
           )}
+          {listTab === 'production' && (
+            <Select
+              allowClear
+              placeholder="Material"
+              className="jo-list-filter jo-list-filter--sm"
+              value={awaitingMaterialOnly ? 'awaiting' : undefined}
+              onChange={(v) => setAwaitingMaterialOnly(v === 'awaiting')}
+              options={[{ value: 'awaiting', label: 'Awaiting material' }]}
+            />
+          )}
           <Select
             mode="multiple"
             allowClear
@@ -954,6 +973,20 @@ export default function JobOrderListPage() {
                     value={statusFilter}
                     onChange={setStatusFilter}
                     options={PRODUCTION_STATUS_OPTIONS}
+                  />
+                </div>
+                ) : null}
+                {listTab === 'production' ? (
+                <div className="sched-f__row">
+                  <span className="sched-f__row-k">Material</span>
+                  <Select
+                    allowClear
+                    variant="borderless"
+                    placeholder="All"
+                    className="sched-f__select"
+                    value={awaitingMaterialOnly ? 'awaiting' : undefined}
+                    onChange={(v) => setAwaitingMaterialOnly(v === 'awaiting')}
+                    options={[{ value: 'awaiting', label: 'Awaiting material' }]}
                   />
                 </div>
                 ) : null}

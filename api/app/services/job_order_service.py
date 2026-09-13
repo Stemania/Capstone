@@ -10,9 +10,11 @@ from app.models.job_order import (
     JobOrderStatus,
     JobPriority,
     JobType,
+    MaterialStatus,
     PartCondition,
     PRODUCTION_STATUSES,
     PRODUCTION_VISIBLE_STATUSES,
+    default_material_status,
 )
 from app.models.machine import MachineType
 from app.models.operation import JobOperation, OperationStatus
@@ -248,7 +250,7 @@ def check_job_access(job_order, user_id, user_role):
     raise AppError("Access denied", "FORBIDDEN", 403)
 
 
-def list_job_orders(user_id, user_role, status=None, scope=None):
+def list_job_orders(user_id, user_role, status=None, scope=None, awaiting_material=False):
     query = JobOrder.query.options(
         joinedload(JobOrder.operations).joinedload(JobOperation.assigned_worker),
         joinedload(JobOrder.operations).joinedload(JobOperation.machine_type),
@@ -266,6 +268,12 @@ def list_job_orders(user_id, user_role, status=None, scope=None):
         query = query.filter(JobOrder.status.in_(tuple(PRODUCTION_STATUSES)))
     if status:
         query = query.filter_by(status=JobOrderStatus(status))
+    if awaiting_material:
+        query = query.filter(
+            JobOrder.material_status.in_(
+                (MaterialStatus.TO_ORDER, MaterialStatus.ORDERED)
+            )
+        )
     return query.order_by(JobOrder.due_date.asc()).all()
 
 
@@ -360,6 +368,17 @@ def create_job_order(data, created_by_id):
     except ValueError:
         raise AppError("Invalid jobType", "VALIDATION_ERROR", 400)
 
+    material_status = default_material_status(job_type)
+    if data.get("materialStatus"):
+        try:
+            material_status = MaterialStatus(data["materialStatus"])
+        except ValueError:
+            raise AppError(
+                "materialStatus must be NOT_REQUIRED, TO_ORDER, ORDERED, or RECEIVED",
+                "VALIDATION_ERROR",
+                400,
+            )
+
     try:
         job = JobOrder(
             client_id=data["clientId"],
@@ -376,6 +395,10 @@ def create_job_order(data, created_by_id):
             unit_of_measure=(data.get("unitOfMeasure") or None),
             amount=_parse_decimal(data.get("amount"), "amount"),
             raw_materials=_normalize_raw_materials(data.get("rawMaterials")),
+            material_status=material_status,
+            material_expected_date=_parse_date(data.get("materialExpectedDate")),
+            material_received_date=_parse_date(data.get("materialReceivedDate")),
+            supplier_reference=(data.get("supplierReference") or None),
             created_by_id=created_by_id,
         )
         db.session.add(job)
@@ -491,6 +514,27 @@ def update_job_order(job, data, actor_role=None):
             job.amount = _parse_decimal(data.get("amount"), "amount")
         if "rawMaterials" in data:
             job.raw_materials = _normalize_raw_materials(data.get("rawMaterials"))
+        if "materialStatus" in data and data["materialStatus"]:
+            try:
+                job.material_status = MaterialStatus(data["materialStatus"])
+            except ValueError:
+                raise AppError(
+                    "materialStatus must be NOT_REQUIRED, TO_ORDER, ORDERED, or RECEIVED",
+                    "VALIDATION_ERROR",
+                    400,
+                )
+            if job.material_status == MaterialStatus.RECEIVED and not job.material_received_date:
+                from datetime import date as date_cls
+
+                job.material_received_date = date_cls.today()
+            if job.material_status == MaterialStatus.NOT_REQUIRED:
+                job.material_expected_date = job.material_expected_date  # keep history
+        if "materialExpectedDate" in data:
+            job.material_expected_date = _parse_date(data.get("materialExpectedDate"))
+        if "materialReceivedDate" in data:
+            job.material_received_date = _parse_date(data.get("materialReceivedDate"))
+        if "supplierReference" in data:
+            job.supplier_reference = (data.get("supplierReference") or None)
         if "scheduleColor" in data:
             job.schedule_color = _normalize_schedule_color(data.get("scheduleColor"))
 
@@ -531,6 +575,44 @@ def _release_missing_items(job: JobOrder) -> list[str]:
     return missing
 
 
+def mark_material_received(job, received_date=None):
+    """Office/Admin marks steel (or other stock) arrived for this job."""
+    try:
+        from datetime import date as date_cls
+
+        when = _parse_date(received_date) or date_cls.today()
+        job.material_status = MaterialStatus.RECEIVED
+        job.material_received_date = when
+        db.session.commit()
+        return get_job_order(job.id, job.created_by_id, UserRole.OFFICE_STAFF.value)
+    except AppError:
+        db.session.rollback()
+        raise
+    except Exception:
+        db.session.rollback()
+        raise
+
+
+def material_release_warning(job: JobOrder) -> str | None:
+    """Non-blocking warning when releasing before material has arrived."""
+    if job.material_status in (MaterialStatus.TO_ORDER, MaterialStatus.ORDERED):
+        status_label = (
+            "still to order"
+            if job.material_status == MaterialStatus.TO_ORDER
+            else "ordered but not received"
+        )
+        if job.material_expected_date:
+            return (
+                f"Material is {status_label}. Expected arrival "
+                f"{job.material_expected_date.isoformat()}. You can still release to plan ahead."
+            )
+        return (
+            f"Material is {status_label} and no expected arrival date is set. "
+            "You can still release to plan ahead."
+        )
+    return None
+
+
 def release_job_order(job):
     """Admin releases a DRAFT job to production. Fires JOB_RECEIVED."""
     from app.models.notification import NotificationMilestone
@@ -551,12 +633,18 @@ def release_job_order(job):
             400,
         )
 
+    warning = material_release_warning(job)
+
     try:
         job.status = JobOrderStatus.SCHEDULED
         job.status = derive_job_status(job)
         db.session.commit()
         safe_notify_job_milestone(job.id, NotificationMilestone.JOB_RECEIVED)
-        return get_job_order(job.id, job.created_by_id, UserRole.ADMIN.value)
+        result = get_job_order(job.id, job.created_by_id, UserRole.ADMIN.value)
+        payload = result.to_dict(include_operations=True, viewer_role=UserRole.ADMIN.value)
+        if warning:
+            payload["materialReleaseWarning"] = warning
+        return payload
     except AppError:
         db.session.rollback()
         raise

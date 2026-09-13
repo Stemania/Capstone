@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 
 from app.constants.scheduling import DEFAULT_ESTIMATED_HOURS, SCHEDULE_HORIZON_DAYS
@@ -21,6 +21,7 @@ from app.services.schedule_calendar import (
     merge_intervals,
     place_duration,
     serialize_segments,
+    shop_local_to_utc,
     shop_now,
     subtract_intervals,
     utc_to_shop,
@@ -45,6 +46,10 @@ def compute_schedule_flag(projected_completion_utc, due_date) -> str | None:
     projected_completion is stored UTC; convert to Asia/Manila before taking
     .date(). Using the UTC calendar date would mis-flag jobs that finish
     after 16:00 UTC (00:00–07:59 the next day in Manila).
+
+    Flag is not a separate material check — it only compares due date to the
+    projected completion produced by placement. Material readiness affects the
+    flag only by delaying that projection through not_before.
     """
     if not projected_completion_utc or not due_date:
         return None
@@ -54,6 +59,59 @@ def compute_schedule_flag(projected_completion_utc, due_date) -> str | None:
     if completion_date <= due_date + timedelta(days=1):
         return "AMBER"
     return "RED"
+
+
+def resolve_material_not_before_utc(
+    material_status,
+    material_received_date=None,
+    material_expected_date=None,
+) -> datetime | None:
+    """
+    Earliest UTC instant the first operation may start given material readiness.
+
+    NOT_REQUIRED → unconstrained (None).
+    Otherwise use received date when set, else expected date, at shop-local midnight
+    so place_duration can clamp to the first working segment that day.
+    """
+    status_val = (
+        material_status.value
+        if hasattr(material_status, "value")
+        else (material_status or "NOT_REQUIRED")
+    )
+    if status_val == "NOT_REQUIRED":
+        return None
+    ready = material_received_date or material_expected_date
+    if ready is None:
+        return None
+    if isinstance(ready, str):
+        ready = date.fromisoformat(ready[:10])
+    return shop_local_to_utc(ready, time(0, 0))
+
+
+def material_constraint_label(
+    material_status,
+    material_received_date=None,
+    material_expected_date=None,
+) -> str | None:
+    """Human-readable reason for the material earliest-start line in planning UI."""
+    status_val = (
+        material_status.value
+        if hasattr(material_status, "value")
+        else (material_status or "NOT_REQUIRED")
+    )
+    if status_val == "NOT_REQUIRED":
+        return None
+    if material_received_date:
+        d = material_received_date
+        if isinstance(d, str):
+            d = date.fromisoformat(d[:10])
+        return f"material received {d.isoformat()}"
+    if material_expected_date:
+        d = material_expected_date
+        if isinstance(d, str):
+            d = date.fromisoformat(d[:10])
+        return f"material expected {d.isoformat()}"
+    return None
 
 
 def _parse_estimated_hours(value) -> tuple[Decimal, bool]:
@@ -383,7 +441,8 @@ def _find_earliest_slot(
 ):
     """
     Earliest feasible (worker, unit) assignment.
-    Rank: earliest start → least occupied machine → keep preferred worker → label.
+    Rank: earliest start → least occupied machine → prefer unit whose default
+    operator is the assigned worker → keep preferred worker → label.
     """
     if isinstance(worker_ids, str):
         worker_ids = [worker_ids]
@@ -427,9 +486,10 @@ def _find_earliest_slot(
     if not units:
         return None, None, None, None, 0.0
 
-    # (start, busy_secs, keep_preferred_worker, label, end, unit_id, worker_id, placeable)
+    # (start, busy_secs, default_op_mismatch, keep_preferred_worker, label, ...)
     best = None
     max_placeable = 0.0
+    pref_wid = str(preferred_worker_id) if preferred_worker_id else None
 
     for wid in worker_ids:
         worker_free = _worker_free_intervals(
@@ -457,10 +517,17 @@ def _find_earliest_slot(
             if not start or not end:
                 continue
             busy_secs = _busy_seconds_in_horizon(unit_busy, anchor_utc, end_utc)
+            default_id = getattr(unit, "default_operator_id", None)
+            default_mismatch = (
+                0
+                if pref_wid and default_id and str(default_id) == pref_wid
+                else 1
+            )
             keep_pref = 0 if preferred_worker_id and wid == preferred_worker_id else 1
             candidate = (
                 start,
                 busy_secs,
+                default_mismatch,
                 keep_pref,
                 unit.label or "",
                 end,
@@ -468,11 +535,11 @@ def _find_earliest_slot(
                 wid,
                 placeable,
             )
-            if best is None or candidate[:4] < best[:4]:
+            if best is None or candidate[:5] < best[:5]:
                 best = candidate
 
     if best:
-        start, _b, _k, _lab, end, unit_id, wid, placeable = best
+        start, _b, _d, _k, _lab, end, unit_id, wid, placeable = best
         return start, end, unit_id, wid, placeable
     return None, None, None, None, max_placeable
 
@@ -519,6 +586,8 @@ def propose_schedule(
     anchor_utc=None,
     lock_before_sequence=None,
     honor_machine_pins=False,
+    material_not_before_utc=None,
+    material_constraint_reason=None,
 ):
     """
     Earliest-fit proposal for a job's operations. Does not write to the database.
@@ -526,6 +595,7 @@ def propose_schedule(
     lock_before_sequence: keep scheduled windows for ops with sequenceNo < this
       (used when re-fitting after a machine/time edit).
     honor_machine_pins: place each op on its machineUnitId when set (partial re-fit).
+    material_not_before_utc: raises the first-op not_before floor (material readiness).
     """
     anchor_utc = ensure_utc(anchor_utc or shop_now().astimezone(timezone.utc))
     end_utc = horizon_end_utc(anchor_utc)
@@ -556,6 +626,8 @@ def propose_schedule(
     in_job_machine_busy = {}
     results = []
     prev_end = anchor_utc
+    if material_not_before_utc is not None:
+        prev_end = max(prev_end, ensure_utc(material_not_before_utc))
 
     for op in normalized:
         frozen = _frozen_result(op)
@@ -679,6 +751,12 @@ def propose_schedule(
         "horizonDays": SCHEDULE_HORIZON_DAYS,
         "projectedCompletion": projected.isoformat() if projected else None,
         "scheduleFlag": flag,
+        "materialNotBefore": (
+            ensure_utc(material_not_before_utc).isoformat()
+            if material_not_before_utc is not None
+            else None
+        ),
+        "materialConstraintReason": material_constraint_reason,
         "operations": results,
     }
 

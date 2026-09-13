@@ -37,8 +37,17 @@ export const clientsApi = {
 };
 
 export const jobOrdersApi = {
-  list: (params?: { status?: string; scope?: 'production' | 'drafts' | 'all' }) =>
-    apiClient.get<JobOrder[]>('/job-orders', { params }),
+  list: (params?: {
+    status?: string;
+    scope?: 'production' | 'drafts' | 'all';
+    awaitingMaterial?: boolean;
+  }) =>
+    apiClient.get<JobOrder[]>('/job-orders', {
+      params: {
+        ...params,
+        awaitingMaterial: params?.awaitingMaterial ? '1' : undefined,
+      },
+    }),
   get: (id: string) => apiClient.get<JobOrder>(`/job-orders/${id}`),
   machines: () => apiClient.get<MachineInfo[]>('/job-orders/machines'),
   machineUnits: () => apiClient.get<MachineUnitInfo[]>('/job-orders/machine-units'),
@@ -55,6 +64,10 @@ export const jobOrdersApi = {
   delete: (id: string) => apiClient.delete(`/job-orders/${id}`),
   release: (id: string) => apiClient.post<JobOrder>(`/job-orders/${id}/release`),
   deliver: (id: string) => apiClient.post<JobOrder>(`/job-orders/${id}/deliver`),
+  markMaterialReceived: (id: string, receivedDate?: string) =>
+    apiClient.post<JobOrder>(`/job-orders/${id}/material-received`, {
+      receivedDate,
+    }),
 };
 
 export const operationsApi = {
@@ -96,8 +109,4 @@ export const workersApi = {
         ...extras,
       }
     ),
-  getScoringWeights: () =>
-    apiClient.get<{ weights: ScoringWeights }>('/workers/scoring-weights'),
-  updateScoringWeights: (weights: ScoringWeights) =>
-    apiClient.put<{ weights: ScoringWeights }>('/workers/scoring-weights', { weights }),
 };

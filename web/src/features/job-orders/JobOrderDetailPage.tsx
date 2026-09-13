@@ -197,6 +197,7 @@ export default function JobOrderDetailPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [pauseForOp, setPauseForOp] = useState<Operation | null>(null);
   const [delivering, setDelivering] = useState(false);
+  const [markingMaterial, setMarkingMaterial] = useState(false);
   const [notifications, setNotifications] = useState<NotificationLog[] | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
 
@@ -382,6 +383,20 @@ export default function JobOrderDetailPage() {
     }
   };
 
+  const handleMarkMaterialReceived = async () => {
+    if (!job) return;
+    setMarkingMaterial(true);
+    try {
+      const { data } = await jobOrdersApi.markMaterialReceived(job.id);
+      setJob(data);
+      message.success('Material marked received');
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setMarkingMaterial(false);
+    }
+  };
+
   const handleDelete = () => {
     if (!job) return;
     const label = job.jobNumber || 'This job order';
@@ -491,6 +506,25 @@ export default function JobOrderDetailPage() {
           >
             Print
           </Button>
+          {canManage &&
+            job.materialStatus &&
+            job.materialStatus !== 'NOT_REQUIRED' &&
+            job.materialStatus !== 'RECEIVED' && (
+              <Button
+                icon={<CheckOutlined />}
+                loading={markingMaterial}
+                onClick={() => {
+                  Modal.confirm({
+                    title: 'Mark material received?',
+                    content: 'Sets status to Received and records today’s date as the arrival date.',
+                    okText: 'Mark received',
+                    onOk: handleMarkMaterialReceived,
+                  });
+                }}
+              >
+                Material received
+              </Button>
+            )}
           {canManage && job.status === 'COMPLETED' && (
             <Button
               type="primary"
@@ -588,6 +622,23 @@ export default function JobOrderDetailPage() {
               <RefItem label="Client PO #" value={dash(job.clientPoNumber)} />
               <RefItem label="PO date" value={fmtDate(job.poDate)} />
               <RefItem label="Job type" value={friendlyEnum(job.jobType, JOB_TYPE_LABEL)} />
+              <RefItem
+                label="Material"
+                value={
+                  job.materialStatus === 'NOT_REQUIRED'
+                    ? 'Not required'
+                    : job.materialStatus === 'RECEIVED'
+                      ? `Received ${fmtDate(job.materialReceivedDate)}`
+                      : job.materialStatus === 'ORDERED'
+                        ? `Ordered · expected ${fmtDate(job.materialExpectedDate)}`
+                        : job.materialStatus === 'TO_ORDER'
+                          ? `To order · expected ${fmtDate(job.materialExpectedDate)}`
+                          : '—'
+                }
+              />
+              {job.supplierReference ? (
+                <RefItem label="Supplier ref" value={job.supplierReference} />
+              ) : null}
               <RefItem
                 label="Stage of the part"
                 value={friendlyEnum(job.partCondition, PART_STAGE_LABEL)}

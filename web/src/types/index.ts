@@ -93,6 +93,8 @@ export type JobOrderStatus =
   | 'DELIVERED';
 export type JobPriority = 'HIGH' | 'MODERATE' | 'LOW';
 export type JobType = 'FABRICATION' | 'MODIFICATION' | 'REPAIR';
+
+export type MaterialStatus = 'NOT_REQUIRED' | 'TO_ORDER' | 'ORDERED' | 'RECEIVED';
 export type PartCondition =
   | 'RAW_MATERIAL'
   | 'CLIENT_SUPPLIED_ITEM'
@@ -203,6 +205,8 @@ export interface MachineUnitInfo {
   machineTypeName?: string | null;
   label: string;
   active?: boolean;
+  defaultOperatorId?: string | null;
+  defaultOperatorName?: string | null;
 }
 
 export interface MachineDowntimeRecord {
@@ -266,6 +270,8 @@ export interface ScheduleProposeResult {
   horizonDays?: number;
   projectedCompletion?: string | null;
   scheduleFlag?: ScheduleFlag | null;
+  materialNotBefore?: string | null;
+  materialConstraintReason?: string | null;
   operations: ProposedOperation[];
 }
 
@@ -299,6 +305,11 @@ export interface JobOrder {
   unitOfMeasure?: string | null;
   amount?: number | null;
   rawMaterials?: RawMaterial[];
+  materialStatus?: MaterialStatus;
+  materialExpectedDate?: string | null;
+  materialReceivedDate?: string | null;
+  supplierReference?: string | null;
+  materialReleaseWarning?: string | null;
   createdById?: string;
   createdByName?: string | null;
   draftStage?: string | null;
@@ -345,14 +356,12 @@ export interface NotificationLog {
 
 export interface ScoringComponents {
   skill: number;
-  availability: number;
   workload: number;
   efficiency: number;
 }
 
 export interface ScoringWeights {
   skill: number;
-  availability: number;
   workload: number;
   efficiency: number;
 }
@@ -840,4 +849,43 @@ export interface AnalyticsDemandCapacity {
   thinSample: boolean;
   thinSampleNote?: string;
   machineTypes: AnalyticsCapacityTypeRow[];
+}
+
+export interface WorkerWorkHistorySummary {
+  operationsCompleted: number;
+  reworkCount: number;
+  enoughHistory: boolean;
+  minimumForAverages: number;
+  totalEstimatedHours: number | null;
+  totalActualHours: number | null;
+  averageVariancePct: number | null;
+  onEstimateRatePct: number | null;
+  message: string | null;
+}
+
+export interface WorkerHistoryOperation {
+  id: string;
+  completedAt: string | null;
+  jobOrderId: string;
+  jobNumber: string | null;
+  operationName: string;
+  operationTypeName?: string | null;
+  machineUnitLabel: string | null;
+  estimatedHours: number | null;
+  actualHours: number | null;
+  differenceHours: number | null;
+  isRework: boolean;
+}
+
+export interface WorkerWorkHistory {
+  summary: WorkerWorkHistorySummary;
+  operations: {
+    items: WorkerHistoryOperation[];
+    total: number;
+    page: number;
+    pages: number;
+    perPage: number;
+  };
+  toolsHeld: ToolUnit[];
+  toolEvents: ToolEvent[];
 }

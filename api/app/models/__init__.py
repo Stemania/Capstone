@@ -5,6 +5,7 @@ from app.models.job_order import (
     JobOrderStatus,
     JobPriority,
     JobType,
+    MaterialStatus,
     PartCondition,
 )
 from app.models.machine import MachineType, MachineUnit
@@ -58,6 +59,7 @@ __all__ = [
     "JobOrderStatus",
     "JobPriority",
     "JobType",
+    "MaterialStatus",
     "PartCondition",
     "JobOperation",
     "Operation",

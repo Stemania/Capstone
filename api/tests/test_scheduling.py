@@ -73,7 +73,7 @@ def schedule_patches(monkeypatch):
     )
     monkeypatch.setattr(
         "app.services.schedule_service._qualified_worker_ids",
-        lambda machine_type_id, preferred_worker_id=None: (
+        lambda machine_type_id, preferred_worker_id=None, **kwargs: (
             [preferred_worker_id] if preferred_worker_id else ["worker-1"]
         ),
     )
@@ -118,7 +118,7 @@ def test_six_hour_op_from_1400_finishes_next_day_no_outside_hours_warning(monkey
     )
     monkeypatch.setattr(
         "app.services.schedule_service._qualified_worker_ids",
-        lambda machine_type_id, preferred_worker_id=None: (
+        lambda machine_type_id, preferred_worker_id=None, **kwargs: (
             [preferred_worker_id] if preferred_worker_id else [worker_id]
         ),
     )
@@ -345,7 +345,7 @@ def test_no_machine_type_worker_only(schedule_patches):
 def test_missing_worker_not_proposed(schedule_patches, monkeypatch):
     monkeypatch.setattr(
         "app.services.schedule_service._qualified_worker_ids",
-        lambda machine_type_id, preferred_worker_id=None: [],
+        lambda machine_type_id, preferred_worker_id=None, **kwargs: [],
     )
     result = propose_schedule(
         [
@@ -368,7 +368,7 @@ def test_missing_worker_not_proposed(schedule_patches, monkeypatch):
 def test_machine_type_without_assigned_worker_uses_qualified(schedule_patches, monkeypatch):
     monkeypatch.setattr(
         "app.services.schedule_service._qualified_worker_ids",
-        lambda machine_type_id, preferred_worker_id=None: ["worker-skill"],
+        lambda machine_type_id, preferred_worker_id=None, **kwargs: ["worker-skill"],
     )
     result = propose_schedule(
         [
@@ -575,7 +575,7 @@ def test_reassigns_worker_to_earliest_free_machine(schedule_patches, monkeypatch
     )
     monkeypatch.setattr(
         "app.services.schedule_service._qualified_worker_ids",
-        lambda machine_type_id, preferred_worker_id=None: [busy_worker, free_worker],
+        lambda machine_type_id, preferred_worker_id=None, **kwargs: [busy_worker, free_worker],
     )
     result = propose_schedule(
         [
@@ -614,7 +614,7 @@ def test_pinned_unit_refits_with_free_worker(schedule_patches, monkeypatch):
     )
     monkeypatch.setattr(
         "app.services.schedule_service._qualified_worker_ids",
-        lambda machine_type_id, preferred_worker_id=None: [busy_worker, free_worker],
+        lambda machine_type_id, preferred_worker_id=None, **kwargs: [busy_worker, free_worker],
     )
     result = propose_schedule(
         [
@@ -650,7 +650,7 @@ def test_no_machine_op_reassigns_busy_preferred_worker(schedule_patches, monkeyp
     )
     monkeypatch.setattr(
         "app.services.schedule_service._qualified_worker_ids",
-        lambda machine_type_id, preferred_worker_id=None: [busy_worker, free_worker],
+        lambda machine_type_id, preferred_worker_id=None, **kwargs: [busy_worker, free_worker],
     )
     result = propose_schedule(
         [
@@ -670,3 +670,85 @@ def test_no_machine_op_reassigns_busy_preferred_worker(schedule_patches, monkeyp
     assert op["machineUnitId"] is None
     assert op["assignedWorkerId"] == free_worker
     assert op["scheduledStart"] == anchor.isoformat()
+
+
+def test_first_operation_not_before_material_date(schedule_patches):
+    """Material expected date raises the first-op not_before floor."""
+    lathe_id = schedule_patches["lathe_id"]
+    anchor = _anchor(2026, 8, 10, 8)
+    material_day = date(2026, 8, 12)
+    material_nb = shop_local_to_utc(material_day, time(0, 0))
+    result = propose_schedule(
+        [
+            {
+                "sequenceNo": 1,
+                "operationName": "Turning",
+                "assignedWorkerId": "worker-1",
+                "machineTypeId": lathe_id,
+                "estimatedHours": 2,
+            }
+        ],
+        date(2026, 8, 20),
+        anchor_utc=anchor,
+        material_not_before_utc=material_nb,
+        material_constraint_reason="material expected 2026-08-12",
+    )
+    op = result["operations"][0]
+    assert op["scheduled"] is True
+    start_shop = datetime.fromisoformat(op["scheduledStart"]).astimezone(SHOP)
+    assert start_shop.date() == material_day
+    assert start_shop.hour == 8
+    assert result["materialNotBefore"] == material_nb.isoformat()
+    assert "material expected" in (result["materialConstraintReason"] or "")
+
+
+def test_late_material_flags_job_red(schedule_patches):
+    """Material that arrives too late to finish by due date yields RED (via delayed projection)."""
+    lathe_id = schedule_patches["lathe_id"]
+    # Due Monday Aug 10; material only available Aug 12 → 8h job cannot finish Mon.
+    anchor = _anchor(2026, 8, 10, 8)
+    material_nb = shop_local_to_utc(date(2026, 8, 12), time(0, 0))
+    result = propose_schedule(
+        [
+            {
+                "sequenceNo": 1,
+                "operationName": "Turning",
+                "assignedWorkerId": "worker-1",
+                "machineTypeId": lathe_id,
+                "estimatedHours": 8,
+            }
+        ],
+        date(2026, 8, 10),
+        anchor_utc=anchor,
+        material_not_before_utc=material_nb,
+    )
+    assert result["operations"][0]["scheduled"] is True
+    assert result["scheduleFlag"] == "RED"
+    completion = datetime.fromisoformat(result["projectedCompletion"]).astimezone(SHOP)
+    assert completion.date() > date(2026, 8, 10)
+
+
+def test_not_required_material_unconstrained(schedule_patches):
+    """NOT_REQUIRED leaves first-op start at the capacity anchor."""
+    from app.services.schedule_service import resolve_material_not_before_utc
+
+    assert resolve_material_not_before_utc("NOT_REQUIRED", None, date(2026, 8, 20)) is None
+
+    lathe_id = schedule_patches["lathe_id"]
+    anchor = _anchor(2026, 8, 10, 8)
+    result = propose_schedule(
+        [
+            {
+                "sequenceNo": 1,
+                "operationName": "Turning",
+                "assignedWorkerId": "worker-1",
+                "machineTypeId": lathe_id,
+                "estimatedHours": 2,
+            }
+        ],
+        date(2026, 8, 20),
+        anchor_utc=anchor,
+        material_not_before_utc=None,
+    )
+    assert result["operations"][0]["scheduledStart"] == anchor.isoformat()
+    assert result["materialNotBefore"] is None
