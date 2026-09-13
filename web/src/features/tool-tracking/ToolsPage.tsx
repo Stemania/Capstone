@@ -619,48 +619,170 @@ export default function ToolsPage() {
             </div>
           </Modal>
 
-          <Modal title={editTool ? `Edit: ${editTool.name}` : 'Edit'} open={Boolean(editTool)} onCancel={() => setEditTool(null)} footer={null} destroyOnHidden>
-            <Form form={editForm} layout="vertical" onFinish={onEdit}>
-              <Form.Item name="name" label="Name" rules={[{ required: true }]}>
+          <Modal
+            open={Boolean(editTool)}
+            onCancel={() => setEditTool(null)}
+            footer={null}
+            width={560}
+            centered
+            destroyOnHidden
+            className="app-form-modal"
+            styles={{
+              container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
+              body: { padding: 0 },
+            }}
+            closable={false}
+          >
+            <div className="app-form-modal__head">
+              <div className="app-form-modal__icon">
+                <EditOutlined />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="app-form-modal__title">Edit consumable</div>
+                <div className="app-form-modal__sub">
+                  {editTool ? `Update details for ${editTool.name}.` : 'Update item details.'}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="app-form-modal__close"
+                onClick={() => setEditTool(null)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <Form
+              form={editForm}
+              layout="vertical"
+              onFinish={onEdit}
+              style={{ padding: '20px 24px 8px' }}
+            >
+              {sectionLabel('Item details')}
+              <Form.Item
+                name="name"
+                label="Name"
+                rules={[{ required: true }]}
+                style={{ marginBottom: 14 }}
+              >
                 <Input />
               </Form.Item>
-              <Form.Item name="code" label="Code" rules={[{ required: true }]}>
+              <Form.Item
+                name="code"
+                label="Code"
+                rules={[{ required: true }]}
+                style={{ marginBottom: 14 }}
+              >
                 <Input />
               </Form.Item>
-              <Form.Item name="sizeSpec" label="Size / spec">
+              <Form.Item name="sizeSpec" label="Size / spec" style={{ marginBottom: 18 }}>
                 <Input />
               </Form.Item>
+              {sectionLabel('Stock levels')}
               <Row gutter={12}>
                 <Col span={12}>
-                  <Form.Item name="unit" label="Unit" rules={[{ required: true }]}>
+                  <Form.Item
+                    name="unit"
+                    label="Unit"
+                    rules={[{ required: true }]}
+                    style={{ marginBottom: 14 }}
+                  >
                     <Input />
                   </Form.Item>
                 </Col>
                 <Col span={12}>
-                  <Form.Item name="minimumStock" label="Reorder level">
+                  <Form.Item name="minimumStock" label="Reorder level" style={{ marginBottom: 14 }}>
                     <InputNumber min={0} style={{ width: '100%' }} />
                   </Form.Item>
                 </Col>
               </Row>
-              <Button type="primary" htmlType="submit" block loading={savingEdit}>
+            </Form>
+            <div className="app-form-modal__footer">
+              <Button onClick={() => setEditTool(null)} style={{ minWidth: 96 }}>
+                Cancel
+              </Button>
+              <Button
+                type="primary"
+                loading={savingEdit}
+                onClick={() => editForm.submit()}
+                style={{ fontWeight: 700, minWidth: 120 }}
+              >
                 Save changes
               </Button>
-            </Form>
+            </div>
           </Modal>
 
-          <Modal title={adjustTool ? `Adjust stock: ${adjustTool.name}` : 'Adjust'} open={Boolean(adjustTool)} onCancel={() => setAdjustTool(null)} footer={null}>
-            <Form form={adjustForm} layout="vertical" onFinish={onAdjust}>
-              <Alert type="info" showIcon style={{ marginBottom: 12 }} message="Use a positive quantity for deliveries so stocktakes do not treat them as consumption." />
-              <Form.Item name="quantity" label="Quantity change (+ add / − remove)" rules={[{ required: true }]}>
+          <Modal
+            open={Boolean(adjustTool)}
+            onCancel={() => setAdjustTool(null)}
+            footer={null}
+            width={560}
+            centered
+            destroyOnHidden
+            className="app-form-modal"
+            styles={{
+              container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
+              body: { padding: 0 },
+            }}
+            closable={false}
+          >
+            <div className="app-form-modal__head">
+              <div className="app-form-modal__icon">
+                <AuditOutlined />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="app-form-modal__title">
+                  {adjustTool ? `Adjust stock: ${adjustTool.name}` : 'Adjust stock'}
+                </div>
+                <div className="app-form-modal__sub">
+                  Positive quantity for deliveries so stocktakes do not treat them as consumption.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="app-form-modal__close"
+                onClick={() => setAdjustTool(null)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <Form
+              form={adjustForm}
+              layout="vertical"
+              onFinish={onAdjust}
+              style={{ padding: '20px 24px 8px' }}
+            >
+              {sectionLabel('Adjustment')}
+              <Form.Item
+                name="quantity"
+                label="Quantity change (+ add / − remove)"
+                rules={[{ required: true }]}
+                style={{ marginBottom: 14 }}
+              >
                 <InputNumber style={{ width: '100%' }} />
               </Form.Item>
-              <Form.Item name="reason" label="Reason" rules={[{ required: true }]}>
-                <Input.TextArea rows={2} />
+              <Form.Item
+                name="reason"
+                label="Reason"
+                rules={[{ required: true }]}
+                style={{ marginBottom: 14 }}
+              >
+                <Input.TextArea rows={2} placeholder="e.g. Delivery from supplier" />
               </Form.Item>
-              <Button type="primary" htmlType="submit" block>
+            </Form>
+            <div className="app-form-modal__footer">
+              <Button onClick={() => setAdjustTool(null)} style={{ minWidth: 96 }}>
+                Cancel
+              </Button>
+              <Button
+                type="primary"
+                onClick={() => adjustForm.submit()}
+                style={{ fontWeight: 700, minWidth: 140 }}
+              >
                 Save adjustment
               </Button>
-            </Form>
+            </div>
           </Modal>
         </>
       )}

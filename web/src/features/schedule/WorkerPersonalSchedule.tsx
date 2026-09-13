@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Spin, message } from 'antd';
+import { Segmented, Spin, message } from 'antd';
 import { AimOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
@@ -364,7 +364,7 @@ export default function WorkerPersonalSchedule() {
     <div style={{ minHeight: '100%', background: colors.bg }}>
       <WorkerPageHeader
         title="Schedule"
-        subtitle="Your assigned operations"
+        subtitle="Your ops"
         onBack={() => navigate('/my-assignments')}
         showSchedule={false}
       />
@@ -381,43 +381,21 @@ export default function WorkerPersonalSchedule() {
         >
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: 4,
               flex: '1 1 160px',
               minWidth: 148,
               maxWidth: 220,
-              background: colors.chipBg,
-              borderRadius: 12,
-              padding: 4,
-              border: `1px solid ${colors.cardBorder}`,
             }}
           >
-            {(
-              [
-                { key: 'day' as const, label: 'Day' },
-                { key: 'week' as const, label: 'Week' },
-              ]
-            ).map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setViewMode(t.key)}
-                style={{
-                  border: 'none',
-                  borderRadius: 10,
-                  padding: '10px 8px',
-                  fontWeight: 700,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  background: viewMode === t.key ? colors.card : 'transparent',
-                  color: viewMode === t.key ? colors.text : colors.textSecondary,
-                  boxShadow: viewMode === t.key ? colors.shadow : 'none',
-                }}
-              >
-                {t.label}
-              </button>
-            ))}
+            <Segmented
+              block
+              className="worker-seg"
+              value={viewMode}
+              onChange={(v) => setViewMode(v as ViewMode)}
+              options={[
+                { label: 'Day', value: 'day' },
+                { label: 'Week', value: 'week' },
+              ]}
+            />
           </div>
 
           <div
@@ -426,10 +404,6 @@ export default function WorkerPersonalSchedule() {
               alignItems: 'center',
               gap: 4,
               marginLeft: 'auto',
-              background: colors.chipBg,
-              borderRadius: 12,
-              padding: 4,
-              border: `1px solid ${colors.cardBorder}`,
             }}
           >
             <button
@@ -438,16 +412,17 @@ export default function WorkerPersonalSchedule() {
               aria-label="Previous"
               style={{
                 border: 'none',
-                borderRadius: 10,
-                width: 36,
-                height: 36,
+                borderRadius: 8,
+                width: 28,
+                height: 30,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
                 background: 'transparent',
                 color: colors.text,
-                fontSize: 14,
+                fontSize: 12,
+                padding: 0,
               }}
             >
               <LeftOutlined />
@@ -457,19 +432,19 @@ export default function WorkerPersonalSchedule() {
               onClick={() => setAnchor(dayjs().tz(SHOP_TZ))}
               style={{
                 border: 'none',
-                borderRadius: 10,
-                height: 36,
-                padding: '0 12px',
+                borderRadius: 8,
+                height: 30,
+                padding: '0 10px',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 6,
+                gap: 5,
                 cursor: 'pointer',
                 background: colors.card,
                 color: colors.text,
                 fontWeight: 700,
-                fontSize: 13,
-                boxShadow: colors.shadow,
+                fontSize: 12,
+                boxShadow: '0 1px 2px rgba(15, 23, 42, 0.1)',
               }}
             >
               <AimOutlined />
@@ -481,16 +456,17 @@ export default function WorkerPersonalSchedule() {
               aria-label="Next"
               style={{
                 border: 'none',
-                borderRadius: 10,
-                width: 36,
-                height: 36,
+                borderRadius: 8,
+                width: 28,
+                height: 30,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
                 background: 'transparent',
                 color: colors.text,
-                fontSize: 14,
+                fontSize: 12,
+                padding: 0,
               }}
             >
               <RightOutlined />

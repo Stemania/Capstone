@@ -193,7 +193,7 @@ export function WorkerPageHeader({
       style={{
         background: colors.headerBg,
         color: colors.headerText,
-        padding: '16px 16px 18px',
+        padding: '14px 16px 14px',
         position: 'sticky',
         top: 0,
         zIndex: 10,
@@ -218,9 +218,9 @@ export function WorkerPageHeader({
           </button>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2 }}>{title}</div>
+          <div style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.2 }}>{title}</div>
           {subtitle && (
-            <div style={{ fontSize: 13, opacity: 0.7, marginTop: 4 }}>{subtitle}</div>
+            <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>{subtitle}</div>
           )}
         </div>
         {right}

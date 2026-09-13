@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Spin, Empty, Input } from 'antd';
+import { Spin, Empty, Input, Segmented } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -77,57 +77,31 @@ export default function MyAssignmentsPage() {
     <div>
       <WorkerPageHeader
         title="My Assignments"
-        subtitle="Operations assigned to you"
+        subtitle="Your jobs"
       />
 
       <div style={{ padding: 16 }}>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: 6,
-            background: colors.chipBg,
-            borderRadius: 12,
-            padding: 4,
-            marginBottom: 14,
-            border: `1px solid ${colors.cardBorder}`,
-          }}
-        >
-          {(
-            [
-              { key: 'active' as const, label: `Active (${active.length})` },
-              { key: 'completed' as const, label: `Completed (${completed.length})` },
-            ]
-          ).map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              style={{
-                border: 'none',
-                borderRadius: 10,
-                padding: '10px 8px',
-                fontWeight: 700,
-                fontSize: 13,
-                cursor: 'pointer',
-                background: tab === t.key ? colors.card : 'transparent',
-                color: tab === t.key ? colors.text : colors.textSecondary,
-                boxShadow: tab === t.key ? colors.shadow : 'none',
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          block
+          className="worker-seg"
+          value={tab}
+          onChange={(v) => setTab(v as 'active' | 'completed')}
+          options={[
+            { label: `Active (${active.length})`, value: 'active' },
+            { label: `Completed (${completed.length})`, value: 'completed' },
+          ]}
+          style={{ marginBottom: 12 }}
+        />
 
         <Input
           allowClear
-          size="large"
+          className="worker-search"
           prefix={<SearchOutlined style={{ color: colors.textSecondary }} />}
           placeholder="Search operations..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={{
-            marginBottom: 16,
+            marginBottom: 14,
             background: colors.inputBg,
             borderColor: colors.cardBorder,
           }}

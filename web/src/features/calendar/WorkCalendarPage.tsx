@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Button,
+  Col,
   Form,
   Input,
   Modal,
+  Row,
   Select,
   TimePicker,
-  Typography,
   Spin,
   message,
   DatePicker,
@@ -16,6 +17,7 @@ import {
   RightOutlined,
   DeleteOutlined,
   WarningOutlined,
+  CalendarOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { Link } from 'react-router-dom';
@@ -28,6 +30,10 @@ import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function sectionLabel(text: string) {
+  return <div className="app-form-section">{text}</div>;
+}
 
 function isNormalWorkingDay(d: Dayjs): boolean {
   const dow = d.day(); // 0=Sun
@@ -255,118 +261,145 @@ export default function WorkCalendarPage() {
   const todayKey = dayjs().format('YYYY-MM-DD');
 
   return (
-    <div className="std-list-page work-calendar-page">
-      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-        Shop-wide overtime, special working days, and holidays. Applies to every worker&apos;s
-        schedule for that date.
-        {!isAdmin ? ' Viewing only — ask an Admin to make changes.' : null}
-      </Typography.Text>
+    <div className="work-calendar-page">
+      <div className="work-calendar__shell">
+        <header className="work-calendar__intro">
+          <div>
+            <h1 className="work-calendar__title">Work calendar</h1>
+            <p className="work-calendar__sub">
+              Shop-wide overtime, special working days, and holidays. Applies to every worker&apos;s
+              schedule for that date.
+              {!isAdmin ? ' Viewing only — ask an Admin to make changes.' : ' Click a day to add or edit.'}
+            </p>
+          </div>
+          <div className="work-calendar__legend">
+            <span>
+              <i className="work-calendar__dot work-calendar__dot--ot" /> Overtime
+            </span>
+            <span>
+              <i className="work-calendar__dot work-calendar__dot--special" /> Special day
+            </span>
+            <span>
+              <i className="work-calendar__dot work-calendar__dot--holiday" /> Holiday
+            </span>
+          </div>
+        </header>
 
-      <div className="work-calendar__toolbar">
-        <div className="work-calendar__nav">
-          <Button
-            icon={<LeftOutlined />}
-            onClick={() => setAnchor((a) => a.subtract(1, 'month'))}
-            aria-label="Previous month"
-          />
-          <div className="work-calendar__month-label">{anchor.format('MMMM YYYY')}</div>
-          <Button
-            icon={<RightOutlined />}
-            onClick={() => setAnchor((a) => a.add(1, 'month'))}
-            aria-label="Next month"
-          />
+        <div className="work-calendar__toolbar">
+          <div className="work-calendar__nav">
+            <Button
+              type="text"
+              icon={<LeftOutlined />}
+              onClick={() => setAnchor((a) => a.subtract(1, 'month'))}
+              aria-label="Previous month"
+            />
+            <div className="work-calendar__month-label">{anchor.format('MMMM YYYY')}</div>
+            <Button
+              type="text"
+              icon={<RightOutlined />}
+              onClick={() => setAnchor((a) => a.add(1, 'month'))}
+              aria-label="Next month"
+            />
+          </div>
+          <Button size="small" onClick={() => setAnchor(dayjs())}>
+            Today
+          </Button>
         </div>
-        <Button onClick={() => setAnchor(dayjs())}>Today</Button>
+
+        {loading ? (
+          <div className="page-spinner">
+            <Spin size="large" />
+          </div>
+        ) : (
+          <div className="work-calendar__grid" role="grid" aria-label="Work calendar">
+            {WEEKDAYS.map((d) => (
+              <div key={d} className="work-calendar__weekday">
+                {d}
+              </div>
+            ))}
+            {cells.map((day) => {
+              const key = day.format('YYYY-MM-DD');
+              const inMonth = day.month() === anchor.month();
+              const exc = byDate.get(key);
+              const normal = isNormalWorkingDay(day);
+              const classes = [
+                'work-calendar__cell',
+                inMonth ? '' : 'work-calendar__cell--outside',
+                key === todayKey ? 'work-calendar__cell--today' : '',
+                !normal && !exc ? 'work-calendar__cell--off' : '',
+                exc ? `work-calendar__cell--${exc.type.toLowerCase()}` : '',
+                isAdmin || exc ? 'work-calendar__cell--interactive' : '',
+              ]
+                .filter(Boolean)
+                .join(' ');
+
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={classes}
+                  disabled={!isAdmin && !exc}
+                  onClick={() => {
+                    if (isAdmin || exc) openCreate(day);
+                  }}
+                  title={exc ? exceptionBadge(exc) : undefined}
+                >
+                  <span className="work-calendar__day-num">{day.date()}</span>
+                  {exc ? (
+                    <span className="work-calendar__badge">{exceptionBadge(exc)}</span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
-
-      <div className="work-calendar__legend">
-        <span>
-          <i className="work-calendar__dot work-calendar__dot--ot" /> Overtime
-        </span>
-        <span>
-          <i className="work-calendar__dot work-calendar__dot--special" /> Special working day
-        </span>
-        <span>
-          <i className="work-calendar__dot work-calendar__dot--holiday" /> Holiday / closed
-        </span>
-      </div>
-
-      {loading ? (
-        <div className="page-spinner">
-          <Spin size="large" />
-        </div>
-      ) : (
-        <div className="work-calendar__grid" role="grid" aria-label="Work calendar">
-          {WEEKDAYS.map((d) => (
-            <div key={d} className="work-calendar__weekday">
-              {d}
-            </div>
-          ))}
-          {cells.map((day) => {
-            const key = day.format('YYYY-MM-DD');
-            const inMonth = day.month() === anchor.month();
-            const exc = byDate.get(key);
-            const normal = isNormalWorkingDay(day);
-            const classes = [
-              'work-calendar__cell',
-              inMonth ? '' : 'work-calendar__cell--outside',
-              key === todayKey ? 'work-calendar__cell--today' : '',
-              !normal && !exc ? 'work-calendar__cell--off' : '',
-              exc ? `work-calendar__cell--${exc.type.toLowerCase()}` : '',
-              isAdmin ? 'work-calendar__cell--interactive' : '',
-            ]
-              .filter(Boolean)
-              .join(' ');
-
-            return (
-              <button
-                key={key}
-                type="button"
-                className={classes}
-                disabled={!isAdmin && !exc}
-                onClick={() => {
-                  if (isAdmin || exc) openCreate(day);
-                }}
-                title={exc ? exceptionBadge(exc) : undefined}
-              >
-                <span className="work-calendar__day-num">{day.date()}</span>
-                {exc ? (
-                  <span className="work-calendar__badge">{exceptionBadge(exc)}</span>
-                ) : inMonth && normal ? (
-                  <span className="work-calendar__muted">Working</span>
-                ) : inMonth ? (
-                  <span className="work-calendar__muted">Off</span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-      )}
 
       <Modal
-        title={editing ? 'Edit calendar exception' : 'Add calendar exception'}
         open={formOpen}
         onCancel={() => setFormOpen(false)}
-        onOk={submitForm}
-        confirmLoading={saving}
-        okText={editing ? 'Save' : 'Create'}
-        okButtonProps={{ disabled: !isAdmin }}
+        footer={null}
+        width={560}
+        centered
         destroyOnHidden
-        footer={
-          isAdmin
-            ? undefined
-            : [
-                <Button key="close" onClick={() => setFormOpen(false)}>
-                  Close
-                </Button>,
-              ]
-        }
+        className="app-form-modal"
+        styles={{
+          container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
+          body: { padding: 0 },
+        }}
+        closable={false}
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 12 }} disabled={!isAdmin}>
+        <div className="app-form-modal__head">
+          <div className="app-form-modal__icon">
+            <CalendarOutlined />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="app-form-modal__title">
+              {editing ? 'Edit calendar exception' : 'Add calendar exception'}
+            </div>
+            <div className="app-form-modal__sub">
+              {editing
+                ? 'Update overtime, special working days, or shop closures.'
+                : 'Set overtime, special working days, or shop closures for scheduling.'}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="app-form-modal__close"
+            onClick={() => setFormOpen(false)}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <Form form={form} layout="vertical" style={{ padding: '20px 24px 8px' }} disabled={!isAdmin}>
+          {sectionLabel('Exception')}
           <Form.Item
             name="type"
             label="Type"
             rules={[{ required: true, message: 'Choose a type' }]}
+            style={{ marginBottom: 18 }}
           >
             <Select
               onChange={onTypeChange}
@@ -380,10 +413,13 @@ export default function WorkCalendarPage() {
               ]}
             />
           </Form.Item>
+
+          {sectionLabel('Schedule')}
           <Form.Item
             name="date"
             label={editing ? 'Date' : 'From date'}
             rules={[{ required: true, message: 'Pick a date' }]}
+            style={{ marginBottom: 14 }}
           >
             <DatePicker style={{ width: '100%' }} />
           </Form.Item>
@@ -392,43 +428,73 @@ export default function WorkCalendarPage() {
               name="dateTo"
               label="Through date (optional)"
               tooltip="Set an end date to create the same exception across a range, e.g. a week of OT."
+              style={{ marginBottom: 14 }}
             >
               <DatePicker style={{ width: '100%' }} />
             </Form.Item>
           )}
           {watchType !== 'HOLIDAY_NO_WORK' && (
-            <>
-              <Form.Item
-                name="startTime"
-                label="Start time"
-                rules={[{ required: true, message: 'Start time required' }]}
-              >
-                <TimePicker format="HH:mm" minuteStep={15} style={{ width: '100%' }} />
-              </Form.Item>
-              <Form.Item
-                name="endTime"
-                label="End time"
-                rules={[{ required: true, message: 'End time required' }]}
-              >
-                <TimePicker format="HH:mm" minuteStep={15} style={{ width: '100%' }} />
-              </Form.Item>
-            </>
+            <Row gutter={12}>
+              <Col span={12}>
+                <Form.Item
+                  name="startTime"
+                  label="Start time"
+                  rules={[{ required: true, message: 'Start time required' }]}
+                  style={{ marginBottom: 14 }}
+                >
+                  <TimePicker format="HH:mm" minuteStep={15} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="endTime"
+                  label="End time"
+                  rules={[{ required: true, message: 'End time required' }]}
+                  style={{ marginBottom: 14 }}
+                >
+                  <TimePicker format="HH:mm" minuteStep={15} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+            </Row>
           )}
-          <Form.Item name="note" label="Note (optional)">
+
+          {sectionLabel('Notes')}
+          <Form.Item name="note" label="Note (optional)" style={{ marginBottom: 14 }}>
             <Input.TextArea rows={2} placeholder="e.g. Rush order, company holiday…" />
           </Form.Item>
         </Form>
-        {isAdmin && editing && (
-          <Button
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => confirmDelete(editing)}
-            block
-            style={{ marginTop: 4 }}
-          >
-            Delete exception
-          </Button>
-        )}
+
+        <div className="app-form-modal__footer">
+          {isAdmin && editing ? (
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => confirmDelete(editing)}
+              style={{ marginRight: 'auto' }}
+            >
+              Delete
+            </Button>
+          ) : null}
+          {isAdmin ? (
+            <>
+              <Button onClick={() => setFormOpen(false)} style={{ minWidth: 96 }}>
+                Cancel
+              </Button>
+              <Button
+                type="primary"
+                loading={saving}
+                onClick={submitForm}
+                style={{ fontWeight: 700, minWidth: 120 }}
+              >
+                {editing ? 'Save' : 'Create'}
+              </Button>
+            </>
+          ) : (
+            <Button onClick={() => setFormOpen(false)} style={{ minWidth: 96 }}>
+              Close
+            </Button>
+          )}
+        </div>
       </Modal>
     </div>
   );

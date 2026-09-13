@@ -220,17 +220,17 @@ body {
 
 .ant-modal-confirm.logout-confirm .ant-modal-confirm-title {
   display: block;
-  font-size: 16px;
-  font-weight: 800;
-  color: #0f1c2e;
-  line-height: 1.3;
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.25;
 }
 
 .ant-modal-confirm.logout-confirm .ant-modal-confirm-content {
   margin-inline-start: 0 !important;
-  margin-top: 6px;
+  margin-top: 2px;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   color: #64748b;
   line-height: 1.4;
 }
@@ -246,29 +246,33 @@ body {
 .ant-modal-confirm.logout-confirm .ant-modal-confirm-btns .ant-btn {
   width: 100%;
   margin: 0 !important;
-  height: 42px;
+  height: auto;
+  min-height: 42px;
+  padding: 11px 12px;
   border-radius: 10px;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   box-shadow: none;
 }
 
 .ant-modal-confirm.logout-confirm .logout-confirm__cancel {
   background: #f1f5f9 !important;
   border: none !important;
-  color: #0f1c2e !important;
+  color: #0f172a !important;
+  font-weight: 600 !important;
 }
 
 .ant-modal-confirm.logout-confirm .logout-confirm__cancel:hover,
 .ant-modal-confirm.logout-confirm .logout-confirm__cancel:focus {
   background: #e2e8f0 !important;
-  color: #0f1c2e !important;
+  color: #0f172a !important;
 }
 
 .ant-modal-confirm.logout-confirm .logout-confirm__ok {
   background: #611020 !important;
   border: none !important;
   color: #fff !important;
+  font-weight: 700 !important;
 }
 
 .ant-modal-confirm.logout-confirm .logout-confirm__ok:hover,
@@ -2309,6 +2313,52 @@ button.admin-card {
   background: #f8fafc;
 }
 
+/* Worker mobile: schedule-style segmented toggle (gray track + sliding white pill) */
+.worker-seg.ant-segmented {
+  width: 100%;
+  padding: 3px;
+  border-radius: 10px;
+  background: #e2e8f0;
+}
+
+.worker-seg .ant-segmented-group {
+  gap: 0;
+}
+
+.worker-seg .ant-segmented-item {
+  min-height: 30px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  border-radius: 8px;
+}
+
+.worker-seg .ant-segmented-item-label {
+  min-height: 30px;
+  line-height: 30px;
+  padding: 0 6px;
+}
+
+.worker-seg .ant-segmented-item-selected,
+.worker-seg .ant-segmented-item:hover {
+  color: #0f1c2e;
+}
+
+.worker-seg .ant-segmented-thumb {
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
+}
+
+.worker-search.ant-input-affix-wrapper {
+  padding-block: 6px;
+  border-radius: 10px;
+}
+
+.worker-search.ant-input-affix-wrapper .ant-input {
+  font-size: 13px;
+}
+
 /* Shared list pages (job orders, clients, inventory, users) */
 .std-list-page,
 .jo-list-page {
@@ -3023,8 +3073,8 @@ button.admin-card {
 .machine-card__banner {
   position: relative;
   flex-shrink: 0;
-  min-height: 96px;
-  padding: 16px 16px 28px;
+  min-height: 0;
+  padding: 14px 16px 12px;
   background: var(--machine-banner);
   color: #fff;
   overflow: hidden;
@@ -3055,7 +3105,6 @@ button.admin-card {
 .machine-card__banner-text {
   position: relative;
   z-index: 1;
-  padding-right: 56px;
 }
 
 .machine-card__label {
@@ -3069,14 +3118,14 @@ button.admin-card {
 }
 
 .machine-card__type {
-  margin-top: 4px;
+  margin-top: 2px;
   font-size: 13px;
   font-weight: 600;
   opacity: 0.92;
 }
 
 .machine-card__status-line {
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -3084,40 +3133,10 @@ button.admin-card {
   opacity: 0.78;
 }
 
-.machine-card__avatar {
-  position: absolute;
-  right: 14px;
-  bottom: -18px;
-  z-index: 2;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: 3px solid #fff;
-  background: #e2e8f0;
-  color: #0f1c2e;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  font-weight: 800;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
-}
-
-.machine-card--running .machine-card__avatar {
-  background: #ccfbf1;
-  color: #0f766e;
-}
-
-.machine-card--breakdown .machine-card__avatar {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
 .machine-card__body {
   flex: 1;
   min-height: 0;
-  /* Top padding clears the overlapping avatar (~18px below banner) */
-  padding: 22px 16px 8px;
+  padding: 10px 16px 0;
 }
 
 .machine-card__op {
@@ -3131,7 +3150,7 @@ button.admin-card {
 .machine-card__job {
   font-size: 12px;
   color: #64748b;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .machine-card__worker {
@@ -3151,18 +3170,17 @@ button.admin-card {
 .machine-card__idle-copy {
   font-size: 13px;
   color: #64748b;
-  line-height: 1.45;
+  line-height: 1.35;
 }
 
 .machine-card__footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   margin-top: auto;
-  padding: 6px 8px 6px 16px;
-  border-top: 1px solid #e8eaed;
-  min-height: 36px;
+  padding: 4px 4px 6px 16px;
+  min-height: 0;
 }
 
 .machine-card__footer-text {
@@ -3191,13 +3209,13 @@ button.admin-card {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 28px;
+  height: 28px;
   border: none;
   border-radius: 50%;
   background: transparent;
   color: #5f6368;
-  font-size: 18px;
+  font-size: 16px;
   cursor: pointer;
 }
 
@@ -3216,56 +3234,103 @@ button.admin-card {
   border-radius: 12px;
 }
 
-/*
-
 /* —— Work calendar —— */
 .work-calendar-page {
-  max-width: 1100px;
+  width: 100%;
+  padding: 4px 0 24px;
+}
+
+.work-calendar__shell {
+  width: 100%;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 20px 22px 18px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.work-calendar__intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.work-calendar__title {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f1c2e;
+  letter-spacing: -0.02em;
+}
+
+.work-calendar__sub {
+  margin: 0;
+  max-width: 42rem;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #64748b;
 }
 
 .work-calendar__toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+  position: relative;
 }
 
 .work-calendar__nav {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
 .work-calendar__month-label {
-  min-width: 160px;
+  min-width: 168px;
   text-align: center;
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 800;
   color: #0f1c2e;
+  letter-spacing: -0.02em;
+}
+
+.work-calendar__toolbar > .ant-btn {
+  position: absolute;
+  right: 0;
 }
 
 .work-calendar__legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px 18px;
-  margin-bottom: 12px;
+  gap: 8px;
   font-size: 12px;
-  color: #64748b;
+  color: #475569;
 }
 
 .work-calendar__legend span {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-weight: 600;
 }
 
 .work-calendar__dot {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .work-calendar__dot--ot {
@@ -3283,11 +3348,7 @@ button.admin-card {
 .work-calendar__grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 6px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 10px;
+  gap: 8px;
 }
 
 .work-calendar__weekday {
@@ -3296,8 +3357,8 @@ button.admin-card {
   font-weight: 700;
   color: #64748b;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 4px 0 8px;
+  letter-spacing: 0.05em;
+  padding: 0 0 6px;
 }
 
 .work-calendar__cell {
@@ -3305,14 +3366,14 @@ button.admin-card {
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  min-height: 84px;
-  padding: 8px;
-  border: 1px solid #e8eaed;
+  min-height: 68px;
+  padding: 8px 9px;
+  border: 1px solid transparent;
   border-radius: 10px;
   background: #f8fafc;
   text-align: left;
   cursor: default;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .work-calendar__cell--interactive {
@@ -3320,12 +3381,14 @@ button.admin-card {
 }
 
 .work-calendar__cell--interactive:hover:not(:disabled) {
-  border-color: #94a3b8;
-  box-shadow: 0 1px 3px rgba(15, 28, 46, 0.08);
+  border-color: #cbd5e1;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 28, 46, 0.06);
 }
 
 .work-calendar__cell--outside {
-  opacity: 0.4;
+  opacity: 0.35;
+  background: transparent;
 }
 
 .work-calendar__cell--off {
@@ -3335,6 +3398,7 @@ button.admin-card {
 .work-calendar__cell--today {
   border-color: #0f1c2e;
   box-shadow: inset 0 0 0 1px #0f1c2e;
+  background: #fff;
 }
 
 .work-calendar__cell--overtime {
@@ -3356,12 +3420,13 @@ button.admin-card {
   font-size: 13px;
   font-weight: 700;
   color: #0f172a;
+  line-height: 1;
 }
 
 .work-calendar__badge {
   font-size: 11px;
-  font-weight: 600;
-  line-height: 1.3;
+  font-weight: 700;
+  line-height: 1.25;
   color: #0f1c2e;
 }
 
@@ -3377,18 +3442,36 @@ button.admin-card {
   color: #b91c1c;
 }
 
-.work-calendar__muted {
-  font-size: 11px;
-  color: #94a3b8;
-}
-
 @media (max-width: 768px) {
+  .work-calendar__shell {
+    padding: 14px 12px 12px;
+    border-radius: 12px;
+  }
+
+  .work-calendar__toolbar > .ant-btn {
+    position: static;
+  }
+
+  .work-calendar__toolbar {
+    justify-content: space-between;
+  }
+
+  .work-calendar__grid {
+    gap: 4px;
+  }
+
   .work-calendar__cell {
-    min-height: 64px;
+    min-height: 52px;
     padding: 6px;
+    border-radius: 8px;
   }
 
   .work-calendar__badge {
     font-size: 10px;
+  }
+
+  .work-calendar__month-label {
+    min-width: 132px;
+    font-size: 15px;
   }
 }
