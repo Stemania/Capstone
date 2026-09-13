@@ -1,4 +1,8 @@
-"""Rank production workers with weighted scoring components."""
+"""Rank production workers with fixed weighted scoring components.
+
+Availability is a filter (not a weight): unqualified and busy workers are
+omitted from the shortlist entirely.
+"""
 
 from app.models.machine import MachineType
 from app.models.worker_skill import OperationType, WorkerSkill
@@ -8,7 +12,6 @@ from app.services.scoring_service import (
     fetch_efficiency_pairs,
     load_scoring_weights,
     log_weights_used,
-    score_availability,
     score_efficiency,
     score_skill,
     score_workload,
@@ -67,11 +70,13 @@ def suggest_workers(
     operation_name=None,
 ):
     """
-    Score all active production workers.
+    Score eligible active production workers.
 
-    Returns {"weights": {...}, "suggestions": [...]}.
-    Unqualified workers (no WorkerSkill for target machine) get score 0.0
-    and qualified=false. No proposed window uses neutral availability 0.5.
+    Filters out:
+      - workers without skill for the target machine type (when a machine is required)
+      - workers busy for the proposed window (overlap), or IN_PROGRESS when no window
+
+    Returns {"weights": {...}, "suggestions": [...]} — only eligible workers.
     """
     del exclude_job_id  # reserved for future earliest-fit; unused in scoring
 
@@ -113,64 +118,39 @@ def suggest_workers(
         and not target_machine_id
     ).all()
 
-    # Peer set for workload normalization: qualified workers when machine set,
-    # otherwise all active workers.
     if target_machine_id:
-        peer_ids = [w.id for w in workers if w.id in skill_by_worker]
-    else:
-        peer_ids = [w.id for w in workers]
-
-    load_by_worker = {
-        wid: worker_week_load_hours(wid, exclude_operation_id=exclude_operation_id)
-        for wid in peer_ids
-    }
-    peer_hours = list(load_by_worker.values())
+        workers = [w for w in workers if w.id in skill_by_worker]
 
     busy_workers = get_busy_workers(
         start=scheduled_start,
         end=scheduled_end,
         exclude_operation_id=exclude_operation_id,
     )
+    workers = [w for w in workers if w.id not in busy_workers]
+
+    peer_ids = [w.id for w in workers]
+    load_by_worker = {
+        wid: worker_week_load_hours(wid, exclude_operation_id=exclude_operation_id)
+        for wid in peer_ids
+    }
+    peer_hours = list(load_by_worker.values())
 
     suggestions = []
     for worker in workers:
         skill = skill_by_worker.get(worker.id) if target_machine_id else None
-        # No machine required → everyone is qualified (skill component = 1.0)
         if target_machine_id:
-            qualified = skill is not None
             skill_score, skill_reason, skill_default = score_skill(
                 proficiency=skill.proficiency if skill else None,
                 is_primary=bool(skill and skill.is_primary),
             )
         else:
-            qualified = True
             skill_score, skill_reason, skill_default = (
                 1.0,
                 "no machine skill required",
                 False,
             )
 
-        avail_score, avail_reason, avail_default = score_availability(
-            worker.id,
-            scheduled_start=scheduled_start,
-            scheduled_end=scheduled_end,
-            exclude_operation_id=exclude_operation_id,
-        )
-
-        conflict = busy_workers.get(worker.id)
-        if conflict:
-            label = conflict.operation_name or "another operation"
-            avail_score = 0.0
-            avail_reason = f"currently on '{label}'"
-            avail_default = False
-
-        hours = load_by_worker.get(
-            worker.id,
-            worker_week_load_hours(
-                worker.id, exclude_operation_id=exclude_operation_id
-            ),
-        )
-        # Unqualified workers are not in peer set; still score vs peer distribution
+        hours = load_by_worker.get(worker.id, 0.0)
         work_score, work_reason, work_default = score_workload(hours, peer_hours)
 
         eff_pairs = fetch_efficiency_pairs(worker.id, resolved_op_type_id)
@@ -178,28 +158,20 @@ def suggest_workers(
 
         components = {
             "skill": round(skill_score, 4),
-            "availability": round(avail_score, 4),
             "workload": round(work_score, 4),
             "efficiency": round(eff_score, 4),
         }
-        total = combine_score(weights, components, qualified=qualified)
+        total = combine_score(weights, components, qualified=True)
 
         reason_parts = [
             (skill_reason, skill_default),
-            (avail_reason, avail_default),
             (work_reason, work_default),
             (eff_reason, eff_default),
         ]
-        # Prefer non-default fragments first for readability when qualified
-        if qualified:
-            ordered = [p for p in reason_parts if not p[1]] + [
-                p for p in reason_parts if p[1]
-            ]
-            reason = build_reason(ordered, machine_label=machine_label, unqualified=False)
-        else:
-            reason = build_reason(
-                reason_parts, machine_label=machine_label or "required", unqualified=True
-            )
+        ordered = [p for p in reason_parts if not p[1]] + [
+            p for p in reason_parts if p[1]
+        ]
+        reason = build_reason(ordered, machine_label=machine_label, unqualified=False)
 
         skills_codes = [
             s.machine_type.code
@@ -213,19 +185,17 @@ def suggest_workers(
                 "email": worker.email,
                 "skills": skills_codes,
                 "score": total,
-                "qualified": qualified,
+                "qualified": True,
                 "components": components,
                 "reason": reason,
                 "matchedSkills": [mt.code] if mt and skill else [],
                 "proficiency": skill.proficiency if skill else None,
-                "available": avail_score > 0.0 and conflict is None,
+                "available": True,
             }
         )
 
     suggestions.sort(
         key=lambda s: (
-            s["qualified"],
-            s["available"],
             s["score"],
             s.get("proficiency") or 0,
         ),

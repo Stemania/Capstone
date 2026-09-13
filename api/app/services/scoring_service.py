@@ -1,4 +1,10 @@
-"""Weighted scoring components for worker recommendation."""
+"""Weighted scoring components for worker recommendation.
+
+Fixed shop weights (not editable):
+  skill 0.50 · workload 0.30 · past performance (efficiency) 0.20
+
+Availability is a hard filter in worker_suggestion_service, not a weight.
+"""
 
 from __future__ import annotations
 
@@ -6,36 +12,30 @@ import logging
 from datetime import datetime, time, timedelta, timezone
 
 from app.models.operation import JobOperation, OperationStatus
-from app.models.scoring_weight import DEFAULT_SCORING_WEIGHTS, ScoringWeight
 from app.models.worker_skill import WorkCalendarException, WorkerSchedule
-from app.extensions import db
 from app.services.schedule_calendar import effective_hours_for_date
 from app.services.worker_availability import _parse_dt, _windows_overlap, list_worker_operations
 
 logger = logging.getLogger(__name__)
 
-WEIGHT_KEYS = ("skill", "availability", "workload", "efficiency")
-COLD_START_MIN_SAMPLES = 3
+# Single source of truth for suggestion ranking weights.
+FIXED_SCORING_WEIGHTS = {
+    "skill": 0.50,
+    "workload": 0.30,
+    "efficiency": 0.20,  # past performance vs target hours
+}
+
+WEIGHT_KEYS = tuple(FIXED_SCORING_WEIGHTS.keys())
+COLD_START_MIN_SAMPLES = 2
 EFFICIENCY_RATIO_CAP = 1.5
+
+# Back-compat alias for imports/tests that still reference the old name.
+DEFAULT_SCORING_WEIGHTS = FIXED_SCORING_WEIGHTS
 
 
 def load_scoring_weights():
-    """Load weights from DB; fall back to defaults if rows/table are missing."""
-    from sqlalchemy.exc import OperationalError, ProgrammingError
-
-    try:
-        rows = {row.key: float(row.value) for row in ScoringWeight.query.all()}
-    except (ProgrammingError, OperationalError):
-        db.session.rollback()
-        return {k: float(v) for k, v in DEFAULT_SCORING_WEIGHTS.items()}
-
-    weights = {}
-    for key in WEIGHT_KEYS:
-        if key in rows:
-            weights[key] = rows[key]
-        else:
-            weights[key] = float(DEFAULT_SCORING_WEIGHTS[key])
-    return weights
+    """Return fixed weights. DB scoring_weights table is unused legacy."""
+    return dict(FIXED_SCORING_WEIGHTS)
 
 
 def validate_weights_sum(weights, tolerance=1e-6):
@@ -94,9 +94,9 @@ def score_availability(
     operations=None,
 ):
     """
+    Calendar/overlap probe used by tests and diagnostics.
+    Not a scoring weight — suggestions filter busy workers separately.
     Returns (score, reason fragment, used_default).
-    No proposed window → neutral 0.5 (default, disclosed).
-    Compares derived working segments (not overnight envelopes).
     """
     from app.services.schedule_calendar import derive_working_segments
 
@@ -208,13 +208,11 @@ def worker_week_load_hours(worker_id, now=None, exclude_operation_id=None, opera
             continue
         if op.status not in (OperationStatus.SCHEDULED, OperationStatus.IN_PROGRESS):
             continue
-        # Include if scheduled into this week, or unscheduled active load
         if op.scheduled_start is not None:
             ss = op.scheduled_start
             if ss.tzinfo is None:
                 ss = ss.replace(tzinfo=timezone.utc)
             if ss < week_start or ss >= week_end:
-                # still count if window overlaps week
                 se = op.scheduled_end
                 if se is None:
                     continue
@@ -242,7 +240,6 @@ def score_workload(worker_hours, peer_hours_list):
     if abs(hi - lo) < 1e-9:
         return 1.0, "equal load with peers this week", False
 
-    # lightest (lo) → 1.0, heaviest (hi) → 0.0
     score = (hi - float(worker_hours)) / (hi - lo)
     score = max(0.0, min(1.0, score))
     if score >= 0.75:
@@ -256,8 +253,8 @@ def score_workload(worker_hours, peer_hours_list):
 
 def score_efficiency(completed_pairs):
     """
-    completed_pairs: iterable of (estimated_hours, actual_hours) for same op type.
-    Cold start (<3) → 0.5 default.
+    completed_pairs: iterable of (estimated_hours, actual_hours).
+    Cold start (<2) → 0.5 default.
     Returns (score, reason fragment, used_default).
     """
     pairs = [
@@ -268,7 +265,7 @@ def score_efficiency(completed_pairs):
     if len(pairs) < COLD_START_MIN_SAMPLES:
         return (
             0.5,
-            "no completion history yet (neutral default)",
+            "too few completed ops yet (neutral default)",
             True,
         )
 
@@ -279,7 +276,7 @@ def score_efficiency(completed_pairs):
         ratios.append(ratio / EFFICIENCY_RATIO_CAP)
 
     avg = sum(ratios) / len(ratios)
-    return avg, f"efficiency from {len(pairs)} completed ops", False
+    return avg, f"past performance from {len(pairs)} completed ops", False
 
 
 def combine_score(weights, components, qualified=True):
@@ -295,24 +292,15 @@ def build_reason(parts, machine_label=None, unqualified=False):
     if unqualified:
         label = machine_label or "this machine"
         return f"No {label} skill — cannot operate this machine"
-    # parts: list of (fragment, used_default)
     chunks = [p for p, _ in parts if p]
     return ", ".join(chunks) if chunks else "No scoring signals"
 
 
-def fetch_efficiency_pairs(worker_id, operation_type_id):
-    if not operation_type_id:
-        return []
-    ops = JobOperation.query.filter(
-        JobOperation.assigned_worker_id == worker_id,
-        JobOperation.operation_type_id == operation_type_id,
-        JobOperation.status == OperationStatus.COMPLETED,
-        JobOperation.actual_start.isnot(None),
-        JobOperation.actual_end.isnot(None),
-        JobOperation.estimated_hours.isnot(None),
-    ).all()
+def _pairs_from_ops(ops):
     pairs = []
     for op in ops:
+        if not op.actual_start or not op.actual_end or op.estimated_hours is None:
+            continue
         delta = op.actual_end - op.actual_start
         actual_hours = delta.total_seconds() / 3600.0
         if actual_hours <= 0:
@@ -321,12 +309,44 @@ def fetch_efficiency_pairs(worker_id, operation_type_id):
     return pairs
 
 
+def fetch_efficiency_pairs(worker_id, operation_type_id):
+    """
+    Prefer completed ops of the same operation type; if fewer than the cold-start
+    minimum, fall back to this worker's completed ops across all types.
+    """
+    type_pairs = []
+    if operation_type_id:
+        type_ops = JobOperation.query.filter(
+            JobOperation.assigned_worker_id == worker_id,
+            JobOperation.operation_type_id == operation_type_id,
+            JobOperation.status == OperationStatus.COMPLETED,
+            JobOperation.actual_start.isnot(None),
+            JobOperation.actual_end.isnot(None),
+            JobOperation.estimated_hours.isnot(None),
+        ).all()
+        type_pairs = _pairs_from_ops(type_ops)
+        if len(type_pairs) >= COLD_START_MIN_SAMPLES:
+            return type_pairs
+
+    all_ops = JobOperation.query.filter(
+        JobOperation.assigned_worker_id == worker_id,
+        JobOperation.status == OperationStatus.COMPLETED,
+        JobOperation.actual_start.isnot(None),
+        JobOperation.actual_end.isnot(None),
+        JobOperation.estimated_hours.isnot(None),
+    ).all()
+    all_pairs = _pairs_from_ops(all_ops)
+    if len(all_pairs) >= COLD_START_MIN_SAMPLES:
+        return all_pairs
+    # Prefer typed pairs when present but still short; else whatever we have.
+    return type_pairs if type_pairs else all_pairs
+
+
 def log_weights_used(weights, context="suggest"):
     logger.info(
-        "scoring weights used (%s): skill=%.4f availability=%.4f workload=%.4f efficiency=%.4f",
+        "scoring weights used (%s): skill=%.4f workload=%.4f efficiency=%.4f",
         context,
         weights["skill"],
-        weights["availability"],
         weights["workload"],
         weights["efficiency"],
     )

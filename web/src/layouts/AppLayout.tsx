@@ -58,7 +58,7 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/tools': { title: 'Inventory', subtitle: 'Tools and consumables' },
   '/worker-setup': {
     title: 'Worker setup',
-    subtitle: 'Skills, weekly hours, and how the shop ranks workers',
+    subtitle: 'Skills, weekly hours, and work history',
   },
 };
 

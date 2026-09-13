@@ -130,7 +130,7 @@ export default function AppRoutes() {
                     <Route path="/worker-setup" element={<WorkerSetupPage />} />
                     <Route
                       path="/settings/scoring-weights"
-                      element={<Navigate to="/worker-setup?tab=ranking" replace />}
+                      element={<Navigate to="/worker-setup" replace />}
                     />
                   </Route>
 

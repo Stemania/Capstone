@@ -3,9 +3,10 @@
 from datetime import date, time
 from types import SimpleNamespace
 
-from app.models.scoring_weight import DEFAULT_SCORING_WEIGHTS
+from app.models.scoring_weight import ScoringWeight
 from app.services.schedule_calendar import shop_local_to_utc
 from app.services.scoring_service import (
+    FIXED_SCORING_WEIGHTS,
     score_availability,
     score_efficiency,
     score_skill,
@@ -29,11 +30,14 @@ def _mon_sat_schedules():
     return rows
 
 
-def test_default_weights_sum_to_one():
-    weights = {k: float(v) for k, v in DEFAULT_SCORING_WEIGHTS.items()}
-    ok, total = validate_weights_sum(weights)
+def test_fixed_weights_sum_to_one():
+    ok, total = validate_weights_sum(FIXED_SCORING_WEIGHTS)
     assert ok
     assert abs(total - 1.0) < 1e-9
+    assert set(FIXED_SCORING_WEIGHTS) == {"skill", "workload", "efficiency"}
+    assert FIXED_SCORING_WEIGHTS["skill"] == 0.5
+    assert FIXED_SCORING_WEIGHTS["workload"] == 0.3
+    assert FIXED_SCORING_WEIGHTS["efficiency"] == 0.2
 
 
 def test_score_skill_proficiency_and_primary():
@@ -134,17 +138,20 @@ def test_workload_minmax_linear():
 
 
 def test_efficiency_cold_start_neutral():
-    score, reason, used_default = score_efficiency([(4.0, 4.0), (3.0, 3.0)])
+    score, reason, used_default = score_efficiency([(4.0, 4.0)])
     assert score == 0.5
     assert used_default is True
-    assert "no completion history" in reason
+    assert "too few" in reason
 
 
-def test_efficiency_from_history():
-    # estimated/actual = 1.5 → normalized 1.0; = 0.75 → 0.5
-    pairs = [(3.0, 2.0), (3.0, 2.0), (3.0, 4.0)]
+def test_efficiency_from_two_samples():
+    pairs = [(3.0, 2.0), (3.0, 4.0)]
     score, reason, used_default = score_efficiency(pairs)
     assert used_default is False
     assert "completed ops" in reason
-    expected = (1.0 + 1.0 + (0.75 / 1.5)) / 3
+    expected = (1.0 + (0.75 / 1.5)) / 2
     assert abs(score - expected) < 1e-9
+
+
+def test_scoring_weight_model_still_importable():
+    assert ScoringWeight is not None
