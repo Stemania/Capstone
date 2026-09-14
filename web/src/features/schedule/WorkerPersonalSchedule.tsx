@@ -12,7 +12,7 @@ import {
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { WorkerPageHeader, useWorkerTheme } from '../../layouts/WorkerLayout';
-import { parseHm, periodBounds } from './scheduleTimelineUtils';
+import { parseHm, periodBounds, scheduleOpTitle } from './scheduleTimelineUtils';
 import { SHOP_TZ } from '../../utils/shopTime';
 
 type ViewMode = 'day' | 'week';
@@ -115,7 +115,7 @@ function blocksForDay(
         op,
         top: (sMin - startMin) * PX_PER_MIN,
         height: Math.max((eMin - sMin) * PX_PER_MIN, 28),
-        labelMain: op.operationName,
+        labelMain: scheduleOpTitle(op.sequenceNo, op.operationName),
         labelSub: [job, machine].filter(Boolean).join(' · '),
       });
     }
@@ -292,6 +292,7 @@ export default function WorkerPersonalSchedule() {
             {blocks.map((b) => {
               const color = STATUS_COLOR[b.op.status] || '#2563eb';
               const showSub = b.height >= 44;
+              const dayFill = viewMode === 'day';
               return (
                 <button
                   key={b.key}
@@ -299,20 +300,20 @@ export default function WorkerPersonalSchedule() {
                   onClick={() => openOp(b.op)}
                   style={{
                     position: 'absolute',
-                    left: 3,
-                    right: 3,
+                    left: dayFill ? 0 : 3,
+                    right: dayFill ? 0 : 3,
                     top: b.top,
                     height: b.height,
                     margin: 0,
                     padding: wide ? '4px 6px' : '3px 4px',
                     border: 'none',
-                    borderRadius: 8,
+                    borderRadius: dayFill ? 0 : 8,
                     background: color,
                     color: '#fff',
                     textAlign: 'left',
                     cursor: 'pointer',
                     overflow: 'hidden',
-                    boxShadow: '0 1px 2px rgba(15,23,42,0.12)',
+                    boxShadow: dayFill ? undefined : '0 1px 2px rgba(15,23,42,0.12)',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'flex-start',

@@ -374,20 +374,46 @@ export function dayColumnsForView(
   }
   const hoursPerDay = HOUR_END - HOUR_START;
   const pph = pxPerHour(viewMode, mobile);
+
+  // Day view: one column per shop hour so the header shows clock times.
+  if (viewMode === 'day') {
+    const dateKey = from.format('YYYY-MM-DD');
+    return Array.from({ length: hoursPerDay }, (_, i) => {
+      const hour = HOUR_START + i;
+      return {
+        key: `${dateKey}-h${hour}`,
+        left: i * pph,
+        width: pph,
+        label: mobile ? String(hour) : `${hour}:00`,
+      };
+    });
+  }
+
   return Array.from({ length: dayCount }, (_, i) => {
     const d = from.add(i, 'day');
     return {
       key: d.format('YYYY-MM-DD'),
       left: i * hoursPerDay * pph,
       width: hoursPerDay * pph,
-      label:
-        viewMode === 'day'
-          ? d.format(mobile ? 'ddd D' : 'ddd MMM D')
-          : viewMode === 'week'
-            ? d.format('ddd D')
-            : d.format('D'),
+      label: viewMode === 'week' ? d.format('ddd D') : d.format('D'),
     };
   });
+}
+
+/**
+ * Prefixed op name for bars/tooltips, e.g. "#1 Blanking".
+ */
+export function scheduleOpTitle(
+  sequenceNo: number | null | undefined,
+  operationName: string
+): string {
+  const name = (operationName || 'Op').trim() || 'Op';
+  const n =
+    sequenceNo != null && Number.isFinite(Number(sequenceNo))
+      ? Number(sequenceNo)
+      : null;
+  if (n != null && n > 0) return `#${n} ${name}`;
+  return name;
 }
 
 /**
@@ -398,9 +424,10 @@ export function scheduleBarLabel(
   operationName: string,
   jobNumber: string | null | undefined,
   barWidthPx: number,
-  mobile = false
+  mobile = false,
+  sequenceNo?: number | null
 ): string {
-  const name = (operationName || 'Op').trim();
+  const name = scheduleOpTitle(sequenceNo, operationName);
   if (!name) return '';
   const job = jobNumber?.trim();
   const minForJob = mobile ? 140 : 120;

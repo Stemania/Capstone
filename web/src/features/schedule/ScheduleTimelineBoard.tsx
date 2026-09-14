@@ -23,6 +23,7 @@ import {
   scaleWeekTimelineLayout,
   scheduleBarLabel,
   scheduleBarTextStyle,
+  scheduleOpTitle,
   SCHEDULE_BAR_LABEL_SPAN_STYLE,
   mergeAdjacentWeekPieces,
   splitSegmentAcrossWeekDays,
@@ -31,6 +32,11 @@ import {
   type TimelineViewMode,
   type WeekTimelineLayout,
 } from './scheduleTimelineUtils';
+import {
+  buildJobConnectorPaths,
+  collectJobBarAnchors,
+  tracksBlockHeight,
+} from './scheduleJobConnectors';
 
 export type TimelineRow = {
   key: string;
@@ -93,6 +99,8 @@ type Props = {
   footerNote?: string;
   showLegend?: boolean;
   shopDayWindows?: ShopDayWindow[];
+  /** Draw curves between consecutive stages of the same job (main schedule “Job stage links”). */
+  showJobConnections?: boolean;
 };
 
 export default function ScheduleTimelineBoard({
@@ -111,6 +119,7 @@ export default function ScheduleTimelineBoard({
   footerNote,
   showLegend = false,
   shopDayWindows,
+  showJobConnections = false,
 }: Props) {
   const labelW = isMobile ? 96 : 168;
   const rowH = isMobile ? 40 : 44;
@@ -146,7 +155,7 @@ export default function ScheduleTimelineBoard({
   const dayColumns = dayColumnsForView(from, to, viewMode, isMobile, weekLayout);
   const pph = pxPerHour(viewMode, isMobile);
   const planningHighlight = Boolean(highlightJobId);
-  const columnFill = viewMode === 'week' || viewMode === 'month';
+  const columnFill = true;
   const posArgs = [from, viewMode, isMobile, weekLayout] as const;
 
   const opsForRow = (row: TimelineRow): ScheduleBoardOperation[] => {
@@ -168,6 +177,51 @@ export default function ScheduleTimelineBoard({
     if (!highlightJobId) return false;
     return opsForRow(row).some((op) => op.jobOrderId === highlightJobId);
   };
+
+  const colorForOp = (op: ScheduleBoardOperation) => {
+    const isThisJob = Boolean(highlightJobId) && op.jobOrderId === highlightJobId;
+    if (isThisJob) {
+      return highlightColor || op.scheduleColor || THIS_JOB_COLOR;
+    }
+    if (highlightJobId) return OTHER_JOB_COLOR;
+    return op.scheduleColor || STATUS_COLOR[op.status] || '#2563eb';
+  };
+
+  const jobConnectorPaths = useMemo(() => {
+    if (!showJobConnections) return [];
+    const anchors = collectJobBarAnchors({
+      rows,
+      opsForRow: (row) => opsForRow(row as TimelineRow),
+      rowH,
+      columnFill,
+      viewMode,
+      weekLayout,
+      from,
+      to,
+      posArgs: [...posArgs],
+      colorForOp,
+    });
+    return buildJobConnectorPaths(anchors);
+  }, [
+    showJobConnections,
+    rows,
+    operations,
+    rowMode,
+    rowH,
+    columnFill,
+    viewMode,
+    weekLayout,
+    from,
+    to,
+    isMobile,
+    highlightJobId,
+    highlightColor,
+  ]);
+
+  const tracksH = useMemo(() => {
+    if (!showJobConnections) return 0;
+    return tracksBlockHeight(rows, (row) => opsForRow(row as TimelineRow), rowH);
+  }, [showJobConnections, rows, operations, rowMode, rowH]);
 
   return (
     <div
@@ -242,6 +296,37 @@ export default function ScheduleTimelineBoard({
           </div>
         </div>
 
+        <div style={{ position: 'relative' }}>
+          {showJobConnections && jobConnectorPaths.length > 0 && tracksH > 0 ? (
+            <svg
+              width={boardW}
+              height={tracksH}
+              viewBox={`0 0 ${boardW} ${tracksH}`}
+              aria-hidden
+              style={{
+                position: 'absolute',
+                left: labelW,
+                top: 0,
+                width: boardW,
+                height: tracksH,
+                pointerEvents: 'none',
+                zIndex: 2,
+                overflow: 'visible',
+              }}
+            >
+              {jobConnectorPaths.map((p) => (
+                <path
+                  key={p.key}
+                  d={p.d}
+                  fill="none"
+                  stroke={p.color}
+                  strokeWidth={1.75}
+                  strokeOpacity={0.72}
+                  strokeLinecap="round"
+                />
+              ))}
+            </svg>
+          ) : null}
         {rows.map((row) => {
           const ops = opsForRow(row);
           const dts = downtimesForRow(row);
@@ -447,7 +532,8 @@ export default function ScheduleTimelineBoard({
                             op.operationName,
                             op.jobNumber,
                             barW,
-                            isMobile
+                            isMobile,
+                            op.sequenceNo
                           )
                         : '';
                       const textStyle = scheduleBarTextStyle({
@@ -458,7 +544,9 @@ export default function ScheduleTimelineBoard({
 
                       const tooltip = (
                         <div style={{ maxWidth: 260 }}>
-                          <div style={{ fontWeight: 700 }}>{op.operationName}</div>
+                          <div style={{ fontWeight: 700 }}>
+                            {scheduleOpTitle(op.sequenceNo, op.operationName)}
+                          </div>
                           {(op.jobNumber || op.jobTitle) && (
                             <div>
                               {op.jobNumber}
@@ -543,6 +631,7 @@ export default function ScheduleTimelineBoard({
             </div>
           );
         })}
+        </div>
       </div>
 
       <div

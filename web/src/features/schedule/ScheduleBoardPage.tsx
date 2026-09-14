@@ -41,6 +41,7 @@ import {
   scaleWeekTimelineLayout,
   scheduleBarLabel,
   scheduleBarTextStyle,
+  scheduleOpTitle,
   SCHEDULE_BAR_LABEL_SPAN_STYLE,
   mergeAdjacentWeekPieces,
   splitSegmentAcrossWeekDays,
@@ -239,7 +240,7 @@ function AdminOfficeScheduleBoard() {
   const boardW = timelineWidth(from, to, viewMode, isMobile, weekLayout);
   const dayColumns = dayColumnsForView(from, to, viewMode, isMobile, weekLayout);
   const pph = pxPerHour(viewMode, isMobile);
-  const columnFill = viewMode === 'week' || viewMode === 'month';
+  const columnFill = true;
   const posArgs = [from, viewMode, isMobile, weekLayout] as const;
   const boardCollapsedMaxHeight = isPhoneBoard
       ? 'calc(100dvh - 340px)'
@@ -888,7 +889,8 @@ function AdminOfficeScheduleBoard() {
                                   op.operationName,
                                   op.jobNumber,
                                   barW,
-                                  isMobile
+                                  isMobile,
+                                  op.sequenceNo
                                 )
                               : '';
                           const textStyle = scheduleBarTextStyle({
@@ -901,7 +903,9 @@ function AdminOfficeScheduleBoard() {
                               key={`${op.id}-${i}`}
                               title={
                                 <div style={{ maxWidth: 260 }}>
-                                  <div style={{ fontWeight: 700 }}>{op.operationName}</div>
+                                  <div style={{ fontWeight: 700 }}>
+                                    {scheduleOpTitle(op.sequenceNo, op.operationName)}
+                                  </div>
                                   <div>
                                     {op.jobNumber} · {op.jobTitle}
                                   </div>
