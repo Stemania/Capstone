@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Button, Segmented, Spin } from 'antd';
+import { Button, Segmented, Switch, Spin } from 'antd';
 import { LeftOutlined, RightOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import {
@@ -10,7 +10,12 @@ import {
 } from '../../api/schedule.api';
 import { getErrorMessage } from '../../api/client';
 import ScheduleTimelineBoard, { type TimelineRow } from '../schedule/ScheduleTimelineBoard';
-import { periodBounds, weekStartFromIsoDates, WORKING_HOURS_NOTE } from '../schedule/scheduleTimelineUtils';
+import {
+  periodBounds,
+  weekStartFromIsoDates,
+  WORKING_HOURS_NOTE,
+  type TimelineViewMode,
+} from '../schedule/scheduleTimelineUtils';
 import type { MachineUnitInfo, ProposedOperation } from '../../types';
 import { SHOP_TZ } from '../../utils/shopTime';
 import JobScheduleColorPicker from './JobScheduleColorPicker';
@@ -99,7 +104,7 @@ function proposedToBoardOp(
   };
 }
 
-function weekHasThisJob(from: Dayjs, to: Dayjs, ops: ProposedOperation[]): boolean {
+function periodHasThisJob(from: Dayjs, to: Dayjs, ops: ProposedOperation[]): boolean {
   const rangeStart = from.startOf('day');
   const rangeEnd = to.endOf('day');
   return ops.some((op) =>
@@ -141,6 +146,8 @@ export default function ScheduleWeekView({
   const [shopDayWindows, setShopDayWindows] = useState<ShopDayWindow[]>([]);
   const [fetchError, setFetchError] = useState('');
   const [rowMode, setRowMode] = useState<RowMode>('machine');
+  const [viewMode, setViewMode] = useState<TimelineViewMode>('week');
+  const [showJobConnections, setShowJobConnections] = useState(false);
 
   const proposed = useMemo(
     () => operations.filter((o) => o.scheduled && o.scheduledStart && o.scheduledEnd),
@@ -153,20 +160,36 @@ export default function ScheduleWeekView({
   }, [proposed]);
 
   const defaultWeekKey = defaultWeekStart.format('YYYY-MM-DD');
-  const [weekAnchor, setWeekAnchor] = useState<Dayjs>(defaultWeekStart);
+  const [anchor, setAnchor] = useState<Dayjs>(defaultWeekStart);
 
   // When the proposal’s earliest week changes (new draft / big time edits), snap back.
   useEffect(() => {
-    setWeekAnchor(dayjs.tz(defaultWeekKey, SHOP_TZ).startOf('day'));
+    setAnchor(dayjs.tz(defaultWeekKey, SHOP_TZ).startOf('day'));
   }, [defaultWeekKey]);
 
-  const { from, to } = useMemo(() => periodBounds(weekAnchor, 'week'), [weekAnchor]);
+  const { from, to } = useMemo(() => periodBounds(anchor, viewMode), [anchor, viewMode]);
   const fromKey = from.format('YYYY-MM-DD');
   const toKey = to.format('YYYY-MM-DD');
   const thisJobInView = useMemo(
-    () => weekHasThisJob(from, to, proposed),
+    () => periodHasThisJob(from, to, proposed),
     [from, to, proposed]
   );
+
+  const periodLabel =
+    viewMode === 'day'
+      ? from.format('ddd, MMM D, YYYY')
+      : viewMode === 'month'
+        ? from.format('MMMM YYYY')
+        : `${from.format('MMM D')} – ${to.format('MMM D, YYYY')}`;
+
+  const periodHint =
+    viewMode === 'day' ? 'day' : viewMode === 'month' ? 'month' : 'week';
+
+  const shiftPeriod = (dir: 1 | -1) => {
+    if (viewMode === 'day') setAnchor((a) => a.add(dir, 'day'));
+    else if (viewMode === 'week') setAnchor((a) => a.add(dir * 7, 'day'));
+    else setAnchor((a) => a.add(dir, 'month'));
+  };
 
   const workerNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -252,12 +275,20 @@ export default function ScheduleWeekView({
       <div className="jo-week-view__nav">
         <div className="jo-week-view__nav-left">
           <Segmented
-            size="small"
             value={rowMode}
             onChange={(v) => setRowMode(v as RowMode)}
             options={[
               { label: 'By machine', value: 'machine' },
               { label: 'By worker', value: 'worker' },
+            ]}
+          />
+          <Segmented
+            value={viewMode}
+            onChange={(v) => setViewMode(v as TimelineViewMode)}
+            options={[
+              { label: 'Day', value: 'day' },
+              { label: 'Week', value: 'week' },
+              { label: 'Month', value: 'month' },
             ]}
           />
         </div>
@@ -267,25 +298,35 @@ export default function ScheduleWeekView({
             size="small"
             className="sched-expand__btn"
             icon={<LeftOutlined />}
-            aria-label="Previous week"
-            onClick={() => setWeekAnchor((a) => a.subtract(7, 'day'))}
+            aria-label={`Previous ${periodHint}`}
+            onClick={() => shiftPeriod(-1)}
           />
-          <span className="jo-week-view__nav-label">
-            {from.format('MMM D')} – {to.format('MMM D, YYYY')}
-          </span>
+          <span className="jo-week-view__nav-label">{periodLabel}</span>
           <Button
             type="text"
             size="small"
             className="sched-expand__btn"
             icon={<RightOutlined />}
-            aria-label="Next week"
-            onClick={() => setWeekAnchor((a) => a.add(7, 'day'))}
+            aria-label={`Next ${periodHint}`}
+            onClick={() => shiftPeriod(1)}
           />
           {!thisJobInView ? (
-            <span className="jo-week-view__nav-hint">No ops for this job in this week</span>
+            <span className="jo-week-view__nav-hint">
+              No ops for this job in this {periodHint}
+            </span>
           ) : null}
         </div>
-        <div className="jo-week-view__nav-right">{navTrailing}</div>
+        <div className="jo-week-view__nav-right">
+          <label className="jo-week-view__links-toggle">
+            <Switch
+              size="small"
+              checked={showJobConnections}
+              onChange={setShowJobConnections}
+            />
+            Job stage links
+          </label>
+          {navTrailing}
+        </div>
       </div>
       {fetchError ? (
         <div style={{ fontSize: 12, color: '#b91c1c', marginBottom: 8 }}>
@@ -295,7 +336,7 @@ export default function ScheduleWeekView({
       <ScheduleTimelineBoard
         from={from}
         to={to}
-        viewMode="week"
+        viewMode={viewMode}
         rowMode={rowMode}
         rows={rows}
         operations={mergedOps}
@@ -303,8 +344,15 @@ export default function ScheduleWeekView({
         highlightJobId={jobId}
         highlightColor={scheduleColor}
         shopDayWindows={shopDayWindows}
+        showJobConnections={showJobConnections}
         showLegend
-        footerNote={`${WORKING_HOURS_NOTE} Week of ${from.format('MMM D')} – ${to.format('MMM D')}.`}
+        footerNote={
+          viewMode === 'week'
+            ? `${WORKING_HOURS_NOTE} Week of ${from.format('MMM D')} – ${to.format('MMM D')}.`
+            : viewMode === 'day'
+              ? `${WORKING_HOURS_NOTE} ${from.format('ddd, MMM D')}.`
+              : `${WORKING_HOURS_NOTE} ${from.format('MMMM YYYY')}.`
+        }
       />
     </div>
   );
