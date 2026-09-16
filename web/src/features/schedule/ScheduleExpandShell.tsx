@@ -8,8 +8,12 @@ export type ScheduleExpandApi = {
 };
 
 type Props = {
-  /** Plain string gets the uppercase title style; custom nodes sit on the left of the expand control. */
+  /** Plain string gets the uppercase title style; custom nodes sit on the left. */
   title?: ReactNode;
+  /** Centered toolbar content (e.g. period nav + date). */
+  center?: ReactNode;
+  /** Right-side actions before the expand control (e.g. Today). */
+  trailing?: ReactNode;
   collapsedMaxHeight?: string;
   children: ReactNode | ((api: ScheduleExpandApi) => ReactNode);
   className?: string;
@@ -19,6 +23,8 @@ type Props = {
 
 export default function ScheduleExpandShell({
   title,
+  center,
+  trailing,
   collapsedMaxHeight = 'min(520px, 55vh)',
   children,
   className,
@@ -71,7 +77,11 @@ export default function ScheduleExpandShell({
     >
       <div className="sched-expand__toolbar">
         {leading}
-        {!expandInBody ? expandButton : null}
+        <div className="sched-expand__center">{center}</div>
+        <div className="sched-expand__trailing">
+          {trailing}
+          {!expandInBody ? expandButton : null}
+        </div>
       </div>
       <div className="sched-expand__body">{body}</div>
     </div>

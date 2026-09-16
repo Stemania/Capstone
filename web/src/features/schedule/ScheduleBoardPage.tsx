@@ -24,6 +24,7 @@ import { useNavigate } from 'react-router-dom';
 import { scheduleApi, type ScheduleBoardOperation, type ScheduleBoardResponse } from '../../api/schedule.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
+import { adminPx } from '../../theme/adminTheme';
 import {
   HOUR_END,
   HOUR_START,
@@ -38,11 +39,14 @@ import {
   leftPx,
   periodBounds,
   pxPerHour,
+  fitDayPxPerHour,
   scaleWeekTimelineLayout,
-  scheduleBarLabel,
+  scheduleBarLabelParts,
   scheduleBarTextStyle,
   scheduleOpTitle,
   SCHEDULE_BAR_LABEL_SPAN_STYLE,
+  SCHEDULE_BAR_META_STYLE,
+  SCHEDULE_BAR_TITLE_STYLE,
   mergeAdjacentWeekPieces,
   splitSegmentAcrossWeekDays,
   timelineWidth,
@@ -96,8 +100,8 @@ function AdminOfficeScheduleBoard() {
   const navigate = useNavigate();
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
-  const labelW = isMobile ? 96 : 168;
-  const rowH = isMobile ? 40 : 44;
+  const labelW = isMobile ? adminPx(96) : adminPx(168);
+  const rowH = isMobile ? adminPx(40) : adminPx(44);
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [rowMode, setRowMode] = useState<RowMode>('machine');
   const [anchor, setAnchor] = useState(() => dayjs().tz(SHOP_TZ));
@@ -237,11 +241,16 @@ function AdminOfficeScheduleBoard() {
     return scaleWeekTimelineLayout(naturalWeekLayout, target);
   }, [naturalWeekLayout, boardAvailW, labelW]);
 
-  const boardW = timelineWidth(from, to, viewMode, isMobile, weekLayout);
-  const dayColumns = dayColumnsForView(from, to, viewMode, isMobile, weekLayout);
-  const pph = pxPerHour(viewMode, isMobile);
+  const dayHourPx = useMemo(() => {
+    if (viewMode !== 'day') return undefined;
+    return fitDayPxPerHour(isMobile, Math.max(0, boardAvailW - labelW));
+  }, [viewMode, isMobile, boardAvailW, labelW]);
+
+  const boardW = timelineWidth(from, to, viewMode, isMobile, weekLayout, dayHourPx);
+  const dayColumns = dayColumnsForView(from, to, viewMode, isMobile, weekLayout, dayHourPx);
+  const pph = dayHourPx ?? pxPerHour(viewMode, isMobile);
   const columnFill = true;
-  const posArgs = [from, viewMode, isMobile, weekLayout] as const;
+  const posArgs = [from, viewMode, isMobile, weekLayout, dayHourPx] as const;
   const boardCollapsedMaxHeight = isPhoneBoard
       ? 'calc(100dvh - 340px)'
       : isMobile
@@ -295,7 +304,7 @@ function AdminOfficeScheduleBoard() {
         ? from.format('MMMM YYYY')
         : `${from.format('MMM D')} – ${to.format('MMM D')}`;
 
-  const filterControls = (
+  const filterSelects = (
     <>
       {!isPhoneBoard && (
         <Segmented
@@ -339,13 +348,18 @@ function AdminOfficeScheduleBoard() {
         onChange={setClientId}
         options={(data?.clients || []).map((c) => ({ value: c.id, label: c.name }))}
       />
+    </>
+  );
+
+  const filterToggles = (
+    <>
       <label
         style={{
           display: 'inline-flex',
           alignItems: 'center',
           gap: 6,
           fontSize: 13,
-          width: isMobile ? '100%' : undefined,
+          whiteSpace: 'nowrap',
         }}
       >
         <Switch size="small" checked={includeCompleted} onChange={setIncludeCompleted} />
@@ -357,7 +371,7 @@ function AdminOfficeScheduleBoard() {
           alignItems: 'center',
           gap: 6,
           fontSize: 13,
-          width: isMobile ? '100%' : undefined,
+          whiteSpace: 'nowrap',
         }}
       >
         <Switch size="small" checked={showJobConnections} onChange={setShowJobConnections} />
@@ -480,8 +494,22 @@ function AdminOfficeScheduleBoard() {
             Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}
           </Button>
         ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            {filterControls}
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 8,
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              width: '100%',
+            }}
+          >
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              {filterSelects}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center' }}>
+              {filterToggles}
+            </div>
           </div>
         )}
       </div>
@@ -555,33 +583,57 @@ function AdminOfficeScheduleBoard() {
           collapsedMaxHeight={boardCollapsedMaxHeight}
           title={
             !isPhoneBoard ? (
+              <Segmented
+                value={viewMode}
+                onChange={(v) => setViewMode(v as ViewMode)}
+                size="middle"
+                options={[
+                  { label: 'Day', value: 'day' },
+                  { label: 'Week', value: 'week' },
+                  { label: 'Month', value: 'month' },
+                ]}
+              />
+            ) : undefined
+          }
+          center={
+            !isPhoneBoard ? (
               <>
-                <Segmented
-                  value={viewMode}
-                  onChange={(v) => setViewMode(v as ViewMode)}
-                  size="middle"
-                  options={[
-                    { label: 'Day', value: 'day' },
-                    { label: 'Week', value: 'week' },
-                    { label: 'Month', value: 'month' },
-                  ]}
+                <Button
+                  icon={<LeftOutlined />}
+                  onClick={() => shiftPeriod(-1)}
+                  aria-label="Previous period"
                 />
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <Button icon={<LeftOutlined />} onClick={() => shiftPeriod(-1)} />
-                  <Button
-                    icon={<AimOutlined />}
-                    onClick={() => setAnchor(dayjs().tz(SHOP_TZ))}
-                  >
-                    Today
-                  </Button>
-                  <Button icon={<RightOutlined />} onClick={() => shiftPeriod(1)} />
-                </div>
-                <Text strong style={{ color: NAVY, fontSize: isMobile ? 13 : 14 }}>
+                <Text
+                  strong
+                  style={{
+                    color: NAVY,
+                    fontSize: isMobile ? 13 : 14,
+                    minWidth: isMobile ? '7.5rem' : '11rem',
+                    textAlign: 'center',
+                  }}
+                >
                   {viewMode === 'day'
                     ? from.format('ddd, MMM D')
-                    : `${from.format('MMM D')} – ${to.format('MMM D, YYYY')}`}
+                    : viewMode === 'month'
+                      ? from.format('MMMM YYYY')
+                      : `${from.format('MMM D')} – ${to.format('MMM D, YYYY')}`}
                 </Text>
+                <Button
+                  icon={<RightOutlined />}
+                  onClick={() => shiftPeriod(1)}
+                  aria-label="Next period"
+                />
               </>
+            ) : undefined
+          }
+          trailing={
+            !isPhoneBoard ? (
+              <Button
+                icon={<AimOutlined />}
+                onClick={() => setAnchor(dayjs().tz(SHOP_TZ))}
+              >
+                Today
+              </Button>
             ) : undefined
           }
         >
@@ -885,19 +937,24 @@ function AdminOfficeScheduleBoard() {
                           const late = !!op.isLate;
                           const label =
                             barW >= 22
-                              ? scheduleBarLabel(
+                              ? scheduleBarLabelParts(
                                   op.operationName,
                                   op.jobNumber,
+                                  op.clientName,
                                   barW,
                                   isMobile,
                                   op.sequenceNo
                                 )
-                              : '';
+                              : null;
                           const textStyle = scheduleBarTextStyle({
                             mobile: isMobile,
                             barWidthPx: barW,
                             columnFill,
                           });
+                          const metaFontSize = Math.max(
+                            9,
+                            Math.round((textStyle.fontSize as number) * 0.88)
+                          );
                           return [
                             <Tooltip
                               key={`${op.id}-${i}`}
@@ -955,7 +1012,19 @@ function AdminOfficeScheduleBoard() {
                                 }}
                               >
                                 {label ? (
-                                  <span style={SCHEDULE_BAR_LABEL_SPAN_STYLE}>{label}</span>
+                                  <span style={SCHEDULE_BAR_LABEL_SPAN_STYLE}>
+                                    <span style={SCHEDULE_BAR_TITLE_STYLE}>{label.title}</span>
+                                    {label.meta ? (
+                                      <span
+                                        style={{
+                                          ...SCHEDULE_BAR_META_STYLE,
+                                          fontSize: metaFontSize,
+                                        }}
+                                      >
+                                        {label.meta}
+                                      </span>
+                                    ) : null}
+                                  </span>
                                 ) : null}
                               </button>
                             </Tooltip>,

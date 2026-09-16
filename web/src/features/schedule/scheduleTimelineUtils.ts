@@ -1,5 +1,6 @@
 import dayjs, { type Dayjs } from 'dayjs';
 import { SHOP_TZ } from '../../utils/shopTime';
+import { adminPx } from '../../theme/adminTheme';
 
 export const TIMELINE_NAVY = '#0f1c2e';
 export const TIMELINE_BORDER = '#e2e8f0';
@@ -59,6 +60,22 @@ export function pxPerHour(mode: TimelineViewMode, mobile: boolean): number {
   if (mode === 'day') return mobile ? 40 : 56;
   if (mode === 'week') return mobile ? 12 : 18;
   return mobile ? 4 : 6;
+}
+
+/** Stretch day-view hours to fill the board when the viewport is wider than the natural width. */
+export function fitDayPxPerHour(mobile: boolean, availBoardW: number): number {
+  const natural = pxPerHour('day', mobile);
+  const hours = HOUR_END - HOUR_START;
+  if (availBoardW <= 0 || hours <= 0) return natural;
+  return Math.max(natural, availBoardW / hours);
+}
+
+function resolveHourPx(
+  mode: TimelineViewMode,
+  mobile: boolean,
+  hourPx?: number
+): number {
+  return hourPx ?? pxPerHour(mode, mobile);
 }
 
 export function parseHm(time: string): number {
@@ -217,18 +234,23 @@ export function timelineWidth(
   to: Dayjs,
   mode: TimelineViewMode,
   mobile: boolean,
-  weekLayout?: WeekTimelineLayout | null
+  weekLayout?: WeekTimelineLayout | null,
+  hourPx?: number
 ): number {
   if (mode === 'week' && weekLayout) {
     return weekLayout.totalWidth;
   }
   const hoursPerDay = HOUR_END - HOUR_START;
   const days = to.diff(from, 'day') + 1;
-  return days * hoursPerDay * pxPerHour(mode, mobile);
+  return days * hoursPerDay * resolveHourPx(mode, mobile, hourPx);
 }
 
-export function dayWidthPx(mode: TimelineViewMode, mobile: boolean): number {
-  return (HOUR_END - HOUR_START) * pxPerHour(mode, mobile);
+export function dayWidthPx(
+  mode: TimelineViewMode,
+  mobile: boolean,
+  hourPx?: number
+): number {
+  return (HOUR_END - HOUR_START) * resolveHourPx(mode, mobile, hourPx);
 }
 
 /** Hours from HOUR_START within the shop day window, clamped to [0, HOUR_END - HOUR_START]. */
@@ -250,7 +272,8 @@ export function leftPx(
   from: Dayjs,
   mode: TimelineViewMode,
   mobile: boolean,
-  weekLayout?: WeekTimelineLayout | null
+  weekLayout?: WeekTimelineLayout | null,
+  hourPx?: number
 ): number | null {
   const t = dayjs(iso).tz(SHOP_TZ);
   if (mode === 'week' && weekLayout) {
@@ -269,8 +292,8 @@ export function leftPx(
 
   const dayIndex = t.startOf('day').diff(from.startOf('day'), 'day');
   if (dayIndex < 0) return null;
-  const pph = pxPerHour(mode, mobile);
-  return dayIndex * dayWidthPx(mode, mobile) + shopHourOffset(t) * pph;
+  const pph = resolveHourPx(mode, mobile, hourPx);
+  return dayIndex * dayWidthPx(mode, mobile, hourPx) + shopHourOffset(t) * pph;
 }
 
 export function widthPx(
@@ -279,7 +302,8 @@ export function widthPx(
   from: Dayjs,
   mode: TimelineViewMode,
   mobile: boolean,
-  weekLayout?: WeekTimelineLayout | null
+  weekLayout?: WeekTimelineLayout | null,
+  hourPx?: number
 ): number | null {
   const start = dayjs(startIso).tz(SHOP_TZ);
   const end = dayjs(endIso).tz(SHOP_TZ);
@@ -295,16 +319,16 @@ export function widthPx(
     if (span <= 0) return Math.max(startDay.width, 4);
 
     // Multi-day span: continuous bar across adjacent day columns (one label).
-    const left = leftPx(startIso, from, mode, mobile, weekLayout);
-    const right = leftPx(endIso, from, mode, mobile, weekLayout);
+    const left = leftPx(startIso, from, mode, mobile, weekLayout, hourPx);
+    const right = leftPx(endIso, from, mode, mobile, weekLayout, hourPx);
     if (left == null || right == null) return null;
     return Math.max(right - left, 4);
   }
 
-  const left = leftPx(startIso, from, mode, mobile, weekLayout);
+  const left = leftPx(startIso, from, mode, mobile, weekLayout, hourPx);
   if (left == null) return null;
-  const pph = pxPerHour(mode, mobile);
-  const dayW = dayWidthPx(mode, mobile);
+  const pph = resolveHourPx(mode, mobile, hourPx);
+  const dayW = dayWidthPx(mode, mobile, hourPx);
 
   if (start.startOf('day').isSame(end.startOf('day'))) {
     const width = (shopHourOffset(end) - shopHourOffset(start)) * pph;
@@ -361,7 +385,8 @@ export function dayColumnsForView(
   to: Dayjs,
   viewMode: TimelineViewMode,
   mobile: boolean,
-  weekLayout?: WeekTimelineLayout | null
+  weekLayout?: WeekTimelineLayout | null,
+  hourPx?: number
 ): TimelineDayColumn[] {
   const dayCount = to.diff(from, 'day') + 1;
   if (viewMode === 'week' && weekLayout) {
@@ -373,7 +398,7 @@ export function dayColumnsForView(
     }));
   }
   const hoursPerDay = HOUR_END - HOUR_START;
-  const pph = pxPerHour(viewMode, mobile);
+  const pph = resolveHourPx(viewMode, mobile, hourPx);
 
   // Day view: one column per shop hour so the header shows clock times.
   if (viewMode === 'day') {
@@ -416,33 +441,63 @@ export function scheduleOpTitle(
   return name;
 }
 
+export type ScheduleBarLabelParts = {
+  title: string;
+  meta?: string;
+};
+
 /**
- * Bar caption: prefer the operation name. Only append the job number when the
- * bar is wide enough — otherwise short cells show "Facing - J…" instead of "Facing".
+ * Two-line bar caption: "#N Op" on top; job number · client below.
+ * Always include meta when present so partial/short bars still show both lines
+ * (text ellipsizes instead of dropping the second line).
  */
+export function scheduleBarLabelParts(
+  operationName: string,
+  jobNumber: string | null | undefined,
+  clientName: string | null | undefined,
+  _barWidthPx: number,
+  _mobile = false,
+  sequenceNo?: number | null
+): ScheduleBarLabelParts | null {
+  const title = scheduleOpTitle(sequenceNo, operationName);
+  if (!title) return null;
+  const job = jobNumber?.trim();
+  const client = clientName?.trim();
+  const meta = [job, client].filter(Boolean).join(' · ');
+  return meta ? { title, meta } : { title };
+}
+
+/** @deprecated Prefer scheduleBarLabelParts for two-line bars. */
 export function scheduleBarLabel(
   operationName: string,
   jobNumber: string | null | undefined,
   barWidthPx: number,
   mobile = false,
-  sequenceNo?: number | null
+  sequenceNo?: number | null,
+  clientName?: string | null
 ): string {
-  const name = scheduleOpTitle(sequenceNo, operationName);
-  if (!name) return '';
-  const job = jobNumber?.trim();
-  const minForJob = mobile ? 140 : 120;
-  if (job && barWidthPx >= minForJob) return `${name} · ${job}`;
-  return name;
+  const parts = scheduleBarLabelParts(
+    operationName,
+    jobNumber,
+    clientName,
+    barWidthPx,
+    mobile,
+    sequenceNo
+  );
+  if (!parts) return '';
+  return parts.meta ? `${parts.title} · ${parts.meta}` : parts.title;
 }
 
-/** Shared text layout for schedule bars — larger type, vertically centered. */
+/** Shared text layout for schedule bars — stacked title + meta. */
 export function scheduleBarTextStyle(opts: {
   mobile?: boolean;
   barWidthPx: number;
   columnFill?: boolean;
 }): {
   display: 'flex';
-  alignItems: 'center';
+  flexDirection: 'column';
+  alignItems: 'flex-start';
+  justifyContent: 'center';
   boxSizing: 'border-box';
   margin: number;
   fontSize: number;
@@ -452,37 +507,70 @@ export function scheduleBarTextStyle(opts: {
   padding: string;
   overflow: 'hidden';
   textAlign: 'left';
+  gap: number;
 } {
-  const narrow = opts.barWidthPx < 64;
-  const fontSize = opts.mobile ? (narrow ? 11 : 12) : narrow ? 12 : 13;
+  const narrow = opts.barWidthPx < adminPx(64);
+  const fontSize = opts.mobile
+    ? narrow
+      ? adminPx(11)
+      : adminPx(12)
+    : narrow
+      ? adminPx(12)
+      : adminPx(13);
   return {
     display: 'flex',
-    alignItems: 'center',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
     boxSizing: 'border-box',
     margin: 0,
     fontSize,
-    fontWeight: 800,
+    fontWeight: 400,
     letterSpacing: narrow ? '-0.02em' : '-0.01em',
-    lineHeight: 1.1,
+    lineHeight: 1.15,
     padding: opts.columnFill
       ? narrow
-        ? '0 3px'
-        : '0 7px'
+        ? `0 ${adminPx(3)}px`
+        : `0 ${adminPx(7)}px`
       : narrow
-        ? '0 3px'
-        : '0 6px',
+        ? `0 ${adminPx(3)}px`
+        : `0 ${adminPx(6)}px`,
     overflow: 'hidden',
     textAlign: 'left',
+    gap: 1,
   };
 }
 
-/** Inner span so ellipsis works inside flex-centered bars. */
+/** Inner stack so ellipsis works inside flex-centered bars. */
 export const SCHEDULE_BAR_LABEL_SPAN_STYLE = {
+  display: 'flex' as const,
+  flexDirection: 'column' as const,
+  justifyContent: 'center' as const,
+  overflow: 'hidden' as const,
+  minWidth: 0,
+  width: '100%',
+  gap: 1,
+};
+
+export const SCHEDULE_BAR_TITLE_STYLE = {
   overflow: 'hidden' as const,
   textOverflow: 'ellipsis' as const,
   whiteSpace: 'nowrap' as const,
   minWidth: 0,
   width: '100%',
+  fontWeight: 800,
+  lineHeight: 1.15,
+};
+
+export const SCHEDULE_BAR_META_STYLE = {
+  overflow: 'hidden' as const,
+  textOverflow: 'ellipsis' as const,
+  whiteSpace: 'nowrap' as const,
+  minWidth: 0,
+  width: '100%',
+  fontWeight: 500,
+  opacity: 0.92,
+  lineHeight: 1.15,
 };
 
 /**

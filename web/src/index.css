@@ -1551,9 +1551,9 @@ button.admin-card {
 }
 
 .sched-expand__toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   margin-bottom: 8px;
   min-height: 28px;
@@ -1565,19 +1565,38 @@ button.admin-card {
   color: #64748b;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  justify-self: start;
 }
 
 .sched-expand__title-spacer {
-  flex: 1;
+  min-width: 0;
 }
 
 .sched-expand__leading {
-  flex: 1;
   min-width: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  justify-self: start;
+}
+
+.sched-expand__center {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  justify-self: center;
+  min-width: 0;
+}
+
+.sched-expand__trailing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  justify-self: end;
+  min-width: 0;
 }
 
 .sched-expand__btn {
@@ -3091,7 +3110,7 @@ button.admin-card {
 }
 
 .machine-card--running {
-  --machine-banner: #0f766e;
+  --machine-banner: #1a4f28;
 }
 
 .machine-card--idle {
@@ -3099,11 +3118,11 @@ button.admin-card {
 }
 
 .machine-card--breakdown {
-  --machine-banner: #b91c1c;
+  --machine-banner: #a15005;
 }
 
 .machine-card--retired {
-  --machine-banner: #64748b;
+  --machine-banner: #7a1528;
   opacity: 0.88;
 }
 

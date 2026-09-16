@@ -116,7 +116,7 @@ function blocksForDay(
         top: (sMin - startMin) * PX_PER_MIN,
         height: Math.max((eMin - sMin) * PX_PER_MIN, 28),
         labelMain: scheduleOpTitle(op.sequenceNo, op.operationName),
-        labelSub: [job, machine].filter(Boolean).join(' · '),
+        labelSub: [job, op.clientName, machine].filter(Boolean).join(' · '),
       });
     }
   }
@@ -338,7 +338,7 @@ export default function WorkerPersonalSchedule() {
                     <span
                       style={{
                         fontSize: wide ? 11 : 9,
-                        fontWeight: 600,
+                        fontWeight: 500,
                         opacity: 0.92,
                         lineHeight: 1.2,
                         overflow: 'hidden',

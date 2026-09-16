@@ -7,6 +7,7 @@ import type {
   ShopDayWindow,
 } from '../../api/schedule.api';
 import { formatShopDateTime } from '../../utils/shopTime';
+import { adminPx } from '../../theme/adminTheme';
 import {
   HOUR_END,
   HOUR_START,
@@ -20,11 +21,14 @@ import {
   defaultShopDayWindows,
   leftPx,
   pxPerHour,
+  fitDayPxPerHour,
   scaleWeekTimelineLayout,
-  scheduleBarLabel,
+  scheduleBarLabelParts,
   scheduleBarTextStyle,
   scheduleOpTitle,
   SCHEDULE_BAR_LABEL_SPAN_STYLE,
+  SCHEDULE_BAR_META_STYLE,
+  SCHEDULE_BAR_TITLE_STYLE,
   mergeAdjacentWeekPieces,
   splitSegmentAcrossWeekDays,
   timelineWidth,
@@ -121,8 +125,8 @@ export default function ScheduleTimelineBoard({
   shopDayWindows,
   showJobConnections = false,
 }: Props) {
-  const labelW = isMobile ? 96 : 168;
-  const rowH = isMobile ? 40 : 44;
+  const labelW = isMobile ? adminPx(96) : adminPx(168);
+  const rowH = isMobile ? adminPx(40) : adminPx(44);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [availW, setAvailW] = useState(0);
 
@@ -151,12 +155,17 @@ export default function ScheduleTimelineBoard({
     return scaleWeekTimelineLayout(naturalWeekLayout, target);
   }, [naturalWeekLayout, availW, labelW]);
 
-  const boardW = timelineWidth(from, to, viewMode, isMobile, weekLayout);
-  const dayColumns = dayColumnsForView(from, to, viewMode, isMobile, weekLayout);
-  const pph = pxPerHour(viewMode, isMobile);
+  const dayHourPx = useMemo(() => {
+    if (viewMode !== 'day') return undefined;
+    return fitDayPxPerHour(isMobile, Math.max(0, availW - labelW));
+  }, [viewMode, isMobile, availW, labelW]);
+
+  const boardW = timelineWidth(from, to, viewMode, isMobile, weekLayout, dayHourPx);
+  const dayColumns = dayColumnsForView(from, to, viewMode, isMobile, weekLayout, dayHourPx);
+  const pph = dayHourPx ?? pxPerHour(viewMode, isMobile);
   const planningHighlight = Boolean(highlightJobId);
   const columnFill = true;
-  const posArgs = [from, viewMode, isMobile, weekLayout] as const;
+  const posArgs = [from, viewMode, isMobile, weekLayout, dayHourPx] as const;
 
   const opsForRow = (row: TimelineRow): ScheduleBoardOperation[] => {
     if (rowMode === 'worker') {
@@ -528,19 +537,24 @@ export default function ScheduleTimelineBoard({
                         barW >= 22 &&
                         (isThisJob || !planningHighlight);
                       const label = showLabel
-                        ? scheduleBarLabel(
+                        ? scheduleBarLabelParts(
                             op.operationName,
                             op.jobNumber,
+                            op.clientName,
                             barW,
                             isMobile,
                             op.sequenceNo
                           )
-                        : '';
+                        : null;
                       const textStyle = scheduleBarTextStyle({
                         mobile: isMobile,
                         barWidthPx: barW,
                         columnFill,
                       });
+                      const metaFontSize = Math.max(
+                        9,
+                        Math.round((textStyle.fontSize as number) * 0.88)
+                      );
 
                       const tooltip = (
                         <div style={{ maxWidth: 260 }}>
@@ -570,6 +584,22 @@ export default function ScheduleTimelineBoard({
                           ) : null}
                         </div>
                       );
+
+                      const labelNode = label ? (
+                        <span style={SCHEDULE_BAR_LABEL_SPAN_STYLE}>
+                          <span style={SCHEDULE_BAR_TITLE_STYLE}>{label.title}</span>
+                          {label.meta ? (
+                            <span
+                              style={{
+                                ...SCHEDULE_BAR_META_STYLE,
+                                fontSize: metaFontSize,
+                              }}
+                            >
+                              {label.meta}
+                            </span>
+                          ) : null}
+                        </span>
+                      ) : null;
 
                       const barStyle = {
                         position: 'absolute' as const,
@@ -611,16 +641,10 @@ export default function ScheduleTimelineBoard({
                               onClick={() => onOperationClick(op)}
                               style={barStyle}
                             >
-                              {label ? (
-                                <span style={SCHEDULE_BAR_LABEL_SPAN_STYLE}>{label}</span>
-                              ) : null}
+                              {labelNode}
                             </button>
                           ) : (
-                            <div style={barStyle}>
-                              {label ? (
-                                <span style={SCHEDULE_BAR_LABEL_SPAN_STYLE}>{label}</span>
-                              ) : null}
-                            </div>
+                            <div style={barStyle}>{labelNode}</div>
                           )}
                         </Tooltip>
                       );

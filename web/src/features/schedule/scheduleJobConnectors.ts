@@ -1,4 +1,5 @@
 import type { ScheduleBoardOperation } from '../../api/schedule.api';
+import { adminPx } from '../../theme/adminTheme';
 import {
   assignOverlapLanes,
   clipSegmentToPeriod,
@@ -12,7 +13,7 @@ import {
 import type { Dayjs } from 'dayjs';
 
 /** Sticky machine-type group header height in the admin schedule board. */
-export const SCHEDULE_GROUP_HEADER_H = 22;
+export const SCHEDULE_GROUP_HEADER_H = adminPx(22);
 
 export type JobBarAnchor = {
   opId: string;
@@ -36,6 +37,7 @@ type PosArgs = [
   TimelineViewMode,
   boolean,
   WeekTimelineLayout | null | undefined,
+  number | undefined,
 ];
 
 type RowLike = {
