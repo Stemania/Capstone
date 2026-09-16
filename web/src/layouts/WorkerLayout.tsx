@@ -12,6 +12,7 @@ import { createContext, useContext, useState, type ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { confirmLogout } from '../utils/confirmLogout';
+import { WORKER_SEED_TOKENS } from '../theme/adminTheme';
 import PinOfferModal from '../features/auth/PinOfferModal';
 import KeepAliveOutlet from '../navigation/KeepAliveOutlet';
 import { useNavMemory } from '../navigation/navMemory';
@@ -378,6 +379,9 @@ export default function WorkerLayout() {
             fontFamily:
               "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif",
             fontWeightStrong: 700,
+            // Keep shop-floor tap targets and type at full Ant Design size
+            // (root ConfigProvider uses denser admin tokens).
+            ...WORKER_SEED_TOKENS,
           },
         }}
       >

@@ -20,6 +20,7 @@ import {
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { adminPx } from '../theme/adminTheme';
 import { confirmLogout } from '../utils/confirmLogout';
 import KeepAliveOutlet from '../navigation/KeepAliveOutlet';
 import { useNavMemory } from '../navigation/navMemory';
@@ -262,8 +263,8 @@ export default function AppLayout() {
           trigger={null}
           collapsible
           collapsed={collapsed}
-          collapsedWidth={72}
-          width={230}
+          collapsedWidth={adminPx(72)}
+          width={adminPx(230)}
           className="app-sider"
           style={{
             background: NAVY,
@@ -283,7 +284,7 @@ export default function AppLayout() {
         placement="left"
         open={mobileOpen}
         onClose={() => setMobileOpen(false)}
-        width={280}
+        width={adminPx(280)}
         closable={false}
         className="app-nav-drawer"
         styles={{
