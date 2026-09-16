@@ -41,6 +41,7 @@ import type {
 import { formatDifferenceFromTarget } from '../analytics/analyticsPeriod';
 import { WorkerPageHeader } from '../../layouts/WorkerLayout';
 import { jobOrdersListPath } from './jobOrderListPaths';
+import JobScheduleColorPicker from './JobScheduleColorPicker';
 
 const { Title, Text } = Typography;
 
@@ -483,7 +484,7 @@ export default function JobOrderDetailPage() {
             </Title>
           </div>
         </Space>
-        <Space wrap>
+        <Space wrap align="center">
           {isDraft && isAdmin && (
             <Button
               type="primary"
@@ -493,12 +494,32 @@ export default function JobOrderDetailPage() {
             </Button>
           )}
           {canManage && (
-            <Button
-              icon={<EditOutlined />}
-              onClick={() => navigate(`/job-orders/${job.id}/edit?step=1`)}
-            >
-              {isDraft ? 'Edit PO' : 'Edit'}
-            </Button>
+            <>
+              <JobScheduleColorPicker
+                value={job.scheduleColor}
+                onChange={async (hex) => {
+                  const prev = job.scheduleColor;
+                  setJob({ ...job, scheduleColor: hex });
+                  try {
+                    const { data } = await jobOrdersApi.update(job.id, {
+                      scheduleColor: hex,
+                    });
+                    setJob((j) =>
+                      j ? { ...j, scheduleColor: data.scheduleColor ?? hex } : j
+                    );
+                  } catch (err) {
+                    setJob((j) => (j ? { ...j, scheduleColor: prev } : j));
+                    message.error(getErrorMessage(err));
+                  }
+                }}
+              />
+              <Button
+                icon={<EditOutlined />}
+                onClick={() => navigate(`/job-orders/${job.id}/edit?step=1`)}
+              >
+                {isDraft ? 'Edit PO' : 'Edit'}
+              </Button>
+            </>
           )}
           <Button
             icon={<PrinterOutlined />}
