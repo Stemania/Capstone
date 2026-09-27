@@ -42,8 +42,9 @@ import { exportCsv } from '../../utils/csvExport';
 import StocktakePanel from './StocktakePanel';
 import ToolEventsPage from './ToolEventsPage';
 import ToolsAssetsPanel from './ToolsAssetsPanel';
+import RawMaterialsPanel from './RawMaterialsPanel';
 
-type PageTab = 'tools' | 'consumables';
+type PageTab = 'tools' | 'consumables' | 'raw-materials';
 type StockFilter = 'low' | 'ok';
 type CountsDrawerTab = 'stocktake' | 'consumption';
 
@@ -58,6 +59,7 @@ export default function ToolsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editTool, setEditTool] = useState<Tool | null>(null);
   const [adjustTool, setAdjustTool] = useState<Tool | null>(null);
+  const [receiveTool, setReceiveTool] = useState<Tool | null>(null);
   const [eventsOpen, setEventsOpen] = useState(false);
   const [countsOpen, setCountsOpen] = useState(false);
   const [countsTab, setCountsTab] = useState<CountsDrawerTab>('stocktake');
@@ -68,6 +70,7 @@ export default function ToolsPage() {
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
   const [adjustForm] = Form.useForm();
+  const [receiveForm] = Form.useForm();
   const [creating, setCreating] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const isPhone = useIsPhone();
@@ -206,8 +209,40 @@ export default function ToolsPage() {
     }
   };
 
+  const onReceive = async (values: {
+    quantity: number;
+    supplier: string;
+    receivedOn: Dayjs;
+    note?: string;
+  }) => {
+    if (!receiveTool) return;
+    try {
+      await toolsApi.receive(receiveTool.id, {
+        quantity: values.quantity,
+        supplier: values.supplier,
+        receivedOn: values.receivedOn.format('YYYY-MM-DD'),
+        note: values.note,
+      });
+      message.success('Delivery recorded');
+      setReceiveTool(null);
+      receiveForm.resetFields();
+      await fetchTools();
+      void fetchUsage();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    }
+  };
+
   const actionItems = (record: Tool): MenuProps['items'] => [
     { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => setEditTool(record) },
+    {
+      key: 'receive',
+      label: 'Receive delivery',
+      onClick: () => {
+        setReceiveTool(record);
+        receiveForm.setFieldsValue({ receivedOn: dayjs(), quantity: 1 });
+      },
+    },
     { key: 'adjust', label: 'Adjust stock', onClick: () => setAdjustTool(record) },
   ];
 
@@ -296,11 +331,14 @@ export default function ToolsPage() {
           options={[
             { label: 'Tools', value: 'tools' },
             { label: 'Consumables', value: 'consumables' },
+            { label: 'Raw materials', value: 'raw-materials' },
           ]}
         />
       </div>
 
       {tab === 'tools' && <ToolsAssetsPanel />}
+
+      {tab === 'raw-materials' && <RawMaterialsPanel />}
 
       {tab === 'consumables' && (
         <>
@@ -735,7 +773,7 @@ export default function ToolsPage() {
                   {adjustTool ? `Adjust stock: ${adjustTool.name}` : 'Adjust stock'}
                 </div>
                 <div className="app-form-modal__sub">
-                  Positive quantity for deliveries so stocktakes do not treat them as consumption.
+                  Corrections only — use Receive delivery for supplier stock.
                 </div>
               </div>
               <button
@@ -768,7 +806,7 @@ export default function ToolsPage() {
                 rules={[{ required: true }]}
                 style={{ marginBottom: 14 }}
               >
-                <Input.TextArea rows={2} placeholder="e.g. Delivery from supplier" />
+                <Input.TextArea rows={2} placeholder="e.g. Count correction, damaged stock" />
               </Form.Item>
             </Form>
             <div className="app-form-modal__footer">
@@ -781,6 +819,91 @@ export default function ToolsPage() {
                 style={{ fontWeight: 700, minWidth: 140 }}
               >
                 Save adjustment
+              </Button>
+            </div>
+          </Modal>
+
+          <Modal
+            open={Boolean(receiveTool)}
+            onCancel={() => setReceiveTool(null)}
+            footer={null}
+            width={560}
+            centered
+            destroyOnHidden
+            className="app-form-modal"
+            styles={{
+              container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
+              body: { padding: 0 },
+            }}
+            closable={false}
+          >
+            <div className="app-form-modal__head">
+              <div className="app-form-modal__icon">
+                <AppstoreAddOutlined />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="app-form-modal__title">
+                  {receiveTool ? `Receive delivery: ${receiveTool.name}` : 'Receive delivery'}
+                </div>
+                <div className="app-form-modal__sub">
+                  Increases stock on hand and counts toward stocktake consumption.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="app-form-modal__close"
+                onClick={() => setReceiveTool(null)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <Form
+              form={receiveForm}
+              layout="vertical"
+              onFinish={onReceive}
+              style={{ padding: '20px 24px 8px' }}
+              initialValues={{ receivedOn: dayjs(), quantity: 1 }}
+            >
+              {sectionLabel('Delivery')}
+              <Form.Item
+                name="quantity"
+                label="Quantity"
+                rules={[{ required: true }]}
+                style={{ marginBottom: 14 }}
+              >
+                <InputNumber min={0.01} style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item
+                name="supplier"
+                label="Supplier"
+                rules={[{ required: true, message: 'Supplier is required' }]}
+                style={{ marginBottom: 14 }}
+              >
+                <Input placeholder="Supplier name" />
+              </Form.Item>
+              <Form.Item
+                name="receivedOn"
+                label="Date received"
+                rules={[{ required: true }]}
+                style={{ marginBottom: 14 }}
+              >
+                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" allowClear={false} />
+              </Form.Item>
+              <Form.Item name="note" label="Note (optional)" style={{ marginBottom: 14 }}>
+                <Input.TextArea rows={2} placeholder="PO number, invoice, etc." />
+              </Form.Item>
+            </Form>
+            <div className="app-form-modal__footer">
+              <Button onClick={() => setReceiveTool(null)} style={{ minWidth: 96 }}>
+                Cancel
+              </Button>
+              <Button
+                type="primary"
+                onClick={() => receiveForm.submit()}
+                style={{ fontWeight: 700, minWidth: 140 }}
+              >
+                Receive delivery
               </Button>
             </div>
           </Modal>

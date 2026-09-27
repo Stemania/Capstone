@@ -102,7 +102,7 @@ export default function StocktakePanel({ onSaved, hideTitle }: Props) {
         previousOn
           ? `Last count: ${dayjs(previousOn).format('MMM D, YYYY')}${
               previousBy ? ` by ${previousBy}` : ''
-            }. Enter what is on the shelf now. Log deliveries as a positive Adjust stock so they are not treated as consumption.`
+            }. Enter what is on the shelf now. Log deliveries with Receive delivery so they are not treated as consumption.`
           : 'No stocktake yet. Count the shelf to start tracking consumable consumption between counts.'
       }
     />

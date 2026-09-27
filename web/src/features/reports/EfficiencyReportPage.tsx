@@ -63,9 +63,11 @@ export default function EfficiencyReportPage() {
     opTypes?.minimumOperationCount ??
     machines?.minimumOperationCount;
   const completed = overview?.jobs.completed;
+  const delivered =
+    overview != null ? overview.jobs.onTime + overview.jobs.late : 0;
   const onTimeRate =
-    completed != null && completed > 0 && overview
-      ? (overview.jobs.onTime / completed) * 100
+    delivered > 0 && overview
+      ? (overview.jobs.onTime / delivered) * 100
       : null;
 
   const excluded = meta?.excludedOperationCount ?? 0;

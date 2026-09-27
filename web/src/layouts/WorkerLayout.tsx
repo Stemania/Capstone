@@ -49,7 +49,7 @@ const lightPalette: WorkerPalette = {
   green: '#16a34a',
   greenSoft: 'rgba(22,163,74,0.12)',
   amber: '#d97706',
-  red: '#dc2626',
+  red: '#7A1528',
   text: '#0f172a',
   textSecondary: '#64748b',
   chipBg: '#f1f5f9',
@@ -138,49 +138,21 @@ export function WorkerPageHeader({
       </div>
       <button
         type="button"
+        className="acct-sheet-btn"
+        style={{ marginBottom: 8 }}
         onClick={() => {
           setAccountOpen(false);
           navigate('/account/security');
-        }}
-        style={{
-          width: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 8,
-          padding: '11px 12px',
-          border: 'none',
-          borderRadius: 10,
-          marginBottom: 8,
-          background: '#f1f5f9',
-          color: '#0f172a',
-          fontSize: 14,
-          fontWeight: 600,
-          cursor: 'pointer',
         }}
       >
         Account security
       </button>
       <button
         type="button"
+        className="acct-sheet-btn acct-sheet-btn--danger"
         onClick={() => {
           setAccountOpen(false);
           logout();
-        }}
-        style={{
-          width: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 8,
-          padding: '11px 12px',
-          border: 'none',
-          borderRadius: 10,
-          background: '#611020',
-          color: '#fff',
-          fontSize: 14,
-          fontWeight: 700,
-          cursor: 'pointer',
         }}
       >
         <LogoutOutlined />
@@ -374,6 +346,7 @@ export default function WorkerLayout() {
           algorithm: antdTheme.defaultAlgorithm,
           token: {
             colorPrimary: colors.accent,
+            colorError: colors.red,
             colorBgContainer: colors.card,
             borderRadius: 12,
             fontFamily:

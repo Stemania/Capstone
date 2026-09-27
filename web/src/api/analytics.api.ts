@@ -6,6 +6,7 @@ import type {
   AnalyticsDelays,
   AnalyticsDemandCapacity,
   AnalyticsOverview,
+  AnalyticsPurchasing,
   AnalyticsSalesForecast,
   AnalyticsSalesSummary,
   AnalyticsTrend,
@@ -38,4 +39,6 @@ export const analyticsApi = {
     apiClient.get<AnalyticsSalesForecast>('/analytics/sales/forecast', { params }),
   demandCapacity: (params?: AnalyticsDateParams) =>
     apiClient.get<AnalyticsDemandCapacity>('/analytics/demand/capacity', { params }),
+  purchasing: (params?: AnalyticsDateParams) =>
+    apiClient.get<AnalyticsPurchasing>('/analytics/purchasing', { params }),
 };

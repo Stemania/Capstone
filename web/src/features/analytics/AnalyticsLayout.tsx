@@ -15,6 +15,7 @@ const TABS = [
   { label: 'Sales', value: '/analytics/sales' },
   { label: 'What’s coming', value: '/analytics/forecast' },
   { label: 'Machine load', value: '/analytics/capacity' },
+  { label: 'Purchasing', value: '/analytics/purchasing' },
 ];
 
 export default function AnalyticsLayout() {
@@ -28,6 +29,7 @@ export default function AnalyticsLayout() {
     if (location.pathname.startsWith('/analytics/sales')) return '/analytics/sales';
     if (location.pathname.startsWith('/analytics/forecast')) return '/analytics/forecast';
     if (location.pathname.startsWith('/analytics/capacity')) return '/analytics/capacity';
+    if (location.pathname.startsWith('/analytics/purchasing')) return '/analytics/purchasing';
     return '/analytics';
   }, [location.pathname]);
 

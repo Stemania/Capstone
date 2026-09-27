@@ -4,6 +4,7 @@ import type {
   InventoryUsageByItem,
   InventoryUsageByWorker,
   InventoryUsageConsumables,
+  MaterialPurchaseList,
   StocktakeDetail,
   StocktakeForm,
   StocktakeSummary,
@@ -50,6 +51,18 @@ export const toolsApi = {
     }),
   adjust: (id: string, data: { quantity: number; reason: string }) =>
     apiClient.post<ToolEvent>(`/tools/${id}/adjust`, data),
+  receive: (
+    id: string,
+    data: { quantity: number; supplier: string; receivedOn?: string; note?: string }
+  ) => apiClient.post<ToolEvent>(`/tools/${id}/receive`, data),
+  receiveUnits: (
+    typeId: string,
+    data: { quantity: number; supplier: string; receivedOn?: string; note?: string }
+  ) =>
+    apiClient.post<{ items: ToolUnit[]; count: number }>(
+      `/tools/types/${typeId}/receive`,
+      data
+    ),
   myTools: () => apiClient.get<ToolUnit[]>('/tools/my'),
   myHistory: (params?: { page?: number; perPage?: number }) =>
     apiClient.get<{ items: ToolEvent[]; total: number; page: number; pages: number }>(
@@ -104,6 +117,14 @@ export const inventoryApi = {
     apiClient.get<InventoryUsageByItem>('/inventory/usage/by-item', { params }),
   usageConsumables: (params?: { from?: string; to?: string }) =>
     apiClient.get<InventoryUsageConsumables>('/inventory/usage/consumables', { params }),
+  materialPurchases: (params?: {
+    from?: string;
+    to?: string;
+    supplierId?: string;
+    material?: string;
+    status?: 'ORDERED' | 'RECEIVED' | string;
+  }) =>
+    apiClient.get<MaterialPurchaseList>('/inventory/material-purchases', { params }),
   stocktakeForm: () => apiClient.get<StocktakeForm>('/inventory/stocktakes/form'),
   listStocktakes: (params?: { page?: number; perPage?: number }) =>
     apiClient.get<{ items: StocktakeSummary[]; total: number; page: number; pages: number }>(

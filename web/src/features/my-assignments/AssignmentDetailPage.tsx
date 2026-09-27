@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Button, Spin, message } from 'antd';
+import { Button, Modal, Spin, message } from 'antd';
 import { CheckCircleFilled, FileTextOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { operationsApi } from '../../api/operations.api';
-import { getErrorMessage } from '../../api/client';
+import { getErrorCode, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
 import { DOWNTIME_REASONS } from '../../constants/downtimeReasons';
@@ -24,9 +24,12 @@ const PAUSE_REASONS: { value: OperationPauseReason; label: string }[] = [
 const PART_STAGE_LABEL: Record<PartCondition, string> = {
   RAW_MATERIAL: 'Raw material',
   CLIENT_SUPPLIED_ITEM: 'Client supplied item',
-  BLANK: 'Blank',
   WORK_IN_PROCESS: 'Work in process',
+  CUT: 'Cut',
+  BLANK: 'Blank',
+  FORMED: 'Formed',
   MACHINED: 'Machined',
+  ASSEMBLED: 'Assembled',
   HEAT_TREATED: 'Heat treated',
   FINISHED: 'Finished',
 };
@@ -118,7 +121,19 @@ export default function AssignmentDetailPage() {
       }
       await fetchJob();
     } catch (err) {
-      message.error(getErrorMessage(err));
+      const code = getErrorCode(err);
+      if (code === 'MATERIALS_NOT_RECEIVED' || code === 'MATERIALS_NOT_ORDERED') {
+        Modal.warning({
+          title:
+            code === 'MATERIALS_NOT_ORDERED'
+              ? 'Materials have not been ordered'
+              : 'Materials have not arrived',
+          content: getErrorMessage(err),
+          okText: 'OK',
+        });
+      } else {
+        message.error(getErrorMessage(err));
+      }
     } finally {
       setActionLoading(null);
     }
@@ -264,7 +279,7 @@ export default function AssignmentDetailPage() {
                     borderRadius: 999,
                     background:
                       job.priority === 'HIGH'
-                        ? 'rgba(220,38,38,0.12)'
+                        ? 'rgba(122,21,40,0.12)'
                         : job.priority === 'LOW'
                           ? colors.greenSoft
                           : 'rgba(217,119,6,0.12)',
@@ -451,7 +466,7 @@ export default function AssignmentDetailPage() {
                               fontWeight: 700,
                               padding: '2px 8px',
                               borderRadius: 999,
-                              background: 'rgba(220,38,38,0.12)',
+                              background: 'rgba(122,21,40,0.12)',
                               color: colors.red,
                             }}
                           >

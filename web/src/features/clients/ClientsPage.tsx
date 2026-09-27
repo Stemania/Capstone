@@ -30,6 +30,7 @@ import StatusPill from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import type { Client } from '../../types';
+import { useNavigate } from 'react-router-dom';
 
 type NotifyFilter = 'email' | 'sms' | 'off';
 
@@ -45,6 +46,7 @@ function notifyLabel(r: Client) {
 }
 
 export default function ClientsPage() {
+  const navigate = useNavigate();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -157,8 +159,23 @@ export default function ClientsPage() {
       dataIndex: 'name',
       key: 'name',
       sorter: (a, b) => a.name.localeCompare(b.name),
-      render: (n: string) => (
-        <span style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>{n}</span>
+      render: (n: string, r: Client) => (
+        <button
+          type="button"
+          onClick={() => navigate(`/clients/${r.id}`)}
+          style={{
+            fontWeight: 600,
+            fontSize: 14,
+            color: '#0f172a',
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            textAlign: 'left',
+          }}
+        >
+          {n}
+        </button>
       ),
     },
     {
@@ -210,6 +227,11 @@ export default function ClientsPage() {
       align: 'center',
       render: (_: unknown, r: Client) => {
         const items: MenuProps['items'] = [
+          {
+            key: 'view',
+            label: 'View history',
+            onClick: () => navigate(`/clients/${r.id}`),
+          },
           {
             key: 'edit',
             icon: <EditOutlined />,

@@ -22,6 +22,8 @@ import WorkerSetupPage from '../features/workers/WorkerSetupPage';
 import ToolsPage from '../features/tool-tracking/ToolsPage';
 import ScanToolPage from '../features/tool-tracking/ScanToolPage';
 import ClientsPage from '../features/clients/ClientsPage';
+import ClientDetailPage from '../features/clients/ClientDetailPage';
+import SuppliersPage from '../features/suppliers/SuppliersPage';
 import MachinesPage from '../features/machines/MachinesPage';
 import WorkCalendarPage from '../features/calendar/WorkCalendarPage';
 import ScheduleBoardPage from '../features/schedule/ScheduleBoardPage';
@@ -30,6 +32,7 @@ import EfficiencyReportPage from '../features/reports/EfficiencyReportPage';
 import InventoryReportPage from '../features/reports/InventoryReportPage';
 import WorkerPerformanceReportPage from '../features/reports/WorkerPerformanceReportPage';
 import JobOrderPrintPage from '../features/reports/JobOrderPrintPage';
+import SalesInvoicePrintPage from '../features/reports/SalesInvoicePrintPage';
 
 const AnalyticsLayout = lazy(() => import('../features/analytics/AnalyticsLayout'));
 const AnalyticsOverviewPage = lazy(() => import('../features/analytics/AnalyticsOverviewPage'));
@@ -38,6 +41,7 @@ const AnalyticsDelaysPage = lazy(() => import('../features/analytics/AnalyticsDe
 const AnalyticsSalesPage = lazy(() => import('../features/analytics/AnalyticsSalesPage'));
 const AnalyticsForecastPage = lazy(() => import('../features/analytics/AnalyticsForecastPage'));
 const AnalyticsCapacityPage = lazy(() => import('../features/analytics/AnalyticsCapacityPage'));
+const AnalyticsPurchasingPage = lazy(() => import('../features/analytics/AnalyticsPurchasingPage'));
 
 function WorkerSetupFromUser() {
   const { id } = useParams();
@@ -78,6 +82,12 @@ export default function AppRoutes() {
                 <Route path="/account/security" element={<AccountSecurityPage />} />
                 <Route path="/job-orders/:id/print" element={<JobOrderPrintPage />} />
               </Route>
+              <Route element={<ProtectedRoute roles={['ADMIN', 'OFFICE_STAFF']} />}>
+                <Route
+                  path="/job-orders/:id/invoice/print"
+                  element={<SalesInvoicePrintPage />}
+                />
+              </Route>
 
               {/*
                 Single RoleAwareLayout so office AppLayout (and worker shell) stay
@@ -109,9 +119,12 @@ export default function AppRoutes() {
                       <Route path="sales" element={<AnalyticsSalesPage />} />
                       <Route path="forecast" element={<AnalyticsForecastPage />} />
                       <Route path="capacity" element={<AnalyticsCapacityPage />} />
+                      <Route path="purchasing" element={<AnalyticsPurchasingPage />} />
                     </Route>
                     <Route path="/tools" element={<ToolsPage />} />
                     <Route path="/clients" element={<ClientsPage />} />
+                    <Route path="/clients/:id" element={<ClientDetailPage />} />
+                    <Route path="/suppliers" element={<SuppliersPage />} />
                     <Route path="/machines" element={<MachinesPage />} />
                     <Route path="/work-calendar" element={<WorkCalendarPage />} />
                     <Route path="/reports" element={<ReportsHubPage />} />

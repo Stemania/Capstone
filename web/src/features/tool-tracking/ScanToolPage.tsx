@@ -374,7 +374,7 @@ export default function ScanToolPage() {
                   textAlign: 'center',
                   fontSize: 13,
                   fontWeight: 600,
-                  color: '#dc2626',
+                  color: '#7A1528',
                   marginBottom: 12,
                 }}
               >

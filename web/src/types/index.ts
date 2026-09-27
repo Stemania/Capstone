@@ -85,6 +85,94 @@ export interface Client {
   createdAt?: string;
 }
 
+export interface Supplier {
+  id: string;
+  name: string;
+  contactPerson?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  typicalLeadTimeDays?: number | null;
+  notes?: string | null;
+  active: boolean;
+  isSeed?: boolean;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface MaterialPurchase {
+  id: string;
+  jobOrderId: string;
+  jobNumber?: string | null;
+  jobTitle?: string | null;
+  materialName: string;
+  gradeOrSpec?: string | null;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  lineTotal?: number | null;
+  supplierId: string;
+  supplierName?: string | null;
+  dateOrdered: string;
+  dateReceived?: string | null;
+  consumedAt?: string | null;
+  status?: MaterialPurchaseStatus | string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export type MaterialPurchaseStatus = 'ORDERED' | 'RECEIVED' | 'CONSUMED';
+
+export interface MaterialStockBucket {
+  count: number;
+  value: number;
+  quantityByUnit: { unit: string; quantity: number }[];
+}
+
+export interface MaterialPurchaseList {
+  items: MaterialPurchase[];
+  summary: {
+    purchaseCount: number;
+    totalSpend: number;
+    awaitingDeliveryCount: number;
+    onOrder: MaterialStockBucket;
+    onHand: MaterialStockBucket;
+    consumed: MaterialStockBucket;
+  };
+}
+
+export interface SalesInvoice {
+  id: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  jobOrderId: string;
+  clientId: string;
+  clientName?: string | null;
+  description: string;
+  subtotal: number;
+  vatRate?: number | null;
+  vatAmount: number;
+  total: number;
+  preparedById: string;
+  preparedByName?: string | null;
+  createdAt?: string | null;
+}
+
+export interface ClientDetail extends Client {
+  jobs: {
+    id: string;
+    jobNumber?: string | null;
+    title: string;
+    createdAt?: string | null;
+    dueDate?: string | null;
+    amount?: number | null;
+    status: JobOrderStatus;
+    deliveredAt?: string | null;
+    deliveredOnTime?: boolean | null;
+  }[];
+  totals: { jobCount: number; totalValue: number };
+}
+
 export type JobOrderStatus =
   | 'DRAFT'
   | 'SCHEDULED'
@@ -98,9 +186,12 @@ export type MaterialStatus = 'NOT_REQUIRED' | 'TO_ORDER' | 'ORDERED' | 'RECEIVED
 export type PartCondition =
   | 'RAW_MATERIAL'
   | 'CLIENT_SUPPLIED_ITEM'
-  | 'BLANK'
   | 'WORK_IN_PROCESS'
+  | 'CUT'
+  | 'BLANK'
+  | 'FORMED'
   | 'MACHINED'
+  | 'ASSEMBLED'
   | 'HEAT_TREATED'
   | 'FINISHED';
 export type OperationStatus =
@@ -109,6 +200,14 @@ export type OperationStatus =
   | 'IN_PROGRESS'
   | 'COMPLETED'
   | 'REWORK';
+
+export type ReworkReasonCategory =
+  | 'DIMENSION_OUT_OF_TOLERANCE'
+  | 'SURFACE_FINISH'
+  | 'WRONG_MATERIAL'
+  | 'MACHINE_FAULT'
+  | 'OPERATOR_ERROR'
+  | 'OTHER';
 export type MachineCode = 'LATHE' | 'MILLING' | 'SHAPER' | 'GRINDING' | 'DRILLING';
 
 export interface MachineInfo {
@@ -187,6 +286,7 @@ export interface Operation {
   status: OperationStatus;
   reworkOfOperationId?: string | null;
   reworkReason?: string | null;
+  reworkReasonCategory?: ReworkReasonCategory | null;
   notes?: string | null;
   timeLogs?: OperationTimeLog[];
   isPaused?: boolean;
@@ -308,6 +408,8 @@ export interface JobOrder {
   materialStatus?: MaterialStatus;
   materialExpectedDate?: string | null;
   materialReceivedDate?: string | null;
+  supplierId?: string | null;
+  supplierName?: string | null;
   supplierReference?: string | null;
   materialReleaseWarning?: string | null;
   createdById?: string;
@@ -322,6 +424,7 @@ export interface JobOrder {
   nextOperationWorkerId?: string | null;
   nextOperationWorkerName?: string | null;
   operations?: Operation[];
+  salesInvoice?: SalesInvoice | null;
   projectedCompletion?: string | null;
   scheduleFlag?: ScheduleFlag | null;
   scheduleColor?: string | null;
@@ -442,7 +545,7 @@ export interface ToolType {
   units?: ToolUnit[];
 }
 
-export type ToolEventType = 'BORROW' | 'RETURN' | 'ISSUE' | 'ADJUST';
+export type ToolEventType = 'BORROW' | 'RETURN' | 'ISSUE' | 'ADJUST' | 'RECEIVE';
 
 export interface ToolEvent {
   id: string;
@@ -461,6 +564,8 @@ export interface ToolEvent {
   type: ToolEventType;
   quantity: number;
   reason?: string | null;
+  supplier?: string | null;
+  receivedOn?: string | null;
   jobOrderId?: string;
   createdAt: string;
 }
@@ -639,7 +744,12 @@ export interface AnalyticsPeriodMeta {
 }
 
 export interface AnalyticsOverview extends AnalyticsPeriodMeta {
-  jobs: { completed: number; onTime: number; late: number };
+  jobs: {
+    completed: number;
+    onTime: number;
+    late: number;
+    awaitingDelivery: number;
+  };
   efficiency: {
     averageVariancePct: number | null;
     completedOperationsWithVariance: number;
@@ -747,6 +857,16 @@ export interface AnalyticsPauseReasonRow {
   totalPausedHours: number | null;
 }
 
+export interface AnalyticsDelayCauseRow {
+  cause: string;
+  causeType: 'PAUSE' | 'DOWNTIME' | 'REWORK' | string;
+  label: string;
+  hours: number | null;
+  occurrenceCount: number;
+  shareOfTotalPct: number | null;
+  cumulativePct: number | null;
+}
+
 export interface AnalyticsDowntimeRow {
   machineUnitId: string;
   machineUnitLabel: string | null;
@@ -759,6 +879,13 @@ export interface AnalyticsDowntimeRow {
 export interface AnalyticsDelays extends AnalyticsPeriodMeta {
   pauseReasons: AnalyticsPauseReasonRow[];
   machineDowntime: AnalyticsDowntimeRow[];
+  causes: AnalyticsDelayCauseRow[];
+  totalDelayHours: number | null;
+  excludedNonWorkingPauses?: {
+    breakHours: number | null;
+    endOfShiftHours: number | null;
+    totalHours: number | null;
+  };
 }
 
 export interface AnalyticsSalesMonthRow {
@@ -849,6 +976,40 @@ export interface AnalyticsDemandCapacity {
   thinSample: boolean;
   thinSampleNote?: string;
   machineTypes: AnalyticsCapacityTypeRow[];
+}
+
+export interface AnalyticsPurchasingMaterialRow {
+  materialName: string;
+  purchaseCount: number;
+  totalQuantity: number | null;
+  totalSpend: number | null;
+  unit: string | null;
+}
+
+export interface AnalyticsPurchasingSupplierSpendRow {
+  supplierId: string;
+  supplierName: string | null;
+  purchaseCount: number;
+  totalSpend: number | null;
+}
+
+export interface AnalyticsPurchasingLeadTimeRow {
+  supplierId: string;
+  supplierName: string | null;
+  statedLeadTimeDays: number | null;
+  sampleCount: number;
+  averageActualDays: number | null;
+  varianceDays: number | null;
+}
+
+export interface AnalyticsPurchasing {
+  period: { from: string; to: string };
+  purchaseCount: number;
+  totalSpend: number | null;
+  materialsByCount: AnalyticsPurchasingMaterialRow[];
+  materialsBySpend: AnalyticsPurchasingMaterialRow[];
+  spendBySupplier: AnalyticsPurchasingSupplierSpendRow[];
+  supplierLeadTime: AnalyticsPurchasingLeadTimeRow[];
 }
 
 export interface WorkerWorkHistorySummary {

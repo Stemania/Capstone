@@ -16,6 +16,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   FieldTimeOutlined,
+  ShopOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -34,6 +35,10 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/clients': {
     title: 'Clients',
     subtitle: 'Register clients and contacts for job update messages',
+  },
+  '/suppliers': {
+    title: 'Suppliers',
+    subtitle: 'Raw material suppliers, lead times, and contacts',
   },
   '/schedule': {
     title: 'Schedule',
@@ -125,6 +130,7 @@ export default function AppLayout() {
       { key: '/machines', icon: <BuildOutlined />, label: 'Machines' },
       { key: '/work-calendar', icon: <FieldTimeOutlined />, label: 'Work calendar' },
       { key: '/clients', icon: <ContactsOutlined />, label: 'Clients' },
+      { key: '/suppliers', icon: <ShopOutlined />, label: 'Suppliers' },
       { key: '/reports', icon: <FileSearchOutlined />, label: 'Reports' },
       { key: '/analytics', icon: <BarChartOutlined />, label: 'Analytics' },
       { key: '/tools', icon: <ToolOutlined />, label: 'Inventory' },
@@ -142,7 +148,9 @@ export default function AppLayout() {
   const meta =
     /^\/job-orders\/[^/]+$/.test(location.pathname)
       ? { title: 'Job Order', subtitle: 'View details, time taken, and notifications' }
-      : pageMeta[selectedKey] || { title: '', subtitle: '' };
+      : /^\/clients\/[^/]+$/.test(location.pathname)
+        ? { title: 'Client', subtitle: 'Details and job history' }
+        : pageMeta[selectedKey] || { title: '', subtitle: '' };
 
   const handleLogout = () => {
     confirmLogout(() => {
@@ -226,8 +234,8 @@ export default function AppLayout() {
       </div>
       <button
         type="button"
-        className="app-shell__logout-btn"
-        style={{ marginBottom: 8, background: '#f1f5f9', color: '#0f172a' }}
+        className="acct-sheet-btn"
+        style={{ marginBottom: 8 }}
         onClick={() => {
           setAccountOpen(false);
           navigate('/account/security');
@@ -237,7 +245,7 @@ export default function AppLayout() {
       </button>
       <button
         type="button"
-        className="app-shell__logout-btn"
+        className="acct-sheet-btn acct-sheet-btn--danger"
         onClick={() => {
           setAccountOpen(false);
           handleLogout();

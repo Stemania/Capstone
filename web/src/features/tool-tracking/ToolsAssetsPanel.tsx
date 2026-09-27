@@ -7,6 +7,7 @@ import {
   Dropdown,
   Form,
   Input,
+  InputNumber,
   Modal,
   Row,
   Select,
@@ -63,13 +64,16 @@ export default function ToolsAssetsPanel() {
   const [unitsByType, setUnitsByType] = useState<Record<string, ToolUnit[]>>({});
   const [typeModal, setTypeModal] = useState(false);
   const [unitModalType, setUnitModalType] = useState<ToolType | null>(null);
+  const [receiveType, setReceiveType] = useState<ToolType | null>(null);
   const [qrUnit, setQrUnit] = useState<ToolUnit | null>(null);
   const [eventsOpen, setEventsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [typeForm] = Form.useForm();
   const [unitForm] = Form.useForm();
+  const [receiveForm] = Form.useForm();
   const [creatingType, setCreatingType] = useState(false);
   const [creatingUnit, setCreatingUnit] = useState(false);
+  const [receiving, setReceiving] = useState(false);
   const [usageRange, setUsageRange] = useState<[Dayjs, Dayjs]>([
     dayjs().subtract(29, 'day').startOf('day'),
     dayjs().endOf('day'),
@@ -173,6 +177,33 @@ export default function ToolsAssetsPanel() {
     }
   };
 
+  const onReceiveUnits = async (values: {
+    quantity: number;
+    supplier: string;
+    receivedOn: Dayjs;
+    note?: string;
+  }) => {
+    if (!receiveType) return;
+    try {
+      setReceiving(true);
+      const { data } = await toolsApi.receiveUnits(receiveType.id, {
+        quantity: values.quantity,
+        supplier: values.supplier,
+        receivedOn: values.receivedOn.format('YYYY-MM-DD'),
+        note: values.note,
+      });
+      message.success(`Received ${data.count} unit${data.count === 1 ? '' : 's'}`);
+      setReceiveType(null);
+      receiveForm.resetFields();
+      await fetchTypes();
+      await loadUnits(receiveType.id);
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setReceiving(false);
+    }
+  };
+
   const setUnitStatus = async (unit: ToolUnit, status: ToolUnitStatus) => {
     try {
       await toolsApi.updateUnit(unit.id, { status });
@@ -218,6 +249,14 @@ export default function ToolsAssetsPanel() {
       width: 56,
       render: (_: unknown, r) => {
         const items: MenuProps['items'] = [
+          {
+            key: 'receive',
+            label: 'Receive delivery',
+            onClick: () => {
+              setReceiveType(r);
+              receiveForm.setFieldsValue({ receivedOn: dayjs(), quantity: 1 });
+            },
+          },
           {
             key: 'add-unit',
             label: 'Add unit',
@@ -588,6 +627,92 @@ export default function ToolsAssetsPanel() {
             style={{ fontWeight: 700, minWidth: 120 }}
           >
             Create
+          </Button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(receiveType)}
+        onCancel={() => setReceiveType(null)}
+        footer={null}
+        width={560}
+        centered
+        destroyOnHidden
+        className="app-form-modal"
+        styles={{
+          container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
+          body: { padding: 0 },
+        }}
+        closable={false}
+      >
+        <div className="app-form-modal__head">
+          <div className="app-form-modal__icon">
+            <AppstoreAddOutlined />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="app-form-modal__title">
+              {receiveType ? `Receive delivery: ${receiveType.name}` : 'Receive delivery'}
+            </div>
+            <div className="app-form-modal__sub">
+              Creates available units with asset codes and logs a RECEIVE event each.
+            </div>
+          </div>
+          <button
+            type="button"
+            className="app-form-modal__close"
+            onClick={() => setReceiveType(null)}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <Form
+          form={receiveForm}
+          layout="vertical"
+          onFinish={onReceiveUnits}
+          style={{ padding: '20px 24px 8px' }}
+          initialValues={{ receivedOn: dayjs(), quantity: 1 }}
+        >
+          {sectionLabel('Delivery')}
+          <Form.Item
+            name="quantity"
+            label="Quantity (units)"
+            rules={[{ required: true }]}
+            style={{ marginBottom: 14 }}
+          >
+            <InputNumber min={1} max={50} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            name="supplier"
+            label="Supplier"
+            rules={[{ required: true, message: 'Supplier is required' }]}
+            style={{ marginBottom: 14 }}
+          >
+            <Input placeholder="Supplier name" />
+          </Form.Item>
+          <Form.Item
+            name="receivedOn"
+            label="Date received"
+            rules={[{ required: true }]}
+            style={{ marginBottom: 14 }}
+          >
+            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" allowClear={false} />
+          </Form.Item>
+          <Form.Item name="note" label="Note (optional)" style={{ marginBottom: 14 }}>
+            <Input.TextArea rows={2} placeholder="PO number, invoice, etc." />
+          </Form.Item>
+        </Form>
+        <div className="app-form-modal__footer">
+          <Button onClick={() => setReceiveType(null)} style={{ minWidth: 96 }}>
+            Cancel
+          </Button>
+          <Button
+            type="primary"
+            loading={receiving}
+            onClick={() => receiveForm.submit()}
+            style={{ fontWeight: 700, minWidth: 140 }}
+          >
+            Receive delivery
           </Button>
         </div>
       </Modal>

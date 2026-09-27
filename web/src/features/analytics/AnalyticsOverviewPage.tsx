@@ -67,9 +67,9 @@ export default function AnalyticsOverviewPage() {
 
   if (!overview || !trend) return null;
 
-  const completed = overview.jobs.completed;
+  const delivered = overview.jobs.onTime + overview.jobs.late;
   const onTimeRate =
-    completed > 0 ? (overview.jobs.onTime / completed) * 100 : null;
+    delivered > 0 ? (overview.jobs.onTime / delivered) * 100 : null;
 
   const chartData = trend.weeks.map((w) => ({
     week: w.weekStart.slice(5),
@@ -97,12 +97,12 @@ export default function AnalyticsOverviewPage() {
         <SummaryCard
           label="Jobs finished"
           value={formatInt(overview.jobs.completed)}
-          hint={`${overview.jobs.onTime} on time · ${overview.jobs.late} late vs date required`}
+          hint={`${overview.jobs.onTime} on time · ${overview.jobs.late} late · ${overview.jobs.awaitingDelivery} awaiting delivery`}
         />
         <SummaryCard
-          label="Finished on time"
+          label="Delivered on time"
           value={formatPct(onTimeRate, 0)}
-          hint="Share of finished jobs that met the date required"
+          hint="Share of delivered jobs that met the date required (excludes awaiting delivery)"
         />
         <SummaryCard
           label="Average difference from target"

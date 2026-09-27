@@ -223,12 +223,7 @@ export default function WorkerSetupPage() {
       title: 'Machine',
       key: 'machine',
       render: (_: unknown, row: SkillRow) => (
-        <span>
-          <strong>{row.machineTypeName}</strong>
-          <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-            {row.machineTypeCode}
-          </Text>
-        </span>
+        <strong>{row.machineTypeName}</strong>
       ),
     },
     {

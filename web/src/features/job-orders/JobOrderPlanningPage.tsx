@@ -32,6 +32,7 @@ import {
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { jobOrdersApi, workersApi } from '../../api/jobOrders.api';
+import { suppliersApi } from '../../api/suppliers.api';
 import { operationTypesApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import { MACHINE_OPTIONS } from '../../types';
@@ -60,9 +61,17 @@ const { Title, Text } = Typography;
 const MATERIAL_STATUS_OPTIONS: { value: MaterialStatus; label: string }[] = [
   { value: 'NOT_REQUIRED', label: 'Not required' },
   { value: 'TO_ORDER', label: 'To order' },
-  { value: 'ORDERED', label: 'Ordered' },
-  { value: 'RECEIVED', label: 'Received' },
 ];
+
+/** Ordered / Received come from purchase lines and are never set here. */
+const DERIVED_MATERIAL_LABEL: Partial<Record<MaterialStatus, string>> = {
+  ORDERED: 'Ordered (from purchases)',
+  RECEIVED: 'Received (from purchases)',
+};
+
+function isDerivedMaterialStatus(s: MaterialStatus) {
+  return s === 'ORDERED' || s === 'RECEIVED';
+}
 
 function isPlanningStatus(status: string) {
   return status === 'DRAFT';
@@ -172,7 +181,9 @@ export default function JobOrderPlanningPage() {
   } | null>(null);
   const [materialStatus, setMaterialStatus] = useState<MaterialStatus>('TO_ORDER');
   const [materialExpectedDate, setMaterialExpectedDate] = useState<string | null>(null);
+  const [supplierId, setSupplierId] = useState<string | null>(null);
   const [supplierReference, setSupplierReference] = useState('');
+  const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([]);
   const [scheduleWarnings, setScheduleWarnings] = useState<Record<number, ScheduleWarning[]>>({});
   const [proposing, setProposing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -376,14 +387,16 @@ export default function JobOrderPlanningPage() {
     (async () => {
       setLoading(true);
       try {
-        const [jobRes, machinesRes, unitsRes, typesRes] = await Promise.all([
+        const [jobRes, machinesRes, unitsRes, typesRes, suppliersRes] = await Promise.all([
           jobOrdersApi.get(id),
           jobOrdersApi.machines(),
           jobOrdersApi.machineUnits(),
           operationTypesApi.list(),
+          suppliersApi.list({ activeOnly: true }),
         ]);
         if (cancelled) return;
         const j = jobRes.data;
+        setSuppliers(suppliersRes.data.map((s) => ({ id: s.id, name: s.name })));
         const land = resolveJobFlowStep(j);
         const rawStep = Number(searchParams.get('step'));
         const requested =
@@ -405,6 +418,7 @@ export default function JobOrderPlanningPage() {
         setJob(j);
         setMaterialStatus(j.materialStatus || 'TO_ORDER');
         setMaterialExpectedDate(j.materialExpectedDate || null);
+        setSupplierId(j.supplierId || null);
         setSupplierReference(j.supplierReference || '');
         setWizardStep(initial);
         if (String(searchParams.get('step')) !== String(initial)) {
@@ -621,8 +635,9 @@ export default function JobOrderPlanningPage() {
     }));
 
   const materialPayload = () => ({
-    materialStatus,
+    ...(isDerivedMaterialStatus(materialStatus) ? {} : { materialStatus }),
     materialExpectedDate: materialExpectedDate || null,
+    supplierId: supplierId || null,
     supplierReference: supplierReference.trim() || null,
   });
 
@@ -642,6 +657,7 @@ export default function JobOrderPlanningPage() {
       setJob(data);
       setMaterialStatus(data.materialStatus || materialStatus);
       setMaterialExpectedDate(data.materialExpectedDate || null);
+      setSupplierId(data.supplierId || null);
       setSupplierReference(data.supplierReference || '');
       // Keep form rows in sync with persisted schedule so reopen lands on step 3.
       if (wizardStep === 3 && scheduleOps?.some((o) => o.scheduled)) {
@@ -681,6 +697,7 @@ export default function JobOrderPlanningPage() {
       setJob(saved);
       setMaterialStatus(saved.materialStatus || materialStatus);
       setMaterialExpectedDate(saved.materialExpectedDate || null);
+      setSupplierId(saved.supplierId || null);
       setSupplierReference(saved.supplierReference || '');
       const { data } = await jobOrdersApi.proposeSchedule(id, {
         operations: buildOperationsPayload(),
@@ -701,24 +718,108 @@ export default function JobOrderPlanningPage() {
     }
   };
 
+  const scheduleOpsToPayload = (ops: ProposedOperation[]) =>
+    ops.map((op) => ({
+      id: op.id,
+      sequenceNo: op.sequenceNo,
+      operationName: op.operationName,
+      assignedWorkerId: op.assignedWorkerId,
+      machineTypeId: op.machineTypeId,
+      machineUnitId: op.machineUnitId,
+      machineUnitLabel: op.machineUnitLabel,
+      estimatedHours: op.estimatedHours,
+      scheduledStart: op.scheduledStart,
+      scheduledEnd: op.scheduledEnd,
+    }));
+
   const handleScheduleOpChange = (sequenceNo: number, patch: Partial<ProposedOperation>) => {
-    setScheduleOps((prev) =>
-      (prev || []).map((op) => {
-        if (op.sequenceNo !== sequenceNo) return op;
-        const next: ProposedOperation = { ...op, ...patch };
-        // Rebuild a single display segment so the week view tracks edits live
-        // (scheduler multi-day segments are discarded once the admin edits).
-        if ('scheduledStart' in patch || 'scheduledEnd' in patch) {
-          if (next.scheduledStart && next.scheduledEnd) {
-            next.segments = [{ start: next.scheduledStart, end: next.scheduledEnd }];
-            next.scheduled = true;
-          } else {
-            next.segments = [];
-          }
+    if (!scheduleOps) return;
+
+    const startChanged = Object.prototype.hasOwnProperty.call(patch, 'scheduledStart');
+    const endChanged = Object.prototype.hasOwnProperty.call(patch, 'scheduledEnd');
+
+    const nextOps = scheduleOps.map((op) => {
+      if (op.sequenceNo !== sequenceNo) return op;
+      const next: ProposedOperation = { ...op, ...patch };
+
+      // Start edit → end follows target (estimated) hours
+      if (startChanged && next.scheduledStart) {
+        const hours =
+          typeof op.estimatedHours === 'number' && op.estimatedHours > 0
+            ? op.estimatedHours
+            : 1;
+        next.scheduledEnd = dayjs(next.scheduledStart).add(hours, 'hour').toISOString();
+      }
+
+      if (next.scheduledStart && next.scheduledEnd) {
+        next.segments = [{ start: next.scheduledStart, end: next.scheduledEnd }];
+        next.scheduled = true;
+      } else if (startChanged || endChanged) {
+        next.segments = [];
+      }
+      return next;
+    });
+
+    setScheduleOps(nextOps);
+
+    // Re-fit following operations after this one (keep this op's new window)
+    if ((startChanged || endChanged) && id && !readOnly) {
+      void (async () => {
+        setProposing(true);
+        setError('');
+        try {
+          const { data } = await jobOrdersApi.proposeSchedule(id, {
+            operations: scheduleOpsToPayload(nextOps),
+            lockBeforeSequence: sequenceNo + 1,
+            honorMachinePins: true,
+          });
+          setScheduleOps(data.operations);
+          setScheduleMeta({
+            projectedCompletion: data.projectedCompletion,
+            scheduleFlag: data.scheduleFlag,
+            materialNotBefore: data.materialNotBefore,
+            materialConstraintReason: data.materialConstraintReason,
+          });
+          setScheduleWarnings({});
+        } catch (err) {
+          setError(getErrorMessage(err));
+          message.error(getErrorMessage(err));
+        } finally {
+          setProposing(false);
         }
-        return next;
-      })
-    );
+      })();
+    }
+  };
+
+  const handleRefreshProposedSchedule = async () => {
+    if (!id || !scheduleOps) return;
+    setProposing(true);
+    setError('');
+    try {
+      // Drop pinned windows so earliest-fit rebuilds times; keep machine/worker picks.
+      const { data } = await jobOrdersApi.proposeSchedule(id, {
+        operations: scheduleOpsToPayload(scheduleOps).map((op) => ({
+          ...op,
+          scheduledStart: null,
+          scheduledEnd: null,
+        })),
+        honorMachinePins: true,
+      });
+      setScheduleOps(data.operations);
+      setScheduleMeta({
+        projectedCompletion: data.projectedCompletion,
+        scheduleFlag: data.scheduleFlag,
+        materialNotBefore: data.materialNotBefore,
+        materialConstraintReason: data.materialConstraintReason,
+      });
+      setScheduleWarnings({});
+      message.success('Schedule reset to proposal');
+    } catch (err) {
+      setError(getErrorMessage(err));
+      message.error(getErrorMessage(err));
+    } finally {
+      setProposing(false);
+    }
   };
 
   const handleMachineUnitChange = async (
@@ -737,18 +838,7 @@ export default function JobOrderPlanningPage() {
     setError('');
     try {
       const { data } = await jobOrdersApi.proposeSchedule(id, {
-        operations: nextOps.map((op) => ({
-          id: op.id,
-          sequenceNo: op.sequenceNo,
-          operationName: op.operationName,
-          assignedWorkerId: op.assignedWorkerId,
-          machineTypeId: op.machineTypeId,
-          machineUnitId: op.machineUnitId,
-          machineUnitLabel: op.machineUnitLabel,
-          estimatedHours: op.estimatedHours,
-          scheduledStart: op.scheduledStart,
-          scheduledEnd: op.scheduledEnd,
-        })),
+        operations: scheduleOpsToPayload(nextOps),
         lockBeforeSequence: sequenceNo,
         honorMachinePins: true,
       });
@@ -1092,7 +1182,18 @@ export default function JobOrderPlanningPage() {
               style={{ width: '100%' }}
               value={materialStatus}
               disabled={readOnly}
-              options={MATERIAL_STATUS_OPTIONS}
+              options={
+                isDerivedMaterialStatus(materialStatus)
+                  ? [
+                      ...MATERIAL_STATUS_OPTIONS,
+                      {
+                        value: materialStatus,
+                        label: DERIVED_MATERIAL_LABEL[materialStatus] ?? materialStatus,
+                        disabled: true,
+                      },
+                    ]
+                  : MATERIAL_STATUS_OPTIONS
+              }
               onChange={(v) => setMaterialStatus(v)}
             />
           </Col>
@@ -1106,11 +1207,25 @@ export default function JobOrderPlanningPage() {
             />
           </Col>
           <Col xs={24} sm={8}>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>Supplier</div>
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              style={{ width: '100%' }}
+              placeholder="Select supplier"
+              value={supplierId || undefined}
+              disabled={readOnly || materialStatus === 'NOT_REQUIRED'}
+              options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+              onChange={(v) => setSupplierId(v || null)}
+            />
+          </Col>
+          <Col xs={24} sm={8}>
             <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>
-              Supplier reference
+              Supplier PO / invoice #
             </div>
             <Input
-              placeholder="PO / invoice #"
+              placeholder="Their order or invoice number"
               value={supplierReference}
               disabled={readOnly || materialStatus === 'NOT_REQUIRED'}
               onChange={(e) => setSupplierReference(e.target.value)}
@@ -1307,6 +1422,8 @@ export default function JobOrderPlanningPage() {
               warningsBySeq={scheduleWarnings}
               onChangeOp={handleScheduleOpChange}
               onMachineUnitChange={readOnly ? undefined : handleMachineUnitChange}
+              onRefreshProposal={readOnly ? undefined : handleRefreshProposedSchedule}
+              refreshing={proposing}
               onBlurValidate={() => scheduleOps && runValidateSchedule(scheduleOps)}
               readOnly={readOnly}
             />

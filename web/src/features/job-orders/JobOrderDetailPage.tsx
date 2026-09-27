@@ -1,15 +1,22 @@
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Button,
+  Checkbox,
   Collapse,
   Col,
+  DatePicker,
+  Form,
   Input,
+  InputNumber,
   Modal,
   Row,
+  Select,
   Space,
   Spin,
   Table,
+  Tooltip,
   Typography,
   message,
 } from 'antd';
@@ -19,11 +26,13 @@ import {
   CheckOutlined,
   DeleteOutlined,
   EditOutlined,
+  FileTextOutlined,
   PrinterOutlined,
 } from '@ant-design/icons';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
-import dayjs from 'dayjs';
+import dayjs, { type Dayjs } from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
+import { suppliersApi } from '../../api/suppliers.api';
 import { operationsApi } from '../../api/operations.api';
 import { notificationsApi } from '../../api/notifications.api';
 import { getErrorMessage } from '../../api/client';
@@ -33,10 +42,13 @@ import type {
   JobOrder,
   JobOrderStatus,
   JobPriority,
+  MaterialPurchase,
   NotificationLog,
   Operation,
   OperationPauseReason,
   OperationStatus,
+  ReworkReasonCategory,
+  Supplier,
 } from '../../types';
 import { formatDifferenceFromTarget } from '../analytics/analyticsPeriod';
 import { WorkerPageHeader } from '../../layouts/WorkerLayout';
@@ -67,6 +79,20 @@ const PRIORITY_PILL: Record<JobPriority, { label: string; color: PillColor }> = 
   LOW: { label: 'Low', color: 'green' },
 };
 
+const REWORK_CATEGORY_OPTIONS: { value: ReworkReasonCategory; label: string }[] = [
+  { value: 'DIMENSION_OUT_OF_TOLERANCE', label: 'Dimension out of tolerance' },
+  { value: 'SURFACE_FINISH', label: 'Surface finish' },
+  { value: 'WRONG_MATERIAL', label: 'Wrong material' },
+  { value: 'MACHINE_FAULT', label: 'Machine fault' },
+  { value: 'OPERATOR_ERROR', label: 'Operator error' },
+  { value: 'OTHER', label: 'Other' },
+];
+
+function reworkCategoryLabel(cat: string | null | undefined) {
+  if (!cat) return null;
+  return REWORK_CATEGORY_OPTIONS.find((o) => o.value === cat)?.label || cat;
+}
+
 const GREEN = '#16a34a';
 const GREEN_SOFT = 'rgba(22,163,74,0.12)';
 const NAVY = '#0f1c2e';
@@ -76,9 +102,12 @@ const MUTED = '#64748b';
 const PART_STAGE_LABEL: Record<string, string> = {
   RAW_MATERIAL: 'Raw material',
   CLIENT_SUPPLIED_ITEM: 'Client supplied item',
-  BLANK: 'Blank',
   WORK_IN_PROCESS: 'Work in process',
+  CUT: 'Cut',
+  BLANK: 'Blank',
+  FORMED: 'Formed',
   MACHINED: 'Machined',
+  ASSEMBLED: 'Assembled',
   HEAT_TREATED: 'Heat treated',
   FINISHED: 'Finished',
 };
@@ -163,6 +192,14 @@ function fmtVariance(hours?: number | null, pct?: number | null) {
   return formatDifferenceFromTarget(hours, pct);
 }
 
+const VAT_RATE_PCT = 12;
+
+const PURCHASE_STATUS_PILL: Record<string, { label: string; color: PillColor }> = {
+  ORDERED: { label: 'Ordered', color: 'amber' },
+  RECEIVED: { label: 'Received', color: 'green' },
+  CONSUMED: { label: 'Consumed', color: 'gray' },
+};
+
 function fmtMoney(n?: number | null) {
   if (n == null) return '—';
   return `₱${Number(n).toLocaleString('en-PH', {
@@ -201,12 +238,32 @@ export default function JobOrderDetailPage() {
   const [markingMaterial, setMarkingMaterial] = useState(false);
   const [notifications, setNotifications] = useState<NotificationLog[] | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
+  const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [purchaseOpen, setPurchaseOpen] = useState(false);
+  const [purchaseSaving, setPurchaseSaving] = useState(false);
+  const [purchaseForm] = Form.useForm();
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [invoiceSaving, setInvoiceSaving] = useState(false);
+  const [invoiceForm] = Form.useForm();
+  const invoiceSubtotal = Form.useWatch('subtotal', invoiceForm) as number | null | undefined;
+  const invoiceApplyVat = Form.useWatch('applyVat', invoiceForm) as boolean | undefined;
 
   const fetchJob = useCallback(async () => {
     if (!id) return;
     const { data } = await jobOrdersApi.get(id);
     setJob(data);
   }, [id]);
+
+  const fetchPurchases = useCallback(async () => {
+    if (!id || !canManage) return;
+    try {
+      const { data } = await jobOrdersApi.listMaterialPurchases(id);
+      setPurchases(data);
+    } catch {
+      setPurchases([]);
+    }
+  }, [id, canManage]);
 
   useEffect(() => {
     if (!id) return;
@@ -215,6 +272,15 @@ export default function JobOrderDetailPage() {
       setLoading(true);
       try {
         await fetchJob();
+        if (canManage) {
+          await fetchPurchases();
+          try {
+            const { data } = await suppliersApi.list({ activeOnly: true });
+            if (!cancelled) setSuppliers(data);
+          } catch {
+            /* ignore */
+          }
+        }
       } catch (err) {
         if (!cancelled) message.error(getErrorMessage(err));
       } finally {
@@ -224,11 +290,16 @@ export default function JobOrderDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, fetchJob]);
+  }, [id, fetchJob, fetchPurchases, canManage]);
 
   const ops = useMemo(
     () => [...(job?.operations || [])].sort((a, b) => a.sequenceNo - b.sequenceNo),
     [job]
+  );
+  const jobStarted = ops.some((o) => !!o.actualStart);
+  const outstandingLines = useMemo(
+    () => purchases.filter((p) => !p.dateReceived),
+    [purchases]
   );
 
   useEffect(() => {
@@ -300,27 +371,47 @@ export default function JobOrderDetailPage() {
   };
 
   const handleRework = (op: Operation) => {
-    let reason = '';
+    let category: ReworkReasonCategory | undefined;
+    let note = '';
     Modal.confirm({
       title: `Send “${op.operationName}” for redo`,
       content: (
-        <Input.TextArea
-          rows={3}
-          placeholder="Reason for redo"
-          onChange={(e) => {
-            reason = e.target.value;
-          }}
-        />
+        <div style={{ marginTop: 8 }}>
+          <div style={{ marginBottom: 8, fontSize: 13, color: '#475569' }}>Category</div>
+          <Select
+            style={{ width: '100%', marginBottom: 12 }}
+            placeholder="Select reason category"
+            options={REWORK_CATEGORY_OPTIONS}
+            onChange={(v: ReworkReasonCategory) => {
+              category = v;
+            }}
+          />
+          <div style={{ marginBottom: 8, fontSize: 13, color: '#475569' }}>Note (optional)</div>
+          <Input.TextArea
+            rows={3}
+            placeholder="Extra detail"
+            onChange={(e) => {
+              note = e.target.value;
+            }}
+          />
+        </div>
       ),
       okText: 'Create redo operation',
       onOk: async () => {
-        if (!reason.trim()) {
-          message.error('Reason is required');
+        if (!category) {
+          message.error('Category is required');
+          return Promise.reject();
+        }
+        if (category === 'OTHER' && !note.trim()) {
+          message.error('Note is required when category is Other');
           return Promise.reject();
         }
         setReworkLoading(op.id);
         try {
-          await operationsApi.rework(op.id, reason.trim());
+          await operationsApi.rework(op.id, {
+            category,
+            reason: note.trim() || undefined,
+          });
           message.success('Redo operation created');
           await fetchJob();
         } catch (err) {
@@ -328,6 +419,118 @@ export default function JobOrderDetailPage() {
           return Promise.reject();
         } finally {
           setReworkLoading(null);
+        }
+      },
+    });
+  };
+
+  const handleMarkMaterialReceived = async (receivedDate?: string) => {
+    if (!job) return;
+    setMarkingMaterial(true);
+    try {
+      const { data } = await jobOrdersApi.markMaterialReceived(job.id, receivedDate);
+      setJob(data);
+      await fetchPurchases();
+      message.success('All outstanding materials marked received');
+    } catch (err) {
+      message.error(getErrorMessage(err));
+      throw err;
+    } finally {
+      setMarkingMaterial(false);
+    }
+  };
+
+  const openMaterialReceived = () => {
+    let receivedDate = dayjs();
+    Modal.confirm({
+      title: 'Mark material received?',
+      content: (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ marginBottom: 8, fontSize: 13, color: '#475569' }}>
+            Every purchase line still on order will be marked received on this date.
+          </div>
+          <div style={{ marginBottom: 8, fontSize: 13, color: '#475569' }}>Date received</div>
+          <DatePicker
+            style={{ width: '100%' }}
+            defaultValue={dayjs()}
+            format="YYYY-MM-DD"
+            allowClear={false}
+            onChange={(d) => {
+              if (d) receivedDate = d;
+            }}
+          />
+        </div>
+      ),
+      okText: 'Mark received',
+      onOk: () => handleMarkMaterialReceived(receivedDate.format('YYYY-MM-DD')),
+    });
+  };
+
+  const onCreatePurchase = async (values: {
+    materialName: string;
+    gradeOrSpec?: string;
+    quantity: number;
+    unit: string;
+    unitCost: number;
+    supplierId: string;
+    dateOrdered: Dayjs;
+  }) => {
+    if (!job) return;
+    try {
+      setPurchaseSaving(true);
+      await jobOrdersApi.createMaterialPurchase(job.id, {
+        materialName: values.materialName,
+        gradeOrSpec: values.gradeOrSpec,
+        quantity: values.quantity,
+        unit: values.unit,
+        unitCost: values.unitCost,
+        supplierId: values.supplierId,
+        dateOrdered: values.dateOrdered.format('YYYY-MM-DD'),
+      });
+      message.success('Purchase recorded');
+      setPurchaseOpen(false);
+      purchaseForm.resetFields();
+      await fetchPurchases();
+      await fetchJob();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setPurchaseSaving(false);
+    }
+  };
+
+  const markLineReceived = (p: MaterialPurchase) => {
+    let receivedDate = dayjs();
+    Modal.confirm({
+      title: `Mark “${p.materialName}” received?`,
+      content: (
+        <div style={{ marginTop: 8 }}>
+          <DatePicker
+            style={{ width: '100%' }}
+            defaultValue={dayjs()}
+            format="YYYY-MM-DD"
+            allowClear={false}
+            onChange={(d) => {
+              if (d) receivedDate = d;
+            }}
+          />
+        </div>
+      ),
+      okText: 'Mark received',
+      onOk: async () => {
+        if (!job) return;
+        try {
+          await jobOrdersApi.markPurchaseReceived(
+            job.id,
+            p.id,
+            receivedDate.format('YYYY-MM-DD')
+          );
+          message.success('Line marked received');
+          await fetchPurchases();
+          await fetchJob();
+        } catch (err) {
+          message.error(getErrorMessage(err));
+          throw err;
         }
       },
     });
@@ -370,6 +573,62 @@ export default function JobOrderDetailPage() {
     }
   };
 
+  const openIssueInvoice = () => {
+    if (!job) return;
+    invoiceForm.setFieldsValue({
+      invoiceDate: dayjs(),
+      description: job.description?.trim() || job.title,
+      subtotal: job.amount ?? null,
+      applyVat: false,
+    });
+    setInvoiceOpen(true);
+  };
+
+  const onIssueInvoice = async (values: {
+    invoiceDate: Dayjs;
+    description: string;
+    subtotal: number;
+    applyVat?: boolean;
+  }) => {
+    if (!job) return;
+    setInvoiceSaving(true);
+    try {
+      const { data } = await jobOrdersApi.issueInvoice(job.id, {
+        invoiceDate: values.invoiceDate.format('YYYY-MM-DD'),
+        description: values.description,
+        subtotal: values.subtotal,
+        vatRate: values.applyVat ? VAT_RATE_PCT : null,
+      });
+      message.success(`Invoice ${data.invoiceNumber} issued`);
+      setInvoiceOpen(false);
+      await fetchJob();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setInvoiceSaving(false);
+    }
+  };
+
+  const handleSetMaterialNotRequired = () => {
+    if (!job) return;
+    Modal.confirm({
+      title: 'Set material to Not required?',
+      content:
+        'Use this only when the shop already has the material for this job. The first operation will then be able to start without a purchase.',
+      okText: 'Set not required',
+      onOk: async () => {
+        try {
+          await jobOrdersApi.update(job.id, { materialStatus: 'NOT_REQUIRED' });
+          message.success('Material set to Not required');
+          await fetchJob();
+        } catch (err) {
+          message.error(getErrorMessage(err));
+          throw err;
+        }
+      },
+    });
+  };
+
   const handleDeliver = async () => {
     if (!job) return;
     setDelivering(true);
@@ -381,20 +640,6 @@ export default function JobOrderDetailPage() {
       message.error(getErrorMessage(err));
     } finally {
       setDelivering(false);
-    }
-  };
-
-  const handleMarkMaterialReceived = async () => {
-    if (!job) return;
-    setMarkingMaterial(true);
-    try {
-      const { data } = await jobOrdersApi.markMaterialReceived(job.id);
-      setJob(data);
-      message.success('Material marked received');
-    } catch (err) {
-      message.error(getErrorMessage(err));
-    } finally {
-      setMarkingMaterial(false);
     }
   };
 
@@ -531,30 +776,44 @@ export default function JobOrderDetailPage() {
             job.materialStatus &&
             job.materialStatus !== 'NOT_REQUIRED' &&
             job.materialStatus !== 'RECEIVED' && (
-              <Button
-                icon={<CheckOutlined />}
-                loading={markingMaterial}
-                onClick={() => {
-                  Modal.confirm({
-                    title: 'Mark material received?',
-                    content: 'Sets status to Received and records today’s date as the arrival date.',
-                    okText: 'Mark received',
-                    onOk: handleMarkMaterialReceived,
-                  });
-                }}
-              >
-                Material received
-              </Button>
+              <Tooltip title={purchases.length === 0 ? 'Record the purchase first.' : undefined}>
+                <Button
+                  icon={<CheckOutlined />}
+                  loading={markingMaterial}
+                  disabled={purchases.length === 0}
+                  onClick={openMaterialReceived}
+                >
+                  Material received
+                </Button>
+              </Tooltip>
             )}
-          {canManage && job.status === 'COMPLETED' && (
+          {canManage && job.salesInvoice && (
             <Button
-              type="primary"
-              icon={<CheckOutlined />}
-              loading={delivering}
-              onClick={handleDeliver}
+              icon={<FileTextOutlined />}
+              onClick={() => navigate(`/job-orders/${job.id}/invoice/print`)}
             >
-              Deliver
+              Invoice {job.salesInvoice.invoiceNumber}
             </Button>
+          )}
+          {canManage && job.status === 'COMPLETED' && !job.salesInvoice && (
+            <Button type="primary" icon={<FileTextOutlined />} onClick={openIssueInvoice}>
+              Issue invoice
+            </Button>
+          )}
+          {canManage && job.status === 'COMPLETED' && (
+            <Tooltip
+              title={job.salesInvoice ? undefined : 'Issue a sales invoice before delivery'}
+            >
+              <Button
+                type={job.salesInvoice ? 'primary' : 'default'}
+                icon={<CheckOutlined />}
+                loading={delivering}
+                disabled={!job.salesInvoice}
+                onClick={handleDeliver}
+              >
+                Deliver
+              </Button>
+            </Tooltip>
           )}
           {canManage && (
             <Button danger icon={<DeleteOutlined />} onClick={handleDelete}>
@@ -607,7 +866,7 @@ export default function JobOrderDetailPage() {
               <StatusPill color={status.color}>{status.label}</StatusPill>
             )}
             {priority && <StatusPill color={priority.color}>{priority.label}</StatusPill>}
-            <span style={{ fontSize: 13, color: overdue ? '#dc2626' : MUTED, fontWeight: 600 }}>
+            <span style={{ fontSize: 13, color: overdue ? '#7A1528' : MUTED, fontWeight: 600 }}>
               Due {fmtDate(job.dueDate)}
             </span>
             {(job.quantity != null || (!isWorker && job.amount != null)) && (
@@ -657,8 +916,11 @@ export default function JobOrderDetailPage() {
                           : '—'
                 }
               />
+              {job.supplierName ? (
+                <RefItem label="Supplier" value={job.supplierName} />
+              ) : null}
               {job.supplierReference ? (
-                <RefItem label="Supplier ref" value={job.supplierReference} />
+                <RefItem label="Supplier PO / invoice" value={job.supplierReference} />
               ) : null}
               <RefItem
                 label="Stage of the part"
@@ -700,6 +962,272 @@ export default function JobOrderDetailPage() {
           </div>
         </Col>
       </Row>
+
+      {canManage && job.materialStatus !== 'NOT_REQUIRED' && outstandingLines.length > 0 && !jobStarted ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="The first operation cannot start until all materials are received"
+          description={
+            <>
+              Still on order:{' '}
+              {outstandingLines
+                .map((p) => (p.gradeOrSpec ? `${p.materialName} (${p.gradeOrSpec})` : p.materialName))
+                .join(', ')}
+              .
+            </>
+          }
+        />
+      ) : null}
+
+      {canManage &&
+      job.materialStatus !== 'NOT_REQUIRED' &&
+      purchases.length === 0 &&
+      !jobStarted ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="The first operation cannot start: no materials have been ordered"
+          description={
+            isAdmin
+              ? 'No purchase has been recorded for this job. Record the purchase below, or if the shop already has the material, set material to Not required.'
+              : 'No purchase has been recorded for this job. Record the purchase below. If the shop already has the material, ask the Admin to set it to Not required.'
+          }
+          action={
+            isAdmin ? (
+              <Button size="small" onClick={handleSetMaterialNotRequired}>
+                Set not required
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : null}
+
+      {canManage && job.materialStatus !== 'NOT_REQUIRED' ? (
+        <div style={{ ...cardStyle(), marginBottom: 16 }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 12,
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 14, color: NAVY }}>
+                Material purchases
+              </div>
+              <div style={{ fontSize: 12, color: MUTED }}>
+                What was actually bought. Planned requirements stay under Raw Materials.
+              </div>
+            </div>
+            <Button
+              type="primary"
+              onClick={() => {
+                purchaseForm.setFieldsValue({
+                  dateOrdered: dayjs(),
+                  unit: 'pcs',
+                  quantity: 1,
+                  unitCost: 0,
+                  supplierId: job.supplierId || undefined,
+                });
+                setPurchaseOpen(true);
+              }}
+            >
+              Record purchase
+            </Button>
+          </div>
+          <Table
+            size="small"
+            rowKey="id"
+            pagination={false}
+            dataSource={purchases}
+            locale={{ emptyText: 'No purchases recorded yet.' }}
+            columns={[
+              { title: 'Material', dataIndex: 'materialName' },
+              {
+                title: 'Grade / spec',
+                dataIndex: 'gradeOrSpec',
+                width: 120,
+                render: (v: string | null) => v || '—',
+              },
+              {
+                title: 'Qty',
+                key: 'qty',
+                width: 90,
+                render: (_: unknown, r: MaterialPurchase) =>
+                  `${r.quantity} ${r.unit}`,
+              },
+              {
+                title: 'Unit cost',
+                dataIndex: 'unitCost',
+                width: 100,
+                align: 'right',
+                render: (v: number) => fmtMoney(v),
+              },
+              {
+                title: 'Supplier',
+                dataIndex: 'supplierName',
+                width: 120,
+              },
+              {
+                title: 'Ordered',
+                dataIndex: 'dateOrdered',
+                width: 110,
+                render: (v: string) => fmtDate(v),
+              },
+              {
+                title: 'Received',
+                dataIndex: 'dateReceived',
+                width: 110,
+                render: (v: string | null) => (v ? fmtDate(v) : '—'),
+              },
+              {
+                title: 'Status',
+                key: 'status',
+                width: 100,
+                render: (_: unknown, r: MaterialPurchase) => {
+                  const pill =
+                    PURCHASE_STATUS_PILL[r.status || (r.dateReceived ? 'RECEIVED' : 'ORDERED')] ||
+                    PURCHASE_STATUS_PILL.ORDERED;
+                  return (
+                    <StatusPill color={pill.color} compact>
+                      {pill.label}
+                    </StatusPill>
+                  );
+                },
+              },
+              {
+                title: '',
+                key: 'act',
+                width: 110,
+                render: (_: unknown, r: MaterialPurchase) =>
+                  r.dateReceived ? null : (
+                    <Button size="small" onClick={() => markLineReceived(r)}>
+                      Received
+                    </Button>
+                  ),
+              },
+            ]}
+          />
+        </div>
+      ) : null}
+
+      <Modal
+        open={invoiceOpen}
+        onCancel={() => setInvoiceOpen(false)}
+        footer={null}
+        title="Issue sales invoice"
+        destroyOnHidden
+      >
+        <Form form={invoiceForm} layout="vertical" onFinish={onIssueInvoice}>
+          <Form.Item name="invoiceDate" label="Invoice date" rules={[{ required: true }]}>
+            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" allowClear={false} />
+          </Form.Item>
+          <Form.Item name="description" label="Description" rules={[{ required: true }]}>
+            <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} />
+          </Form.Item>
+          <Form.Item
+            name="subtotal"
+            label="Amount (subtotal)"
+            extra="Defaults to the job order amount. Adjust before issuing if needed."
+            rules={[{ required: true, message: 'Enter the invoice amount' }]}
+          >
+            <InputNumber min={0} precision={2} prefix="₱" style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="applyVat" valuePropName="checked">
+            <Checkbox>Add VAT ({VAT_RATE_PCT}%)</Checkbox>
+          </Form.Item>
+          {(() => {
+            const sub = Number(invoiceSubtotal || 0);
+            const vat = invoiceApplyVat ? Math.round(sub * VAT_RATE_PCT) / 100 : 0;
+            return (
+              <div style={{ fontSize: 13, color: MUTED, marginBottom: 16 }}>
+                {invoiceApplyVat ? <div>VAT: {fmtMoney(vat)}</div> : null}
+                <div style={{ fontWeight: 700, color: NAVY, fontSize: 15 }}>
+                  Total: {fmtMoney(sub + vat)}
+                </div>
+              </div>
+            );
+          })()}
+          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+            <Button onClick={() => setInvoiceOpen(false)}>Cancel</Button>
+            <Button type="primary" htmlType="submit" loading={invoiceSaving}>
+              Issue invoice
+            </Button>
+          </Space>
+        </Form>
+      </Modal>
+
+      <Modal
+        open={purchaseOpen}
+        onCancel={() => setPurchaseOpen(false)}
+        footer={null}
+        title="Record material purchase"
+        destroyOnHidden
+      >
+        <Form form={purchaseForm} layout="vertical" onFinish={onCreatePurchase}>
+          <Form.Item
+            name="materialName"
+            label="Material name"
+            rules={[{ required: true }]}
+          >
+            <Input />
+          </Form.Item>
+          <Form.Item name="gradeOrSpec" label="Grade / specification">
+            <Input />
+          </Form.Item>
+          <Space style={{ width: '100%' }} styles={{ item: { flex: 1 } }}>
+            <Form.Item
+              name="quantity"
+              label="Quantity"
+              rules={[{ required: true }]}
+              style={{ flex: 1 }}
+            >
+              <InputNumber min={0.0001} style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item name="unit" label="Unit" rules={[{ required: true }]} style={{ flex: 1 }}>
+              <Input placeholder="pcs, kg, …" />
+            </Form.Item>
+            <Form.Item
+              name="unitCost"
+              label="Unit cost"
+              rules={[{ required: true }]}
+              style={{ flex: 1 }}
+            >
+              <InputNumber min={0} style={{ width: '100%' }} />
+            </Form.Item>
+          </Space>
+          <Form.Item
+            name="supplierId"
+            label="Supplier"
+            rules={[{ required: true, message: 'Supplier is required' }]}
+          >
+            <Select
+              showSearch
+              optionFilterProp="label"
+              options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+            />
+          </Form.Item>
+          <Form.Item
+            name="dateOrdered"
+            label="Date ordered"
+            rules={[{ required: true }]}
+          >
+            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+          </Form.Item>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <Button onClick={() => setPurchaseOpen(false)}>Cancel</Button>
+            <Button type="primary" htmlType="submit" loading={purchaseSaving}>
+              Save
+            </Button>
+          </div>
+        </Form>
+      </Modal>
 
       <div style={{ fontWeight: 800, fontSize: 15, color: NAVY, marginBottom: 12 }}>
         Operations
@@ -835,9 +1363,15 @@ export default function JobOrderDetailPage() {
                   </span>
                 </div>
 
-                {op.reworkReason ? (
+                {op.reworkReasonCategory || op.reworkReason ? (
                   <div style={{ fontSize: 12, color: MUTED, marginBottom: 8 }}>
-                    Redo reason: {op.reworkReason}
+                    Redo reason
+                    {op.reworkReasonCategory
+                      ? `: ${reworkCategoryLabel(op.reworkReasonCategory)}`
+                      : ''}
+                    {op.reworkReason
+                      ? `${op.reworkReasonCategory ? ' — ' : ': '}${op.reworkReason}`
+                      : ''}
                   </div>
                 ) : null}
 

@@ -1,4 +1,5 @@
-import { DatePicker, Select, Tag, Typography } from 'antd';
+import { Button, DatePicker, Select, Tag, Tooltip, Typography } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import type { MachineUnitInfo, ProposedOperation, ScheduleFlag, ScheduleWarning } from '../../types';
 import {
   formatShopDateTime,
@@ -23,6 +24,9 @@ type Props = {
     machineUnitId: string | null,
     machineUnitLabel: string | null
   ) => void;
+  /** Re-run earliest-fit proposal (reset manual date/time edits). */
+  onRefreshProposal?: () => void;
+  refreshing?: boolean;
   onBlurValidate: () => void;
   readOnly?: boolean;
 };
@@ -65,6 +69,8 @@ export default function ScheduleProposalPanel({
   warningsBySeq,
   onChangeOp,
   onMachineUnitChange,
+  onRefreshProposal,
+  refreshing = false,
   onBlurValidate,
   readOnly = false,
 }: Props) {
@@ -85,7 +91,22 @@ export default function ScheduleProposalPanel({
             </Text>
           ) : null}
         </div>
-        <Tag style={{ margin: 0 }}>Edits update the week view live — not saved until release</Tag>
+        <div className="jo-plan__schedule-meta-aside">
+          <Tag style={{ margin: 0 }}>Edits update the week view live — not saved until release</Tag>
+          {onRefreshProposal && !readOnly ? (
+            <Tooltip title="Reset to proposed schedule">
+              <Button
+                type="text"
+                size="small"
+                icon={<ReloadOutlined />}
+                loading={refreshing}
+                onClick={onRefreshProposal}
+                aria-label="Reset to proposed schedule"
+                className="jo-plan__schedule-refresh"
+              />
+            </Tooltip>
+          ) : null}
+        </div>
       </div>
 
       <div className="jo-plan__schedule-table">
@@ -174,12 +195,16 @@ export default function ScheduleProposalPanel({
                       style={{ width: '100%' }}
                       disabled={readOnly}
                       value={isoToShopDayjs(op.scheduledStart)}
+                      allowClear={false}
                       onChange={(v) => {
+                        if (!v) return;
                         onChangeOp(op.sequenceNo, {
                           scheduledStart: shopLocalToIso(v),
                         });
                       }}
-                      onBlur={onBlurValidate}
+                      onOpenChange={(open) => {
+                        if (!open) onBlurValidate();
+                      }}
                     />
                   </div>
                   <div className="jo-plan__schedule-field" data-label="End">
@@ -190,12 +215,16 @@ export default function ScheduleProposalPanel({
                       style={{ width: '100%' }}
                       disabled={readOnly}
                       value={isoToShopDayjs(op.scheduledEnd)}
+                      allowClear={false}
                       onChange={(v) => {
+                        if (!v) return;
                         onChangeOp(op.sequenceNo, {
                           scheduledEnd: shopLocalToIso(v),
                         });
                       }}
-                      onBlur={onBlurValidate}
+                      onOpenChange={(open) => {
+                        if (!open) onBlurValidate();
+                      }}
                     />
                   </div>
                 </>

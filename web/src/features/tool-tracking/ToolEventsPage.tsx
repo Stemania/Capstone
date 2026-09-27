@@ -15,6 +15,8 @@ function eventLabel(t: ToolEventType) {
       return 'Issued (legacy)';
     case 'ADJUST':
       return 'Adjusted';
+    case 'RECEIVE':
+      return 'Received';
     default:
       return t;
   }
@@ -28,6 +30,8 @@ function eventColor(t: ToolEventType): 'amber' | 'green' | 'gray' | 'blue' {
       return 'green';
     case 'ADJUST':
       return 'blue';
+    case 'RECEIVE':
+      return 'green';
     default:
       return 'gray';
   }
@@ -60,7 +64,7 @@ export default function ToolEventsPage({ category }: Props) {
 
   const emptyText =
     category === 'CONSUMABLE'
-      ? 'No consumable stock events yet. Adjustments appear here after activity.'
+      ? 'No consumable stock events yet. Receives and adjustments appear here after activity.'
       : 'No borrow, return, or unit events yet.';
 
   return (

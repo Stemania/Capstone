@@ -1,10 +1,13 @@
 import apiClient from './client';
 import type {
   Client,
+  ClientDetail,
   JobOrder,
   MachineInfo,
   MachineUnitInfo,
+  MaterialPurchase,
   Operation,
+  SalesInvoice,
   ScheduleProposeResult,
   ScheduleValidateResult,
   ScoringWeights,
@@ -15,6 +18,7 @@ import type {
 export const clientsApi = {
   list: (search?: string) =>
     apiClient.get<Client[]>('/clients', { params: search ? { search } : {} }),
+  get: (id: string) => apiClient.get<ClientDetail>(`/clients/${id}`),
   create: (data: {
     name: string;
     contact?: string;
@@ -68,6 +72,37 @@ export const jobOrdersApi = {
     apiClient.post<JobOrder>(`/job-orders/${id}/material-received`, {
       receivedDate,
     }),
+  listMaterialPurchases: (jobId: string) =>
+    apiClient.get<MaterialPurchase[]>(`/job-orders/${jobId}/material-purchases`),
+  createMaterialPurchase: (jobId: string, data: Record<string, unknown>) =>
+    apiClient.post<MaterialPurchase>(`/job-orders/${jobId}/material-purchases`, data),
+  updateMaterialPurchase: (
+    jobId: string,
+    purchaseId: string,
+    data: Record<string, unknown>
+  ) =>
+    apiClient.patch<MaterialPurchase>(
+      `/job-orders/${jobId}/material-purchases/${purchaseId}`,
+      data
+    ),
+  markPurchaseReceived: (jobId: string, purchaseId: string, receivedDate?: string) =>
+    apiClient.post<MaterialPurchase>(
+      `/job-orders/${jobId}/material-purchases/${purchaseId}/received`,
+      { receivedDate }
+    ),
+  deleteMaterialPurchase: (jobId: string, purchaseId: string) =>
+    apiClient.delete(`/job-orders/${jobId}/material-purchases/${purchaseId}`),
+  getInvoice: (jobId: string) =>
+    apiClient.get<SalesInvoice>(`/job-orders/${jobId}/invoice`),
+  issueInvoice: (
+    jobId: string,
+    data: {
+      invoiceDate?: string;
+      description?: string;
+      subtotal?: number;
+      vatRate?: number | null;
+    }
+  ) => apiClient.post<SalesInvoice>(`/job-orders/${jobId}/invoice`, data),
 };
 
 export const operationsApi = {

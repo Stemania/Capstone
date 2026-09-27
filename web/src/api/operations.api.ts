@@ -5,6 +5,7 @@ import type {
   MachineUnitStatus,
   Operation,
   OperationPauseReason,
+  ReworkReasonCategory,
 } from '../types';
 
 export const operationsApi = {
@@ -17,8 +18,14 @@ export const operationsApi = {
     apiClient.post<Operation>(`/operations/${id}/resume`, { timestamp }),
   complete: (id: string, timestamp?: string) =>
     apiClient.post<Operation>(`/operations/${id}/complete`, { timestamp }),
-  rework: (id: string, reason: string) =>
-    apiClient.post<Operation>(`/operations/${id}/rework`, { reason }),
+  rework: (
+    id: string,
+    data: { category: ReworkReasonCategory; reason?: string; note?: string }
+  ) =>
+    apiClient.post<Operation>(`/operations/${id}/rework`, {
+      category: data.category,
+      reason: data.reason ?? data.note,
+    }),
   assign: (id: string, assignedWorkerId: string) =>
     apiClient.patch<Operation>(`/operations/${id}/assign`, { assignedWorkerId }),
   machineUnitStatus: (includeInactive = false) =>

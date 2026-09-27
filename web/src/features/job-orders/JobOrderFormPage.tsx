@@ -239,7 +239,7 @@ export default function JobOrderFormPage() {
         </Space>
         <Space wrap size={8} align="center">
           <Text type="secondary" style={{ fontSize: 13 }}>
-            Fields marked <span style={{ color: '#dc2626' }}>*</span> are required
+            Fields marked <span style={{ color: '#7A1528' }}>*</span> are required
           </Text>
           {!isEdit && (
             <Button

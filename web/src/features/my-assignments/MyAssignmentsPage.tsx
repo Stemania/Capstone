@@ -10,7 +10,7 @@ import type { Operation } from '../../types';
 
 function priorityMeta(priority?: string): { label: string; color: string } {
   const p = priority || 'MODERATE';
-  if (p === 'HIGH') return { label: 'High', color: '#dc2626' };
+  if (p === 'HIGH') return { label: 'High', color: '#7A1528' };
   if (p === 'LOW') return { label: 'Low', color: '#16a34a' };
   return { label: 'Moderate', color: '#d97706' };
 }
@@ -22,7 +22,7 @@ function opStatusBadge(
   const overdue =
     op.status !== 'COMPLETED' && op.dueDate && dayjs(op.dueDate).isBefore(dayjs(), 'day');
   if (overdue) {
-    return { text: 'Overdue', bg: 'rgba(220,38,38,0.12)', color: colors.red };
+    return { text: 'Overdue', bg: 'rgba(122,21,40,0.12)', color: colors.red };
   }
   if (op.status === 'IN_PROGRESS') {
     return { text: 'In Progress', bg: 'rgba(37,99,235,0.12)', color: colors.accent };
