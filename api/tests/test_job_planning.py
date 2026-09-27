@@ -1,4 +1,4 @@
-"""Job order planning workflow: DRAFT → SCHEDULED (release)."""
+"""Job order planning workflow: DRAFT → SCHEDULED (release).
 
 Runs against the local DATABASE_URL (bmsc) inside a connection transaction that
 is always rolled back — no bmsc_test database required.

@@ -35,11 +35,26 @@ def test_draft_stage_labels():
 
     with_ops = SimpleNamespace(
         operations=[
-            SimpleNamespace(operation_name="Milling", operation_type_id="t1"),
-            SimpleNamespace(operation_name="Turning", operation_type_id=None),
+            SimpleNamespace(
+                operation_name="Milling",
+                operation_type_id="t1",
+                scheduled_start=None,
+                scheduled_end=None,
+            ),
+            SimpleNamespace(
+                operation_name="Turning",
+                operation_type_id=None,
+                scheduled_start=None,
+                scheduled_end=None,
+            ),
         ]
     )
     assert draft_stage_label(with_ops) == "2 operations, not scheduled"
+
+    for op in with_ops.operations:
+        op.scheduled_start = "2026-10-01T08:00:00Z"
+        op.scheduled_end = "2026-10-01T10:00:00Z"
+    assert draft_stage_label(with_ops) == "2 operations, schedule ready"
 
 
 def test_release_missing_lists_worker_and_hours():

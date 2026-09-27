@@ -4,7 +4,13 @@ import pytest
 
 from app.extensions import bcrypt, db
 from app.models.client import Client
-from app.models.job_order import JobOrder, JobOrderStatus, JobType, PartCondition
+from app.models.job_order import (
+    JobOrder,
+    JobOrderStatus,
+    JobType,
+    MaterialStatus,
+    PartCondition,
+)
 from app.models.operation import JobOperation, OperationStatus
 from app.models.user import User, UserRole
 from app.models.worker_profile import WorkerProfile
@@ -56,6 +62,10 @@ def seeded_users(app):
         client = Client(name="Test Client")
         db.session.add(client)
         db.session.commit()
+        # Load ids now, then detach, so tests can read .id after this context closes.
+        for obj in (admin, worker1, worker2, office, client):
+            _ = obj.id
+        db.session.expunge_all()
         return {
             "admin": admin,
             "worker1": worker1,
@@ -106,6 +116,7 @@ def test_operation_start_is_idempotent(client, app, seeded_users):
             status=JobOrderStatus.SCHEDULED,
             job_type=JobType.FABRICATION,
             part_condition=PartCondition.RAW_MATERIAL,
+            material_status=MaterialStatus.NOT_REQUIRED,
             created_by_id=seeded_users["office"].id,
         )
         db.session.add(job)

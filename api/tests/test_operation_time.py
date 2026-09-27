@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.models.job_order import JobOrderStatus
-from app.models.operation import JobOperation, OperationStatus
+from app.models.operation import JobOperation, OperationStatus, ReworkReasonCategory
 from app.models.operation_time import OperationTimeEvent
 from app.models.user import UserRole
 from app.services.operation_service import (
@@ -115,11 +115,12 @@ def test_rework_creates_new_operation_leaves_original(monkeypatch):
     monkeypatch.setattr(svc.db, "session", MagicMock())
 
     follow = create_rework_operation(
-        original, "admin-1", UserRole.ADMIN.value, "surface finish fail"
+        original, "admin-1", UserRole.ADMIN.value, "surface finish fail", "SURFACE_FINISH"
     )
 
     assert original.status == OperationStatus.COMPLETED
     assert original.rework_reason == "surface finish fail"
+    assert follow.rework_reason_category == ReworkReasonCategory.SURFACE_FINISH
     assert isinstance(follow, JobOperation)
     assert follow.rework_of_operation_id == "op-1"
     assert follow.status == OperationStatus.PENDING
