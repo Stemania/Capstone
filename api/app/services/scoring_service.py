@@ -297,12 +297,12 @@ def build_reason(parts, machine_label=None, unqualified=False):
 
 
 def _pairs_from_ops(ops):
+    """Worked hours exclude pauses, so breaks and overnight gaps don't count against the worker."""
     pairs = []
     for op in ops:
-        if not op.actual_start or not op.actual_end or op.estimated_hours is None:
+        if op.actual_worked_hours is None or op.estimated_hours is None:
             continue
-        delta = op.actual_end - op.actual_start
-        actual_hours = delta.total_seconds() / 3600.0
+        actual_hours = float(op.actual_worked_hours)
         if actual_hours <= 0:
             continue
         pairs.append((float(op.estimated_hours), actual_hours))
@@ -320,8 +320,7 @@ def fetch_efficiency_pairs(worker_id, operation_type_id):
             JobOperation.assigned_worker_id == worker_id,
             JobOperation.operation_type_id == operation_type_id,
             JobOperation.status == OperationStatus.COMPLETED,
-            JobOperation.actual_start.isnot(None),
-            JobOperation.actual_end.isnot(None),
+            JobOperation.actual_worked_hours.isnot(None),
             JobOperation.estimated_hours.isnot(None),
         ).all()
         type_pairs = _pairs_from_ops(type_ops)
@@ -331,8 +330,7 @@ def fetch_efficiency_pairs(worker_id, operation_type_id):
     all_ops = JobOperation.query.filter(
         JobOperation.assigned_worker_id == worker_id,
         JobOperation.status == OperationStatus.COMPLETED,
-        JobOperation.actual_start.isnot(None),
-        JobOperation.actual_end.isnot(None),
+        JobOperation.actual_worked_hours.isnot(None),
         JobOperation.estimated_hours.isnot(None),
     ).all()
     all_pairs = _pairs_from_ops(all_ops)

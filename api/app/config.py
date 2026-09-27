@@ -16,9 +16,14 @@ def _normalize_database_url(url):
     return url
 
 
+# Local-development fallbacks only; create_app refuses to start with these in production.
+DEV_SECRET_KEY = "dev-secret-key"
+DEV_JWT_SECRET_KEY = "dev-jwt-secret"
+
+
 class Config:
-    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key")
-    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-jwt-secret")
+    SECRET_KEY = os.getenv("SECRET_KEY") or DEV_SECRET_KEY
+    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY") or DEV_JWT_SECRET_KEY
     JWT_ACCESS_TOKEN_EXPIRES = 3600  # 1 hour
     JWT_REFRESH_TOKEN_EXPIRES = 604800  # 7 days
     # development | production — controls console invite secret logging

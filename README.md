@@ -58,13 +58,17 @@ Web app runs at `http://localhost:5173`.
 
 ## Demo Accounts
 
-| Role | Email | Password |
-|------|-------|----------|
-| Admin | admin@bmsc.local | Admin123! |
-| Office Staff | office@bmsc.local | Office123! |
-| Production Worker | worker1@bmsc.local | Worker123! |
+`flask seed` creates one account per role:
 
-Additional workers: worker2@bmsc.local … worker4@bmsc.local (same password).
+| Role | Email |
+|------|-------|
+| Admin | admin@bmsc.local |
+| Office Staff | office@bmsc.local |
+| Production Worker | worker1@bmsc.local |
+
+Additional workers: worker2@bmsc.local … worker4@bmsc.local. Seed passwords are set in
+`api/app/seed/seed_data.py` for local development only; change them before any shared or
+production use, or create accounts with `flask create-admin` and user invitations.
 
 ## Environment Variables
 

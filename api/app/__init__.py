@@ -21,6 +21,8 @@ def create_app(config_object=None):
 
         app.config.from_object(Config)
 
+    _assert_production_secrets(app)
+
     app.config["RATELIMIT_STORAGE_URI"] = resolve_ratelimit_storage_uri(app)
     app.config.setdefault("RATELIMIT_SWALLOW_ERRORS", True)
     app.config.setdefault("RATELIMIT_IN_MEMORY_FALLBACK_ENABLED", True)
@@ -55,6 +57,13 @@ def create_app(config_object=None):
                 )
             return response
 
+    @app.after_request
+    def _security_headers(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        return response
+
     register_error_handlers(app)
     _register_blueprints(app)
     _register_cli(app)
@@ -66,11 +75,32 @@ def create_app(config_object=None):
     return app
 
 
+def _assert_production_secrets(app):
+    from app.config import DEV_JWT_SECRET_KEY, DEV_SECRET_KEY
+
+    if app.config.get("TESTING") or app.config.get("ENV") != "production":
+        return
+    missing = [
+        name
+        for name, dev_value in (
+            ("SECRET_KEY", DEV_SECRET_KEY),
+            ("JWT_SECRET_KEY", DEV_JWT_SECRET_KEY),
+        )
+        if not app.config.get(name) or app.config.get(name) == dev_value
+    ]
+    if missing:
+        raise RuntimeError(
+            f"Refusing to start in production without {', '.join(missing)}. "
+            "Set them in the environment (FLASK_ENV=development allows local fallbacks)."
+        )
+
+
 def _register_blueprints(app):
     from app.blueprints.auth.routes import auth_bp
     from app.blueprints.users.routes import users_bp
     from app.blueprints.workers.routes import workers_bp
     from app.blueprints.clients.routes import clients_bp
+    from app.blueprints.suppliers.routes import suppliers_bp
     from app.blueprints.job_orders.routes import job_orders_bp
     from app.blueprints.operations.routes import operations_bp
     from app.blueprints.tools.routes import tools_bp
@@ -88,6 +118,7 @@ def _register_blueprints(app):
     app.register_blueprint(workers_bp, url_prefix=f"{prefix}/workers")
     app.register_blueprint(worker_profiles_bp, url_prefix=f"{prefix}/workers")
     app.register_blueprint(clients_bp, url_prefix=f"{prefix}/clients")
+    app.register_blueprint(suppliers_bp, url_prefix=f"{prefix}/suppliers")
     app.register_blueprint(job_orders_bp, url_prefix=f"{prefix}/job-orders")
     app.register_blueprint(operations_bp, url_prefix=f"{prefix}/operations")
     app.register_blueprint(tools_bp, url_prefix=f"{prefix}/tools")

@@ -1,26 +1,42 @@
-"""SQLAlchemy audit listeners for JobOrder, JobOperation, User, Tool."""
+"""SQLAlchemy audit listeners for production, user, inventory, and purchasing records."""
 
 from __future__ import annotations
 
+import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 
 from flask import has_request_context, request
 from flask_jwt_extended import get_jwt, get_jwt_identity, verify_jwt_in_request
 from sqlalchemy import event, insert
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
 from app.extensions import db
 from app.models.audit_log import AuditLog
 from app.models.client import Client
 from app.models.job_order import JobOrder
+from app.models.material_purchase import MaterialPurchase
 from app.models.notification import NotificationLog
 from app.models.operation import JobOperation
 from app.models.operation_time import MachineDowntime, OperationTimeLog
+from app.models.sales_invoice import SalesInvoice
+from app.models.stocktake import Stocktake
+from app.models.supplier import Supplier
 from app.models.tool import Tool
+from app.models.tool_type import ToolType, ToolUnit
 from app.models.user import User
 from app.models.worker_skill import WorkCalendarException
 
+_COLUMN_SNAPSHOT_MODELS = (
+    Supplier,
+    MaterialPurchase,
+    SalesInvoice,
+    ToolType,
+    ToolUnit,
+    Stocktake,
+)
 
 _REGISTERED = False
 _PENDING_KEY = "pending_audit_logs"
@@ -30,7 +46,29 @@ def _utcnow():
     return datetime.now(timezone.utc)
 
 
+def _json_value(value):
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, enum.Enum):
+        return value.value
+    return str(value)
+
+
+def _column_dict(obj):
+    """Stored columns only, so the snapshot never lazy-loads relationships mid-flush."""
+    return {
+        attr.key: _json_value(getattr(obj, attr.key, None))
+        for attr in sa_inspect(obj).mapper.column_attrs
+    }
+
+
 def _safe_dict(obj):
+    if isinstance(obj, _COLUMN_SNAPSHOT_MODELS):
+        return _column_dict(obj)
     try:
         if hasattr(obj, "to_dict"):
             # Prefer richer dicts when available
@@ -169,6 +207,7 @@ def register_audit_listeners():
         Client,
         NotificationLog,
         WorkCalendarException,
+        *_COLUMN_SNAPSHOT_MODELS,
     ):
         event.listen(model, "after_insert", _after_insert)
         event.listen(model, "after_update", _after_update)
