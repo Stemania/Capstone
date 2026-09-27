@@ -9,19 +9,22 @@ from app.models.job_order import (
     PartCondition,
 )
 from app.models.machine import MachineType, MachineUnit
+from app.models.material_purchase import MaterialPurchase
 from app.models.notification import (
     NotificationChannel,
     NotificationLog,
     NotificationMilestone,
     NotificationStatus,
 )
-from app.models.operation import JobOperation, Operation, OperationStatus
+from app.models.operation import JobOperation, Operation, OperationStatus, ReworkReasonCategory
 from app.models.operation_time import (
     MachineDowntime,
     OperationPauseReason,
     OperationTimeEvent,
     OperationTimeLog,
 )
+from app.models.sales_invoice import SalesInvoice
+from app.models.supplier import Supplier
 from app.models.tool import Tool, ToolCategory
 from app.models.tool_event import ToolEvent, ToolEventType
 from app.models.tool_type import ToolType, ToolUnit, ToolUnitStatus
@@ -55,6 +58,9 @@ __all__ = [
     "ScoringWeight",
     "DEFAULT_SCORING_WEIGHTS",
     "Client",
+    "Supplier",
+    "MaterialPurchase",
+    "SalesInvoice",
     "JobOrder",
     "JobOrderStatus",
     "JobPriority",
@@ -64,6 +70,7 @@ __all__ = [
     "JobOperation",
     "Operation",
     "OperationStatus",
+    "ReworkReasonCategory",
     "OperationTimeLog",
     "OperationTimeEvent",
     "OperationPauseReason",

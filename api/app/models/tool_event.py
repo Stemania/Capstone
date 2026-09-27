@@ -25,6 +25,7 @@ class ToolEventType(enum.Enum):
     RETURN = "RETURN"
     ISSUE = "ISSUE"
     ADJUST = "ADJUST"
+    RECEIVE = "RECEIVE"
 
 
 class ToolEvent(db.Model):
@@ -32,11 +33,11 @@ class ToolEvent(db.Model):
     __table_args__ = (db.Index("ix_tool_event_tool_created", "tool_id", "created_at"),)
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
-    # Consumable stock ADJUST (and legacy rows)
+    # Consumable stock ADJUST / RECEIVE (and legacy rows)
     tool_id = db.Column(
         db.String(36), db.ForeignKey("tools.id"), nullable=True, index=True
     )
-    # Individually tracked tool BORROW / RETURN
+    # Individually tracked tool BORROW / RETURN / RECEIVE
     tool_unit_id = db.Column(
         db.String(36), db.ForeignKey("tool_units.id"), nullable=True, index=True
     )
@@ -46,6 +47,8 @@ class ToolEvent(db.Model):
     type = db.Column(db.Enum(ToolEventType), nullable=False)
     quantity = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("1"))
     reason = db.Column(db.String(255), nullable=True)
+    supplier = db.Column(db.String(255), nullable=True)
+    received_on = db.Column(db.Date, nullable=True)
     job_order_id = db.Column(
         db.String(36), db.ForeignKey("job_orders.id"), nullable=True
     )
@@ -88,6 +91,8 @@ class ToolEvent(db.Model):
             "type": self.type.value,
             "quantity": _num(self.quantity),
             "reason": self.reason,
+            "supplier": self.supplier,
+            "receivedOn": self.received_on.isoformat() if self.received_on else None,
             "jobOrderId": self.job_order_id,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }

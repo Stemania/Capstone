@@ -154,6 +154,11 @@ OPERATION_TYPE_SEED = [
     {"code": "HEAT_TREATMENT", "name": "Heat Treatment", "machine": None},
     {"code": "CHECKING", "name": "Checking", "machine": None},
     {"code": "WELDING", "name": "Welding", "machine": None},
+    {"code": "CUTTING", "name": "Cutting", "machine": None},
+    {"code": "BENDING", "name": "Bending", "machine": None},
+    {"code": "FORMING", "name": "Forming", "machine": None},
+    {"code": "ASSEMBLY", "name": "Assembly", "machine": None},
+    {"code": "FINISHING", "name": "Finishing", "machine": None},
 ]
 
 SKILL_TOKEN_TO_MACHINE = {

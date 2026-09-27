@@ -88,6 +88,9 @@ class PartCondition(enum.Enum):
     MACHINED = "MACHINED"
     HEAT_TREATED = "HEAT_TREATED"
     FINISHED = "FINISHED"
+    CUT = "CUT"
+    FORMED = "FORMED"
+    ASSEMBLED = "ASSEMBLED"
 
 
 def draft_stage_label(job: "JobOrder") -> str:
@@ -148,7 +151,11 @@ class JobOrder(db.Model):
     )
     material_expected_date = db.Column(db.Date, nullable=True)
     material_received_date = db.Column(db.Date, nullable=True)
-    # Free-text supplier PO / invoice number — no supplier entity.
+    # Preferred supplier for the job (optional); PO/invoice number stays free-text.
+    supplier_id = db.Column(
+        db.String(36), db.ForeignKey("suppliers.id"), nullable=True, index=True
+    )
+    # Supplier's own order / invoice number.
     supplier_reference = db.Column(db.String(120), nullable=True)
     # Hex color (#RRGGBB) for schedule board distinction; optional.
     schedule_color = db.Column(db.String(7), nullable=True)
@@ -162,6 +169,7 @@ class JobOrder(db.Model):
     )
 
     client = db.relationship("Client", back_populates="job_orders")
+    supplier = db.relationship("Supplier", back_populates="job_orders")
     created_by = db.relationship(
         "User", back_populates="created_job_orders", foreign_keys=[created_by_id]
     )
@@ -170,6 +178,15 @@ class JobOrder(db.Model):
         back_populates="job_order",
         cascade="all, delete-orphan",
         order_by="JobOperation.sequence_no",
+    )
+    material_purchases = db.relationship(
+        "MaterialPurchase",
+        back_populates="job_order",
+        cascade="all, delete-orphan",
+        order_by="MaterialPurchase.date_ordered",
+    )
+    sales_invoice = db.relationship(
+        "SalesInvoice", back_populates="job_order", uselist=False
     )
     tool_events = db.relationship("ToolEvent", back_populates="job_order")
     notification_logs = db.relationship(
@@ -223,6 +240,11 @@ class JobOrder(db.Model):
             for op in ops
         ]
 
+    @property
+    def job_number(self) -> str:
+        year = self.created_at.year if self.created_at else datetime.now(timezone.utc).year
+        return f"JO-{year}-{(self.id or '')[:4].upper()}"
+
     def to_dict(self, include_operations=False, viewer_role=None):
         from app.models.operation import OperationStatus
         from app.models.user import UserRole
@@ -233,8 +255,6 @@ class JobOrder(db.Model):
             (op for op in ops if op.status != OperationStatus.COMPLETED),
             None,
         )
-        year = self.created_at.year if self.created_at else datetime.now(timezone.utc).year
-        short = (self.id or "")[:4].upper()
 
         def _num(v):
             if v is None:
@@ -246,7 +266,7 @@ class JobOrder(db.Model):
 
         data = {
             "id": self.id,
-            "jobNumber": f"JO-{year}-{short}",
+            "jobNumber": self.job_number,
             "clientName": self.client.name if self.client else None,
             "title": self.title,
             "description": self.description,
@@ -278,6 +298,8 @@ class JobOrder(db.Model):
                 if self.material_received_date
                 else None
             ),
+            "supplierId": self.supplier_id,
+            "supplierName": self.supplier.name if self.supplier else None,
             "supplierReference": self.supplier_reference,
             "scheduleColor": self.schedule_color,
             "deliveredAt": self.delivered_at.isoformat() if self.delivered_at else None,
@@ -303,6 +325,9 @@ class JobOrder(db.Model):
             data["amount"] = _num(self.amount)
         if include_operations:
             data["operations"] = self._serialize_operations(ops)
+            if not hide_commercial:
+                inv = self.sales_invoice
+                data["salesInvoice"] = inv.to_dict() if inv else None
         scheduled_ends = [op.scheduled_end for op in ops if op.scheduled_end]
         if scheduled_ends:
             from app.services.schedule_service import compute_schedule_flag

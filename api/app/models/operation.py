@@ -22,6 +22,15 @@ class OperationStatus(enum.Enum):
     REWORK = "REWORK"
 
 
+class ReworkReasonCategory(enum.Enum):
+    DIMENSION_OUT_OF_TOLERANCE = "DIMENSION_OUT_OF_TOLERANCE"
+    SURFACE_FINISH = "SURFACE_FINISH"
+    WRONG_MATERIAL = "WRONG_MATERIAL"
+    MACHINE_FAULT = "MACHINE_FAULT"
+    OPERATOR_ERROR = "OPERATOR_ERROR"
+    OTHER = "OTHER"
+
+
 class JobOperation(db.Model):
     """Shop-floor operation step within a job order (table: operations)."""
 
@@ -82,6 +91,9 @@ class JobOperation(db.Model):
         index=True,
     )
     rework_reason = db.Column(db.Text, nullable=True)
+    rework_reason_category = db.Column(
+        db.Enum(ReworkReasonCategory), nullable=True
+    )
     notes = db.Column(db.Text, nullable=True)
 
     job_order = db.relationship("JobOrder", back_populates="operations")
@@ -157,6 +169,11 @@ class JobOperation(db.Model):
             "status": self.status.value,
             "reworkOfOperationId": self.rework_of_operation_id,
             "reworkReason": self.rework_reason,
+            "reworkReasonCategory": (
+                self.rework_reason_category.value
+                if self.rework_reason_category
+                else None
+            ),
             "notes": self.notes,
             "timeLogs": [log.to_dict() for log in (self.time_logs or [])],
             "isPaused": self._is_paused(),
