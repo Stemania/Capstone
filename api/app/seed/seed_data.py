@@ -12,6 +12,8 @@ from app.models import (
     JobType,
     MachineType,
     MachineUnit,
+    MaterialPurchase,
+    MaterialStatus,
     OperationStatus,
     OperationType,
     PartCondition,
@@ -200,6 +202,40 @@ def _ensure_inventory_catalog():
     return tools
 
 
+def _ensure_suppliers():
+    """Client-named steel suppliers; idempotent by name + is_seed."""
+    from app.models.supplier import Supplier
+
+    catalog = [
+        ("STP", 5, "Five days after order"),
+        ("Railim", 5, "Five days after order"),
+        ("Seno Metals", 1, "One day after order"),
+    ]
+    created = 0
+    for name, lead, notes in catalog:
+        existing = Supplier.query.filter_by(name=name).first()
+        if existing:
+            if not existing.is_seed:
+                existing.is_seed = True
+            if existing.typical_lead_time_days is None:
+                existing.typical_lead_time_days = lead
+            continue
+        db.session.add(
+            Supplier(
+                name=name,
+                typical_lead_time_days=lead,
+                notes=notes,
+                active=True,
+                is_seed=True,
+            )
+        )
+        created += 1
+    db.session.flush()
+    if created:
+        print(f"Suppliers: seeded {created} (STP, Railim, Seno Metals).")
+    return Supplier.query.filter_by(is_seed=True).order_by(Supplier.name).all()
+
+
 def _ensure_tool_assets():
     """Seed placeholder ToolType + ToolUnit rows when none exist."""
     from app.models.tool_type import ToolType, ToolUnit, ToolUnitStatus
@@ -236,6 +272,7 @@ def seed_database():
     _ensure_scoring_weights()
     inventory_tools = _ensure_inventory_catalog()
     tool_types = _ensure_tool_assets()
+    suppliers = _ensure_suppliers()
     if User.query.first():
         # Backfill Production In-charge assignability on already-seeded DBs.
         for admin in User.query.filter_by(role=UserRole.ADMIN, active=True).all():
@@ -342,6 +379,7 @@ def seed_database():
         priority=JobPriority.HIGH,
         job_type=JobType.REPAIR,
         part_condition=PartCondition.CLIENT_SUPPLIED_ITEM,
+        material_status=MaterialStatus.NOT_REQUIRED,
         quantity=1,
         unit_of_measure="lot",
         amount=31360.00,
@@ -362,6 +400,8 @@ def seed_database():
         priority=JobPriority.MODERATE,
         job_type=JobType.FABRICATION,
         part_condition=PartCondition.WORK_IN_PROCESS,
+        # Started job: RECEIVED is derived from the purchase lines added below.
+        material_status=MaterialStatus.TO_ORDER,
         quantity=12,
         unit_of_measure="pcs",
         amount=26880.00,
@@ -382,6 +422,7 @@ def seed_database():
         priority=JobPriority.LOW,
         job_type=JobType.MODIFICATION,
         part_condition=PartCondition.CLIENT_SUPPLIED_ITEM,
+        material_status=MaterialStatus.NOT_REQUIRED,
         quantity=2,
         unit_of_measure="pcs",
         amount=15400.00,
@@ -475,7 +516,33 @@ def seed_database():
     db.session.add_all(ops)
 
     from app.models.tool_type import ToolUnit, ToolUnitStatus
+    from app.services.material_purchase_service import sync_job_material_from_purchases
     from datetime import datetime, timezone
+
+    if suppliers:
+        ordered_on = date.today() - timedelta(days=5)
+        received_on = date.today() - timedelta(days=2)
+        consumed_at = datetime.now(timezone.utc) - timedelta(days=1)
+        for name, qty, unit, cost in (
+            ("Mild steel plate 6mm", Decimal("12"), "pcs", Decimal("850")),
+            ("Welding rod E6013", Decimal("2"), "kg", Decimal("320")),
+        ):
+            db.session.add(
+                MaterialPurchase(
+                    job_order_id=job2.id,
+                    material_name=name,
+                    quantity=qty,
+                    unit=unit,
+                    unit_cost=cost,
+                    supplier_id=suppliers[0].id,
+                    date_ordered=ordered_on,
+                    date_received=received_on,
+                    consumed_at=consumed_at,
+                )
+            )
+        db.session.flush()
+        db.session.refresh(job2)
+        sync_job_material_from_purchases(job2)
 
     sample_unit = (
         ToolUnit.query.filter_by(asset_code="SEED-ANGLE-GRINDER-001").first()

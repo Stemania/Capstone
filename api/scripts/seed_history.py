@@ -45,8 +45,10 @@ from app.models.job_order import (
     JobPriority,
     JobType,
     PartCondition,
+    default_material_status,
 )
 from app.models.machine import MachineType, MachineUnit
+from app.models.material_purchase import MaterialPurchase
 from app.models.operation import JobOperation, OperationStatus
 from app.models.operation_time import (
     MachineDowntime,
@@ -55,7 +57,9 @@ from app.models.operation_time import (
     OperationTimeLog,
 )
 from app.models.notification import NotificationLog
+from app.models.supplier import Supplier
 from app.models.tool_event import ToolEvent
+from app.models.user import User, UserRole
 from app.models.worker_skill import (
     CalendarExceptionType,
     OperationType,
@@ -63,6 +67,7 @@ from app.models.worker_skill import (
     WorkerSkill,
 )
 from app.services.job_order_service import _parse_datetime
+from app.services.material_purchase_service import sync_job_material_from_purchases
 from app.services.operation_service import recompute_variance
 from app.services.schedule_calendar import shop_local_to_utc, shop_now
 from app.services.schedule_service import propose_schedule
@@ -186,6 +191,36 @@ DOWNTIME_REASONS = [
     "Power trip — waiting electrician",
 ]
 
+# Fabrication purchase lines. Names stay fixed so purchasing analytics group them.
+# (material_name, grade_or_spec, unit, unit cost PHP range, quantity choices, weight)
+MATERIAL_CATALOG = [
+    ("AISI 1045 round bar", "Medium carbon steel", "kg", (85, 110), [10, 15, 20, 25, 30, 45, 60], 35),
+    ("AISI 4140 round bar", "Pre-hardened alloy steel", "kg", (165, 195), [8, 12, 15, 20, 25, 30, 40], 30),
+    ("Aluminium 6061 plate", "6061-T6", "kg", (260, 320), [4, 6, 8, 10, 15], 13),
+    ("SKD 11 tool steel", "Cold work die steel, annealed", "kg", (430, 520), [3, 5, 6, 8, 10, 12], 12),
+    ("Engineering plastic rod", "POM (acetal)", "kg", (380, 470), [2, 3, 4, 5, 8], 10),
+]
+LINES_PER_JOB = ([1, 2, 3], [45, 35, 20])
+
+# Supplier weight, price factor, and delivery delta (days vs stated lead time).
+SUPPLIER_PROFILES = {
+    "STP": {
+        "weight": 55,
+        "price_factor": 1.00,
+        "delay": ([-1, 0, 1, 2, 4], [10, 60, 15, 10, 5]),
+    },
+    "Railim": {
+        "weight": 30,
+        "price_factor": 0.97,
+        "delay": ([-1, 0, 1, 2, 3, 6], [10, 45, 15, 12, 10, 8]),
+    },
+    "Seno Metals": {
+        "weight": 15,
+        "price_factor": 1.08,
+        "delay": ([0, 1, 2], [80, 15, 5]),
+    },
+}
+
 
 def _assert_local_db():
     url = os.getenv("DATABASE_URL", "")
@@ -246,6 +281,11 @@ def wipe_history():
         if job_ids
         else 0
     )
+    purchase_count = (
+        MaterialPurchase.query.filter(MaterialPurchase.job_order_id.in_(job_ids)).count()
+        if job_ids
+        else 0
+    )
 
     if job_ids:
         NotificationLog.query.filter(
@@ -256,7 +296,7 @@ def wipe_history():
             synchronize_session=False,
         )
 
-    # Job → operations → time_logs cascade
+    # Job → operations → time_logs, and job → material purchases, cascade
     for job in jobs:
         db.session.delete(job)
     db.session.flush()
@@ -264,6 +304,7 @@ def wipe_history():
     dts_n, cal_n, clients_n = _wipe_hist_artifacts(commit=True)
     print(
         f"Wiped: {len(jobs)} jobs, {op_count} operations, {log_count} time logs, "
+        f"{purchase_count} purchase lines, "
         f"{dts_n} downtimes, {cal_n} calendar exceptions, {clients_n} clients."
     )
 
@@ -679,6 +720,118 @@ def _sample_raw_materials(rng: random.Random) -> list:
     ]
 
 
+def _load_suppliers() -> dict:
+    """Seed suppliers by name (STP, Railim, Seno Metals); created if missing."""
+    from app.seed.seed_data import _ensure_suppliers
+
+    by_name = {
+        s.name: s
+        for s in Supplier.query.filter(Supplier.name.in_(list(SUPPLIER_PROFILES))).all()
+    }
+    if len(by_name) < len(SUPPLIER_PROFILES):
+        _ensure_suppliers()
+        by_name = {
+            s.name: s
+            for s in Supplier.query.filter(Supplier.name.in_(list(SUPPLIER_PROFILES))).all()
+        }
+    return by_name
+
+
+def _pick_supplier_name(rng: random.Random) -> str:
+    names = list(SUPPLIER_PROFILES)
+    return rng.choices(names, weights=[SUPPLIER_PROFILES[n]["weight"] for n in names])[0]
+
+
+def _pick_materials(rng: random.Random) -> list:
+    k = rng.choices(*LINES_PER_JOB)[0]
+    pool = list(MATERIAL_CATALOG)
+    picks = []
+    for _ in range(k):
+        choice = rng.choices(pool, weights=[m[5] for m in pool])[0]
+        picks.append(choice)
+        pool.remove(choice)
+    return picks
+
+
+def _skip_sunday_back(d: date) -> date:
+    return d - timedelta(days=1) if d.weekday() == 6 else d
+
+
+def _add_purchase_lines(job, ops, suppliers: dict, today: date, rng: random.Random) -> list:
+    """
+    One to three purchase lines for a fabrication job, ordered together.
+
+    Started jobs: ordered early enough that every delivery lands on or before the
+    first operation's start day (the start gate requires it), consumed at that start.
+    Not-started jobs: ordered on the job day; lines whose delivery is still in the
+    future stay on order.
+    """
+    materials = _pick_materials(rng)
+    primary = _pick_supplier_name(rng)
+    line_suppliers = [primary] + [
+        _pick_supplier_name(rng) if rng.random() < 0.25 else primary
+        for _ in materials[1:]
+    ]
+
+    lead_by_supplier = {}
+    for name in dict.fromkeys(line_suppliers):
+        stated = suppliers[name].typical_lead_time_days or 1
+        deltas, weights = SUPPLIER_PROFILES[name]["delay"]
+        lead_by_supplier[name] = max(1, stated + rng.choices(deltas, weights=weights)[0])
+
+    starts = [o.actual_start for o in ops if o.actual_start]
+    first_start = min(starts) if starts else None
+    if first_start:
+        first_day = first_start.astimezone(ZoneInfo("Asia/Manila")).date()
+        buffer_days = rng.choice([0, 0, 1, 1, 2])
+        order_day = first_day - timedelta(days=max(lead_by_supplier.values()) + buffer_days)
+    else:
+        order_day = job.created_at.astimezone(ZoneInfo("Asia/Manila")).date()
+    order_day = _skip_sunday_back(min(order_day, today))
+
+    received_by_supplier = {}
+    for name, lead in lead_by_supplier.items():
+        arrival = order_day + timedelta(days=lead)
+        if arrival.weekday() == 6:
+            arrival += timedelta(days=1)
+        received_by_supplier[name] = arrival if arrival <= today else None
+
+    lines = []
+    for (name, spec, unit, (lo, hi), qtys, _w), supplier_name in zip(materials, line_suppliers):
+        factor = SUPPLIER_PROFILES[supplier_name]["price_factor"]
+        cost = Decimal(str(round(rng.uniform(lo, hi) * factor, 2)))
+        line = MaterialPurchase(
+            material_name=name,
+            grade_or_spec=spec,
+            quantity=Decimal(str(rng.choice(qtys))),
+            unit=unit,
+            unit_cost=cost,
+            supplier_id=suppliers[supplier_name].id,
+            date_ordered=order_day,
+            date_received=received_by_supplier[supplier_name],
+            consumed_at=first_start,
+        )
+        job.material_purchases.append(line)
+        lines.append(line)
+
+    order_created = shop_local_to_utc(order_day, time(7, 30))
+    if job.created_at > order_created:
+        job.created_at = order_created
+    if job.po_date and job.po_date > order_day:
+        job.po_date = order_day
+    job.supplier_id = suppliers[primary].id
+    job.material_expected_date = order_day + timedelta(
+        days=suppliers[primary].typical_lead_time_days or 1
+    )
+    job.raw_materials = [
+        {"name": ln.material_name, "quantity": float(ln.quantity), "unit": ln.unit}
+        for ln in lines
+    ]
+    db.session.flush()
+    sync_job_material_from_purchases(job)
+    return lines
+
+
 def _pick_open_pipeline_route(rng: random.Random) -> list:
     """Prefer milling- and lathe-heavy routes; keep KEYWAY/SPLINE/DRILLING common."""
     milling_heavy = [
@@ -856,6 +1009,10 @@ def seed_history():
 
     created_jobs = []
     created_ops = []
+    created_purchases = []
+    # Separate stream so purchase lines don't shift the existing job/op history.
+    purchase_rng = random.Random(RNG_SEED + 1)
+    suppliers = _load_suppliers()
     rework_count = 0
     variance_ops = 0
     pending_rework_budget = 2
@@ -896,6 +1053,7 @@ def seed_history():
             ),
             job_type=job_type,
             part_condition=part_cond,
+            material_status=default_material_status(job_type),
             quantity=Decimal(str(rng.choice([1, 2, 4, 6, 12]))),
             unit_of_measure=rng.choice(["pcs", "lot", "set"]),
             amount=_amount_for_profile(client_profile["profile"], rng),
@@ -1095,6 +1253,11 @@ def seed_history():
                         variance_ops += 1
                     job.status = JobOrderStatus.COMPLETED
 
+        if job_type == JobType.FABRICATION:
+            created_purchases.extend(
+                _add_purchase_lines(job, ops_for_job, suppliers, today, purchase_rng)
+            )
+
     # Explicit on-time / late mix for completed jobs (~22% late)
     completed_for_due = [
         j for j in created_jobs if j.status == JobOrderStatus.COMPLETED
@@ -1192,6 +1355,22 @@ def seed_history():
     print(f"With variance data:  {len(with_var)}")
     print(f"Rework follow-ons:   {reworks}")
     print(f"Downtimes:           {dts} ({open_dts} open)")
+    fab_jobs = [j for j in created_jobs if j.job_type == JobType.FABRICATION]
+    print(
+        f"Purchase lines:      {len(created_purchases)} on {len(fab_jobs)} fabrication jobs "
+        f"({sum(1 for p in created_purchases if p.date_received is None)} still on order, "
+        f"{sum(1 for p in created_purchases if p.consumed_at)} consumed)"
+    )
+    for name, supplier in suppliers.items():
+        rows = [p for p in created_purchases if p.supplier_id == supplier.id]
+        leads = [(p.date_received - p.date_ordered).days for p in rows if p.date_received]
+        stated = supplier.typical_lead_time_days
+        late = sum(1 for d in leads if stated is not None and d > stated)
+        avg = f"{sum(leads) / len(leads):.1f}d" if leads else "-"
+        print(
+            f"  {name:<12} lines={len(rows):3d}  stated={stated}d  "
+            f"avg actual={avg}  late={late}/{len(leads)}"
+        )
     if with_var:
         pcts = [float(o.variance_pct) for o in with_var]
         print(
