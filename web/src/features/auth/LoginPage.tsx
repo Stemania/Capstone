@@ -149,7 +149,7 @@ export default function LoginPage() {
                 name="identifier"
                 label={
                   <span>
-                    <span style={{ color: '#dc2626' }}>* </span>Email or mobile
+                    <span style={{ color: '#7A1528' }}>* </span>Email or mobile
                   </span>
                 }
                 rules={[{ required: true, message: 'Email or mobile is required' }]}
@@ -164,7 +164,7 @@ export default function LoginPage() {
                 name="password"
                 label={
                   <span>
-                    <span style={{ color: '#dc2626' }}>* </span>Password
+                    <span style={{ color: '#7A1528' }}>* </span>Password
                   </span>
                 }
                 rules={[{ required: true }]}

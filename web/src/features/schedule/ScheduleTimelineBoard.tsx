@@ -501,8 +501,8 @@ export default function ScheduleTimelineBoard({
                             left: barLeft,
                             width: barW,
                             background:
-                              'repeating-linear-gradient(-45deg, #fecaca, #fecaca 4px, #fee2e2 4px, #fee2e2 8px)',
-                            border: '1px solid #f87171',
+                              'repeating-linear-gradient(-45deg, #E8C5CB, #E8C5CB 4px, #F5E6E9 4px, #F5E6E9 8px)',
+                            border: '1px solid #C45A6A',
                             borderRadius: columnFill ? 0 : 4,
                             opacity: 0.9,
                             zIndex: 1,
@@ -578,7 +578,7 @@ export default function ScheduleTimelineBoard({
                             <div>Status: {statusLabel(op.status)}</div>
                           )}
                           {late ? (
-                            <div style={{ color: '#fecaca' }}>
+                            <div style={{ color: '#E8C5CB' }}>
                               At risk of missing date required ({op.dueDate || '—'})
                             </div>
                           ) : null}
@@ -613,7 +613,7 @@ export default function ScheduleTimelineBoard({
                           : isThisJob
                             ? '2px solid #1d4ed8'
                             : late
-                              ? '2px solid #dc2626'
+                              ? '2px solid #7A1528'
                               : planningHighlight
                                 ? '1px solid #cbd5e1'
                                 : 'none',
@@ -626,10 +626,10 @@ export default function ScheduleTimelineBoard({
                           ? isThisJob
                             ? 'inset 0 0 0 2px #1d4ed8'
                             : late
-                              ? 'inset 0 0 0 2px #dc2626'
+                              ? 'inset 0 0 0 2px #7A1528'
                               : undefined
                           : late
-                            ? '0 0 0 1px rgba(220,38,38,0.35)'
+                            ? '0 0 0 1px rgba(122,21,40,0.35)'
                             : undefined,
                       };
 

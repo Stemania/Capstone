@@ -896,8 +896,8 @@ function AdminOfficeScheduleBoard() {
                                 left: barLeft,
                                 width: barW,
                                 background:
-                                  'repeating-linear-gradient(-45deg, #fecaca, #fecaca 4px, #fee2e2 4px, #fee2e2 8px)',
-                                border: '1px solid #f87171',
+                                  'repeating-linear-gradient(-45deg, #E8C5CB, #E8C5CB 4px, #F5E6E9 4px, #F5E6E9 8px)',
+                                border: '1px solid #C45A6A',
                                 borderRadius: columnFill ? 0 : 4,
                                 opacity: 0.9,
                                 zIndex: 1,
@@ -979,7 +979,7 @@ function AdminOfficeScheduleBoard() {
                                   </div>
                                   <div>Status: {statusLabel(op.status)}</div>
                                   {late ? (
-                                    <div style={{ color: '#fecaca' }}>
+                                    <div style={{ color: '#E8C5CB' }}>
                                       At risk of missing date required ({op.dueDate || '—'})
                                     </div>
                                   ) : null}
@@ -996,7 +996,7 @@ function AdminOfficeScheduleBoard() {
                                   left: barLeft,
                                   width: barW,
                                   background: color,
-                                  border: columnFill ? 'none' : late ? '2px solid #dc2626' : 'none',
+                                  border: columnFill ? 'none' : late ? '2px solid #7A1528' : 'none',
                                   borderRadius: columnFill ? 0 : 4,
                                   color: '#fff',
                                   ...textStyle,
@@ -1004,10 +1004,10 @@ function AdminOfficeScheduleBoard() {
                                   zIndex: 2,
                                   boxShadow: columnFill
                                     ? late
-                                      ? 'inset 0 0 0 2px #dc2626'
+                                      ? 'inset 0 0 0 2px #7A1528'
                                       : undefined
                                     : late
-                                      ? '0 0 0 1px rgba(220,38,38,0.35)'
+                                      ? '0 0 0 1px rgba(122,21,40,0.35)'
                                       : undefined,
                                 }}
                               >
@@ -1256,7 +1256,7 @@ function SummaryChip({
         style={{
           fontSize: fit ? 15 : compact ? 18 : 16,
           fontWeight: 700,
-          color: danger ? '#b91c1c' : NAVY,
+          color: danger ? '#7A1528' : NAVY,
           lineHeight: 1.2,
           overflow: 'hidden',
           display: fit ? '-webkit-box' : undefined,

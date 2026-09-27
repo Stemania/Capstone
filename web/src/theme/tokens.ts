@@ -24,8 +24,8 @@ export const ds = {
   purpleSoft: '#ede9fe',
   amber: '#d97706',
   amberSoft: '#fef3c7',
-  red: '#dc2626',
-  redSoft: '#fef2f2',
+  red: '#7A1528',
+  redSoft: '#F9F0F2',
   blueSoft: '#eff6ff',
   filterPanel: '#f8fbff',
 } as const;

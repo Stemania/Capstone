@@ -1,11 +1,15 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
+import customParseFormat from 'dayjs/plugin/customParseFormat';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
+dayjs.extend(customParseFormat);
 
 export const SHOP_TZ = 'Asia/Manila';
+
+const WALL = 'YYYY-MM-DD HH:mm:ss';
 
 /** Format an ISO UTC timestamp for display in shop local time. */
 export function formatShopDateTime(iso: string | null | undefined): string {
@@ -23,16 +27,25 @@ export function formatShopTime(iso: string | null | undefined): string {
   return dayjs(iso).tz(SHOP_TZ).format('HH:mm');
 }
 
-/** Parse shop-local datetime string to ISO UTC for API. */
+/**
+ * Parse shop-local datetime from Ant DatePicker to ISO UTC.
+ * Ant Design DatePicker does not handle timezone-aware dayjs well — treat the
+ * picker's wall-clock fields as Asia/Manila, then convert to UTC.
+ */
 export function shopLocalToIso(localValue: dayjs.Dayjs | null): string | null {
   if (!localValue || !localValue.isValid()) return null;
-  return localValue.tz(SHOP_TZ, true).utc().format();
+  return dayjs.tz(localValue.format(WALL), WALL, SHOP_TZ).utc().format();
 }
 
-/** UTC ISO → dayjs in shop timezone (for DatePicker). */
+/**
+ * UTC ISO → naive dayjs carrying shop wall-clock (for Ant DatePicker `value`).
+ * Returning a tz-aware dayjs breaks controlled updates (OK appears to do nothing).
+ */
 export function isoToShopDayjs(iso: string | null | undefined): dayjs.Dayjs | null {
   if (!iso) return null;
-  return dayjs(iso).tz(SHOP_TZ);
+  const shop = dayjs(iso).tz(SHOP_TZ);
+  if (!shop.isValid()) return null;
+  return dayjs(shop.format(WALL), WALL);
 }
 
 export function computeScheduleFlag(
@@ -54,5 +67,5 @@ export const scheduleFlagStyle: Record<
 > = {
   GREEN: { label: 'On time', color: '#15803d', bg: '#f0fdf4', border: '#86efac' },
   AMBER: { label: 'Within 1 day', color: '#b45309', bg: '#fffbeb', border: '#fcd34d' },
-  RED: { label: 'Late', color: '#b91c1c', bg: '#fef2f2', border: '#fca5a5' },
+  RED: { label: 'Late', color: '#7A1528', bg: '#F9F0F2', border: '#D4A0A8' },
 };

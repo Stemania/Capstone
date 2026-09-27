@@ -329,7 +329,7 @@ export default function ScheduleWeekView({
         </div>
       </div>
       {fetchError ? (
-        <div style={{ fontSize: 12, color: '#b91c1c', marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: '#7A1528', marginBottom: 8 }}>
           Could not load shop schedule: {fetchError}
         </div>
       ) : null}

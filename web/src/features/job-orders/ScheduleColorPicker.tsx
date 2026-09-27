@@ -11,7 +11,7 @@ export const SCHEDULE_COLOR_PALETTE = [
   '#ea580c', // orange
   '#ca8a04', // gold
   '#16a34a', // green
-  '#dc2626', // red
+  '#7A1528', // red
   '#0891b2', // cyan
   '#4f46e5', // indigo
   '#9333ea', // purple
