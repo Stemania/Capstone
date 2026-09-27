@@ -129,3 +129,15 @@ def demand_capacity():
             to_s=request.args.get("to"),
         )
     )
+
+
+@analytics_bp.route("/purchasing", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def purchasing():
+    return jsonify(
+        analytics.purchasing_summary(
+            from_s=request.args.get("from"),
+            to_s=request.args.get("to"),
+        )
+    )

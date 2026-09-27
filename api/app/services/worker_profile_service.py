@@ -240,19 +240,9 @@ def list_calendar_exceptions(from_s=None, to_s=None):
 
 def _default_shop_schedule_by_dow():
     """Mon–Sat 08:00–17:00 fallback when an op has no worker schedule."""
-    out = {}
-    for dow in range(7):
-        working = dow < 6
-        out[dow] = type(
-            "Sched",
-            (),
-            {
-                "is_working": working,
-                "start_time": time(8, 0) if working else None,
-                "end_time": time(17, 0) if working else None,
-            },
-        )()
-    return out
+    from app.services.schedule_calendar import default_shop_schedule_by_dow
+
+    return default_shop_schedule_by_dow()
 
 
 def create_calendar_exception(data):

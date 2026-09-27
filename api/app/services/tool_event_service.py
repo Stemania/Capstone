@@ -202,7 +202,7 @@ def scan_tool(code, worker_id, intent=None, quantity=None):
 
 
 def adjust_stock(tool_id, worker_id, quantity_delta, reason):
-    """Admin/Office stock correction for consumables."""
+    """Admin/Office stock correction for consumables (not deliveries)."""
     tool = Tool.query.get(tool_id)
     if not tool:
         raise AppError("Item not found", "NOT_FOUND", 404)
@@ -232,11 +232,121 @@ def adjust_stock(tool_id, worker_id, quantity_delta, reason):
         worker_id=worker_id,
         type=ToolEventType.ADJUST,
         quantity=abs(delta),
-        reason=f"{'+' if delta > 0 else '-'}{abs(delta)}: {reason}",
+        reason=reason,
     )
     db.session.add(event)
     db.session.commit()
     return event
+
+
+def receive_stock(tool_id, worker_id, quantity, supplier, received_on=None, note=None):
+    """Record a consumable delivery (RECEIVE). Increases quantity on hand."""
+    from datetime import date as date_cls
+
+    from app.services.schedule_calendar import shop_now
+
+    tool = Tool.query.get(tool_id)
+    if not tool:
+        raise AppError("Item not found", "NOT_FOUND", 404)
+    if tool.category != ToolCategory.CONSUMABLE:
+        raise AppError("Only consumables use receive delivery", "VALIDATION_ERROR", 400)
+
+    qty = _parse_quantity(quantity)
+    supplier_s = (supplier or "").strip()
+    if not supplier_s:
+        raise AppError("supplier is required", "VALIDATION_ERROR", 400)
+
+    if received_on:
+        try:
+            on_date = date_cls.fromisoformat(str(received_on)[:10])
+        except ValueError as exc:
+            raise AppError("receivedOn must be YYYY-MM-DD", "VALIDATION_ERROR", 400) from exc
+    else:
+        on_date = shop_now().date()
+
+    note_s = (note or "").strip() or None
+    tool.quantity_on_hand = _dec(tool.quantity_on_hand) + qty
+    event = ToolEvent(
+        tool_id=tool.id,
+        tool_unit_id=None,
+        worker_id=worker_id,
+        type=ToolEventType.RECEIVE,
+        quantity=qty,
+        reason=note_s,
+        supplier=supplier_s,
+        received_on=on_date,
+    )
+    db.session.add(event)
+    db.session.commit()
+    return event
+
+
+def receive_tool_units(type_id, worker_id, quantity, supplier, received_on=None, note=None):
+    """Receive new trackable tool units (creates AVAILABLE units + RECEIVE events)."""
+    from datetime import date as date_cls
+
+    from app.models.tool_type import ToolType
+    from app.services.schedule_calendar import shop_now
+
+    t = ToolType.query.get(type_id)
+    if not t:
+        raise AppError("Tool type not found", "NOT_FOUND", 404)
+
+    try:
+        n = int(quantity)
+    except (TypeError, ValueError) as exc:
+        raise AppError("quantity must be a whole number", "VALIDATION_ERROR", 400) from exc
+    if n < 1:
+        raise AppError("quantity must be at least 1", "VALIDATION_ERROR", 400)
+    if n > 50:
+        raise AppError("quantity cannot exceed 50 per delivery", "VALIDATION_ERROR", 400)
+
+    supplier_s = (supplier or "").strip()
+    if not supplier_s:
+        raise AppError("supplier is required", "VALIDATION_ERROR", 400)
+
+    if received_on:
+        try:
+            on_date = date_cls.fromisoformat(str(received_on)[:10])
+        except ValueError as exc:
+            raise AppError("receivedOn must be YYYY-MM-DD", "VALIDATION_ERROR", 400) from exc
+    else:
+        on_date = shop_now().date()
+
+    note_s = (note or "").strip() or None
+    existing = len(t.units or [])
+    created = []
+    try:
+        for i in range(n):
+            asset = f"{t.code}-{existing + i + 1:03d}"
+            while ToolUnit.query.filter_by(asset_code=asset).first():
+                existing += 1
+                asset = f"{t.code}-{existing + i + 1:03d}"
+            unit = ToolUnit(
+                tool_type_id=t.id,
+                asset_code=asset,
+                status=ToolUnitStatus.AVAILABLE,
+                notes=note_s,
+            )
+            db.session.add(unit)
+            db.session.flush()
+            ev = ToolEvent(
+                tool_id=None,
+                tool_unit_id=unit.id,
+                worker_id=worker_id,
+                type=ToolEventType.RECEIVE,
+                quantity=Decimal("1"),
+                reason=note_s,
+                supplier=supplier_s,
+                received_on=on_date,
+            )
+            db.session.add(ev)
+            created.append(unit)
+        db.session.commit()
+        return [u.to_dict() for u in created]
+    except Exception:
+        db.session.rollback()
+        raise
 
 
 def list_held_tools(worker_id):

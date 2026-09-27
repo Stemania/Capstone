@@ -376,5 +376,45 @@ def load_calendar_exceptions(start_date: date, end_date: date):
     return {e.date: e for e in rows}
 
 
+def default_shop_schedule_by_dow():
+    """Mon–Sat 08:00–17:00; Sunday off. Shared shop-hours baseline for capacity."""
+    out = {}
+    for dow in range(7):
+        working = dow < 6
+        out[dow] = type(
+            "Sched",
+            (),
+            {
+                "is_working": working,
+                "start_time": time(8, 0) if working else None,
+                "end_time": time(17, 0) if working else None,
+            },
+        )()
+    return out
+
+
+def shop_available_hours(period_from: date, period_to: date) -> float:
+    """
+    Available shop hours per calendar day from default shop working hours
+    plus WorkCalendarException (same effective_hours_for_date path as the scheduler).
+    Overtime / special days add capacity; holiday / no-work days remove it.
+    """
+    if period_to < period_from:
+        return 0.0
+    schedule = default_shop_schedule_by_dow()
+    exceptions = load_calendar_exceptions(period_from, period_to)
+    hours = 0.0
+    d = period_from
+    while d <= period_to:
+        start_t, end_t, is_working = effective_hours_for_date(d, schedule, exceptions)
+        if is_working and start_t and end_t:
+            start_dt = datetime.combine(d, start_t)
+            end_dt = datetime.combine(d, end_t)
+            if end_dt > start_dt:
+                hours += (end_dt - start_dt).total_seconds() / 3600.0
+        d += timedelta(days=1)
+    return hours
+
+
 def full_horizon_interval(anchor_utc: datetime, end_utc: datetime) -> list[tuple[datetime, datetime]]:
     return [(ensure_utc(anchor_utc), ensure_utc(end_utc))]

@@ -172,11 +172,28 @@ def _initial_part_condition(job_type: JobType) -> PartCondition:
 _PART_CONDITION_RANK = {
     PartCondition.RAW_MATERIAL: 0,
     PartCondition.CLIENT_SUPPLIED_ITEM: 0,
-    PartCondition.BLANK: 1,
-    PartCondition.WORK_IN_PROCESS: 2,
-    PartCondition.MACHINED: 3,
-    PartCondition.HEAT_TREATED: 4,
-    PartCondition.FINISHED: 5,
+    PartCondition.WORK_IN_PROCESS: 1,
+    PartCondition.CUT: 2,
+    PartCondition.BLANK: 3,
+    PartCondition.FORMED: 4,
+    PartCondition.MACHINED: 5,
+    PartCondition.ASSEMBLED: 6,
+    PartCondition.HEAT_TREATED: 7,
+    PartCondition.FINISHED: 8,
+}
+
+# Completed ops that never change the stage.
+_STAGE_NEUTRAL_OP_CODES = frozenset({"CHECKING"})
+
+_OP_CODE_STAGE = {
+    "CUTTING": PartCondition.CUT,
+    "BLANKING": PartCondition.BLANK,
+    "BENDING": PartCondition.FORMED,
+    "FORMING": PartCondition.FORMED,
+    "WELDING": PartCondition.ASSEMBLED,
+    "ASSEMBLY": PartCondition.ASSEMBLED,
+    "HEAT_TREATMENT": PartCondition.HEAT_TREATED,
+    "FINISHING": PartCondition.FINISHED,
 }
 
 _MACHINING_OP_CODES = frozenset(
@@ -196,15 +213,23 @@ _MACHINING_OP_CODES = frozenset(
 
 
 def _part_condition_from_op_code(code: str | None) -> PartCondition | None:
-    if not code:
+    """Stage reached by completing an op of this code.
+
+    None means the op does not change the stage (CHECKING). Any other op with
+    no specific stage (e.g. custom names) is generic WORK_IN_PROCESS.
+    """
+    if code in _STAGE_NEUTRAL_OP_CODES:
         return None
-    if code == "BLANKING":
-        return PartCondition.BLANK
-    if code == "HEAT_TREATMENT":
-        return PartCondition.HEAT_TREATED
     if code in _MACHINING_OP_CODES:
         return PartCondition.MACHINED
-    return None
+    return _OP_CODE_STAGE.get(code or "", PartCondition.WORK_IN_PROCESS)
+
+
+def _op_stage_code(op) -> str | None:
+    if op.operation_type and op.operation_type.code:
+        return op.operation_type.code
+    name = (op.operation_name or "").strip().upper()
+    return "_".join(name.replace("-", " ").split()) or None
 
 
 def _rank(condition: PartCondition | None) -> int:
@@ -225,8 +250,7 @@ def advance_part_condition(job: JobOrder):
     for op in ops:
         if op.status != OperationStatus.COMPLETED:
             continue
-        code = op.operation_type.code if op.operation_type else None
-        stage = _part_condition_from_op_code(code)
+        stage = _part_condition_from_op_code(_op_stage_code(op))
         if stage is not None and _rank(stage) > _rank(best):
             best = stage
 
@@ -279,6 +303,7 @@ def list_job_orders(user_id, user_role, status=None, scope=None, awaiting_materi
 
 def get_job_order(job_id, user_id, user_role):
     from app.models.operation_time import OperationTimeLog
+    from app.models.sales_invoice import SalesInvoice
 
     # Use filter().first() (not Query.get) so loader options always apply even
     # when the JobOrder is already present in the identity map.
@@ -286,6 +311,7 @@ def get_job_order(job_id, user_id, user_role):
         JobOrder.query.options(
             joinedload(JobOrder.client),
             joinedload(JobOrder.created_by),
+            joinedload(JobOrder.sales_invoice).joinedload(SalesInvoice.prepared_by),
             joinedload(JobOrder.operations).joinedload(JobOperation.assigned_worker),
             joinedload(JobOrder.operations).joinedload(JobOperation.machine_type),
             joinedload(JobOrder.operations).joinedload(JobOperation.operation_type),
@@ -355,6 +381,33 @@ def _build_operation(job_id, op_data, seq_fallback):
     return JobOperation(**kwargs)
 
 
+_DERIVED_MATERIAL_STATUSES = (MaterialStatus.ORDERED, MaterialStatus.RECEIVED)
+
+
+def _direct_material_status(value, *, has_lines: bool) -> MaterialStatus:
+    """Validate a material status sent by a client.
+
+    Only NOT_REQUIRED and TO_ORDER may be set directly; ORDERED and RECEIVED
+    come from purchase lines and are refused when the job has none.
+    """
+    try:
+        status = MaterialStatus(value)
+    except ValueError:
+        raise AppError(
+            "materialStatus must be NOT_REQUIRED, TO_ORDER, ORDERED, or RECEIVED",
+            "VALIDATION_ERROR",
+            400,
+        )
+    if status in _DERIVED_MATERIAL_STATUSES and not has_lines:
+        raise AppError(
+            "Material cannot be marked Ordered or Received until a purchase is "
+            "recorded. Record the purchase, or set material to To order or Not required.",
+            "VALIDATION_ERROR",
+            400,
+        )
+    return status
+
+
 def create_job_order(data, created_by_id):
     """Office creates a DRAFT from the client PO. Operations are optional; no notify."""
     priority = data.get("priority", "MODERATE")
@@ -370,14 +423,7 @@ def create_job_order(data, created_by_id):
 
     material_status = default_material_status(job_type)
     if data.get("materialStatus"):
-        try:
-            material_status = MaterialStatus(data["materialStatus"])
-        except ValueError:
-            raise AppError(
-                "materialStatus must be NOT_REQUIRED, TO_ORDER, ORDERED, or RECEIVED",
-                "VALIDATION_ERROR",
-                400,
-            )
+        material_status = _direct_material_status(data["materialStatus"], has_lines=False)
 
     try:
         job = JobOrder(
@@ -398,6 +444,7 @@ def create_job_order(data, created_by_id):
             material_status=material_status,
             material_expected_date=_parse_date(data.get("materialExpectedDate")),
             material_received_date=_parse_date(data.get("materialReceivedDate")),
+            supplier_id=(data.get("supplierId") or None),
             supplier_reference=(data.get("supplierReference") or None),
             created_by_id=created_by_id,
         )
@@ -432,6 +479,13 @@ def mark_job_delivered(job):
         raise AppError(
             "All operations must be complete before delivery",
             "INVALID_TRANSITION",
+            409,
+        )
+
+    if job.sales_invoice is None:
+        raise AppError(
+            "Issue a sales invoice for this job before marking it delivered.",
+            "INVOICE_REQUIRED",
             409,
         )
 
@@ -515,30 +569,60 @@ def update_job_order(job, data, actor_role=None):
         if "rawMaterials" in data:
             job.raw_materials = _normalize_raw_materials(data.get("rawMaterials"))
         if "materialStatus" in data and data["materialStatus"]:
-            try:
-                job.material_status = MaterialStatus(data["materialStatus"])
-            except ValueError:
+            has_lines = bool(job.material_purchases)
+            new_material_status = _direct_material_status(
+                data["materialStatus"], has_lines=has_lines
+            )
+            if (
+                new_material_status == MaterialStatus.NOT_REQUIRED
+                and job.material_status != MaterialStatus.NOT_REQUIRED
+                and not is_draft
+                and role != UserRole.ADMIN.value
+            ):
                 raise AppError(
-                    "materialStatus must be NOT_REQUIRED, TO_ORDER, ORDERED, or RECEIVED",
-                    "VALIDATION_ERROR",
-                    400,
+                    "Only the Admin can set material to Not required on a released job.",
+                    "FORBIDDEN",
+                    403,
                 )
-            if job.material_status == MaterialStatus.RECEIVED and not job.material_received_date:
-                from datetime import date as date_cls
+            if new_material_status == MaterialStatus.NOT_REQUIRED:
+                job.material_status = MaterialStatus.NOT_REQUIRED
+            elif has_lines:
+                # Status follows the lines; start from TO_ORDER and re-derive.
+                from app.services.material_purchase_service import (
+                    sync_job_material_from_purchases,
+                )
 
-                job.material_received_date = date_cls.today()
-            if job.material_status == MaterialStatus.NOT_REQUIRED:
-                job.material_expected_date = job.material_expected_date  # keep history
+                job.material_status = MaterialStatus.TO_ORDER
+                sync_job_material_from_purchases(job)
+            else:
+                job.material_status = new_material_status
         if "materialExpectedDate" in data:
             job.material_expected_date = _parse_date(data.get("materialExpectedDate"))
         if "materialReceivedDate" in data:
             job.material_received_date = _parse_date(data.get("materialReceivedDate"))
+        if "supplierId" in data:
+            sid = data.get("supplierId") or None
+            if sid:
+                from app.models.supplier import Supplier
+
+                if not Supplier.query.get(sid):
+                    raise AppError("Supplier not found", "NOT_FOUND", 404)
+            job.supplier_id = sid
         if "supplierReference" in data:
             job.supplier_reference = (data.get("supplierReference") or None)
         if "scheduleColor" in data:
             job.schedule_color = _normalize_schedule_color(data.get("scheduleColor"))
 
         if "operations" in data:
+            if not is_draft:
+                raise AppError(
+                    "Operations can only be replaced while the job is a draft. "
+                    "This job has been released; reassign, reschedule, or add rework "
+                    "to individual operations instead.",
+                    "OPERATIONS_LOCKED",
+                    409,
+                )
+            _assert_no_started_operations(job)
             JobOperation.query.filter_by(job_order_id=job.id).delete()
             for i, op_data in enumerate(data["operations"], start=1):
                 payload = dict(op_data)
@@ -576,14 +660,14 @@ def _release_missing_items(job: JobOrder) -> list[str]:
 
 
 def mark_material_received(job, received_date=None):
-    """Office/Admin marks steel (or other stock) arrived for this job."""
-    try:
-        from datetime import date as date_cls
+    """Office/Admin receives every outstanding purchase line for this job.
 
-        when = _parse_date(received_date) or date_cls.today()
-        job.material_status = MaterialStatus.RECEIVED
-        job.material_received_date = when
-        db.session.commit()
+    Refused when no purchase is recorded; job status follows from the lines.
+    """
+    from app.services import material_purchase_service as mp_service
+
+    try:
+        mp_service.receive_all_outstanding(job, received_date)
         return get_job_order(job.id, job.created_by_id, UserRole.OFFICE_STAFF.value)
     except AppError:
         db.session.rollback()
@@ -653,8 +737,35 @@ def release_job_order(job):
         raise
 
 
+_STARTED_OPERATION_STATUSES = (OperationStatus.IN_PROGRESS, OperationStatus.COMPLETED)
+
+
+def _assert_no_started_operations(job):
+    """Started or completed operations (and their time logs) are production records."""
+    started = [
+        op
+        for op in (job.operations or [])
+        if op.status in _STARTED_OPERATION_STATUSES or op.actual_start is not None
+    ]
+    if started:
+        names = ", ".join(op.operation_name for op in started)
+        raise AppError(
+            f"Work has already been recorded on {names}. "
+            "Started or completed operations cannot be deleted.",
+            "OPERATIONS_STARTED",
+            409,
+        )
+
+
 def delete_job_order(job):
     """Permanently remove a job order, its operations, and schedule data."""
+    if job.sales_invoice is not None:
+        raise AppError(
+            "This job has an issued sales invoice and cannot be deleted.",
+            "INVOICE_EXISTS",
+            409,
+        )
+    _assert_no_started_operations(job)
     try:
         from app.models.tool_event import ToolEvent
 
@@ -669,6 +780,12 @@ def delete_job_order(job):
 
 
 def assign_operation_worker(operation, worker_id):
+    if operation.status in _STARTED_OPERATION_STATUSES or operation.actual_start is not None:
+        raise AppError(
+            "This operation has already started, so its worker can't be changed.",
+            "OPERATION_STARTED",
+            409,
+        )
     _validate_worker(
         worker_id,
         start=operation.scheduled_start,

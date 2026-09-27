@@ -92,7 +92,7 @@ def get_stocktake(stocktake_id):
 def submit_stocktake(counted_by_id, lines_data, counted_on=None, notes=None):
     """
     Record a consumable count session and set quantity_on_hand to counted values.
-    Does not create ADJUST events — deliveries stay as positive ADJUST between counts.
+    Does not create ADJUST or RECEIVE events — deliveries stay as RECEIVE between counts.
     """
     if not lines_data or not isinstance(lines_data, list):
         raise AppError("lines are required", "VALIDATION_ERROR", 400)
@@ -166,22 +166,32 @@ def submit_stocktake(counted_by_id, lines_data, counted_on=None, notes=None):
     return st
 
 
-def positive_adjustments_between(tool_id, start_utc, end_utc) -> Decimal:
-    """Deliveries / positive ADJUST only (reason prefix '+')."""
-    events = (
-        ToolEvent.query.filter(
-            ToolEvent.tool_id == tool_id,
-            ToolEvent.type == ToolEventType.ADJUST,
-            ToolEvent.created_at > start_utc,
-            ToolEvent.created_at <= end_utc,
-        ).all()
-    )
+def receive_additions_between(tool_id, start_utc, end_utc) -> Decimal:
+    """Deliveries (RECEIVE) whose effective receive time falls in (start, end]."""
+    from datetime import time as time_cls
+
+    from app.services.schedule_calendar import shop_local_to_utc
+
+    events = ToolEvent.query.filter(
+        ToolEvent.tool_id == tool_id,
+        ToolEvent.type == ToolEventType.RECEIVE,
+    ).all()
     total = Decimal("0")
     for ev in events:
-        reason = (ev.reason or "").strip()
-        if reason.startswith("+"):
+        if ev.received_on is not None:
+            recv_at = shop_local_to_utc(ev.received_on, time_cls(12, 0))
+        else:
+            recv_at = ev.created_at
+        if recv_at is None:
+            continue
+        if start_utc < recv_at <= end_utc:
             total += _dec(ev.quantity)
     return total
+
+
+def positive_adjustments_between(tool_id, start_utc, end_utc) -> Decimal:
+    """Back-compat alias — additions are RECEIVE events only."""
+    return receive_additions_between(tool_id, start_utc, end_utc)
 
 
 def consecutive_stocktake_pairs(tool_id):

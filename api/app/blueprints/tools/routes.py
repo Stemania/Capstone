@@ -162,6 +162,22 @@ def create_unit(type_id):
     return jsonify(tt_service.create_tool_unit(type_id, data)), 201
 
 
+@tools_bp.route("/types/<type_id>/receive", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def receive_tool_units(type_id):
+    data = request.get_json() or {}
+    units = te_service.receive_tool_units(
+        type_id,
+        get_current_user_id(),
+        data.get("quantity"),
+        data.get("supplier"),
+        received_on=data.get("receivedOn") or data.get("received_on"),
+        note=data.get("note") or data.get("reason"),
+    )
+    return jsonify({"items": units, "count": len(units)}), 201
+
+
 @tools_bp.route("/units/<unit_id>", methods=["PATCH"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
@@ -222,5 +238,21 @@ def adjust_stock(tool_id):
         get_current_user_id(),
         data.get("quantity"),
         data.get("reason"),
+    )
+    return jsonify(event.to_dict()), 201
+
+
+@tools_bp.route("/<tool_id>/receive", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def receive_stock(tool_id):
+    data = request.get_json() or {}
+    event = te_service.receive_stock(
+        tool_id,
+        get_current_user_id(),
+        data.get("quantity"),
+        data.get("supplier"),
+        received_on=data.get("receivedOn") or data.get("received_on"),
+        note=data.get("note") or data.get("reason"),
     )
     return jsonify(event.to_dict()), 201

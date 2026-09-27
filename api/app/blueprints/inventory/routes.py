@@ -77,6 +77,23 @@ def list_stocktakes():
     )
 
 
+@inventory_bp.route("/material-purchases", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def list_material_purchases():
+    from app.services import material_purchase_service as mp_service
+
+    return jsonify(
+        mp_service.list_purchases(
+            from_s=request.args.get("from"),
+            to_s=request.args.get("to"),
+            supplier_id=request.args.get("supplierId"),
+            material=request.args.get("material"),
+            status=request.args.get("status"),
+        )
+    )
+
+
 @inventory_bp.route("/stocktakes", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)

@@ -15,6 +15,7 @@ from app.models.machine import MachineType, MachineUnit
 from app.models.operation import JobOperation, OperationStatus
 from app.models.operation_time import (
     MachineDowntime,
+    OperationPauseReason,
     OperationTimeEvent,
     OperationTimeLog,
 )
@@ -25,6 +26,7 @@ from app.services.schedule_calendar import (
     derive_working_segments,
     load_calendar_exceptions,
     load_worker_schedule_maps,
+    shop_available_hours,
     shop_local_to_utc,
     shop_now,
 )
@@ -127,19 +129,25 @@ def overview(from_s=None, to_s=None):
         .group_by(JobOperation.job_order_id)
         .subquery()
     )
-    completed_jobs = (
+    # Machining finished in period (completed or already delivered).
+    finished_jobs = (
         db.session.query(JobOrder, job_complete_subq.c.completed_at)
         .join(job_complete_subq, JobOrder.id == job_complete_subq.c.jid)
         .filter(
-            JobOrder.status == JobOrderStatus.COMPLETED,
+            JobOrder.status.in_(
+                (JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED)
+            ),
             job_complete_subq.c.completed_at >= start_utc,
             job_complete_subq.c.completed_at < end_utc,
         )
         .all()
     )
-    on_time = late = 0
-    for job, completed_at in completed_jobs:
-        done = completed_at.astimezone(SHOP_TZ).date()
+    on_time = late = awaiting_delivery = 0
+    for job, _completed_at in finished_jobs:
+        if not job.delivered_at:
+            awaiting_delivery += 1
+            continue
+        done = job.delivered_at.astimezone(SHOP_TZ).date()
         if done <= job.due_date:
             on_time += 1
         else:
@@ -180,9 +188,10 @@ def overview(from_s=None, to_s=None):
     payload.update(
         {
             "jobs": {
-                "completed": len(completed_jobs),
+                "completed": len(finished_jobs),
                 "onTime": on_time,
                 "late": late,
+                "awaitingDelivery": awaiting_delivery,
             },
             "efficiency": {
                 "averageVariancePct": _num(avg_var),
@@ -354,14 +363,8 @@ def _segment_hours(start, end, worker_id, exceptions_by_date):
 
 
 def _shop_available_hours(period_from: date, period_to: date) -> float:
-    """Default shop capacity Mon–Sat 08:00–17:00 (9h) per calendar day."""
-    hours = 0.0
-    d = period_from
-    while d <= period_to:
-        if d.weekday() < 6:
-            hours += 9.0
-        d += timedelta(days=1)
-    return hours
+    """Shop capacity from working hours + calendar exceptions (scheduler source)."""
+    return shop_available_hours(period_from, period_to)
 
 
 def type_utilization_pct(busy_hours_by_unit, available_hours_per_unit):
@@ -667,14 +670,15 @@ def delays(from_s=None, to_s=None):
     dt_counts = defaultdict(int)
     dt_open = defaultdict(int)
     unit_meta = {}
+    total_downtime_hours = 0.0
     for row in dts:
         clip_start = max(row.started_at, start_utc)
         clip_end = row.ended_at if row.ended_at else end_utc
         clip_end = min(clip_end, end_utc)
         if clip_end > clip_start:
-            dt_hours[row.machine_unit_id] += (
-                clip_end - clip_start
-            ).total_seconds() / 3600.0
+            hrs = (clip_end - clip_start).total_seconds() / 3600.0
+            dt_hours[row.machine_unit_id] += hrs
+            total_downtime_hours += hrs
         dt_counts[row.machine_unit_id] += 1
         if row.ended_at is None:
             dt_open[row.machine_unit_id] += 1
@@ -703,10 +707,108 @@ def delays(from_s=None, to_s=None):
             }
         )
 
+    # Rework split by the category recorded when the rework was raised.
+    rework_by_category = (
+        db.session.query(
+            JobOperation.rework_reason_category,
+            func.coalesce(func.sum(JobOperation.actual_worked_hours), 0),
+            func.count(JobOperation.id),
+        )
+        .filter(
+            *_completed_in_period_filters(start_utc, end_utc),
+            JobOperation.rework_of_operation_id.isnot(None),
+        )
+        .group_by(JobOperation.rework_reason_category)
+        .all()
+    )
+
+    # Pareto causes: pause reasons + machine downtime + rework.
+    # Breaks and end-of-shift are normal non-working time, not delays.
+    cause_rows = []
+    excluded_pause_hours = {
+        reason: pause_hours.get(reason, 0.0) for reason in NON_WORKING_PAUSE_REASONS
+    }
+    for reason, hrs in pause_hours.items():
+        if reason in NON_WORKING_PAUSE_REASONS:
+            continue
+        cause_rows.append(
+            {
+                "cause": reason,
+                "causeType": "PAUSE",
+                "label": reason,
+                "hours": float(hrs),
+                "occurrenceCount": pause_counts[reason],
+            }
+        )
+    if total_downtime_hours > 0 or sum(dt_counts.values()) > 0:
+        cause_rows.append(
+            {
+                "cause": "MACHINE_DOWNTIME",
+                "causeType": "DOWNTIME",
+                "label": "Machine downtime",
+                "hours": float(total_downtime_hours),
+                "occurrenceCount": int(sum(dt_counts.values())),
+            }
+        )
+    for category, hrs, count in rework_by_category:
+        if not (float(hrs or 0) > 0 or int(count or 0) > 0):
+            continue
+        key = category.value if category else "UNCATEGORISED"
+        cause_rows.append(
+            {
+                "cause": f"REWORK:{key}",
+                "causeType": "REWORK",
+                "label": f"Rework — {_REWORK_CATEGORY_LABEL.get(key, key)}",
+                "hours": float(hrs or 0),
+                "occurrenceCount": int(count or 0),
+            }
+        )
+    cause_rows.sort(key=lambda r: -r["hours"])
+    total_cause_hours = sum(r["hours"] for r in cause_rows)
+    cumulative = 0.0
+    pareto = []
+    for row in cause_rows:
+        share = (row["hours"] / total_cause_hours * 100.0) if total_cause_hours else 0.0
+        cumulative += share
+        pareto.append(
+            {
+                "cause": row["cause"],
+                "causeType": row["causeType"],
+                "label": row["label"],
+                "hours": _num(row["hours"]),
+                "occurrenceCount": row["occurrenceCount"],
+                "shareOfTotalPct": _num(share),
+                "cumulativePct": _num(min(cumulative, 100.0)),
+            }
+        )
+
     payload = _period_meta(period_from, period_to, excluded)
     payload["pauseReasons"] = pause_breakdown
     payload["machineDowntime"] = downtime_breakdown
+    payload["causes"] = pareto
+    payload["totalDelayHours"] = _num(total_cause_hours)
+    payload["excludedNonWorkingPauses"] = {
+        "breakHours": _num(excluded_pause_hours[OperationPauseReason.BREAK.value]),
+        "endOfShiftHours": _num(excluded_pause_hours[OperationPauseReason.END_OF_SHIFT.value]),
+        "totalHours": _num(sum(excluded_pause_hours.values())),
+    }
     return payload
+
+
+NON_WORKING_PAUSE_REASONS = frozenset(
+    {OperationPauseReason.BREAK.value, OperationPauseReason.END_OF_SHIFT.value}
+)
+
+
+_REWORK_CATEGORY_LABEL = {
+    "DIMENSION_OUT_OF_TOLERANCE": "Dimension out of tolerance",
+    "SURFACE_FINISH": "Surface finish",
+    "WRONG_MATERIAL": "Wrong material",
+    "MACHINE_FAULT": "Machine fault",
+    "OPERATOR_ERROR": "Operator error",
+    "OTHER": "Other",
+    "UNCATEGORISED": "Uncategorised",
+}
 
 
 # --- Sales / demand forecasting (read-only) ---
@@ -767,13 +869,16 @@ def _expected_completion_shop_date(job: JobOrder) -> date:
     return job.due_date
 
 
+SALES_STATUSES = (JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED)
+
+
 def _completed_jobs_in_period(period_from: date, period_to: date):
     jobs = (
         JobOrder.query.options(
             joinedload(JobOrder.operations),
             joinedload(JobOrder.client),
         )
-        .filter(JobOrder.status == JobOrderStatus.COMPLETED)
+        .filter(JobOrder.status.in_(SALES_STATUSES))
         .all()
     )
     out = []
@@ -868,7 +973,7 @@ def sales_forecast(from_s=None, to_s=None):
     # Committed pipeline: accepted but not delivered (fact)
     pipeline_jobs = (
         JobOrder.query.options(joinedload(JobOrder.operations))
-        .filter(JobOrder.status != JobOrderStatus.COMPLETED)
+        .filter(JobOrder.status.notin_(SALES_STATUSES))
         .all()
     )
     by_exp_month = defaultdict(lambda: {"amount": 0.0, "jobCount": 0})
@@ -985,7 +1090,7 @@ def demand_capacity(from_s=None, to_s=None):
     horizon_from = today
     horizon_to = today + timedelta(days=FORECAST_HORIZON_WEEKS * 7 - 1)
     horizon_wd = _working_days_inclusive(horizon_from, horizon_to)
-    available_per_unit = float(horizon_wd * 9)
+    available_per_unit = float(shop_available_hours(horizon_from, horizon_to))
     start_utc = shop_local_to_utc(horizon_from, time(0, 0))
     end_utc = shop_local_to_utc(horizon_to + timedelta(days=1), time(0, 0))
 
@@ -1075,3 +1180,136 @@ def utilization_from_segments(segment_hours, available_hours):
 def filter_by_min_ops(groups, min_ops):
     """groups: iterable of dicts with operationCount."""
     return [g for g in groups if g.get("operationCount", 0) >= min_ops]
+
+
+def purchasing_summary(from_s=None, to_s=None):
+    """
+    Raw-material purchase analytics for the period (by date_ordered).
+    - materials by purchase count and total spend
+    - spend by supplier
+    - supplier lead time: avg actual days vs stated typical lead time
+    """
+    from app.models.material_purchase import MaterialPurchase
+    from app.models.supplier import Supplier
+
+    period_from, period_to, _start_utc, _end_utc = _parse_period(from_s, to_s)
+
+    purchases = (
+        MaterialPurchase.query.filter(
+            MaterialPurchase.date_ordered >= period_from,
+            MaterialPurchase.date_ordered <= period_to,
+        )
+        .all()
+    )
+
+    by_material = defaultdict(
+        lambda: {"purchaseCount": 0, "totalQuantity": 0.0, "totalSpend": 0.0, "unit": None}
+    )
+    by_supplier_spend = defaultdict(
+        lambda: {
+            "supplierId": None,
+            "supplierName": None,
+            "purchaseCount": 0,
+            "totalSpend": 0.0,
+        }
+    )
+    lead_samples = defaultdict(list)  # supplier_id -> list of actual days
+
+    for p in purchases:
+        key = (p.material_name or "").strip().lower()
+        row = by_material[key]
+        row["materialName"] = p.material_name
+        row["purchaseCount"] += 1
+        row["totalQuantity"] += float(p.quantity or 0)
+        spend = float(p.quantity or 0) * float(p.unit_cost or 0)
+        row["totalSpend"] += spend
+        if p.unit and not row["unit"]:
+            row["unit"] = p.unit
+
+        sid = p.supplier_id
+        srow = by_supplier_spend[sid]
+        srow["supplierId"] = sid
+        srow["supplierName"] = p.supplier.name if p.supplier else None
+        srow["purchaseCount"] += 1
+        srow["totalSpend"] += spend
+
+        if p.date_ordered and p.date_received:
+            lead_samples[sid].append((p.date_received - p.date_ordered).days)
+
+    materials_by_count = sorted(
+        (
+            {
+                "materialName": v["materialName"],
+                "purchaseCount": v["purchaseCount"],
+                "totalQuantity": _num(v["totalQuantity"], 2),
+                "totalSpend": _num(v["totalSpend"], 2),
+                "unit": v["unit"],
+            }
+            for v in by_material.values()
+        ),
+        key=lambda r: (-r["purchaseCount"], -float(r["totalSpend"] or 0)),
+    )
+    materials_by_spend = sorted(
+        materials_by_count,
+        key=lambda r: (-float(r["totalSpend"] or 0), -r["purchaseCount"]),
+    )
+
+    spend_by_supplier = sorted(
+        (
+            {
+                "supplierId": v["supplierId"],
+                "supplierName": v["supplierName"],
+                "purchaseCount": v["purchaseCount"],
+                "totalSpend": _num(v["totalSpend"], 2),
+            }
+            for v in by_supplier_spend.values()
+        ),
+        key=lambda r: -float(r["totalSpend"] or 0),
+    )
+
+    # Lead time: include suppliers that have samples in period; also stated lead time
+    supplier_ids = set(lead_samples.keys()) | {
+        v["supplierId"] for v in by_supplier_spend.values()
+    }
+    suppliers = {
+        s.id: s
+        for s in Supplier.query.filter(Supplier.id.in_(list(supplier_ids) or ["__none__"])).all()
+    } if supplier_ids else {}
+
+    lead_time = []
+    for sid in supplier_ids:
+        s = suppliers.get(sid)
+        samples = lead_samples.get(sid) or []
+        avg_actual = (sum(samples) / len(samples)) if samples else None
+        stated = s.typical_lead_time_days if s else None
+        variance = None
+        if avg_actual is not None and stated is not None:
+            variance = avg_actual - stated
+        lead_time.append(
+            {
+                "supplierId": sid,
+                "supplierName": s.name if s else None,
+                "statedLeadTimeDays": stated,
+                "sampleCount": len(samples),
+                "averageActualDays": _num(avg_actual, 2) if avg_actual is not None else None,
+                "varianceDays": _num(variance, 2) if variance is not None else None,
+            }
+        )
+    lead_time.sort(
+        key=lambda r: (
+            -(r["sampleCount"] or 0),
+            r["supplierName"] or "",
+        )
+    )
+
+    total_spend = sum(float(p.quantity or 0) * float(p.unit_cost or 0) for p in purchases)
+
+    return {
+        "period": {"from": period_from.isoformat(), "to": period_to.isoformat()},
+        "purchaseCount": len(purchases),
+        "totalSpend": _num(total_spend, 2),
+        "materialsByCount": materials_by_count,
+        "materialsBySpend": materials_by_spend,
+        "spendBySupplier": spend_by_supplier,
+        "supplierLeadTime": lead_time,
+    }

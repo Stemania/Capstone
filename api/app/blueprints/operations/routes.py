@@ -24,7 +24,7 @@ def my_operations():
 
 @operations_bp.route("/<operation_id>/assign", methods=["PATCH"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def assign_operation(operation_id):
     operation = JobOperation.query.get(operation_id)
     if not operation:
@@ -126,7 +126,8 @@ def rework_operation(operation_id):
         operation,
         get_current_user_id(),
         get_current_user_role(),
-        reason=data.get("reason"),
+        reason=data.get("reason") or data.get("note"),
+        category=data.get("category") or data.get("reworkReasonCategory"),
     )
     return jsonify(follow.to_dict()), 201
 
@@ -210,6 +211,8 @@ def close_downtime(downtime_id):
         downtime_id,
         ended_at=data.get("endedAt") or data.get("ended_at"),
         note=data.get("note"),
+        actor_id=get_current_user_id(),
+        actor_role=get_current_user_role(),
     )
     return jsonify(row.to_dict())
 

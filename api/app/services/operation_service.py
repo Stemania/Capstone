@@ -14,6 +14,7 @@ from app.models.operation_time import (
     OperationTimeLog,
 )
 from app.models.user import UserRole
+from app.services import material_purchase_service as mp_service
 from app.services.job_order_service import (
     advance_part_condition,
     check_job_access,
@@ -136,6 +137,50 @@ def _last_event(operation):
     return logs[-1] if logs else None
 
 
+def _assert_materials_arrived(job, user_role):
+    """Start gate for a job's first operation.
+
+    Unless material is NOT_REQUIRED, blocks when the job has no purchase lines
+    or any line is still ORDERED, whatever the job-level status says.
+    """
+    from app.models.job_order import MaterialStatus
+
+    if job.material_status == MaterialStatus.NOT_REQUIRED:
+        return
+    is_worker = user_role == UserRole.PRODUCTION_WORKER.value
+    outstanding = mp_service.outstanding_lines(job)
+    if not outstanding:
+        if job.material_purchases:
+            return
+        if is_worker:
+            message = (
+                "The materials for this job have not been ordered yet. "
+                "Please check with the office."
+            )
+        else:
+            message = (
+                f"No material purchase has been recorded for job {job.job_number} "
+                f"({job.title}). Record the purchase, or set material to "
+                "Not required if the shop already has it."
+            )
+        raise AppError(message, "MATERIALS_NOT_ORDERED", 409)
+    if is_worker:
+        message = (
+            "The materials for this job have not arrived yet. "
+            "Please wait for the office to receive them before starting."
+        )
+    else:
+        names = ", ".join(
+            f"{p.material_name}{f' ({p.grade_or_spec})' if p.grade_or_spec else ''}"
+            for p in outstanding
+        )
+        message = (
+            f"Materials not yet received for this job: {names}. "
+            "Mark them received before starting the first operation."
+        )
+    raise AppError(message, "MATERIALS_NOT_RECEIVED", 409)
+
+
 def start_operation(operation, user_id, user_role, timestamp):
     from app.constants.machines import assert_machine_type_available
     from app.models.job_order import JobOrderStatus
@@ -169,9 +214,15 @@ def start_operation(operation, user_id, user_role, timestamp):
     if operation.machine_unit_id:
         _assert_unit_not_down(operation.machine_unit_id)
 
+    first_start = not mp_service.job_has_started(job)
+    if first_start:
+        _assert_materials_arrived(job, user_role)
+
     ts = _parse_timestamp(timestamp)
     before_status = job.status
     try:
+        if first_start:
+            mp_service.consume_received_lines(job, ts)
         operation.status = OperationStatus.IN_PROGRESS
         if not operation.actual_start:
             operation.actual_start = ts
@@ -338,8 +389,10 @@ def complete_operation(operation, user_id, user_role, timestamp):
         raise
 
 
-def create_rework_operation(operation, user_id, user_role, reason):
+def create_rework_operation(operation, user_id, user_role, reason, category=None):
     """Create a follow-on PENDING op; leave the completed original intact."""
+    from app.models.operation import ReworkReasonCategory
+
     check_job_access(operation.job_order, user_id, user_role)
     if user_role not in (
         UserRole.ADMIN.value,
@@ -351,14 +404,29 @@ def create_rework_operation(operation, user_id, user_role, reason):
         raise AppError(
             "Only completed operations can be sent for rework", "INVALID_TRANSITION", 409
         )
-    if not reason or not str(reason).strip():
-        raise AppError("rework reason is required", "VALIDATION_ERROR", 400)
+
+    cat_raw = (category or "").strip().upper() if category else ""
+    if not cat_raw:
+        raise AppError("rework reason category is required", "VALIDATION_ERROR", 400)
+    try:
+        cat = ReworkReasonCategory(cat_raw)
+    except ValueError as exc:
+        raise AppError("Invalid rework reason category", "VALIDATION_ERROR", 400) from exc
+
+    note = (reason or "").strip() or None
+    if cat == ReworkReasonCategory.OTHER and not note:
+        raise AppError(
+            "note is required when category is Other",
+            "VALIDATION_ERROR",
+            400,
+        )
 
     job = operation.job_order
     max_seq = max((op.sequence_no for op in job.operations), default=0)
 
     try:
-        operation.rework_reason = str(reason).strip()
+        operation.rework_reason = note
+        operation.rework_reason_category = cat
         follow = JobOperation(
             job_order_id=job.id,
             sequence_no=max_seq + 1,
@@ -370,7 +438,8 @@ def create_rework_operation(operation, user_id, user_role, reason):
             estimated_hours=operation.estimated_hours,
             status=OperationStatus.PENDING,
             rework_of_operation_id=operation.id,
-            rework_reason=str(reason).strip(),
+            rework_reason=note,
+            rework_reason_category=cat,
         )
         db.session.add(follow)
         job.status = derive_job_status(job)
@@ -437,10 +506,18 @@ def open_machine_downtime(machine_unit_id, reported_by_id, reason, note=None, st
         raise
 
 
-def close_machine_downtime(downtime_id, ended_at=None, note=None):
+def close_machine_downtime(downtime_id, ended_at=None, note=None, *, actor_id, actor_role):
     row = MachineDowntime.query.get(downtime_id)
     if not row:
         raise AppError("Downtime record not found", "NOT_FOUND", 404)
+    if actor_role not in (UserRole.ADMIN.value, UserRole.OFFICE_STAFF.value) and (
+        row.reported_by_id != actor_id
+    ):
+        raise AppError(
+            "Only the Admin, Office Staff, or the worker who reported this breakdown can close it.",
+            "FORBIDDEN",
+            403,
+        )
     if row.ended_at is not None:
         return row
     ts = _parse_timestamp(ended_at)

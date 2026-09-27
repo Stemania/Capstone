@@ -116,6 +116,88 @@ def mark_material_received(job_id):
     return jsonify(updated.to_dict(include_operations=True, viewer_role=role))
 
 
+@job_orders_bp.route("/<job_id>/material-purchases", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def list_material_purchases(job_id):
+    from app.services import material_purchase_service as mp_service
+
+    jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
+    rows = mp_service.list_purchases_for_job(job_id)
+    return jsonify([r.to_dict() for r in rows])
+
+
+@job_orders_bp.route("/<job_id>/material-purchases", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def create_material_purchase(job_id):
+    from app.services import material_purchase_service as mp_service
+
+    role = get_current_user_role()
+    job = jo_service.get_job_order(job_id, get_current_user_id(), role)
+    data = request.get_json() or {}
+    purchase = mp_service.create_purchase(job, data)
+    return jsonify(purchase.to_dict()), 201
+
+
+@job_orders_bp.route("/<job_id>/material-purchases/<purchase_id>", methods=["PATCH"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def update_material_purchase(job_id, purchase_id):
+    from app.models.material_purchase import MaterialPurchase
+    from app.services import material_purchase_service as mp_service
+    from app.utils.errors import AppError
+
+    jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
+    purchase = MaterialPurchase.query.filter_by(
+        id=purchase_id, job_order_id=job_id
+    ).first()
+    if not purchase:
+        raise AppError("Purchase not found", "NOT_FOUND", 404)
+    data = request.get_json() or {}
+    updated = mp_service.update_purchase(purchase, data)
+    return jsonify(updated.to_dict())
+
+
+@job_orders_bp.route(
+    "/<job_id>/material-purchases/<purchase_id>/received", methods=["POST"]
+)
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def mark_purchase_received(job_id, purchase_id):
+    from app.models.material_purchase import MaterialPurchase
+    from app.services import material_purchase_service as mp_service
+    from app.utils.errors import AppError
+
+    jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
+    purchase = MaterialPurchase.query.filter_by(
+        id=purchase_id, job_order_id=job_id
+    ).first()
+    if not purchase:
+        raise AppError("Purchase not found", "NOT_FOUND", 404)
+    data = request.get_json() or {}
+    updated = mp_service.mark_purchase_received(purchase, data.get("receivedDate"))
+    return jsonify(updated.to_dict())
+
+
+@job_orders_bp.route("/<job_id>/material-purchases/<purchase_id>", methods=["DELETE"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def delete_material_purchase(job_id, purchase_id):
+    from app.models.material_purchase import MaterialPurchase
+    from app.services import material_purchase_service as mp_service
+    from app.utils.errors import AppError
+
+    jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
+    purchase = MaterialPurchase.query.filter_by(
+        id=purchase_id, job_order_id=job_id
+    ).first()
+    if not purchase:
+        raise AppError("Purchase not found", "NOT_FOUND", 404)
+    mp_service.delete_purchase(purchase)
+    return jsonify({"ok": True})
+
+
 @job_orders_bp.route("/<job_id>/deliver", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
@@ -124,6 +206,30 @@ def deliver_job_order(job_id):
     job = jo_service.get_job_order(job_id, get_current_user_id(), role)
     job = jo_service.mark_job_delivered(job)
     return jsonify(job.to_dict(include_operations=True, viewer_role=role))
+
+
+@job_orders_bp.route("/<job_id>/invoice", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def get_sales_invoice(job_id):
+    from app.utils.errors import AppError
+
+    job = jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
+    if job.sales_invoice is None:
+        raise AppError("No sales invoice has been issued for this job", "NOT_FOUND", 404)
+    return jsonify(job.sales_invoice.to_dict())
+
+
+@job_orders_bp.route("/<job_id>/invoice", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def issue_sales_invoice(job_id):
+    from app.services import sales_invoice_service as si_service
+
+    user_id = get_current_user_id()
+    job = jo_service.get_job_order(job_id, user_id, get_current_user_role())
+    invoice = si_service.issue_invoice(job, request.get_json() or {}, user_id)
+    return jsonify(invoice.to_dict()), 201
 
 
 @job_orders_bp.route("/<job_id>/operations", methods=["GET"])
