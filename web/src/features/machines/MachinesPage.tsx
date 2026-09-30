@@ -760,10 +760,21 @@ export default function MachinesPage() {
           >
             <Select
               placeholder="Why is it down?"
-              options={DOWNTIME_REASONS.map((r) => ({ value: r, label: r }))}
+              options={DOWNTIME_REASONS}
             />
           </Form.Item>
-          <Form.Item name="note" label="Note (optional)">
+          <Form.Item
+            name="note"
+            label="Note"
+            dependencies={['reason']}
+            rules={[
+              ({ getFieldValue }) => ({
+                required: getFieldValue('reason') === 'OTHER',
+                whitespace: true,
+                message: 'Describe the breakdown when the reason is Other',
+              }),
+            ]}
+          >
             <Input.TextArea rows={3} placeholder="Anything the shop should know" />
           </Form.Item>
         </Form>

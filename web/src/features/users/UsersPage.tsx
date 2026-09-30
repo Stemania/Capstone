@@ -10,6 +10,7 @@ import {
   MoreOutlined,
   StopOutlined,
   CheckCircleOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import { usersApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
@@ -39,6 +40,10 @@ export default function UsersPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [form] = Form.useForm();
+  const [editUser, setEditUser] = useState<User | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editForm] = Form.useForm();
+  const editRole = Form.useWatch('role', editForm) as UserRole | undefined;
   const isPhone = useIsPhone();
 
   const fetchUsers = async () => {
@@ -96,6 +101,45 @@ export default function UsersPage() {
       message.error(getErrorMessage(err));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const openEdit = (u: User) => {
+    setEditUser(u);
+    editForm.setFieldsValue({
+      fullName: u.fullName,
+      email: u.email,
+      mobileNumber: u.mobileNumber || '',
+      role: u.role,
+    });
+  };
+
+  const onEditSave = async (values: {
+    fullName: string;
+    email: string;
+    mobileNumber: string;
+    role: UserRole;
+  }) => {
+    if (!editUser) return;
+    setEditSaving(true);
+    try {
+      await usersApi.update(editUser.id, {
+        fullName: values.fullName.trim(),
+        email: values.email.trim(),
+        mobileNumber: values.mobileNumber.trim(),
+        role: values.role,
+      });
+      message.success(
+        values.role !== editUser.role
+          ? 'Details saved. Their device PINs were revoked, so the new role applies at their next sign-in.'
+          : 'Details saved'
+      );
+      setEditUser(null);
+      fetchUsers();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -182,7 +226,14 @@ export default function UsersPage() {
       width: 56,
       align: 'center',
       render: (_: unknown, record: User) => {
-        const items: MenuProps['items'] = [];
+        const items: MenuProps['items'] = [
+          {
+            key: 'edit',
+            icon: <EditOutlined />,
+            label: 'Edit details',
+            onClick: () => openEdit(record),
+          },
+        ];
         const status = record.status || (record.active ? 'ACTIVE' : 'DISABLED');
         if (status === 'INVITED') {
           items.push({
@@ -371,8 +422,14 @@ export default function UsersPage() {
                     </div>
                     <Dropdown
                       menu={{
-                        items:
-                          (u.status || (u.active ? 'ACTIVE' : 'DISABLED')) === 'DISABLED'
+                        items: [
+                          {
+                            key: 'edit',
+                            icon: <EditOutlined />,
+                            label: 'Edit details',
+                            onClick: () => openEdit(u),
+                          },
+                          ...((u.status || (u.active ? 'ACTIVE' : 'DISABLED')) === 'DISABLED'
                             ? [
                                 {
                                   key: 'reenable',
@@ -397,7 +454,8 @@ export default function UsersPage() {
                                   label: 'Disable',
                                   onClick: () => confirmDisable(u.id, u.fullName),
                                 },
-                              ],
+                              ]),
+                        ],
                       }}
                       trigger={['click']}
                       placement="bottomRight"
@@ -606,6 +664,61 @@ export default function UsersPage() {
             Create User
           </Button>
         </div>
+      </Modal>
+
+      <Modal
+        open={!!editUser}
+        title={editUser ? `Edit ${editUser.fullName}` : 'Edit user'}
+        onCancel={() => setEditUser(null)}
+        onOk={() => editForm.submit()}
+        okText="Save"
+        confirmLoading={editSaving}
+        forceRender
+      >
+        <Form
+          form={editForm}
+          layout="vertical"
+          onFinish={onEditSave}
+          requiredMark="optional"
+          style={{ marginTop: 12 }}
+        >
+          <Form.Item
+            name="fullName"
+            label="Full Name"
+            rules={[{ required: true, whitespace: true, message: 'Full name is required' }]}
+          >
+            <Input />
+          </Form.Item>
+          <Form.Item
+            name="email"
+            label="Email"
+            rules={[{ required: true, type: 'email', message: 'Valid email required' }]}
+          >
+            <Input />
+          </Form.Item>
+          <Form.Item
+            name="mobileNumber"
+            label="Mobile number"
+            rules={[{ required: true, whitespace: true, message: 'Mobile number is required' }]}
+          >
+            <Input placeholder="09XX XXX XXXX" />
+          </Form.Item>
+          <Form.Item name="role" label="Role" rules={[{ required: true }]} style={{ marginBottom: 8 }}>
+            <Select
+              options={[
+                { value: 'ADMIN', label: 'Administrator' },
+                { value: 'OFFICE_STAFF', label: 'Office Staff' },
+                { value: 'PRODUCTION_WORKER', label: 'Production Worker' },
+              ]}
+            />
+          </Form.Item>
+          {editUser && editRole && editRole !== editUser.role ? (
+            <div style={{ fontSize: 12, color: '#b45309' }}>
+              Changing the role revokes this user&apos;s device PINs. They must sign in with their
+              password next time, and the new role applies from then.
+            </div>
+          ) : null}
+        </Form>
       </Modal>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Button, Spin, message } from 'antd';
 import { PrinterOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -191,16 +191,26 @@ export default function JobOrderPrintPage() {
               </tr>
             ) : (
               ops.map((op: Operation) => (
-                <tr key={op.id || op.sequenceNo}>
-                  <td>{op.sequenceNo}</td>
-                  <td>{displayOrDash(op.operationName)}</td>
-                  <td>
-                    {displayOrDash(op.machineTypeName || op.machineTypeCode)}
-                  </td>
-                  <td>{displayOrDash(op.assignedWorkerName)}</td>
-                  <td>{op.estimatedHours != null ? op.estimatedHours : '—'}</td>
-                  <td>{fmtWindow(op.scheduledStart, op.scheduledEnd)}</td>
-                </tr>
+                <Fragment key={op.id || op.sequenceNo}>
+                  <tr>
+                    <td>{op.sequenceNo}</td>
+                    <td>{displayOrDash(op.operationName)}</td>
+                    <td>
+                      {displayOrDash(op.machineTypeName || op.machineTypeCode)}
+                    </td>
+                    <td>{displayOrDash(op.assignedWorkerName)}</td>
+                    <td>{op.estimatedHours != null ? op.estimatedHours : '—'}</td>
+                    <td>{fmtWindow(op.scheduledStart, op.scheduledEnd)}</td>
+                  </tr>
+                  {op.notes?.trim() ? (
+                    <tr>
+                      <td />
+                      <td colSpan={5} style={{ whiteSpace: 'pre-wrap' }}>
+                        <strong>Instructions:</strong> {op.notes}
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               ))
             )}
           </tbody>

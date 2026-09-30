@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from app.extensions import db
-from app.models.job_order import JobOrderStatus
+from app.models.job_order import JobOrder, JobOrderStatus
 from app.models.operation import JobOperation, OperationStatus
 from app.models.operation_time import (
     MachineDowntime,
@@ -150,7 +150,7 @@ def _assert_materials_arrived(job, user_role):
     is_worker = user_role == UserRole.PRODUCTION_WORKER.value
     outstanding = mp_service.outstanding_lines(job)
     if not outstanding:
-        if job.material_purchases:
+        if mp_service.placed_lines(job):
             return
         if is_worker:
             message = (
@@ -159,9 +159,9 @@ def _assert_materials_arrived(job, user_role):
             )
         else:
             message = (
-                f"No material purchase has been recorded for job {job.job_number} "
-                f"({job.title}). Record the purchase, or set material to "
-                "Not required if the shop already has it."
+                f"No material has been ordered for job {job.job_number} "
+                f"({job.title}). Order it on an issued supplier order, or set "
+                "material to Not required if the shop already has it."
             )
         raise AppError(message, "MATERIALS_NOT_ORDERED", 409)
     if is_worker:
@@ -464,8 +464,66 @@ def _assert_unit_not_down(machine_unit_id):
         )
 
 
-def open_machine_downtime(machine_unit_id, reported_by_id, reason, note=None, started_at=None):
+def _parse_downtime_category(raw):
+    """Accept the enum value or its label (older clients send the label as reason)."""
+    from app.models.operation_time import DOWNTIME_CATEGORY_LABELS, DowntimeCategory
+
+    text = str(raw or "").strip()
+    if not text:
+        raise AppError("breakdown category is required", "VALIDATION_ERROR", 400)
+    key = text.upper().replace(" ", "_")
+    try:
+        return DowntimeCategory(key)
+    except ValueError:
+        pass
+    for cat, label in DOWNTIME_CATEGORY_LABELS.items():
+        if label.lower() == text.lower():
+            return cat
+    raise AppError("Invalid breakdown category", "VALIDATION_ERROR", 400)
+
+
+def _resolve_downtime_link(unit_id, operation_id, job_order_id, reporter_id, reporter_role):
+    if not operation_id:
+        if job_order_id and not db.session.get(JobOrder, job_order_id):
+            raise AppError("Job order not found", "NOT_FOUND", 404)
+        return None, job_order_id or None
+    op = db.session.get(JobOperation, operation_id)
+    if not op:
+        raise AppError("Operation not found", "NOT_FOUND", 404)
+    if op.machine_unit_id != unit_id:
+        raise AppError(
+            "That operation does not run on this machine.",
+            "VALIDATION_ERROR",
+            400,
+        )
+    if job_order_id and job_order_id != op.job_order_id:
+        raise AppError(
+            "jobOrderId does not match the operation's job order.",
+            "VALIDATION_ERROR",
+            400,
+        )
+    if reporter_role == UserRole.PRODUCTION_WORKER.value and op.assigned_worker_id != reporter_id:
+        raise AppError(
+            "You can only report a breakdown from an operation assigned to you.",
+            "FORBIDDEN",
+            403,
+        )
+    return op.id, op.job_order_id
+
+
+def open_machine_downtime(
+    machine_unit_id,
+    reported_by_id,
+    category,
+    note=None,
+    started_at=None,
+    *,
+    operation_id=None,
+    job_order_id=None,
+    reporter_role=None,
+):
     from app.models.machine import MachineUnit
+    from app.models.operation_time import DOWNTIME_CATEGORY_LABELS, DowntimeCategory
 
     unit = MachineUnit.query.get(machine_unit_id)
     if not unit:
@@ -476,8 +534,17 @@ def open_machine_downtime(machine_unit_id, reported_by_id, reason, note=None, st
             "CONFLICT",
             409,
         )
-    if not reason or not str(reason).strip():
-        raise AppError("reason is required", "VALIDATION_ERROR", 400)
+    cat = _parse_downtime_category(category)
+    note = (str(note).strip() if note else "") or None
+    if cat == DowntimeCategory.OTHER and not note:
+        raise AppError(
+            "note is required when category is Other",
+            "VALIDATION_ERROR",
+            400,
+        )
+    linked_op_id, linked_job_id = _resolve_downtime_link(
+        machine_unit_id, operation_id, job_order_id, reported_by_id, reporter_role
+    )
 
     existing = MachineDowntime.query.filter_by(
         machine_unit_id=machine_unit_id, ended_at=None
@@ -494,8 +561,11 @@ def open_machine_downtime(machine_unit_id, reported_by_id, reason, note=None, st
         row = MachineDowntime(
             machine_unit_id=machine_unit_id,
             started_at=ts,
-            reason=str(reason).strip(),
+            category=cat,
+            reason=DOWNTIME_CATEGORY_LABELS[cat],
             reported_by_id=reported_by_id,
+            job_order_id=linked_job_id,
+            operation_id=linked_op_id,
             note=note,
         )
         db.session.add(row)

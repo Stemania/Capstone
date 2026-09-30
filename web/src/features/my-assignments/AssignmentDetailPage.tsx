@@ -8,7 +8,7 @@ import { operationsApi } from '../../api/operations.api';
 import { getErrorCode, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
-import { DOWNTIME_REASONS } from '../../constants/downtimeReasons';
+import { DOWNTIME_REASONS, type DowntimeCategory } from '../../constants/downtimeReasons';
 import { SHOP_TZ } from '../../utils/shopTime';
 import type { JobOrder, Operation, OperationPauseReason, PartCondition } from '../../types';
 
@@ -154,14 +154,19 @@ export default function AssignmentDetailPage() {
     }
   };
 
-  const confirmBreakdown = async (reason: string) => {
+  const confirmBreakdown = async (category: DowntimeCategory) => {
     if (!reportForOp?.machineUnitId) return;
+    if (category === 'OTHER' && !reportNote.trim()) {
+      message.warning('Add a note describing the breakdown when choosing Other');
+      return;
+    }
     setActionLoading(reportForOp.id);
     try {
       await operationsApi.openDowntime(
         reportForOp.machineUnitId,
-        reason,
-        reportNote.trim() || undefined
+        category,
+        reportNote.trim() || undefined,
+        { operationId: reportForOp.id }
       );
       message.success('Breakdown reported');
       setReportForOp(null);
@@ -533,6 +538,45 @@ export default function AssignmentDetailPage() {
                     )}
                   </div>
 
+                  {op.notes?.trim() ? (
+                    <div
+                      style={{
+                        marginBottom: 12,
+                        padding: '10px 12px',
+                        borderRadius: 10,
+                        background: 'rgba(217,119,6,0.08)',
+                        border: `1px solid rgba(217,119,6,0.35)`,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          fontSize: 11,
+                          fontWeight: 800,
+                          letterSpacing: 0.6,
+                          textTransform: 'uppercase',
+                          color: colors.amber,
+                          marginBottom: 4,
+                        }}
+                      >
+                        <FileTextOutlined />
+                        Instructions
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: colors.text,
+                          lineHeight: 1.5,
+                          whiteSpace: 'pre-wrap',
+                        }}
+                      >
+                        {op.notes}
+                      </div>
+                    </div>
+                  ) : null}
+
                   {canStart && (
                     <Button
                       type="primary"
@@ -713,7 +757,7 @@ export default function AssignmentDetailPage() {
               <textarea
                 value={reportNote}
                 onChange={(e) => setReportNote(e.target.value)}
-                placeholder="Optional note"
+                placeholder="Note (required for Other)"
                 rows={2}
                 style={{
                   width: '100%',
@@ -732,14 +776,14 @@ export default function AssignmentDetailPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {DOWNTIME_REASONS.map((r) => (
                   <Button
-                    key={r}
+                    key={r.value}
                     block
                     size="large"
                     loading={actionLoading === reportForOp.id}
-                    onClick={() => confirmBreakdown(r)}
+                    onClick={() => confirmBreakdown(r.value)}
                     style={{ height: 44, fontWeight: 700, textAlign: 'left' }}
                   >
-                    {r}
+                    {r.label}
                   </Button>
                 ))}
                 <Button block size="large" onClick={() => setReportForOp(null)} style={{ height: 44 }}>

@@ -51,6 +51,7 @@ from app.models.machine import MachineType, MachineUnit
 from app.models.material_purchase import MaterialPurchase
 from app.models.operation import JobOperation, OperationStatus
 from app.models.operation_time import (
+    DowntimeCategory,
     MachineDowntime,
     OperationPauseReason,
     OperationTimeEvent,
@@ -184,11 +185,11 @@ REWORK_REASONS = [
 ]
 
 DOWNTIME_REASONS = [
-    "Spindle bearing noise",
-    "Coolant pump failure",
-    "Toolchanger jam",
-    "Preventive maintenance",
-    "Power trip — waiting electrician",
+    ("Spindle bearing noise", DowntimeCategory.MECHANICAL_FAILURE),
+    ("Coolant pump failure", DowntimeCategory.MECHANICAL_FAILURE),
+    ("Toolchanger jam", DowntimeCategory.MECHANICAL_FAILURE),
+    ("Preventive maintenance", DowntimeCategory.SCHEDULED_MAINTENANCE),
+    ("Power trip — waiting electrician", DowntimeCategory.ELECTRICAL_FAULT),
 ]
 
 # Fabrication purchase lines. Names stay fixed so purchasing analytics group them.
@@ -1294,12 +1295,14 @@ def seed_history():
             d = rng.choice(workdays)
             start = shop_local_to_utc(d, time(rng.choice([9, 10, 13]), 0))
             ended = start + timedelta(hours=rng.choice([2, 3, 4, 6]))
+            reason, category = rng.choice(DOWNTIME_REASONS)
             db.session.add(
                 MachineDowntime(
                     machine_unit_id=unit.id,
                     started_at=start,
                     ended_at=ended,
-                    reason=rng.choice(DOWNTIME_REASONS),
+                    category=category,
+                    reason=reason,
                     reported_by_id=creator.id,
                     note=f"{TAG} closed downtime #{i + 1}",
                 )
@@ -1317,12 +1320,14 @@ def seed_history():
             if existing_open:
                 continue
             start = shop_local_to_utc(today - timedelta(days=rng.randint(0, 2)), time(8, 30))
+            reason, category = rng.choice(DOWNTIME_REASONS)
             db.session.add(
                 MachineDowntime(
                     machine_unit_id=unit.id,
                     started_at=start,
                     ended_at=None,
-                    reason=rng.choice(DOWNTIME_REASONS),
+                    category=category,
+                    reason=reason,
                     reported_by_id=creator.id,
                     note=f"{TAG} open downtime",
                 )

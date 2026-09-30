@@ -293,6 +293,8 @@ def test_no_notification_on_draft_or_planning_job_received_on_release(
                     "operationName": "Turning",
                     "assignedWorkerId": seeded["worker_id"],
                     "estimatedHours": 3,
+                    "scheduledStart": "2031-03-10T01:00:00+00:00",
+                    "scheduledEnd": "2031-03-10T04:00:00+00:00",
                 }
             ]
         },
@@ -302,6 +304,8 @@ def test_no_notification_on_draft_or_planning_job_received_on_release(
     assert plan.get_json()["status"] == "DRAFT"
     assert sent == []
 
+    # commit is patched to flush, so drop the cached pre-replacement operations.
+    db.session.expire_all()
     release = client.post(f"/api/v1/job-orders/{job_id}/release", headers=admin_headers)
     assert release.status_code == 200, release.get_json()
     assert release.get_json()["status"] == "SCHEDULED"

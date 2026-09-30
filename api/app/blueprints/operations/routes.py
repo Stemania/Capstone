@@ -191,9 +191,12 @@ def open_downtime(unit_id):
     row = op_service.open_machine_downtime(
         unit_id,
         reported_by_id=get_current_user_id(),
-        reason=data.get("reason"),
+        category=data.get("category") or data.get("reason"),
         note=data.get("note"),
         started_at=data.get("startedAt") or data.get("started_at"),
+        operation_id=data.get("operationId"),
+        job_order_id=data.get("jobOrderId"),
+        reporter_role=get_current_user_role(),
     )
     payload = row.to_dict()
     affected = op_service.list_affected_operations(unit_id)

@@ -7,6 +7,7 @@ import type {
   OperationPauseReason,
   ReworkReasonCategory,
 } from '../types';
+import type { DowntimeCategory } from '../constants/downtimeReasons';
 
 export const operationsApi = {
   mine: () => apiClient.get<Operation[]>('/operations/mine'),
@@ -43,10 +44,16 @@ export const operationsApi = {
     apiClient.patch<MachineUnitInfo>(`/operations/machine-units/${unitId}`, {
       defaultOperatorId,
     }),
-  openDowntime: (unitId: string, reason: string, note?: string) =>
+  openDowntime: (
+    unitId: string,
+    category: DowntimeCategory,
+    note?: string,
+    link?: { operationId?: string; jobOrderId?: string }
+  ) =>
     apiClient.post<MachineDowntimeRecord>(`/operations/machine-units/${unitId}/downtime`, {
-      reason,
+      category,
       note,
+      ...link,
     }),
   closeDowntime: (downtimeId: string, note?: string) =>
     apiClient.post<MachineDowntimeRecord>(`/operations/machine-units/downtime/${downtimeId}/close`, {

@@ -17,6 +17,7 @@ from app.models.job_order import JobOrder, JobOrderStatus
 from app.models.machine import MachineUnit
 from app.models.operation import JobOperation, OperationStatus
 from app.models.operation_time import (
+    DowntimeCategory,
     MachineDowntime,
     OperationPauseReason,
     OperationTimeEvent,
@@ -253,6 +254,7 @@ def _open_downtime(reporter):
     row = MachineDowntime(
         machine_unit_id=unit.id,
         started_at=T0,
+        category=DowntimeCategory.MECHANICAL_FAILURE,
         reason="Mechanical failure",
         reported_by_id=reporter.id,
     )

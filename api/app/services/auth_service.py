@@ -63,6 +63,20 @@ def create_user(data):
 
 
 def update_user(user, data):
+    role_changed = "role" in data and data["role"] != user.role
+    if role_changed and user.role == UserRole.ADMIN:
+        other_admins = User.query.filter(
+            User.role == UserRole.ADMIN,
+            User.status != UserStatus.DISABLED,
+            User.id != user.id,
+        ).count()
+        if other_admins == 0:
+            raise AppError(
+                "This is the last Admin. Make another user an Admin before changing this role.",
+                "LAST_ADMIN",
+                409,
+            )
+
     if "email" in data and data["email"] != user.email:
         if User.query.filter_by(email=data["email"].strip().lower()).first():
             raise AppError("Email already exists", "CONFLICT", 409)
@@ -78,7 +92,7 @@ def update_user(user, data):
 
     if "fullName" in data:
         user.full_name = data["fullName"]
-    if "role" in data:
+    if role_changed:
         user.role = data["role"]
 
     if "status" in data:
@@ -117,6 +131,8 @@ def update_user(user, data):
         ensure_worker_profile(user)
 
     db.session.commit()
+    if role_changed:
+        revoke_all_devices_for_user(user.id)
     return user
 
 
