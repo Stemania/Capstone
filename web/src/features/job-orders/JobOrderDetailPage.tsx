@@ -32,7 +32,6 @@ import {
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
-import { suppliersApi } from '../../api/suppliers.api';
 import { operationsApi } from '../../api/operations.api';
 import { notificationsApi } from '../../api/notifications.api';
 import { getErrorMessage } from '../../api/client';
@@ -42,18 +41,19 @@ import type {
   JobOrder,
   JobOrderStatus,
   JobPriority,
+  MachineDowntimeRecord,
   MaterialPurchase,
   NotificationLog,
   Operation,
   OperationPauseReason,
   OperationStatus,
   ReworkReasonCategory,
-  Supplier,
 } from '../../types';
 import { formatDifferenceFromTarget } from '../analytics/analyticsPeriod';
 import { WorkerPageHeader } from '../../layouts/WorkerLayout';
 import { jobOrdersListPath } from './jobOrderListPaths';
 import JobScheduleColorPicker from './JobScheduleColorPicker';
+import OrderMaterialsModal from '../supplier-orders/OrderMaterialsModal';
 
 const { Title, Text } = Typography;
 
@@ -194,10 +194,25 @@ function fmtVariance(hours?: number | null, pct?: number | null) {
 
 const VAT_RATE_PCT = 12;
 
+const PLANNED_STATUS_PILL: Record<string, { label: string; color: PillColor }> = {
+  TO_ORDER: { label: 'To order', color: 'red' },
+  PARTLY_ORDERED: { label: 'To order', color: 'amber' },
+  ON_DRAFT_ORDER: { label: 'On draft PO', color: 'gray' },
+  PURCHASED: { label: 'Purchased', color: 'green' },
+};
+
+function fmtQty(n: number | null | undefined, unit?: string | null) {
+  if (n == null) return '—';
+  const q = Number(n).toLocaleString(undefined, { maximumFractionDigits: 4 });
+  return unit ? `${q} ${unit}` : q;
+}
+
 const PURCHASE_STATUS_PILL: Record<string, { label: string; color: PillColor }> = {
+  DRAFT: { label: 'On draft PO', color: 'gray' },
   ORDERED: { label: 'Ordered', color: 'amber' },
   RECEIVED: { label: 'Received', color: 'green' },
   CONSUMED: { label: 'Consumed', color: 'gray' },
+  CANCELLED: { label: 'Cancelled', color: 'red' },
 };
 
 function fmtMoney(n?: number | null) {
@@ -239,16 +254,13 @@ export default function JobOrderDetailPage() {
   const [notifications, setNotifications] = useState<NotificationLog[] | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [breakdowns, setBreakdowns] = useState<MachineDowntimeRecord[]>([]);
   const [purchaseOpen, setPurchaseOpen] = useState(false);
-  const [purchaseSaving, setPurchaseSaving] = useState(false);
-  const [purchaseForm] = Form.useForm();
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [invoiceSaving, setInvoiceSaving] = useState(false);
   const [invoiceForm] = Form.useForm();
   const invoiceSubtotal = Form.useWatch('subtotal', invoiceForm) as number | null | undefined;
   const invoiceApplyVat = Form.useWatch('applyVat', invoiceForm) as boolean | undefined;
-
   const fetchJob = useCallback(async () => {
     if (!id) return;
     const { data } = await jobOrdersApi.get(id);
@@ -275,10 +287,10 @@ export default function JobOrderDetailPage() {
         if (canManage) {
           await fetchPurchases();
           try {
-            const { data } = await suppliersApi.list({ activeOnly: true });
-            if (!cancelled) setSuppliers(data);
+            const { data } = await jobOrdersApi.listBreakdowns(id);
+            if (!cancelled) setBreakdowns(data);
           } catch {
-            /* ignore */
+            if (!cancelled) setBreakdowns([]);
           }
         }
       } catch (err) {
@@ -297,9 +309,13 @@ export default function JobOrderDetailPage() {
     [job]
   );
   const jobStarted = ops.some((o) => !!o.actualStart);
-  const outstandingLines = useMemo(
-    () => purchases.filter((p) => !p.dateReceived),
+  const placedLines = useMemo(
+    () => purchases.filter((p) => p.status !== 'DRAFT' && p.status !== 'CANCELLED'),
     [purchases]
+  );
+  const outstandingLines = useMemo(
+    () => placedLines.filter((p) => !p.dateReceived),
+    [placedLines]
   );
 
   useEffect(() => {
@@ -464,39 +480,6 @@ export default function JobOrderDetailPage() {
       okText: 'Mark received',
       onOk: () => handleMarkMaterialReceived(receivedDate.format('YYYY-MM-DD')),
     });
-  };
-
-  const onCreatePurchase = async (values: {
-    materialName: string;
-    gradeOrSpec?: string;
-    quantity: number;
-    unit: string;
-    unitCost: number;
-    supplierId: string;
-    dateOrdered: Dayjs;
-  }) => {
-    if (!job) return;
-    try {
-      setPurchaseSaving(true);
-      await jobOrdersApi.createMaterialPurchase(job.id, {
-        materialName: values.materialName,
-        gradeOrSpec: values.gradeOrSpec,
-        quantity: values.quantity,
-        unit: values.unit,
-        unitCost: values.unitCost,
-        supplierId: values.supplierId,
-        dateOrdered: values.dateOrdered.format('YYYY-MM-DD'),
-      });
-      message.success('Purchase recorded');
-      setPurchaseOpen(false);
-      purchaseForm.resetFields();
-      await fetchPurchases();
-      await fetchJob();
-    } catch (err) {
-      message.error(getErrorMessage(err));
-    } finally {
-      setPurchaseSaving(false);
-    }
   };
 
   const markLineReceived = (p: MaterialPurchase) => {
@@ -735,7 +718,7 @@ export default function JobOrderDetailPage() {
               type="primary"
               onClick={() => navigate(`/job-orders/${job.id}/plan`)}
             >
-              Plan Operations
+              Plan
             </Button>
           )}
           {canManage && (
@@ -762,7 +745,7 @@ export default function JobOrderDetailPage() {
                 icon={<EditOutlined />}
                 onClick={() => navigate(`/job-orders/${job.id}/edit?step=1`)}
               >
-                {isDraft ? 'Edit PO' : 'Edit'}
+                {isDraft ? 'Edit details' : 'Edit'}
               </Button>
             </>
           )}
@@ -776,11 +759,17 @@ export default function JobOrderDetailPage() {
             job.materialStatus &&
             job.materialStatus !== 'NOT_REQUIRED' &&
             job.materialStatus !== 'RECEIVED' && (
-              <Tooltip title={purchases.length === 0 ? 'Record the purchase first.' : undefined}>
+              <Tooltip
+                title={
+                  placedLines.length === 0
+                    ? 'Nothing has been ordered yet. Material on a draft supplier order counts once the order is issued.'
+                    : undefined
+                }
+              >
                 <Button
                   icon={<CheckOutlined />}
                   loading={markingMaterial}
-                  disabled={purchases.length === 0}
+                  disabled={placedLines.length === 0}
                   onClick={openMaterialReceived}
                 >
                   Material received
@@ -910,9 +899,9 @@ export default function JobOrderDetailPage() {
                     : job.materialStatus === 'RECEIVED'
                       ? `Received ${fmtDate(job.materialReceivedDate)}`
                       : job.materialStatus === 'ORDERED'
-                        ? `Ordered · expected ${fmtDate(job.materialExpectedDate)}`
+                        ? `Ordered · expected ${fmtDate(job.materialReadiness?.expectedDate ?? job.materialExpectedDate)}`
                         : job.materialStatus === 'TO_ORDER'
-                          ? `To order · expected ${fmtDate(job.materialExpectedDate)}`
+                          ? `To order · expected ${fmtDate(job.materialReadiness?.expectedDate ?? job.materialExpectedDate)}`
                           : '—'
                 }
               />
@@ -943,6 +932,49 @@ export default function JobOrderDetailPage() {
             </div>
             {!job.rawMaterials?.length ? (
               <Text type="secondary">—</Text>
+            ) : job.plannedMaterials?.length ? (
+              <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ color: MUTED, fontSize: 11, textAlign: 'left' }}>
+                    <th style={{ fontWeight: 600, paddingBottom: 6 }}>Material</th>
+                    <th style={{ fontWeight: 600, paddingBottom: 6, textAlign: 'right' }}>Planned</th>
+                    <th style={{ fontWeight: 600, paddingBottom: 6, textAlign: 'right' }}>Purchased</th>
+                    <th style={{ fontWeight: 600, paddingBottom: 6, textAlign: 'right' }}>Still to order</th>
+                    <th style={{ paddingBottom: 6 }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {job.plannedMaterials.map((m) => {
+                    const pill = PLANNED_STATUS_PILL[m.status];
+                    return (
+                      <tr key={m.id} style={{ borderTop: `1px solid ${BORDER}` }}>
+                        <td style={{ padding: '6px 0', color: NAVY, fontWeight: 600 }}>{m.name}</td>
+                        <td style={{ textAlign: 'right', color: MUTED }}>
+                          {fmtQty(m.plannedQuantity, m.unit)}
+                        </td>
+                        <td style={{ textAlign: 'right', color: MUTED }}>
+                          {fmtQty(m.purchasedQuantity, m.unit)}
+                          {m.draftQuantity > 0 ? (
+                            <div style={{ fontSize: 11 }}>
+                              + {fmtQty(m.draftQuantity, m.unit)} on draft PO
+                            </div>
+                          ) : null}
+                        </td>
+                        <td style={{ textAlign: 'right', color: MUTED }}>
+                          {fmtQty(m.remainingQuantity, m.unit)}
+                        </td>
+                        <td style={{ textAlign: 'right', paddingLeft: 8 }}>
+                          {job.materialStatus !== 'NOT_REQUIRED' && pill ? (
+                            <StatusPill color={pill.color} compact>
+                              {pill.label}
+                            </StatusPill>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             ) : (
               job.rawMaterials.map((m, i) => (
                 <div
@@ -983,7 +1015,7 @@ export default function JobOrderDetailPage() {
 
       {canManage &&
       job.materialStatus !== 'NOT_REQUIRED' &&
-      purchases.length === 0 &&
+      placedLines.length === 0 &&
       !jobStarted ? (
         <Alert
           type="warning"
@@ -991,9 +1023,12 @@ export default function JobOrderDetailPage() {
           style={{ marginBottom: 16 }}
           message="The first operation cannot start: no materials have been ordered"
           description={
-            isAdmin
-              ? 'No purchase has been recorded for this job. Record the purchase below, or if the shop already has the material, set material to Not required.'
-              : 'No purchase has been recorded for this job. Record the purchase below. If the shop already has the material, ask the Admin to set it to Not required.'
+            (purchases.some((p) => p.status === 'DRAFT')
+              ? 'This job\u2019s materials are on a draft supplier order that has not been issued yet. '
+              : 'Nothing has been ordered for this job. Use Order materials below. ') +
+            (isAdmin
+              ? 'If the shop already has the material, set material to Not required.'
+              : 'If the shop already has the material, ask the Admin to set it to Not required.')
           }
           action={
             isAdmin ? (
@@ -1022,23 +1057,12 @@ export default function JobOrderDetailPage() {
                 Material purchases
               </div>
               <div style={{ fontSize: 12, color: MUTED }}>
-                What was actually bought. Planned requirements stay under Raw Materials.
+                Lines on supplier orders for this job. Planned requirements stay under Raw
+                Materials.
               </div>
             </div>
-            <Button
-              type="primary"
-              onClick={() => {
-                purchaseForm.setFieldsValue({
-                  dateOrdered: dayjs(),
-                  unit: 'pcs',
-                  quantity: 1,
-                  unitCost: 0,
-                  supplierId: job.supplierId || undefined,
-                });
-                setPurchaseOpen(true);
-              }}
-            >
-              Record purchase
+            <Button type="primary" onClick={() => setPurchaseOpen(true)}>
+              Order materials
             </Button>
           </div>
           <Table
@@ -1046,9 +1070,20 @@ export default function JobOrderDetailPage() {
             rowKey="id"
             pagination={false}
             dataSource={purchases}
-            locale={{ emptyText: 'No purchases recorded yet.' }}
+            locale={{ emptyText: 'No materials ordered yet.' }}
             columns={[
-              { title: 'Material', dataIndex: 'materialName' },
+              {
+                title: 'Material',
+                dataIndex: 'materialName',
+                render: (v: string, r: MaterialPurchase) => (
+                  <>
+                    {v}
+                    {!r.plannedMaterialId && job.rawMaterials?.length ? (
+                      <div style={{ fontSize: 11, color: MUTED }}>Other material</div>
+                    ) : null}
+                  </>
+                ),
+              },
               {
                 title: 'Grade / spec',
                 dataIndex: 'gradeOrSpec',
@@ -1075,10 +1110,23 @@ export default function JobOrderDetailPage() {
                 width: 120,
               },
               {
+                title: 'Supplier order',
+                key: 'po',
+                width: 150,
+                render: (_: unknown, r: MaterialPurchase) =>
+                  r.supplierOrderId ? (
+                    <a onClick={() => navigate(`/supplier-orders/${r.supplierOrderId}`)}>
+                      {r.poNumber || 'Draft (not issued)'}
+                    </a>
+                  ) : (
+                    <span style={{ fontSize: 12, color: MUTED }}>Recorded without a PO</span>
+                  ),
+              },
+              {
                 title: 'Ordered',
                 dataIndex: 'dateOrdered',
                 width: 110,
-                render: (v: string) => fmtDate(v),
+                render: (v: string | null) => (v ? fmtDate(v) : '—'),
               },
               {
                 title: 'Received',
@@ -1106,11 +1154,68 @@ export default function JobOrderDetailPage() {
                 key: 'act',
                 width: 110,
                 render: (_: unknown, r: MaterialPurchase) =>
-                  r.dateReceived ? null : (
+                  r.dateReceived || r.status === 'DRAFT' || r.status === 'CANCELLED' ? null : (
                     <Button size="small" onClick={() => markLineReceived(r)}>
                       Received
                     </Button>
                   ),
+              },
+            ]}
+          />
+        </div>
+      ) : null}
+
+      {canManage ? (
+        <div style={{ ...cardStyle(), marginBottom: 16 }}>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontWeight: 800, fontSize: 14, color: NAVY }}>Machine breakdowns</div>
+            <div style={{ fontSize: 12, color: MUTED }}>
+              Breakdowns reported while working on this job&apos;s operations.
+            </div>
+          </div>
+          <Table
+            size="small"
+            rowKey="id"
+            pagination={false}
+            dataSource={breakdowns}
+            locale={{ emptyText: 'No breakdowns linked to this job.' }}
+            columns={[
+              { title: 'Machine', dataIndex: 'machineUnitLabel', width: 120 },
+              {
+                title: 'Operation',
+                dataIndex: 'operationName',
+                render: (v: string | null) => v || '—',
+              },
+              { title: 'Category', dataIndex: 'reason', width: 170 },
+              {
+                title: 'Started',
+                dataIndex: 'startedAt',
+                width: 170,
+                render: (v: string) => fmtDateTime(v),
+              },
+              {
+                title: 'Ended',
+                dataIndex: 'endedAt',
+                width: 170,
+                render: (v: string | null) =>
+                  v ? (
+                    fmtDateTime(v)
+                  ) : (
+                    <StatusPill color="red" compact>
+                      Still down
+                    </StatusPill>
+                  ),
+              },
+              {
+                title: 'Reported by',
+                dataIndex: 'reportedByName',
+                width: 140,
+                render: (v: string | null) => v || '—',
+              },
+              {
+                title: 'Note',
+                dataIndex: 'note',
+                render: (v: string | null) => v || '—',
               },
             ]}
           />
@@ -1163,71 +1268,26 @@ export default function JobOrderDetailPage() {
         </Form>
       </Modal>
 
-      <Modal
+      <OrderMaterialsModal
         open={purchaseOpen}
-        onCancel={() => setPurchaseOpen(false)}
-        footer={null}
-        title="Record material purchase"
-        destroyOnHidden
-      >
-        <Form form={purchaseForm} layout="vertical" onFinish={onCreatePurchase}>
-          <Form.Item
-            name="materialName"
-            label="Material name"
-            rules={[{ required: true }]}
-          >
-            <Input />
-          </Form.Item>
-          <Form.Item name="gradeOrSpec" label="Grade / specification">
-            <Input />
-          </Form.Item>
-          <Space style={{ width: '100%' }} styles={{ item: { flex: 1 } }}>
-            <Form.Item
-              name="quantity"
-              label="Quantity"
-              rules={[{ required: true }]}
-              style={{ flex: 1 }}
-            >
-              <InputNumber min={0.0001} style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="unit" label="Unit" rules={[{ required: true }]} style={{ flex: 1 }}>
-              <Input placeholder="pcs, kg, …" />
-            </Form.Item>
-            <Form.Item
-              name="unitCost"
-              label="Unit cost"
-              rules={[{ required: true }]}
-              style={{ flex: 1 }}
-            >
-              <InputNumber min={0} style={{ width: '100%' }} />
-            </Form.Item>
-          </Space>
-          <Form.Item
-            name="supplierId"
-            label="Supplier"
-            rules={[{ required: true, message: 'Supplier is required' }]}
-          >
-            <Select
-              showSearch
-              optionFilterProp="label"
-              options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
-            />
-          </Form.Item>
-          <Form.Item
-            name="dateOrdered"
-            label="Date ordered"
-            rules={[{ required: true }]}
-          >
-            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
-          </Form.Item>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <Button onClick={() => setPurchaseOpen(false)}>Cancel</Button>
-            <Button type="primary" htmlType="submit" loading={purchaseSaving}>
-              Save
-            </Button>
-          </div>
-        </Form>
-      </Modal>
+        onClose={() => setPurchaseOpen(false)}
+        jobId={job.id}
+        defaultSupplierId={job.supplierId}
+        onSaved={async (order) => {
+          setPurchaseOpen(false);
+          await fetchPurchases();
+          await fetchJob();
+          Modal.info({
+            title: 'Added to the draft supplier order',
+            content: `The lines are on the ${order.supplierName} draft order (${order.lineCount} line${
+              order.lineCount === 1 ? '' : 's'
+            }, ${order.jobCount} job${order.jobCount === 1 ? '' : 's'}). The material counts as ordered once the Admin issues it.`,
+            okText: 'Open supplier order',
+            onOk: () => navigate(`/supplier-orders/${order.id}`),
+            closable: true,
+          });
+        }}
+      />
 
       <div style={{ fontWeight: 800, fontSize: 15, color: NAVY, marginBottom: 12 }}>
         Operations
@@ -1241,6 +1301,7 @@ export default function JobOrderDetailPage() {
           const opSt = OP_STATUS[op.status] || OP_STATUS.PENDING;
           const isMine = op.assignedWorkerId === user?.id;
           const canStart =
+            !isDraft &&
             isMine &&
             (op.status === 'PENDING' || op.status === 'SCHEDULED' || op.status === 'REWORK') &&
             ops.slice(0, index).every((o) => o.status === 'COMPLETED');
@@ -1411,7 +1472,7 @@ export default function JobOrderDetailPage() {
                   ]}
                 />
 
-                {isMine && (canStart || active) && (
+                {!isDraft && isMine && (canStart || active) && (
                   <Space wrap style={{ marginTop: 10 }}>
                     {canStart && (
                       <Button
@@ -1455,7 +1516,7 @@ export default function JobOrderDetailPage() {
                   </Space>
                 )}
 
-                {canManage && op.status === 'COMPLETED' && (
+                {canManage && !isDraft && op.status === 'COMPLETED' && (
                   <Button
                     size="small"
                     style={{ marginTop: 8 }}

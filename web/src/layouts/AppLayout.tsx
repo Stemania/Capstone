@@ -17,6 +17,7 @@ import {
   MenuUnfoldOutlined,
   FieldTimeOutlined,
   ShopOutlined,
+  ShoppingCartOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -39,6 +40,10 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/suppliers': {
     title: 'Suppliers',
     subtitle: 'Raw material suppliers, lead times, and contacts',
+  },
+  '/supplier-orders': {
+    title: 'Supplier Orders',
+    subtitle: 'Purchase orders grouping materials for several job orders',
   },
   '/schedule': {
     title: 'Schedule',
@@ -131,6 +136,7 @@ export default function AppLayout() {
       { key: '/work-calendar', icon: <FieldTimeOutlined />, label: 'Work calendar' },
       { key: '/clients', icon: <ContactsOutlined />, label: 'Clients' },
       { key: '/suppliers', icon: <ShopOutlined />, label: 'Suppliers' },
+      { key: '/supplier-orders', icon: <ShoppingCartOutlined />, label: 'Supplier Orders' },
       { key: '/reports', icon: <FileSearchOutlined />, label: 'Reports' },
       { key: '/analytics', icon: <BarChartOutlined />, label: 'Analytics' },
       { key: '/tools', icon: <ToolOutlined />, label: 'Inventory' },
@@ -150,7 +156,9 @@ export default function AppLayout() {
       ? { title: 'Job Order', subtitle: 'View details, time taken, and notifications' }
       : /^\/clients\/[^/]+$/.test(location.pathname)
         ? { title: 'Client', subtitle: 'Details and job history' }
-        : pageMeta[selectedKey] || { title: '', subtitle: '' };
+        : /^\/supplier-orders\/[^/]+$/.test(location.pathname)
+          ? { title: 'Supplier Order', subtitle: 'Lines, issuing, receiving, and the printed PO' }
+          : pageMeta[selectedKey] || { title: '', subtitle: '' };
 
   const handleLogout = () => {
     confirmLogout(() => {

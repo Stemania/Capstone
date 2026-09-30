@@ -3,6 +3,7 @@ import type {
   Client,
   ClientDetail,
   JobOrder,
+  MachineDowntimeRecord,
   MachineInfo,
   MachineUnitInfo,
   MaterialPurchase,
@@ -72,6 +73,8 @@ export const jobOrdersApi = {
     apiClient.post<JobOrder>(`/job-orders/${id}/material-received`, {
       receivedDate,
     }),
+  listBreakdowns: (jobId: string) =>
+    apiClient.get<MachineDowntimeRecord[]>(`/job-orders/${jobId}/breakdowns`),
   listMaterialPurchases: (jobId: string) =>
     apiClient.get<MaterialPurchase[]>(`/job-orders/${jobId}/material-purchases`),
   createMaterialPurchase: (jobId: string, data: Record<string, unknown>) =>

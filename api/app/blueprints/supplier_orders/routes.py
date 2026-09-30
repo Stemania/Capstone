@@ -1,0 +1,126 @@
+from flask import Blueprint, jsonify, request
+from flask_jwt_extended import jwt_required
+
+from app.middleware.rbac import get_current_user_id, require_roles
+from app.models.user import UserRole
+from app.services import supplier_order_service as svc
+
+supplier_orders_bp = Blueprint("supplier_orders", __name__)
+
+_STAFF = (UserRole.ADMIN, UserRole.OFFICE_STAFF)
+
+
+@supplier_orders_bp.route("", methods=["GET"])
+@jwt_required()
+@require_roles(*_STAFF)
+def list_orders():
+    rows = svc.list_orders(
+        status=request.args.get("status") or None,
+        supplier_id=request.args.get("supplierId") or None,
+    )
+    return jsonify([o.to_dict() for o in rows])
+
+
+@supplier_orders_bp.route("/outstanding", methods=["GET"])
+@jwt_required()
+@require_roles(*_STAFF)
+def outstanding():
+    return jsonify(svc.outstanding_planned_materials(job_id=request.args.get("jobId") or None))
+
+
+@supplier_orders_bp.route("/draft-lines", methods=["POST"])
+@jwt_required()
+@require_roles(*_STAFF)
+def add_draft_lines():
+    data = request.get_json() or {}
+    order, _ = svc.add_lines_to_draft(
+        data.get("supplierId"), data.get("lines") or [], get_current_user_id()
+    )
+    return jsonify(order.to_dict(include_lines=True))
+
+
+@supplier_orders_bp.route("/<order_id>", methods=["GET"])
+@jwt_required()
+@require_roles(*_STAFF)
+def get_order(order_id):
+    return jsonify(svc.get_order(order_id).to_dict(include_lines=True))
+
+
+@supplier_orders_bp.route("/<order_id>", methods=["PATCH"])
+@jwt_required()
+@require_roles(*_STAFF)
+def update_order(order_id):
+    order = svc.update_draft(svc.get_order(order_id), request.get_json() or {})
+    return jsonify(order.to_dict(include_lines=True))
+
+
+@supplier_orders_bp.route("/<order_id>/issue", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN)
+def issue(order_id):
+    data = request.get_json() or {}
+    order = svc.issue_order(svc.get_order(order_id), get_current_user_id(), data.get("dateIssued"))
+    return jsonify(order.to_dict(include_lines=True))
+
+
+@supplier_orders_bp.route("/<order_id>/cancel", methods=["POST"])
+@jwt_required()
+@require_roles(*_STAFF)
+def cancel(order_id):
+    order = svc.cancel_order(svc.get_order(order_id), get_current_user_id())
+    return jsonify(order.to_dict(include_lines=True))
+
+
+@supplier_orders_bp.route("/<order_id>/receive", methods=["POST"])
+@jwt_required()
+@require_roles(*_STAFF)
+def receive(order_id):
+    data = request.get_json() or {}
+    order = svc.receive_order_lines(
+        svc.get_order(order_id), data.get("lineIds") or [], data.get("receivedDate")
+    )
+    return jsonify(order.to_dict(include_lines=True))
+
+
+@supplier_orders_bp.route("/<order_id>/print", methods=["GET"])
+@jwt_required()
+@require_roles(*_STAFF)
+def print_order(order_id):
+    return jsonify(svc.print_data(svc.get_order(order_id)))
+
+
+@supplier_orders_bp.route("/<order_id>/lines/<line_id>", methods=["PATCH"])
+@jwt_required()
+@require_roles(*_STAFF)
+def update_line(order_id, line_id):
+    order = svc.get_order(order_id)
+    svc.update_draft_line(order, svc.get_line(order, line_id), request.get_json() or {})
+    return jsonify(order.to_dict(include_lines=True))
+
+
+@supplier_orders_bp.route("/<order_id>/lines/<line_id>", methods=["DELETE"])
+@jwt_required()
+@require_roles(*_STAFF)
+def remove_line(order_id, line_id):
+    order = svc.get_order(order_id)
+    svc.remove_draft_line(order, svc.get_line(order, line_id))
+    return jsonify(order.to_dict(include_lines=True))
+
+
+@supplier_orders_bp.route("/<order_id>/lines/<line_id>/cancel", methods=["POST"])
+@jwt_required()
+@require_roles(*_STAFF)
+def cancel_line(order_id, line_id):
+    order = svc.get_order(order_id)
+    svc.cancel_line(order, svc.get_line(order, line_id), get_current_user_id())
+    return jsonify(order.to_dict(include_lines=True))
+
+
+@supplier_orders_bp.route("/<order_id>/lines/<line_id>/split", methods=["POST"])
+@jwt_required()
+@require_roles(*_STAFF)
+def split_line(order_id, line_id):
+    order = svc.get_order(order_id)
+    data = request.get_json() or {}
+    svc.split_line(order, svc.get_line(order, line_id), data.get("quantity"))
+    return jsonify(order.to_dict(include_lines=True))

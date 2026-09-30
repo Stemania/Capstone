@@ -40,9 +40,11 @@ function money(v: number | null | undefined) {
 }
 
 const STATUS_PILL: Record<MaterialPurchaseStatus, { color: PillColor; label: string }> = {
+  DRAFT: { color: 'gray', label: 'On draft PO' },
   ORDERED: { color: 'amber', label: 'Ordered' },
   RECEIVED: { color: 'green', label: 'Received' },
   CONSUMED: { color: 'gray', label: 'Consumed' },
+  CANCELLED: { color: 'red', label: 'Cancelled' },
 };
 
 function purchaseStatus(r: MaterialPurchase): MaterialPurchaseStatus {
@@ -207,10 +209,27 @@ export default function RawMaterialsPanel() {
         ),
     },
     {
+      title: 'Supplier order',
+      key: 'po',
+      width: 140,
+      render: (_: unknown, r) =>
+        r.supplierOrderId ? (
+          <Button
+            type="link"
+            style={{ padding: 0, height: 'auto' }}
+            onClick={() => navigate(`/supplier-orders/${r.supplierOrderId}`)}
+          >
+            {r.poNumber}
+          </Button>
+        ) : (
+          <span style={{ fontSize: 12, color: '#64748b' }}>Recorded without a PO</span>
+        ),
+    },
+    {
       title: 'Ordered',
       dataIndex: 'dateOrdered',
       width: 110,
-      render: (v: string) => dayjs(v).format('MMM D, YYYY'),
+      render: (v: string | null) => (v ? dayjs(v).format('MMM D, YYYY') : '—'),
     },
     {
       title: 'Received',

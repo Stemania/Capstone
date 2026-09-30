@@ -24,6 +24,7 @@ from app.models.operation_time import MachineDowntime, OperationTimeLog
 from app.models.sales_invoice import SalesInvoice
 from app.models.stocktake import Stocktake
 from app.models.supplier import Supplier
+from app.models.supplier_order import SupplierOrder
 from app.models.tool import Tool
 from app.models.tool_type import ToolType, ToolUnit
 from app.models.user import User
@@ -31,6 +32,7 @@ from app.models.worker_skill import WorkCalendarException
 
 _COLUMN_SNAPSHOT_MODELS = (
     Supplier,
+    SupplierOrder,
     MaterialPurchase,
     SalesInvoice,
     ToolType,

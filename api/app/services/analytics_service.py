@@ -1187,10 +1187,14 @@ def purchasing_summary(from_s=None, to_s=None):
     Raw-material purchase analytics for the period (by date_ordered).
     - materials by purchase count and total spend
     - spend by supplier
-    - supplier lead time: avg actual days vs stated typical lead time
+    - supplier lead time: avg actual days vs stated typical lead time, one
+      sample per supplier order (issued -> fully received); lines recorded
+      without a PO are one sample each (ordered -> received)
+    Draft lines (no order date yet) and cancelled lines are left out.
     """
     from app.models.material_purchase import MaterialPurchase
     from app.models.supplier import Supplier
+    from app.models.supplier_order import SupplierOrder, SupplierOrderStatus
 
     period_from, period_to, _start_utc, _end_utc = _parse_period(from_s, to_s)
 
@@ -1198,6 +1202,7 @@ def purchasing_summary(from_s=None, to_s=None):
         MaterialPurchase.query.filter(
             MaterialPurchase.date_ordered >= period_from,
             MaterialPurchase.date_ordered <= period_to,
+            MaterialPurchase.cancelled_at.is_(None),
         )
         .all()
     )
@@ -1233,8 +1238,17 @@ def purchasing_summary(from_s=None, to_s=None):
         srow["purchaseCount"] += 1
         srow["totalSpend"] += spend
 
-        if p.date_ordered and p.date_received:
+        if p.supplier_order_id is None and p.date_ordered and p.date_received:
             lead_samples[sid].append((p.date_received - p.date_ordered).days)
+
+    received_orders = SupplierOrder.query.filter(
+        SupplierOrder.status == SupplierOrderStatus.RECEIVED,
+        SupplierOrder.date_issued >= period_from,
+        SupplierOrder.date_issued <= period_to,
+        SupplierOrder.received_date.isnot(None),
+    ).all()
+    for o in received_orders:
+        lead_samples[o.supplier_id].append((o.received_date - o.date_issued).days)
 
     materials_by_count = sorted(
         (

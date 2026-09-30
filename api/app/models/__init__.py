@@ -18,6 +18,7 @@ from app.models.notification import (
 )
 from app.models.operation import JobOperation, Operation, OperationStatus, ReworkReasonCategory
 from app.models.operation_time import (
+    DowntimeCategory,
     MachineDowntime,
     OperationPauseReason,
     OperationTimeEvent,
@@ -25,6 +26,7 @@ from app.models.operation_time import (
 )
 from app.models.sales_invoice import SalesInvoice
 from app.models.supplier import Supplier
+from app.models.supplier_order import SupplierOrder, SupplierOrderStatus
 from app.models.tool import Tool, ToolCategory
 from app.models.tool_event import ToolEvent, ToolEventType
 from app.models.tool_type import ToolType, ToolUnit, ToolUnitStatus
@@ -59,6 +61,8 @@ __all__ = [
     "DEFAULT_SCORING_WEIGHTS",
     "Client",
     "Supplier",
+    "SupplierOrder",
+    "SupplierOrderStatus",
     "MaterialPurchase",
     "SalesInvoice",
     "JobOrder",
@@ -75,6 +79,7 @@ __all__ = [
     "OperationTimeEvent",
     "OperationPauseReason",
     "MachineDowntime",
+    "DowntimeCategory",
     "MachineType",
     "MachineUnit",
     "Tool",

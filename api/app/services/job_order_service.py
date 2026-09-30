@@ -47,12 +47,15 @@ def _parse_decimal(value, field_name):
         raise AppError(f"Invalid {field_name}", "VALIDATION_ERROR", 400)
 
 
-def _normalize_raw_materials(items):
+def _normalize_raw_materials(items, existing_ids=frozenset()):
+    """Clean the planned list. An entry keeps its id only when it matches one
+    already on the job; new entries get a fresh id from the model validator."""
     if items is None:
         return []
     if not isinstance(items, list):
         raise AppError("rawMaterials must be a list", "VALIDATION_ERROR", 400)
     normalized = []
+    kept_ids = set()
     for item in items:
         if isinstance(item, str):
             name = item.strip()
@@ -65,6 +68,10 @@ def _normalize_raw_materials(items):
         if not name:
             continue
         entry = {"name": name}
+        item_id = item.get("id")
+        if item_id in existing_ids and item_id not in kept_ids:
+            entry["id"] = item_id
+            kept_ids.add(item_id)
         if item.get("quantity") not in (None, ""):
             entry["quantity"] = float(_parse_decimal(item["quantity"], "raw material quantity"))
         if item.get("unit"):
@@ -107,6 +114,28 @@ def _resolve_machine_type_id(op_data):
     return None
 
 
+def _assert_worker_has_machine_skill(worker, machine_type_id):
+    """Operations with no machine type (e.g. Checking) need no machine skill."""
+    if not machine_type_id:
+        return
+    from app.models.worker_skill import WorkerSkill
+
+    has_skill = (
+        WorkerSkill.query.filter_by(worker_id=worker.id, machine_type_id=machine_type_id).first()
+        is not None
+    )
+    if has_skill:
+        return
+    machine = db.session.get(MachineType, machine_type_id)
+    machine_name = machine.name if machine else "this machine type"
+    raise AppError(
+        f"{worker.full_name} has no skill for {machine_name}. "
+        "Add the skill under Worker setup, or assign a qualified worker.",
+        "WORKER_NOT_QUALIFIED",
+        400,
+    )
+
+
 def _validate_worker(
     worker_id,
     start=None,
@@ -131,6 +160,7 @@ def _validate_worker(
         operation_type_id=operation_type_id,
         operation_name=operation_name,
     )
+    _assert_worker_has_machine_skill(worker, machine_type_id)
     from app.services.worker_availability import assert_worker_available
 
     assert_worker_available(
@@ -302,6 +332,7 @@ def list_job_orders(user_id, user_role, status=None, scope=None, awaiting_materi
 
 
 def get_job_order(job_id, user_id, user_role):
+    from app.models.material_purchase import MaterialPurchase
     from app.models.operation_time import OperationTimeLog
     from app.models.sales_invoice import SalesInvoice
 
@@ -319,6 +350,10 @@ def get_job_order(job_id, user_id, user_role):
             joinedload(JobOrder.operations)
             .joinedload(JobOperation.time_logs)
             .joinedload(OperationTimeLog.worker),
+            joinedload(JobOrder.material_purchases).joinedload(MaterialPurchase.supplier),
+            joinedload(JobOrder.material_purchases).joinedload(
+                MaterialPurchase.supplier_order
+            ),
         )
         .filter(JobOrder.id == job_id)
         .first()
@@ -567,9 +602,29 @@ def update_job_order(job, data, actor_role=None):
         if "amount" in data:
             job.amount = _parse_decimal(data.get("amount"), "amount")
         if "rawMaterials" in data:
-            job.raw_materials = _normalize_raw_materials(data.get("rawMaterials"))
+            existing = {
+                m["id"]: m for m in (job.raw_materials or []) if isinstance(m, dict) and m.get("id")
+            }
+            new_list = _normalize_raw_materials(data.get("rawMaterials"), frozenset(existing))
+            kept = {m.get("id") for m in new_list}
+            in_use = {
+                p.planned_material_id
+                for p in (job.material_purchases or [])
+                if p.planned_material_id and p.cancelled_at is None
+            }
+            dropped = [existing[i]["name"] for i in existing if i in in_use and i not in kept]
+            if dropped:
+                raise AppError(
+                    "Cannot remove planned material with purchases recorded: "
+                    + ", ".join(dropped),
+                    "PLANNED_MATERIAL_IN_USE",
+                    409,
+                )
+            job.raw_materials = new_list
         if "materialStatus" in data and data["materialStatus"]:
-            has_lines = bool(job.material_purchases)
+            from app.services.material_purchase_service import placed_lines
+
+            has_lines = bool(placed_lines(job))
             new_material_status = _direct_material_status(
                 data["materialStatus"], has_lines=has_lines
             )
@@ -679,16 +734,19 @@ def mark_material_received(job, received_date=None):
 
 def material_release_warning(job: JobOrder) -> str | None:
     """Non-blocking warning when releasing before material has arrived."""
+    from app.services.material_purchase_service import material_readiness_date
+
     if job.material_status in (MaterialStatus.TO_ORDER, MaterialStatus.ORDERED):
         status_label = (
             "still to order"
             if job.material_status == MaterialStatus.TO_ORDER
             else "ordered but not received"
         )
-        if job.material_expected_date:
+        expected, _ = material_readiness_date(job)
+        if expected:
             return (
                 f"Material is {status_label}. Expected arrival "
-                f"{job.material_expected_date.isoformat()}. You can still release to plan ahead."
+                f"{expected.isoformat()}. You can still release to plan ahead."
             )
         return (
             f"Material is {status_label} and no expected arrival date is set. "
@@ -714,6 +772,20 @@ def release_job_order(job):
         raise AppError(
             "Cannot release yet — " + "; ".join(missing),
             "VALIDATION_ERROR",
+            400,
+        )
+
+    unscheduled = [
+        f"#{op.sequence_no} {op.operation_name or f'Operation {op.sequence_no}'}"
+        for op in sorted(job.operations, key=lambda o: o.sequence_no or 0)
+        if not op.scheduled_start or not op.scheduled_end
+    ]
+    if unscheduled:
+        raise AppError(
+            "Cannot release yet — these operations have no scheduled window: "
+            + ", ".join(unscheduled)
+            + ". Schedule them first.",
+            "OPERATIONS_UNSCHEDULED",
             400,
         )
 

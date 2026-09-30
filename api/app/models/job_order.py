@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import validates
 
 from app.extensions import db
 
@@ -240,6 +241,96 @@ class JobOrder(db.Model):
             for op in ops
         ]
 
+    @validates("raw_materials")
+    def _ensure_raw_material_ids(self, _key, items):
+        """Every planned material carries a stable id that purchases link to."""
+        out = []
+        for item in items or []:
+            if isinstance(item, dict) and not item.get("id"):
+                item = {**item, "id": _uuid()}
+            out.append(item)
+        return out
+
+    def planned_materials_summary(self):
+        """Planned quantity vs linked purchase lines for each planned material.
+
+        Ordered = placed lines (issued PO or recorded without a PO); draft =
+        lines still on a draft PO. Cancelled lines count for nothing, so their
+        material goes back to to-order. Still to order = planned - ordered - draft.
+        """
+        ordered: dict[str, Decimal] = {}
+        drafted: dict[str, Decimal] = {}
+        for p in self.material_purchases or []:
+            if not p.planned_material_id or p.cancelled_at is not None:
+                continue
+            bucket = drafted if p.is_draft else ordered
+            bucket[p.planned_material_id] = bucket.get(
+                p.planned_material_id, Decimal("0")
+            ) + Decimal(str(p.quantity or 0))
+        rows = []
+        for item in self.raw_materials or []:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            purchased = ordered.get(item["id"], Decimal("0"))
+            draft = drafted.get(item["id"], Decimal("0"))
+            planned = item.get("quantity")
+            if planned is None:
+                remaining = None
+                if purchased > 0:
+                    status = "PURCHASED"
+                elif draft > 0:
+                    status = "ON_DRAFT_ORDER"
+                else:
+                    status = "TO_ORDER"
+            else:
+                remaining = max(Decimal(str(planned)) - purchased - draft, Decimal("0"))
+                if purchased >= Decimal(str(planned)):
+                    status = "PURCHASED"
+                elif remaining == 0:
+                    status = "ON_DRAFT_ORDER"
+                elif purchased > 0 or draft > 0:
+                    status = "PARTLY_ORDERED"
+                else:
+                    status = "TO_ORDER"
+            rows.append(
+                {
+                    "id": item["id"],
+                    "name": item.get("name"),
+                    "unit": item.get("unit"),
+                    "plannedQuantity": planned,
+                    "purchasedQuantity": float(purchased),
+                    "draftQuantity": float(draft),
+                    "remainingQuantity": float(remaining) if remaining is not None else None,
+                    "status": status,
+                }
+            )
+        return rows
+
+    def _material_readiness(self):
+        from app.services.material_purchase_service import (
+            derived_material_expected,
+            material_readiness_date,
+        )
+
+        ready, reason = material_readiness_date(self)
+        derived = derived_material_expected(self)
+        if derived:
+            source = "PURCHASE_LINES"
+        elif ready:
+            source = "JOB"
+        else:
+            source = None
+        return {
+            "expectedDate": ready.isoformat() if ready else None,
+            "reason": reason,
+            "source": source,
+            "limitingLine": derived["limitingLine"] if derived else None,
+            "missingLeadTimeSuppliers": (
+                derived["missingLeadTimeSuppliers"] if derived else []
+            ),
+            "lines": derived["lines"] if derived else [],
+        }
+
     @property
     def job_number(self) -> str:
         year = self.created_at.year if self.created_at else datetime.now(timezone.utc).year
@@ -328,6 +419,8 @@ class JobOrder(db.Model):
             if not hide_commercial:
                 inv = self.sales_invoice
                 data["salesInvoice"] = inv.to_dict() if inv else None
+                data["materialReadiness"] = self._material_readiness()
+                data["plannedMaterials"] = self.planned_materials_summary()
         scheduled_ends = [op.scheduled_end for op in ops if op.scheduled_end]
         if scheduled_ends:
             from app.services.schedule_service import compute_schedule_flag

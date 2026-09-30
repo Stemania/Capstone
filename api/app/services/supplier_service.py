@@ -65,6 +65,10 @@ def _apply_fields(supplier: Supplier, data: dict, *, creating: bool):
         supplier.notes = (data.get("notes") or "").strip() or None
     if "active" in data:
         supplier.active = bool(data.get("active"))
+    if supplier.typical_lead_time_days is None:
+        raise AppError(
+            "Typical lead time (days) is required", "VALIDATION_ERROR", 400
+        )
 
 
 def create_supplier(data):
@@ -79,6 +83,10 @@ def create_supplier(data):
 
 def update_supplier(supplier_id, data):
     s = get_supplier(supplier_id)
-    _apply_fields(s, data, creating=False)
+    try:
+        _apply_fields(s, data, creating=False)
+    except AppError:
+        db.session.rollback()
+        raise
     db.session.commit()
     return s

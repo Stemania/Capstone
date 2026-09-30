@@ -325,8 +325,8 @@ export default function AnalyticsPurchasingPage() {
         </Button>
       </div>
       <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 8 }}>
-        Average actual days from order to receipt vs each supplier’s stated lead time. Negative
-        variance means faster than stated.
+        Average actual days from issue date to received date on each supplier order (lines recorded
+        without a PO still use ordered-to-received). Negative variance means faster than stated.
       </Text>
       <Table
         size="small"

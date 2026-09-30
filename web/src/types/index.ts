@@ -105,6 +105,7 @@ export interface MaterialPurchase {
   jobOrderId: string;
   jobNumber?: string | null;
   jobTitle?: string | null;
+  plannedMaterialId?: string | null;
   materialName: string;
   gradeOrSpec?: string | null;
   quantity: number;
@@ -113,15 +114,106 @@ export interface MaterialPurchase {
   lineTotal?: number | null;
   supplierId: string;
   supplierName?: string | null;
-  dateOrdered: string;
+  /** Null while the line sits on a draft supplier order. */
+  dateOrdered: string | null;
   dateReceived?: string | null;
   consumedAt?: string | null;
+  cancelledAt?: string | null;
+  /** Null = recorded without a PO (before supplier orders). */
+  supplierOrderId?: string | null;
+  poNumber?: string | null;
+  orderStatus?: SupplierOrderStatus | null;
+  expectedDeliveryDate?: string | null;
   status?: MaterialPurchaseStatus | string;
   createdAt?: string | null;
   updatedAt?: string | null;
 }
 
-export type MaterialPurchaseStatus = 'ORDERED' | 'RECEIVED' | 'CONSUMED';
+export type MaterialPurchaseStatus = 'DRAFT' | 'ORDERED' | 'RECEIVED' | 'CONSUMED' | 'CANCELLED';
+
+export type SupplierOrderStatus =
+  | 'DRAFT'
+  | 'ISSUED'
+  | 'PARTIALLY_RECEIVED'
+  | 'RECEIVED'
+  | 'CANCELLED';
+
+export interface SupplierOrder {
+  id: string;
+  poNumber: string | null;
+  supplierId: string;
+  supplierName?: string | null;
+  supplierLeadTimeDays?: number | null;
+  status: SupplierOrderStatus;
+  dateIssued?: string | null;
+  expectedDeliveryDate?: string | null;
+  receivedDate?: string | null;
+  notes?: string | null;
+  vatRate?: number | null;
+  preparedById: string;
+  preparedByName?: string | null;
+  issuedById?: string | null;
+  issuedByName?: string | null;
+  lineCount: number;
+  jobCount: number;
+  subtotal: number;
+  createdAt?: string | null;
+  lines?: MaterialPurchase[];
+}
+
+export interface OutstandingPlannedMaterial {
+  jobOrderId: string;
+  jobNumber: string;
+  jobTitle: string;
+  dueDate?: string | null;
+  plannedMaterialId: string;
+  materialName: string;
+  unit: string;
+  plannedQuantity: number | null;
+  orderedQuantity: number;
+  draftQuantity: number;
+  remainingQuantity: number | null;
+}
+
+export interface OutstandingMaterials {
+  materials: OutstandingPlannedMaterial[];
+  jobs: { id: string; jobNumber: string; title: string }[];
+}
+
+export interface SupplierOrderLineInput {
+  jobOrderId: string;
+  plannedMaterialId?: string | null;
+  materialName?: string;
+  gradeOrSpec?: string | null;
+  quantity: number;
+  unit?: string;
+  unitCost: number;
+}
+
+export interface SupplierOrderPrint {
+  order: SupplierOrder;
+  supplier: {
+    name: string;
+    contactPerson?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    address?: string | null;
+  } | null;
+  rows: {
+    materialName: string;
+    gradeOrSpec?: string | null;
+    unit: string;
+    unitCost: number;
+    quantity: number;
+    jobNumbers: string[];
+    lineCount: number;
+    amount: number;
+  }[];
+  subtotal: number;
+  vatRate: number | null;
+  vatAmount: number;
+  total: number;
+}
 
 export interface MaterialStockBucket {
   count: number;
@@ -220,6 +312,7 @@ export interface MachineInfo {
 }
 
 export interface RawMaterial {
+  id?: string;
   name: string;
   quantity?: number;
   unit?: string;
@@ -315,7 +408,11 @@ export interface MachineDowntimeRecord {
   machineUnitLabel?: string | null;
   startedAt: string;
   endedAt?: string | null;
+  category?: string | null;
   reason: string;
+  jobOrderId?: string | null;
+  operationId?: string | null;
+  operationName?: string | null;
   reportedById: string;
   reportedByName?: string | null;
   note?: string | null;
@@ -412,6 +509,8 @@ export interface JobOrder {
   supplierName?: string | null;
   supplierReference?: string | null;
   materialReleaseWarning?: string | null;
+  materialReadiness?: MaterialReadiness;
+  plannedMaterials?: PlannedMaterialSummary[];
   createdById?: string;
   createdByName?: string | null;
   draftStage?: string | null;
@@ -428,6 +527,40 @@ export interface JobOrder {
   projectedCompletion?: string | null;
   scheduleFlag?: ScheduleFlag | null;
   scheduleColor?: string | null;
+}
+
+export interface PlannedMaterialSummary {
+  id: string;
+  name: string;
+  unit?: string | null;
+  plannedQuantity: number | null;
+  /** On issued supplier orders or recorded without a PO. */
+  purchasedQuantity: number;
+  /** On a draft supplier order, not yet sent. */
+  draftQuantity: number;
+  remainingQuantity: number | null;
+  status: 'TO_ORDER' | 'PARTLY_ORDERED' | 'ON_DRAFT_ORDER' | 'PURCHASED';
+}
+
+export interface MaterialLineArrival {
+  purchaseId: string;
+  materialName: string;
+  gradeOrSpec?: string | null;
+  supplierName?: string | null;
+  dateOrdered: string | null;
+  leadTimeDays: number | null;
+  dateReceived: string | null;
+  expectedArrival: string | null;
+  basis: 'RECEIVED' | 'LEAD_TIME' | 'TYPED_DATE' | 'UNKNOWN';
+}
+
+export interface MaterialReadiness {
+  expectedDate: string | null;
+  reason: string | null;
+  source: 'PURCHASE_LINES' | 'JOB' | null;
+  limitingLine: MaterialLineArrival | null;
+  missingLeadTimeSuppliers: string[];
+  lines: MaterialLineArrival[];
 }
 
 export type NotificationMilestone =

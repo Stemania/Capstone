@@ -89,6 +89,7 @@ type OpFormRow = {
   scheduledStart?: string;
   scheduledEnd?: string;
   status?: string;
+  notes?: string;
 };
 
 function machineOptionsForRow(catalog: MachineInfo[], operations: OpFormRow[], rowIndex: number) {
@@ -184,6 +185,18 @@ export default function JobOrderPlanningPage() {
   const [supplierId, setSupplierId] = useState<string | null>(null);
   const [supplierReference, setSupplierReference] = useState('');
   const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([]);
+  const linesReadiness =
+    materialStatus !== 'NOT_REQUIRED' && job?.materialReadiness?.source === 'PURCHASE_LINES'
+      ? job.materialReadiness
+      : null;
+  const noLeadTimeSuppliers = Array.from(
+    new Set(
+      (linesReadiness?.lines || [])
+        .filter((l) => l.basis === 'TYPED_DATE' || l.basis === 'UNKNOWN')
+        .map((l) => l.supplierName || 'Unnamed supplier')
+    )
+  );
+  const materialDateUnknown = noLeadTimeSuppliers.length > 0 && !materialExpectedDate;
   const [scheduleWarnings, setScheduleWarnings] = useState<Record<number, ScheduleWarning[]>>({});
   const [proposing, setProposing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -287,9 +300,14 @@ export default function JobOrderPlanningPage() {
     return items;
   }, [operations, operationTypes]);
 
-  const canAdvanceToSchedule = operationsMissingItems.length === 0;
+  const canAdvanceToSchedule = operationsMissingItems.length === 0 && !materialDateUnknown;
   const advanceTooltip = !canAdvanceToSchedule
-    ? operationsMissingItems.join('; ')
+    ? [
+        ...operationsMissingItems,
+        ...(materialDateUnknown
+          ? [`Material arrival unknown: ${noLeadTimeSuppliers.join(', ')} has no lead time`]
+          : []),
+      ].join('; ')
     : undefined;
 
   const loadRowWorkers = async (
@@ -445,6 +463,7 @@ export default function JobOrderPlanningPage() {
                   scheduledStart: op.scheduledStart || undefined,
                   scheduledEnd: op.scheduledEnd || undefined,
                   status: op.status,
+                  notes: op.notes || undefined,
                 }))
             : [
                 {
@@ -610,6 +629,7 @@ export default function JobOrderPlanningPage() {
         scheduledStart: op.scheduledStart || null,
         scheduledEnd: op.scheduledEnd || null,
         status: op.status || 'PENDING',
+        notes: op.notes?.trim() || null,
       };
     });
 
@@ -917,9 +937,8 @@ export default function JobOrderPlanningPage() {
     };
 
     if (materialStatus === 'TO_ORDER' || materialStatus === 'ORDERED') {
-      const expected = materialExpectedDate
-        ? dayjs(materialExpectedDate).format('MMM D, YYYY')
-        : 'not set';
+      const expectedIso = linesReadiness?.expectedDate || materialExpectedDate;
+      const expected = expectedIso ? dayjs(expectedIso).format('MMM D, YYYY') : 'not set';
       Modal.confirm({
         title: 'Material has not arrived',
         content:
@@ -1051,6 +1070,20 @@ export default function JobOrderPlanningPage() {
           value={record.estimatedHours ?? undefined}
           disabled={readOnly}
           onChange={(v) => patchRow(index, { estimatedHours: v })}
+        />
+      ),
+    },
+    {
+      title: 'Instructions',
+      width: 260,
+      render: (_: unknown, record: OpFormRow, index: number) => (
+        <Input.TextArea
+          autoSize={{ minRows: 1, maxRows: 4 }}
+          maxLength={1000}
+          placeholder="Tolerances, setup, special handling"
+          value={record.notes ?? ''}
+          disabled={readOnly}
+          onChange={(e) => patchRow(index, { notes: e.target.value })}
         />
       ),
     },
@@ -1199,12 +1232,23 @@ export default function JobOrderPlanningPage() {
           </Col>
           <Col xs={24} sm={8}>
             <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>Expected arrival</div>
-            <DatePicker
-              style={{ width: '100%' }}
-              value={materialExpectedDate ? dayjs(materialExpectedDate) : null}
-              disabled={readOnly || materialStatus === 'NOT_REQUIRED'}
-              onChange={(d) => setMaterialExpectedDate(d ? d.format('YYYY-MM-DD') : null)}
-            />
+            {linesReadiness && noLeadTimeSuppliers.length === 0 ? (
+              <div style={{ fontWeight: 600, color: '#0f172a', padding: '4px 0' }}>
+                {linesReadiness.expectedDate
+                  ? dayjs(linesReadiness.expectedDate).format('MMM D, YYYY')
+                  : '—'}
+                <div style={{ fontSize: 11, fontWeight: 400, color: '#64748b' }}>
+                  From purchase lines
+                </div>
+              </div>
+            ) : (
+              <DatePicker
+                style={{ width: '100%' }}
+                value={materialExpectedDate ? dayjs(materialExpectedDate) : null}
+                disabled={readOnly || materialStatus === 'NOT_REQUIRED'}
+                onChange={(d) => setMaterialExpectedDate(d ? d.format('YYYY-MM-DD') : null)}
+              />
+            )}
           </Col>
           <Col xs={24} sm={8}>
             <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>Supplier</div>
@@ -1232,6 +1276,55 @@ export default function JobOrderPlanningPage() {
             />
           </Col>
         </Row>
+
+        {noLeadTimeSuppliers.length > 0 ? (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={`${noLeadTimeSuppliers.join(', ')} ${
+              noLeadTimeSuppliers.length === 1 ? 'has' : 'have'
+            } no lead time`}
+            description={
+              materialDateUnknown
+                ? 'Material arrival is unknown, so a schedule cannot be proposed. Set the lead time on the Suppliers page, or type an expected arrival date above.'
+                : 'The expected arrival date you typed is used for these lines. Setting the supplier’s lead time replaces it.'
+            }
+          />
+        ) : null}
+
+        {linesReadiness && linesReadiness.expectedDate && noLeadTimeSuppliers.length === 0 ? (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 20 }}
+            message={`Schedule cannot start before ${dayjs(linesReadiness.expectedDate).format(
+              'MMM D, YYYY'
+            )}: latest material arrival across ${linesReadiness.lines.length} purchase line${
+              linesReadiness.lines.length === 1 ? '' : 's'
+            }`}
+            description={
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
+                {linesReadiness.lines.map((l) => (
+                  <li
+                    key={l.purchaseId}
+                    style={{
+                      fontWeight:
+                        l.purchaseId === linesReadiness.limitingLine?.purchaseId ? 600 : 400,
+                    }}
+                  >
+                    {l.materialName}
+                    {l.gradeOrSpec ? ` (${l.gradeOrSpec})` : ''}
+                    {l.supplierName ? ` · ${l.supplierName}` : ''} ·{' '}
+                    {l.basis === 'RECEIVED'
+                      ? `received ${dayjs(l.dateReceived).format('MMM D')}`
+                      : `ordered ${dayjs(l.dateOrdered).format('MMM D')} + ${l.leadTimeDays} day lead time → ${dayjs(l.expectedArrival).format('MMM D')}`}
+                  </li>
+                ))}
+              </ul>
+            }
+          />
+        ) : null}
 
         <div className="jo-plan__section-title">Operations</div>
         <Table

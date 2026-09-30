@@ -101,6 +101,7 @@ def _register_blueprints(app):
     from app.blueprints.workers.routes import workers_bp
     from app.blueprints.clients.routes import clients_bp
     from app.blueprints.suppliers.routes import suppliers_bp
+    from app.blueprints.supplier_orders.routes import supplier_orders_bp
     from app.blueprints.job_orders.routes import job_orders_bp
     from app.blueprints.operations.routes import operations_bp
     from app.blueprints.tools.routes import tools_bp
@@ -119,6 +120,7 @@ def _register_blueprints(app):
     app.register_blueprint(worker_profiles_bp, url_prefix=f"{prefix}/workers")
     app.register_blueprint(clients_bp, url_prefix=f"{prefix}/clients")
     app.register_blueprint(suppliers_bp, url_prefix=f"{prefix}/suppliers")
+    app.register_blueprint(supplier_orders_bp, url_prefix=f"{prefix}/supplier-orders")
     app.register_blueprint(job_orders_bp, url_prefix=f"{prefix}/job-orders")
     app.register_blueprint(operations_bp, url_prefix=f"{prefix}/operations")
     app.register_blueprint(tools_bp, url_prefix=f"{prefix}/tools")

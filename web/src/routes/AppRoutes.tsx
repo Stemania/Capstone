@@ -24,6 +24,9 @@ import ScanToolPage from '../features/tool-tracking/ScanToolPage';
 import ClientsPage from '../features/clients/ClientsPage';
 import ClientDetailPage from '../features/clients/ClientDetailPage';
 import SuppliersPage from '../features/suppliers/SuppliersPage';
+import SupplierOrdersPage from '../features/supplier-orders/SupplierOrdersPage';
+import SupplierOrderDetailPage from '../features/supplier-orders/SupplierOrderDetailPage';
+import SupplierOrderPrintPage from '../features/reports/SupplierOrderPrintPage';
 import MachinesPage from '../features/machines/MachinesPage';
 import WorkCalendarPage from '../features/calendar/WorkCalendarPage';
 import ScheduleBoardPage from '../features/schedule/ScheduleBoardPage';
@@ -87,6 +90,10 @@ export default function AppRoutes() {
                   path="/job-orders/:id/invoice/print"
                   element={<SalesInvoicePrintPage />}
                 />
+                <Route
+                  path="/supplier-orders/:id/print"
+                  element={<SupplierOrderPrintPage />}
+                />
               </Route>
 
               {/*
@@ -125,6 +132,8 @@ export default function AppRoutes() {
                     <Route path="/clients" element={<ClientsPage />} />
                     <Route path="/clients/:id" element={<ClientDetailPage />} />
                     <Route path="/suppliers" element={<SuppliersPage />} />
+                    <Route path="/supplier-orders" element={<SupplierOrdersPage />} />
+                    <Route path="/supplier-orders/:id" element={<SupplierOrderDetailPage />} />
                     <Route path="/machines" element={<MachinesPage />} />
                     <Route path="/work-calendar" element={<WorkCalendarPage />} />
                     <Route path="/reports" element={<ReportsHubPage />} />

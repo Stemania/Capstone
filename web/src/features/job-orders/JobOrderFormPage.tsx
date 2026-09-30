@@ -157,7 +157,7 @@ export default function JobOrderFormPage() {
       quantity?: number;
       unitOfMeasure?: string;
       amount?: number;
-      rawMaterials?: { name: string; quantity?: number; unit?: string }[];
+      rawMaterials?: { id?: string; name: string; quantity?: number; unit?: string }[];
     };
     try {
       values = await form.validateFields();
@@ -182,6 +182,7 @@ export default function JobOrderFormPage() {
       rawMaterials: (values.rawMaterials || [])
         .filter((m) => m.name?.trim())
         .map((m) => ({
+          id: m.id || undefined,
           name: m.name.trim(),
           quantity: m.quantity,
           unit: m.unit || undefined,
@@ -383,6 +384,9 @@ export default function JobOrderFormPage() {
                     <div className="jo-form__materials-scroll">
                       {fields.map(({ key, name, ...rest }) => (
                         <div key={key} className="jo-form__materials-row">
+                          <Form.Item {...rest} name={[name, 'id']} hidden noStyle>
+                            <Input />
+                          </Form.Item>
                           <Form.Item
                             {...rest}
                             name={[name, 'name']}

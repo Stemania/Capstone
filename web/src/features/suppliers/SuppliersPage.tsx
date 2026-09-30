@@ -238,7 +238,11 @@ export default function SuppliersPage() {
           <Form.Item name="address" label="Address">
             <Input.TextArea rows={2} />
           </Form.Item>
-          <Form.Item name="typicalLeadTimeDays" label="Typical lead time (days)">
+          <Form.Item
+            name="typicalLeadTimeDays"
+            label="Typical lead time (days)"
+            rules={[{ required: true, message: 'Enter the supplier’s lead time in days' }]}
+          >
             <InputNumber min={0} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="notes" label="Notes">

@@ -290,7 +290,7 @@ def test_start_gate_to_order_message_names_job_for_admin(people):
         )
     assert exc.value.code == "MATERIALS_NOT_ORDERED"
     assert job.job_number in exc.value.message
-    assert "No material purchase has been recorded" in exc.value.message
+    assert "No material has been ordered" in exc.value.message
 
 
 def test_to_order_job_starts_once_set_not_required(people):
@@ -423,7 +423,7 @@ def test_material_received_button_refused_without_purchase_lines(people):
     with pytest.raises(AppError) as exc:
         mark_material_received(job, "2026-09-08")
     assert exc.value.code == "NO_PURCHASE_LINES"
-    assert exc.value.message == "Record the purchase first."
+    assert exc.value.message == "No material has been ordered for this job yet."
 
 
 def test_start_gate_ignores_not_required_jobs(people):

@@ -4,6 +4,7 @@ from flask_jwt_extended import jwt_required
 from app.middleware.rbac import get_current_user_id, get_current_user_role, require_roles
 from app.models.user import UserRole
 from app.services import job_order_service as jo_service
+from app.services import material_purchase_service as mp_service
 from app.services.schedule_service import (
     material_constraint_label,
     propose_schedule,
@@ -127,6 +128,21 @@ def list_material_purchases(job_id):
     return jsonify([r.to_dict() for r in rows])
 
 
+@job_orders_bp.route("/<job_id>/breakdowns", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def list_job_breakdowns(job_id):
+    from app.models.operation_time import MachineDowntime
+
+    jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
+    rows = (
+        MachineDowntime.query.filter_by(job_order_id=job_id)
+        .order_by(MachineDowntime.started_at.desc())
+        .all()
+    )
+    return jsonify([r.to_dict() for r in rows])
+
+
 @job_orders_bp.route("/<job_id>/material-purchases", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
@@ -134,9 +150,10 @@ def create_material_purchase(job_id):
     from app.services import material_purchase_service as mp_service
 
     role = get_current_user_role()
-    job = jo_service.get_job_order(job_id, get_current_user_id(), role)
+    user_id = get_current_user_id()
+    job = jo_service.get_job_order(job_id, user_id, role)
     data = request.get_json() or {}
-    purchase = mp_service.create_purchase(job, data)
+    purchase = mp_service.create_purchase(job, data, user_id)
     return jsonify(purchase.to_dict()), 201
 
 
@@ -250,11 +267,9 @@ def propose_job_schedule(job_id):
         ops = operations
     else:
         ops = list(job.operations)
-    material_nb = resolve_material_not_before_utc(
-        job.material_status,
-        job.material_received_date,
-        job.material_expected_date,
-    )
+    mp_service.assert_material_date_known(job)
+    ready_date, ready_reason = mp_service.material_readiness_date(job)
+    material_nb = resolve_material_not_before_utc(job.material_status, None, ready_date)
     result = propose_schedule(
         ops,
         job.due_date,
@@ -263,11 +278,7 @@ def propose_job_schedule(job_id):
         lock_before_sequence=data.get("lockBeforeSequence"),
         honor_machine_pins=bool(data.get("honorMachinePins")),
         material_not_before_utc=material_nb,
-        material_constraint_reason=material_constraint_label(
-            job.material_status,
-            job.material_received_date,
-            job.material_expected_date,
-        ),
+        material_constraint_reason=ready_reason,
     )
     return jsonify(result)
 

@@ -1,0 +1,471 @@
+"""Supplier purchase orders: one printable PO grouping lines from several jobs."""
+
+from __future__ import annotations
+
+from collections import OrderedDict
+from datetime import date, datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal
+
+from sqlalchemy import func
+from sqlalchemy.orm import joinedload
+
+from app.extensions import db
+from app.models.job_order import JobOrder, JobOrderStatus, MaterialStatus
+from app.models.material_purchase import MaterialPurchase
+from app.models.supplier import Supplier
+from app.models.supplier_order import (
+    SupplierOrder,
+    SupplierOrderStatus,
+    format_po_number,
+)
+from app.services import material_purchase_service as mp_service
+from app.utils.errors import AppError
+
+CENT = Decimal("0.01")
+
+# Materials are not ordered for jobs that are already finished.
+CLOSED_JOB_STATUSES = (JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED)
+RECEIVABLE_STATUSES = (SupplierOrderStatus.ISSUED, SupplierOrderStatus.PARTIALLY_RECEIVED)
+
+
+def _parse_date(value, field):
+    if value in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError as exc:
+        raise AppError(f"Invalid {field} (YYYY-MM-DD)", "VALIDATION_ERROR", 400) from exc
+
+
+def _decimal(value, field, *, positive=False):
+    if value is None or value == "":
+        raise AppError(f"{field} is required", "VALIDATION_ERROR", 400)
+    try:
+        d = Decimal(str(value))
+    except Exception as exc:
+        raise AppError(f"{field} must be a number", "VALIDATION_ERROR", 400) from exc
+    if d < 0 or (positive and d == 0):
+        raise AppError(
+            f"{field} must be greater than zero" if positive else f"{field} cannot be negative",
+            "VALIDATION_ERROR",
+            400,
+        )
+    return d
+
+
+# Reading
+
+
+def list_orders(*, status=None, supplier_id=None):
+    q = SupplierOrder.query.options(
+        joinedload(SupplierOrder.supplier), joinedload(SupplierOrder.lines)
+    )
+    if status:
+        try:
+            q = q.filter(SupplierOrder.status == SupplierOrderStatus(status))
+        except ValueError as exc:
+            raise AppError("Invalid status", "VALIDATION_ERROR", 400) from exc
+    if supplier_id:
+        q = q.filter(SupplierOrder.supplier_id == supplier_id)
+    return q.order_by(SupplierOrder.created_at.desc()).all()
+
+
+def get_order(order_id) -> SupplierOrder:
+    order = SupplierOrder.query.get(order_id)
+    if not order:
+        raise AppError("Supplier order not found", "NOT_FOUND", 404)
+    return order
+
+
+def get_line(order: SupplierOrder, line_id) -> MaterialPurchase:
+    line = MaterialPurchase.query.get(line_id)
+    if not line or line.supplier_order_id != order.id:
+        raise AppError("Line not found on this supplier order", "NOT_FOUND", 404)
+    return line
+
+
+def outstanding_planned_materials(job_id=None):
+    """Planned materials still to order (not yet on any placed or draft order),
+    across every open job, plus the jobs lines can be added to."""
+    q = JobOrder.query.options(joinedload(JobOrder.material_purchases)).filter(
+        JobOrder.status.notin_(CLOSED_JOB_STATUSES)
+    )
+    if job_id:
+        q = q.filter(JobOrder.id == job_id)
+    jobs = q.order_by(JobOrder.due_date.asc()).all()
+    rows = []
+    for job in jobs:
+        if job.material_status == MaterialStatus.NOT_REQUIRED:
+            continue
+        for m in job.planned_materials_summary():
+            if m["status"] not in ("TO_ORDER", "PARTLY_ORDERED"):
+                continue
+            rows.append(
+                {
+                    "jobOrderId": job.id,
+                    "jobNumber": job.job_number,
+                    "jobTitle": job.title,
+                    "dueDate": job.due_date.isoformat() if job.due_date else None,
+                    "plannedMaterialId": m["id"],
+                    "materialName": m["name"],
+                    "unit": m["unit"],
+                    "plannedQuantity": m["plannedQuantity"],
+                    "orderedQuantity": m["purchasedQuantity"],
+                    "draftQuantity": m["draftQuantity"],
+                    "remainingQuantity": m["remainingQuantity"],
+                }
+            )
+    return {
+        "materials": rows,
+        "jobs": [
+            {"id": j.id, "jobNumber": j.job_number, "title": j.title} for j in jobs
+        ],
+    }
+
+
+# Drafts
+
+
+def _draft_for(supplier: Supplier, actor_id: str) -> SupplierOrder:
+    order = SupplierOrder.query.filter_by(
+        supplier_id=supplier.id, status=SupplierOrderStatus.DRAFT
+    ).first()
+    if order:
+        return order
+    order = SupplierOrder(
+        supplier_id=supplier.id,
+        status=SupplierOrderStatus.DRAFT,
+        prepared_by_id=actor_id,
+    )
+    db.session.add(order)
+    db.session.flush()
+    return order
+
+
+def _require_draft(order: SupplierOrder):
+    if order.status != SupplierOrderStatus.DRAFT:
+        raise AppError(
+            "This supplier order was issued; its lines are locked. Cancel a line instead.",
+            "ORDER_LOCKED",
+            409,
+        )
+
+
+def add_lines_to_draft(supplier_id, lines: list, actor_id: str):
+    """Add lines (each tied to a job) to the supplier's open draft, starting one
+    if there is none. Returns (order, created_lines)."""
+    if not supplier_id:
+        raise AppError("supplierId is required", "VALIDATION_ERROR", 400)
+    supplier = Supplier.query.get(supplier_id)
+    if not supplier:
+        raise AppError("Supplier not found", "NOT_FOUND", 404)
+    if not supplier.active:
+        raise AppError("Supplier is inactive", "VALIDATION_ERROR", 400)
+    if not lines:
+        raise AppError("Add at least one line", "VALIDATION_ERROR", 400)
+
+    try:
+        order = _draft_for(supplier, actor_id)
+        created = []
+        for data in lines:
+            job = JobOrder.query.get(data.get("jobOrderId") or "")
+            if not job:
+                raise AppError("Each line needs a job order", "VALIDATION_ERROR", 400)
+            if job.status in CLOSED_JOB_STATUSES:
+                raise AppError(
+                    f"{job.job_number} is {job.status.value.lower()}; "
+                    "materials cannot be ordered for it.",
+                    "JOB_CLOSED",
+                    409,
+                )
+            line = mp_service.build_draft_line(job, supplier, data)
+            line.supplier_order = order
+            if not job.supplier_id:
+                job.supplier_id = supplier.id
+            db.session.add(line)
+            created.append(line)
+        db.session.commit()
+        return order, created
+    except Exception:
+        db.session.rollback()
+        raise
+
+
+def update_draft(order: SupplierOrder, data: dict) -> SupplierOrder:
+    _require_draft(order)
+    if "notes" in data:
+        order.notes = (data.get("notes") or "").strip() or None
+    if "vatRate" in data:
+        raw = data.get("vatRate")
+        if raw in (None, "", 0, "0"):
+            order.vat_rate = None
+        else:
+            rate = _decimal(raw, "vatRate")
+            if rate > 100:
+                raise AppError("vatRate must be between 0 and 100", "VALIDATION_ERROR", 400)
+            order.vat_rate = rate
+    db.session.commit()
+    return order
+
+
+def update_draft_line(order: SupplierOrder, line: MaterialPurchase, data: dict):
+    _require_draft(order)
+    if "quantity" in data:
+        line.quantity = _decimal(data.get("quantity"), "quantity", positive=True)
+    if "unitCost" in data:
+        line.unit_cost = _decimal(data.get("unitCost"), "unitCost")
+    if "gradeOrSpec" in data:
+        line.grade_or_spec = (data.get("gradeOrSpec") or "").strip() or None
+    if line.planned_material_id is None:
+        if "materialName" in data:
+            name = (data.get("materialName") or "").strip()
+            if not name:
+                raise AppError("materialName is required", "VALIDATION_ERROR", 400)
+            line.material_name = name
+        if "unit" in data:
+            line.unit = (data.get("unit") or "pcs").strip() or "pcs"
+    db.session.commit()
+    return line
+
+
+def remove_draft_line(order: SupplierOrder, line: MaterialPurchase):
+    _require_draft(order)
+    db.session.delete(line)
+    db.session.commit()
+
+
+# Issuing
+
+
+def _next_po_seq() -> int:
+    current = db.session.query(func.max(SupplierOrder.po_seq)).scalar()
+    return int(current or 0) + 1
+
+
+def issue_order(order: SupplierOrder, actor_id: str, date_issued=None) -> SupplierOrder:
+    """Admin issues the PO: number, date, expected delivery; lines lock."""
+    _require_draft(order)
+    if not order.active_lines:
+        raise AppError("Add at least one line before issuing.", "VALIDATION_ERROR", 400)
+    lead = order.supplier.typical_lead_time_days if order.supplier else None
+    if lead is None:
+        raise AppError(
+            f"{order.supplier.name} has no lead time. Set it on the Suppliers page "
+            "before issuing, so the expected delivery date can be worked out.",
+            "SUPPLIER_LEAD_TIME_MISSING",
+            400,
+        )
+    issued = _parse_date(date_issued, "dateIssued") or date.today()
+    try:
+        seq = _next_po_seq()
+        order.po_seq = seq
+        order.po_number = format_po_number(seq)
+        order.date_issued = issued
+        order.expected_delivery_date = issued + timedelta(days=lead)
+        order.issued_by_id = actor_id
+        order.status = SupplierOrderStatus.ISSUED
+        for line in order.active_lines:
+            line.date_ordered = issued
+        db.session.flush()
+        for job in {ln.job_order for ln in order.active_lines}:
+            mp_service.sync_job_material_from_purchases(job)
+        db.session.commit()
+        return order
+    except Exception:
+        db.session.rollback()
+        raise
+
+
+# After issue: cancel, split, receive
+
+
+def recompute_order_status(order: SupplierOrder):
+    if order.status in (SupplierOrderStatus.DRAFT, SupplierOrderStatus.CANCELLED):
+        return
+    active = order.active_lines
+    if not active:
+        order.status = SupplierOrderStatus.CANCELLED
+        order.received_date = None
+        return
+    received = [ln for ln in active if ln.date_received is not None]
+    if len(received) == len(active):
+        order.status = SupplierOrderStatus.RECEIVED
+        order.received_date = max(ln.date_received for ln in received)
+    elif received:
+        order.status = SupplierOrderStatus.PARTIALLY_RECEIVED
+        order.received_date = None
+    else:
+        order.status = SupplierOrderStatus.ISSUED
+        order.received_date = None
+
+
+def _cancel_lines(lines, actor_id):
+    now = datetime.now(timezone.utc)
+    for ln in lines:
+        ln.cancelled_at = now
+        ln.cancelled_by_id = actor_id
+
+
+def cancel_line(order: SupplierOrder, line: MaterialPurchase, actor_id: str):
+    """After issue a line is cancelled, never edited; its material goes back to to-order."""
+    if order.status not in RECEIVABLE_STATUSES:
+        if order.status == SupplierOrderStatus.DRAFT:
+            raise AppError(
+                "Draft lines can be removed instead.", "ORDER_NOT_ISSUED", 409
+            )
+        raise AppError("This supplier order is closed.", "ORDER_CLOSED", 409)
+    if line.cancelled_at is not None:
+        raise AppError("This line is already cancelled.", "LINE_CANCELLED", 409)
+    if line.date_received is not None:
+        raise AppError(
+            "A received line cannot be cancelled.", "ALREADY_RECEIVED", 409
+        )
+    _cancel_lines([line], actor_id)
+    recompute_order_status(order)
+    mp_service.sync_job_material_from_purchases(line.job_order)
+    db.session.commit()
+    return line
+
+
+def cancel_order(order: SupplierOrder, actor_id: str) -> SupplierOrder:
+    if order.status in (SupplierOrderStatus.RECEIVED, SupplierOrderStatus.CANCELLED):
+        raise AppError("This supplier order is closed.", "ORDER_CLOSED", 409)
+    if any(ln.date_received for ln in order.active_lines):
+        raise AppError(
+            "Some lines were already received. Cancel the remaining lines one by one.",
+            "PARTLY_RECEIVED",
+            409,
+        )
+    lines = order.active_lines
+    _cancel_lines(lines, actor_id)
+    order.status = SupplierOrderStatus.CANCELLED
+    for job in {ln.job_order for ln in lines}:
+        mp_service.sync_job_material_from_purchases(job)
+    db.session.commit()
+    return order
+
+
+def split_line(order: SupplierOrder, line: MaterialPurchase, quantity) -> list:
+    """Partial delivery: keep ``quantity`` on this line and move the rest to a
+    new line on the same order, so each can be received as a whole line."""
+    if order.status not in RECEIVABLE_STATUSES:
+        raise AppError(
+            "Only lines on an issued supplier order can be split.", "ORDER_NOT_ISSUED", 409
+        )
+    if line.cancelled_at is not None or line.date_received is not None:
+        raise AppError(
+            "Only an outstanding line can be split.", "VALIDATION_ERROR", 400
+        )
+    keep = _decimal(quantity, "quantity", positive=True)
+    total = Decimal(str(line.quantity))
+    if keep >= total:
+        raise AppError(
+            f"Split quantity must be less than {total.normalize()} {line.unit}",
+            "VALIDATION_ERROR",
+            400,
+        )
+    rest = MaterialPurchase(
+        job_order_id=line.job_order_id,
+        supplier_order=order,
+        supplier_id=line.supplier_id,
+        planned_material_id=line.planned_material_id,
+        material_name=line.material_name,
+        grade_or_spec=line.grade_or_spec,
+        quantity=total - keep,
+        unit=line.unit,
+        unit_cost=line.unit_cost,
+        date_ordered=line.date_ordered,
+    )
+    line.quantity = keep
+    db.session.add(rest)
+    db.session.commit()
+    return [line, rest]
+
+
+def receive_order_lines(order: SupplierOrder, line_ids, received_date=None):
+    if order.status not in RECEIVABLE_STATUSES:
+        raise AppError(
+            "Only an issued supplier order can be received.", "ORDER_NOT_ISSUED", 409
+        )
+    if not line_ids:
+        raise AppError("Choose the lines that arrived.", "VALIDATION_ERROR", 400)
+    lines = [get_line(order, lid) for lid in line_ids]
+    mp_service.receive_lines(lines, received_date)
+    return order
+
+
+# Printing
+
+
+def _money(v: Decimal) -> Decimal:
+    return v.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def print_data(order: SupplierOrder) -> dict:
+    """The printed PO. Lines with the same material, grade and unit print as one
+    row; the system keeps them separate per job."""
+    groups: "OrderedDict[tuple, dict]" = OrderedDict()
+    for ln in order.active_lines:
+        key = (
+            (ln.material_name or "").strip().lower(),
+            (ln.grade_or_spec or "").strip().lower(),
+            (ln.unit or "").strip().lower(),
+        )
+        row = groups.get(key)
+        if row is None:
+            row = groups[key] = {
+                "materialName": ln.material_name,
+                "gradeOrSpec": ln.grade_or_spec,
+                "unit": ln.unit,
+                "amount": Decimal("0"),
+                "quantity": Decimal("0"),
+                "jobNumbers": [],
+                "lineCount": 0,
+            }
+        qty = Decimal(str(ln.quantity or 0))
+        row["quantity"] += qty
+        row["amount"] += qty * Decimal(str(ln.unit_cost or 0))
+        row["lineCount"] += 1
+        jn = ln.job_order.job_number if ln.job_order else None
+        if jn and jn not in row["jobNumbers"]:
+            row["jobNumbers"].append(jn)
+
+    rows = []
+    subtotal = Decimal("0")
+    for row in groups.values():
+        amount = _money(row["amount"])
+        unit_cost = (
+            _money(amount / row["quantity"]) if row["quantity"] else Decimal("0")
+        )
+        subtotal += amount
+        rows.append(
+            {
+                **row,
+                "quantity": float(row["quantity"]),
+                "unitCost": float(unit_cost),
+                "amount": float(amount),
+            }
+        )
+    vat_amount = (
+        _money(subtotal * Decimal(str(order.vat_rate)) / Decimal("100"))
+        if order.vat_rate
+        else Decimal("0")
+    )
+    s = order.supplier
+    return {
+        "order": order.to_dict(),
+        "supplier": {
+            "name": s.name,
+            "contactPerson": s.contact_person,
+            "phone": s.phone,
+            "email": s.email,
+            "address": s.address,
+        }
+        if s
+        else None,
+        "rows": rows,
+        "subtotal": float(subtotal),
+        "vatRate": float(order.vat_rate) if order.vat_rate else None,
+        "vatAmount": float(vat_amount),
+        "total": float(subtotal + vat_amount),
+    }

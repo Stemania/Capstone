@@ -283,10 +283,17 @@ export default function JobOrderListPage() {
       const items: MenuProps['items'] = [];
       if (isOfficeStaff || isAdmin) {
         items.push({
+          key: 'view',
+          icon: <EyeOutlined />,
+          label: 'View',
+          onClick: () => navigate(`/job-orders/${record.id}`),
+        });
+        items.push({
           key: 'edit',
           icon: <EditOutlined />,
           label: 'Edit',
-          onClick: () => navigate(draftOpenPath(record)),
+          onClick: () =>
+            navigate(isAdmin ? draftOpenPath(record) : `/job-orders/${record.id}/edit?step=1`),
         });
         items.push({
           key: 'delete',
@@ -575,7 +582,7 @@ export default function JobOrderListPage() {
   ) : null;
 
   const openJob = (job: JobOrder) => {
-    if (job.status === 'DRAFT') navigate(draftOpenPath(job));
+    if (job.status === 'DRAFT' && isAdmin) navigate(draftOpenPath(job));
     else navigate(`/job-orders/${job.id}`);
   };
 
