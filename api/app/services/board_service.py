@@ -14,6 +14,7 @@ from app.models.operation_time import MachineDowntime
 from app.models.client import Client
 from app.services.schedule_calendar import (
     serialize_segments,
+    shop_available_hours,
     shop_day_windows_union,
     shop_local_to_utc,
     shop_now,
@@ -29,7 +30,6 @@ from app.utils.errors import AppError
 
 # Same threshold as capacity analytics (running near full).
 NEAR_FULL_PCT = 80.0
-HOURS_PER_SHOP_DAY = 9.0
 
 
 def _parse_date(value: str | None, label: str) -> date:
@@ -50,18 +50,6 @@ def _num(v, digits=2):
 def _job_number(job: JobOrder) -> str:
     year = job.created_at.year if job.created_at else datetime.utcnow().year
     return f"JO-{year}-{(job.id or '')[:4].upper()}"
-
-
-def _working_days_inclusive(start: date, end: date) -> int:
-    if end < start:
-        return 0
-    n = 0
-    cur = start
-    while cur <= end:
-        if cur.weekday() < 6:  # Mon–Sat
-            n += 1
-        cur += timedelta(days=1)
-    return n
 
 
 def schedule_board(
@@ -290,8 +278,7 @@ def schedule_board(
         )
 
     # Near-full machines for this board window (same hours rule as capacity analytics)
-    working_days = _working_days_inclusive(period_from, period_to)
-    available_per_unit = working_days * HOURS_PER_SHOP_DAY
+    available_per_unit = shop_available_hours(period_from, period_to)
     units_by_type = defaultdict(list)
     for u in units:
         units_by_type[u.machine_type_id].append(u)

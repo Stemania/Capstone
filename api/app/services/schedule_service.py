@@ -260,16 +260,19 @@ def _frozen_result(op: dict) -> dict | None:
                 message=None,
                 machine_unit_label=op.get("machineUnitLabel"),
             )
-    if status == OperationStatus.IN_PROGRESS.value and op.get("actualStart") and op.get("scheduledEnd"):
-        return _result_from_slot(
-            op,
-            op["actualStart"],
-            op["scheduledEnd"],
-            op.get("machineUnitId"),
-            scheduled=True,
-            message="in progress — existing window kept",
-            machine_unit_label=op.get("machineUnitLabel"),
-        )
+    started = status == OperationStatus.IN_PROGRESS.value or bool(op.get("actualStart"))
+    if started and op.get("scheduledEnd"):
+        start = op.get("actualStart") or op.get("scheduledStart")
+        if start:
+            return _result_from_slot(
+                op,
+                start,
+                op["scheduledEnd"],
+                op.get("machineUnitId"),
+                scheduled=True,
+                message="in progress — existing window kept",
+                machine_unit_label=op.get("machineUnitLabel"),
+            )
     return None
 
 

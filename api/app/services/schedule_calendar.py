@@ -187,59 +187,55 @@ def serialize_segments(
     ]
 
 
-def combine_intervals(base_start, base_end, extra_start, extra_end):
-    """Merge two time intervals on the same calendar day."""
-    intervals = []
-    if base_start is not None and base_end is not None and base_start < base_end:
-        intervals.append((base_start, base_end))
-    if extra_start is not None and extra_end is not None and extra_start < extra_end:
-        intervals.append((extra_start, extra_end))
-    if not intervals:
-        return None, None
-    intervals.sort()
-    merged_start, merged_end = intervals[0]
-    for s, e in intervals[1:]:
-        if s <= merged_end:
-            merged_end = max(merged_end, e)
+def _merge_time_windows(windows: list[tuple[time, time]]) -> list[tuple[time, time]]:
+    """Merge overlapping or touching same-day windows; real gaps stay gaps."""
+    valid = sorted((s, e) for s, e in windows if s is not None and e is not None and s < e)
+    merged: list[tuple[time, time]] = []
+    for s, e in valid:
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
         else:
-            merged_start = min(merged_start, s)
-            merged_end = max(merged_end, e)
-    return merged_start, merged_end
+            merged.append((s, e))
+    return merged
 
 
-def effective_hours_for_date(on_date, schedule_by_dow, exceptions_by_date):
+def effective_windows_for_date(on_date, schedule_by_dow, exceptions_by_date):
     """
-    Return (start_time, end_time, is_working) for a shop-local calendar date,
-    applying WorkerSchedule + WorkCalendarException.
+    Working windows (shop-local times) for one calendar date, applying
+    WorkerSchedule + WorkCalendarException. Overtime that does not touch the
+    regular shift (e.g. 08–17 plus 18–20) yields two windows.
     """
     dow = on_date.weekday()  # 0=Mon … 6=Sun
     sched = schedule_by_dow.get(dow)
     exc = exceptions_by_date.get(on_date)
 
     if exc and exc.type == CalendarExceptionType.HOLIDAY_NO_WORK:
-        return None, None, False
+        return []
 
     base_working = bool(sched and sched.is_working and sched.start_time and sched.end_time)
-    base_start = sched.start_time if base_working else None
-    base_end = sched.end_time if base_working else None
+    base = [(sched.start_time, sched.end_time)] if base_working else []
 
     if exc and exc.type in (
         CalendarExceptionType.OVERTIME,
         CalendarExceptionType.SPECIAL_WORKING_DAY,
     ):
         if exc.start_time and exc.end_time:
-            if base_working:
-                start, end = combine_intervals(
-                    base_start, base_end, exc.start_time, exc.end_time
-                )
-                return start, end, True
-            return exc.start_time, exc.end_time, True
+            return _merge_time_windows(base + [(exc.start_time, exc.end_time)])
         if not base_working:
-            return time(8, 0), time(17, 0), True
+            return [(time(8, 0), time(17, 0))]
 
-    if base_working:
-        return base_start, base_end, True
-    return None, None, False
+    return _merge_time_windows(base)
+
+
+def effective_hours_for_date(on_date, schedule_by_dow, exceptions_by_date):
+    """
+    Return (start_time, end_time, is_working) for a shop-local calendar date:
+    the outer bounds of effective_windows_for_date (gaps are not reported here).
+    """
+    windows = effective_windows_for_date(on_date, schedule_by_dow, exceptions_by_date)
+    if not windows:
+        return None, None, False
+    return windows[0][0], windows[-1][1], True
 
 
 def build_worker_working_windows(
@@ -255,10 +251,9 @@ def build_worker_working_windows(
     cur = anchor_shop.date()
     last = end_shop.date()
     while cur <= last:
-        day_start_t, day_end_t, is_working = effective_hours_for_date(
+        for day_start_t, day_end_t in effective_windows_for_date(
             cur, schedule_by_dow, exceptions_by_date
-        )
-        if is_working and day_start_t and day_end_t:
+        ):
             w_start = shop_local_to_utc(cur, day_start_t)
             w_end = shop_local_to_utc(cur, day_end_t)
             if w_end > anchor_utc and w_start < end_utc:
@@ -396,7 +391,7 @@ def default_shop_schedule_by_dow():
 def shop_available_hours(period_from: date, period_to: date) -> float:
     """
     Available shop hours per calendar day from default shop working hours
-    plus WorkCalendarException (same effective_hours_for_date path as the scheduler).
+    plus WorkCalendarException (same effective_windows_for_date path as the scheduler).
     Overtime / special days add capacity; holiday / no-work days remove it.
     """
     if period_to < period_from:
@@ -406,12 +401,10 @@ def shop_available_hours(period_from: date, period_to: date) -> float:
     hours = 0.0
     d = period_from
     while d <= period_to:
-        start_t, end_t, is_working = effective_hours_for_date(d, schedule, exceptions)
-        if is_working and start_t and end_t:
+        for start_t, end_t in effective_windows_for_date(d, schedule, exceptions):
             start_dt = datetime.combine(d, start_t)
             end_dt = datetime.combine(d, end_t)
-            if end_dt > start_dt:
-                hours += (end_dt - start_dt).total_seconds() / 3600.0
+            hours += (end_dt - start_dt).total_seconds() / 3600.0
         d += timedelta(days=1)
     return hours
 

@@ -1,7 +1,7 @@
 """Rank production workers with fixed weighted scoring components.
 
-Availability is a filter (not a weight): unqualified and busy workers are
-omitted from the shortlist entirely.
+Availability is a filter (not a weight): unqualified, busy, and off-shift
+workers (per schedule + work calendar) are omitted from the shortlist entirely.
 """
 
 from app.models.machine import MachineType
@@ -17,11 +17,32 @@ from app.services.scoring_service import (
     score_workload,
     worker_week_load_hours,
 )
-from app.services.worker_availability import get_busy_workers
+from app.services.schedule_calendar import (
+    derive_working_segments,
+    load_calendar_exceptions,
+    load_worker_schedule_maps_many,
+    utc_to_shop,
+)
+from app.services.worker_availability import _parse_dt, get_busy_workers
 from app.services.worker_profile_service import (
     is_checking_operation,
     query_assignable_workers,
 )
+
+
+def _working_during(workers, scheduled_start, scheduled_end):
+    """Keep workers with working hours inside the window (schedule + work calendar)."""
+    start = _parse_dt(scheduled_start)
+    end = _parse_dt(scheduled_end)
+    if not start or not end or end <= start:
+        return workers
+    schedules = load_worker_schedule_maps_many([w.id for w in workers])
+    exceptions = load_calendar_exceptions(utc_to_shop(start).date(), utc_to_shop(end).date())
+    return [
+        w
+        for w in workers
+        if derive_working_segments(start, end, schedules.get(w.id, {}), exceptions)
+    ]
 
 
 def _resolve_machine_type_id(
@@ -75,6 +96,7 @@ def suggest_workers(
     Filters out:
       - workers without skill for the target machine type (when a machine is required)
       - workers busy for the proposed window (overlap), or IN_PROGRESS when no window
+      - workers with no working hours in the proposed window (off shift, holiday)
 
     Returns {"weights": {...}, "suggestions": [...]} — only eligible workers.
     """
@@ -127,6 +149,7 @@ def suggest_workers(
         exclude_operation_id=exclude_operation_id,
     )
     workers = [w for w in workers if w.id not in busy_workers]
+    workers = _working_during(workers, scheduled_start, scheduled_end)
 
     peer_ids = [w.id for w in workers]
     load_by_worker = {

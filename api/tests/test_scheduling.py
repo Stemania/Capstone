@@ -752,3 +752,184 @@ def test_not_required_material_unconstrained(schedule_patches):
     )
     assert result["operations"][0]["scheduledStart"] == anchor.isoformat()
     assert result["materialNotBefore"] is None
+
+
+def _calendar_patches(monkeypatch, exceptions):
+    schedule_by_dow = _mon_sat_schedule_by_dow()
+    monkeypatch.setattr(
+        "app.services.schedule_service.load_worker_schedule_maps",
+        lambda wid: schedule_by_dow,
+    )
+    monkeypatch.setattr(
+        "app.services.schedule_service.load_calendar_exceptions",
+        lambda start_d, end_d: {
+            d: e for d, e in exceptions.items() if start_d <= d <= end_d
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.schedule_service._load_external_bookings",
+        lambda **kwargs: ({}, {}),
+    )
+    monkeypatch.setattr("app.services.schedule_service._machine_units_by_type", lambda: {})
+    monkeypatch.setattr(
+        "app.services.schedule_service._qualified_worker_ids",
+        lambda machine_type_id, preferred_worker_id=None, **kwargs: ["worker-1"],
+    )
+
+
+def _single_op_proposal(anchor, hours):
+    return propose_schedule(
+        [
+            {
+                "sequenceNo": 1,
+                "operationName": "Turning",
+                "assignedWorkerId": "worker-1",
+                "machineTypeId": None,
+                "estimatedHours": hours,
+            }
+        ],
+        date(2026, 8, 31),
+        anchor_utc=anchor,
+    )
+
+
+def test_overtime_day_places_work_after_normal_closing(monkeypatch):
+    monday = date(2026, 8, 10)
+    _calendar_patches(
+        monkeypatch,
+        {
+            monday: SimpleNamespace(
+                date=monday,
+                type=CalendarExceptionType.OVERTIME,
+                start_time=time(17, 0),
+                end_time=time(20, 0),
+            )
+        },
+    )
+    op = _single_op_proposal(shop_local_to_utc(monday, time(14, 0)), 5)["operations"][0]
+
+    assert op["scheduled"] is True
+    finish = datetime.fromisoformat(op["scheduledEnd"]).astimezone(SHOP)
+    # 14:00–17:00 regular + 17:00–19:00 overtime, same day.
+    assert finish.date() == monday
+    assert (finish.hour, finish.minute) == (19, 0)
+
+    validation = validate_schedule(
+        [
+            {
+                "sequenceNo": 1,
+                "operationName": "Turning",
+                "assignedWorkerId": "worker-1",
+                "estimatedHours": 5,
+                "scheduledStart": op["scheduledStart"],
+                "scheduledEnd": op["scheduledEnd"],
+            }
+        ]
+    )
+    assert not [w for w in validation["warnings"] if w["code"] == "OUTSIDE_WORKING_HOURS"]
+
+
+def test_holiday_gets_no_work(monkeypatch):
+    monday = date(2026, 8, 10)
+    tuesday = date(2026, 8, 11)
+    _calendar_patches(
+        monkeypatch,
+        {
+            tuesday: SimpleNamespace(
+                date=tuesday,
+                type=CalendarExceptionType.HOLIDAY_NO_WORK,
+                start_time=None,
+                end_time=None,
+            )
+        },
+    )
+    op = _single_op_proposal(shop_local_to_utc(monday, time(14, 0)), 6)["operations"][0]
+
+    assert op["scheduled"] is True
+    segment_days = {
+        datetime.fromisoformat(s["start"]).astimezone(SHOP).date() for s in op["segments"]
+    }
+    assert tuesday not in segment_days
+    finish = datetime.fromisoformat(op["scheduledEnd"]).astimezone(SHOP)
+    # 3h Monday, Tuesday closed, remaining 3h Wednesday 08:00–11:00.
+    assert finish.date() == date(2026, 8, 12)
+    assert (finish.hour, finish.minute) == (11, 0)
+
+
+def test_gap_between_closing_and_overtime_is_not_working(monkeypatch):
+    monday = date(2026, 8, 10)
+    _calendar_patches(
+        monkeypatch,
+        {
+            monday: SimpleNamespace(
+                date=monday,
+                type=CalendarExceptionType.OVERTIME,
+                start_time=time(18, 0),
+                end_time=time(20, 0),
+            )
+        },
+    )
+    op = _single_op_proposal(shop_local_to_utc(monday, time(8, 0)), 10)["operations"][0]
+
+    finish = datetime.fromisoformat(op["scheduledEnd"]).astimezone(SHOP)
+    # 08:00–17:00 (9h), 17:00–18:00 skipped, 18:00–19:00 (1h).
+    assert finish.date() == monday
+    assert (finish.hour, finish.minute) == (19, 0)
+    starts = [datetime.fromisoformat(s["start"]).astimezone(SHOP) for s in op["segments"]]
+    ends = [datetime.fromisoformat(s["end"]).astimezone(SHOP) for s in op["segments"]]
+    assert [(s.hour, e.hour) for s, e in zip(starts, ends)] == [(8, 17), (18, 19)]
+
+
+def test_repropose_never_moves_in_progress_operations(monkeypatch):
+    _calendar_patches(monkeypatch, {})
+    monday = date(2026, 8, 10)
+    started_start = shop_local_to_utc(monday, time(8, 0)).isoformat()
+    started_end = shop_local_to_utc(monday, time(12, 0)).isoformat()
+    paused_start = shop_local_to_utc(monday, time(13, 0)).isoformat()
+    paused_end = shop_local_to_utc(monday, time(15, 0)).isoformat()
+    ops = [
+        {
+            "id": "op-1",
+            "sequenceNo": 1,
+            "operationName": "Turning",
+            "assignedWorkerId": "worker-1",
+            "estimatedHours": 4,
+            "status": "IN_PROGRESS",
+            "actualStart": started_start,
+            "scheduledStart": started_start,
+            "scheduledEnd": started_end,
+        },
+        {
+            # In progress with no recorded start still keeps its window.
+            "id": "op-2",
+            "sequenceNo": 2,
+            "operationName": "Facing",
+            "assignedWorkerId": "worker-1",
+            "estimatedHours": 2,
+            "status": "IN_PROGRESS",
+            "scheduledStart": paused_start,
+            "scheduledEnd": paused_end,
+        },
+        {
+            "id": "op-3",
+            "sequenceNo": 3,
+            "operationName": "Threading",
+            "assignedWorkerId": "worker-1",
+            "estimatedHours": 1,
+            "status": "SCHEDULED",
+            "scheduledStart": shop_local_to_utc(date(2026, 8, 14), time(8, 0)).isoformat(),
+            "scheduledEnd": shop_local_to_utc(date(2026, 8, 14), time(9, 0)).isoformat(),
+        },
+    ]
+    result = propose_schedule(
+        ops, date(2026, 8, 31), anchor_utc=shop_local_to_utc(monday, time(10, 0))
+    )
+    by_id = {o["id"]: o for o in result["operations"]}
+
+    assert by_id["op-1"]["scheduledStart"] == started_start
+    assert by_id["op-1"]["scheduledEnd"] == started_end
+    assert by_id["op-2"]["scheduledStart"] == paused_start
+    assert by_id["op-2"]["scheduledEnd"] == paused_end
+    # Not-started work is re-fitted right after the in-progress operations.
+    moved = datetime.fromisoformat(by_id["op-3"]["scheduledStart"]).astimezone(SHOP)
+    assert (moved.date(), moved.hour) == (monday, 15)

@@ -363,18 +363,20 @@ def delete_calendar_exception(exc_id):
 
 def calendar_exception_delete_impact(exc_id):
     """
-    Count scheduled ops that would fall outside working hours if this exception
-    (OT / special day) were removed.
+    Count scheduled ops with working time inside the hours this exception
+    (OT / special day) adds, i.e. work that would be stranded if it were removed.
     """
     from datetime import datetime, timedelta, timezone
 
     from app.models.operation import JobOperation, OperationStatus
     from app.services.schedule_calendar import (
         SHOP_TZ,
-        effective_hours_for_date,
+        build_worker_working_windows,
+        derive_working_segments,
+        intersect_intervals,
         load_calendar_exceptions,
         load_worker_schedule_maps,
-        utc_to_shop,
+        subtract_intervals,
     )
 
     row = WorkCalendarException.query.get(exc_id)
@@ -382,8 +384,9 @@ def calendar_exception_delete_impact(exc_id):
         raise AppError("Exception not found", "NOT_FOUND", 404)
 
     on_date = row.date
-    exceptions = load_calendar_exceptions(on_date, on_date)
-    exceptions.pop(on_date, None)
+    with_exc = load_calendar_exceptions(on_date, on_date)
+    with_exc[on_date] = row
+    without_exc = {d: e for d, e in with_exc.items() if d != on_date}
 
     day_start = datetime.combine(on_date, time.min, tzinfo=SHOP_TZ)
     day_end = day_start + timedelta(days=1)
@@ -397,7 +400,11 @@ def calendar_exception_delete_impact(exc_id):
             JobOperation.scheduled_start < day_end_utc,
             JobOperation.scheduled_end > day_start_utc,
             JobOperation.status.in_(
-                (OperationStatus.SCHEDULED, OperationStatus.IN_PROGRESS)
+                (
+                    OperationStatus.SCHEDULED,
+                    OperationStatus.IN_PROGRESS,
+                    OperationStatus.REWORK,
+                )
             ),
         ).all()
     )
@@ -405,6 +412,7 @@ def calendar_exception_delete_impact(exc_id):
     default_sched = _default_shop_schedule_by_dow()
     schedule_cache = {}
     affected = []
+    day_utc = [(day_start_utc, day_end_utc)]
 
     for op in ops:
         wid = op.assigned_worker_id
@@ -416,24 +424,14 @@ def calendar_exception_delete_impact(exc_id):
         else:
             sched = default_sched
 
-        start_t, end_t, is_working = effective_hours_for_date(
-            on_date, sched, exceptions
+        worked_today = intersect_intervals(
+            derive_working_segments(op.scheduled_start, op.scheduled_end, sched, with_exc),
+            day_utc,
         )
-        shop_start = utc_to_shop(op.scheduled_start)
-        shop_end = utc_to_shop(op.scheduled_end)
-        overlap_start = max(shop_start, day_start)
-        overlap_end = min(shop_end, day_end)
-        if overlap_end <= overlap_start:
-            continue
-
-        stranded = False
-        if not is_working or not start_t or not end_t:
-            stranded = True
-        else:
-            win_start = datetime.combine(on_date, start_t, tzinfo=SHOP_TZ)
-            win_end = datetime.combine(on_date, end_t, tzinfo=SHOP_TZ)
-            if overlap_start < win_start or overlap_end > win_end:
-                stranded = True
+        remaining_windows = build_worker_working_windows(
+            sched, without_exc, day_start_utc, day_end_utc
+        )
+        stranded = bool(subtract_intervals(worked_today, remaining_windows))
 
         if stranded:
             job = op.job_order

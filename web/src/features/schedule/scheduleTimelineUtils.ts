@@ -100,10 +100,11 @@ export function defaultShopDayWindows(from: Dayjs, to: Dayjs): ShopDayWindow[] {
 }
 
 /**
- * Week columns use a fixed shop window (08:00–17:00) for geometry so a job
- * that starts at opening sits flush on every day. API shopDayWindows only
- * decide which days are working — the board's per-day union of worker hours
- * can start earlier on some weekdays and inset bars (the Tuesday gap).
+ * Week columns start at the fixed 08:00 opening so a job that starts at
+ * opening sits flush on every day (the per-day union of worker hours can start
+ * earlier on some weekdays and would inset bars — the Tuesday gap). A day that
+ * runs past 17:00 (overtime) gets a proportionally wider column so bars are
+ * not cut off at normal closing time.
  */
 export function buildWeekTimelineLayout(
   from: Dayjs,
@@ -115,7 +116,6 @@ export function buildWeekTimelineLayout(
   const byDate = new Map(windows.map((w) => [w.date, w]));
   const count = to.diff(from, 'day') + 1;
   const colW = defaultWorkingDayWidth(pph);
-  const durationHours = (DEFAULT_DAY_END_MIN - DEFAULT_DAY_START_MIN) / 60;
 
   const days: WeekDayColumn[] = [];
   let cursor = 0;
@@ -124,16 +124,21 @@ export function buildWeekTimelineLayout(
     const date = d.format('YYYY-MM-DD');
     const w = byDate.get(date);
     const isWorking = w?.isWorking ?? d.day() !== 0;
+    const endMinutes = isWorking
+      ? Math.max(DEFAULT_DAY_END_MIN, w?.endTime ? parseHm(w.endTime) : 0)
+      : 0;
+    const durationHours = isWorking ? (endMinutes - DEFAULT_DAY_START_MIN) / 60 : 0;
+    const width = isWorking ? durationHours * pph : colW;
     days.push({
       date,
       isWorking,
       startMinutes: isWorking ? DEFAULT_DAY_START_MIN : 0,
-      endMinutes: isWorking ? DEFAULT_DAY_END_MIN : 0,
-      durationHours: isWorking ? durationHours : 0,
+      endMinutes,
+      durationHours,
       left: cursor,
-      width: colW,
+      width,
     });
-    cursor += colW;
+    cursor += width;
   }
 
   return { days, totalWidth: cursor, pph };
