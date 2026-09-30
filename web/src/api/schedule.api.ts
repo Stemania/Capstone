@@ -69,6 +69,7 @@ export type ScheduleBoardResponse = {
   downtimes: ScheduleBoardDowntime[];
   summary: {
     operationsScheduled: number;
+    jobsScheduled: number;
     machinesNearFullCapacity: {
       machineTypeId: string;
       machineTypeCode: string;

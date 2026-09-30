@@ -455,8 +455,8 @@ function AdminOfficeScheduleBoard() {
           </div>
           <div className="sched-m__stats">
             <div className="sched-m__stat">
-              <div className="sched-m__stat-n">{summary?.operationsScheduled ?? '—'}</div>
-              <div className="sched-m__stat-l">Scheduled</div>
+              <div className="sched-m__stat-n">{summary?.jobsScheduled ?? '—'}</div>
+              <div className="sched-m__stat-l">JO scheduled</div>
             </div>
             <div className="sched-m__stat">
               <div className="sched-m__stat-n">{nearFull.length}</div>
@@ -530,8 +530,17 @@ function AdminOfficeScheduleBoard() {
           }
         >
           <SummaryChip
-            label={isMobile ? 'Scheduled' : 'Operations scheduled'}
-            value={String(summary?.operationsScheduled ?? '—')}
+            label="JO scheduled"
+            value={String(summary?.jobsScheduled ?? '—')}
+            hint={
+              isMobile
+                ? undefined
+                : summary?.jobsScheduled
+                  ? `${summary.operationsScheduled} operation${
+                      summary.operationsScheduled === 1 ? '' : 's'
+                    } on the board`
+                  : 'No job orders in this period'
+            }
             compact={isMobile}
             fit={isMobile}
           />

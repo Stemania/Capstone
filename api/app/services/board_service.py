@@ -353,6 +353,7 @@ def schedule_board(
         "downtimes": downtimes_out,
         "summary": {
             "operationsScheduled": len(operations_out),
+            "jobsScheduled": len({row["jobOrderId"] for row in operations_out}),
             "machinesNearFullCapacity": near_full,
             "jobsAtRisk": at_risk,
         },
