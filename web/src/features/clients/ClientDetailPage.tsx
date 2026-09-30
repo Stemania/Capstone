@@ -11,7 +11,7 @@ import StatusPill, { type PillColor } from '../../components/StatusPill';
 const { Title, Text } = Typography;
 
 const STATUS_PILL: Record<string, { label: string; color: PillColor }> = {
-  DRAFT: { label: 'Draft', color: 'gray' },
+  DRAFT: { label: 'Pending', color: 'gray' },
   SCHEDULED: { label: 'Scheduled', color: 'blue' },
   IN_PROGRESS: { label: 'In Progress', color: 'blue' },
   COMPLETED: { label: 'Completed', color: 'green' },
@@ -125,7 +125,7 @@ export default function ClientDetailPage() {
             <strong>{data.totals.jobCount}</strong>
           </div>
           <div>
-            <span style={{ color: '#64748b' }}>Total value (excl. drafts) </span>
+            <span style={{ color: '#64748b' }}>Total value (excl. pending) </span>
             <strong>{money(data.totals.totalValue)}</strong>
           </div>
         </div>

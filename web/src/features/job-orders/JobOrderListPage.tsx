@@ -38,7 +38,7 @@ const PRODUCTION_STATUS_OPTIONS: { value: JobOrderStatus; label: string }[] = [
 ];
 
 const statusStyle: Record<JobOrderStatus, { label: string; color: PillColor }> = {
-  DRAFT: { label: 'Draft', color: 'gray' },
+  DRAFT: { label: 'Pending', color: 'gray' },
   SCHEDULED: { label: 'Scheduled', color: 'blue' },
   IN_PROGRESS: { label: 'In Progress', color: 'blue' },
   COMPLETED: { label: 'Completed', color: 'green' },
@@ -225,13 +225,13 @@ export default function JobOrderListPage() {
 
   const handleBulkDeleteDrafts = () => {
     if (!selectedJobs.length) {
-      message.info('Select drafts to delete.');
+      message.info('Select pending jobs to delete.');
       return;
     }
     const count = selectedJobs.length;
     Modal.confirm({
-      title: count === 1 ? 'Delete this draft?' : `Delete ${count} drafts?`,
-      content: 'Selected drafts will be permanently removed. This cannot be undone.',
+      title: count === 1 ? 'Delete this pending job?' : `Delete ${count} pending jobs?`,
+      content: 'Selected pending jobs will be permanently removed. This cannot be undone.',
       okText: 'Delete',
       okType: 'danger',
       cancelText: 'Cancel',
@@ -240,7 +240,7 @@ export default function JobOrderListPage() {
           for (const job of selectedJobs) {
             await jobOrdersApi.delete(job.id);
           }
-          message.success(count === 1 ? 'Draft deleted' : `${count} drafts deleted`);
+          message.success(count === 1 ? 'Pending job deleted' : `${count} pending jobs deleted`);
           setSelectedKeys([]);
           await fetchJobs();
         } catch (err) {
@@ -255,7 +255,7 @@ export default function JobOrderListPage() {
     const label = record.jobNumber || 'This job order';
     const isDraft = record.status === 'DRAFT';
     Modal.confirm({
-      title: isDraft ? 'Delete this draft?' : 'Delete this job order?',
+      title: isDraft ? 'Delete this pending job?' : 'Delete this job order?',
       content: isDraft
         ? `${label} will be permanently removed. This cannot be undone.`
         : `${label} and all of its scheduled operations will be permanently removed from the shop schedule. This cannot be undone.`,
@@ -265,7 +265,7 @@ export default function JobOrderListPage() {
       onOk: async () => {
         try {
           await jobOrdersApi.delete(record.id);
-          message.success(isDraft ? 'Draft deleted' : 'Job order deleted');
+          message.success(isDraft ? 'Pending job deleted' : 'Job order deleted');
           setSelectedKeys((keys) => keys.filter((k) => k !== record.id));
           await fetchJobs();
         } catch (err) {
@@ -570,7 +570,7 @@ export default function JobOrderListPage() {
           {
             label: (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                Drafts
+                Pending
                 {draftCount > 0 ? <Badge count={draftCount} size="small" /> : null}
               </span>
             ),

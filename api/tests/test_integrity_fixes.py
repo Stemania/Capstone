@@ -157,7 +157,7 @@ def test_released_job_refuses_operation_replacement(people):
             actor_role=UserRole.ADMIN.value,
         )
     assert exc.value.code == "OPERATIONS_LOCKED"
-    assert "draft" in exc.value.message
+    assert "pending" in exc.value.message
 
 
 def test_draft_job_can_still_replace_operations(people):

@@ -58,7 +58,7 @@ import OrderMaterialsModal from '../supplier-orders/OrderMaterialsModal';
 const { Title, Text } = Typography;
 
 const STATUS_PILL: Record<JobOrderStatus, { label: string; color: PillColor }> = {
-  DRAFT: { label: 'Draft', color: 'gray' },
+  DRAFT: { label: 'Pending', color: 'gray' },
   SCHEDULED: { label: 'Scheduled', color: 'blue' },
   IN_PROGRESS: { label: 'In Progress', color: 'blue' },
   COMPLETED: { label: 'Completed', color: 'green' },
@@ -630,7 +630,7 @@ export default function JobOrderDetailPage() {
     if (!job) return;
     const label = job.jobNumber || 'This job order';
     Modal.confirm({
-      title: isDraft ? 'Delete this draft?' : 'Delete this job order?',
+      title: isDraft ? 'Delete this pending job?' : 'Delete this job order?',
       content: isDraft
         ? `${label} will be permanently removed. This cannot be undone.`
         : `${label} and all of its scheduled operations will be permanently removed from the shop schedule. This cannot be undone.`,
@@ -640,7 +640,7 @@ export default function JobOrderDetailPage() {
       onOk: async () => {
         try {
           await jobOrdersApi.delete(job.id);
-          message.success(isDraft ? 'Draft deleted' : 'Job order deleted');
+          message.success(isDraft ? 'Pending job deleted' : 'Job order deleted');
           navigate(backTo, { replace: true });
         } catch (err) {
           message.error(getErrorMessage(err));
@@ -840,17 +840,22 @@ export default function JobOrderDetailPage() {
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
             {isDraft ? (
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  letterSpacing: 0.4,
-                  textTransform: 'uppercase',
-                  color: '#94a3b8',
-                }}
-              >
-                {job.draftStage || 'Draft'}
-              </span>
+              <>
+                <StatusPill color={status.color}>{status.label}</StatusPill>
+                {job.draftStage ? (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      letterSpacing: 0.4,
+                      textTransform: 'uppercase',
+                      color: '#94a3b8',
+                    }}
+                  >
+                    {job.draftStage}
+                  </span>
+                ) : null}
+              </>
             ) : (
               <StatusPill color={status.color}>{status.label}</StatusPill>
             )}

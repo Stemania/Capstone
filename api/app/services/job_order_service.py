@@ -671,7 +671,7 @@ def update_job_order(job, data, actor_role=None):
         if "operations" in data:
             if not is_draft:
                 raise AppError(
-                    "Operations can only be replaced while the job is a draft. "
+                    "Operations can only be replaced while the job is pending. "
                     "This job has been released; reassign, reschedule, or add rework "
                     "to individual operations instead.",
                     "OPERATIONS_LOCKED",
@@ -762,7 +762,7 @@ def release_job_order(job):
 
     if job.status != JobOrderStatus.DRAFT:
         raise AppError(
-            "Only draft jobs can be released",
+            "Only pending jobs can be released",
             "INVALID_TRANSITION",
             409,
         )

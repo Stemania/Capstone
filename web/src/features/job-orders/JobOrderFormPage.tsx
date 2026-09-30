@@ -272,7 +272,7 @@ export default function JobOrderFormPage() {
           type="info"
           showIcon
           style={{ marginBottom: 10 }}
-          message="This job is a draft. You can update PO details; Admin owns operations and release."
+          message="This job is pending. You can update PO details; Admin owns operations and release."
         />
       )}
 
@@ -453,7 +453,7 @@ export default function JobOrderFormPage() {
                 items: [
                   {
                     key: 'draft',
-                    label: 'Save as draft',
+                    label: 'Save as pending',
                     onClick: () => saveJob('list'),
                   },
                 ],
@@ -468,7 +468,7 @@ export default function JobOrderFormPage() {
               onClick={() => saveJob(canEnterPlanning ? 'list' : 'detail')}
               style={{ fontWeight: 600, minWidth: 160 }}
             >
-              {canEnterPlanning ? 'Save as draft' : 'Save Job Information'}
+              {canEnterPlanning ? 'Save as pending' : 'Save Job Information'}
             </Button>
           )}
         </div>
