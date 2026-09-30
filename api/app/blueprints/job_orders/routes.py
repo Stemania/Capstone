@@ -283,6 +283,17 @@ def propose_job_schedule(job_id):
     return jsonify(result)
 
 
+@job_orders_bp.route("/<job_id>/schedule/apply", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN)
+def apply_job_schedule(job_id):
+    role = get_current_user_role()
+    job = jo_service.get_job_order(job_id, get_current_user_id(), role)
+    data = request.get_json() or {}
+    job = jo_service.apply_released_schedule(job, data.get("operations"))
+    return jsonify(job.to_dict(include_operations=True, viewer_role=role))
+
+
 @job_orders_bp.route("/schedule/propose", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)

@@ -58,6 +58,16 @@ export const jobOrdersApi = {
   machineUnits: () => apiClient.get<MachineUnitInfo[]>('/job-orders/machine-units'),
   proposeSchedule: (jobId: string, body?: Record<string, unknown>) =>
     apiClient.post<ScheduleProposeResult>(`/job-orders/${jobId}/schedule/propose`, body || {}),
+  applySchedule: (
+    jobId: string,
+    operations: {
+      id: string;
+      scheduledStart: string;
+      scheduledEnd: string;
+      machineUnitId?: string | null;
+      assignedWorkerId?: string | null;
+    }[]
+  ) => apiClient.post<JobOrder>(`/job-orders/${jobId}/schedule/apply`, { operations }),
   proposeDraftSchedule: (body: Record<string, unknown>) =>
     apiClient.post<ScheduleProposeResult>('/job-orders/schedule/propose', body),
   validateSchedule: (body: Record<string, unknown>) =>

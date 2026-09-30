@@ -29,7 +29,27 @@ export interface CalendarDeleteImpact {
   }[];
 }
 
+export interface CalendarAffectedJob {
+  jobOrderId: string;
+  jobNumber: string;
+  title: string;
+  clientName?: string | null;
+  dueDate?: string | null;
+  operations: {
+    id: string;
+    sequenceNo: number;
+    operationName: string;
+    scheduledStart: string;
+    scheduledEnd: string;
+  }[];
+}
+
 export const calendarApi = {
+  affectedJobs: (from: string, to?: string) =>
+    apiClient.get<{ from: string; to: string; jobs: CalendarAffectedJob[] }>(
+      '/calendar/affected-jobs',
+      { params: { from, to } }
+    ),
   list: (from?: string, to?: string) =>
     apiClient.get<WorkCalendarException[]>('/calendar/exceptions', {
       params: { from, to },

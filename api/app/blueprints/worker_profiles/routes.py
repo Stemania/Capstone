@@ -111,6 +111,17 @@ def exception_delete_impact(exc_id):
     return jsonify(wp_service.calendar_exception_delete_impact(exc_id))
 
 
+@calendar_bp.route("/affected-jobs", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN)
+def affected_jobs():
+    return jsonify(
+        wp_service.jobs_affected_by_calendar_change(
+            request.args.get("from"), request.args.get("to")
+        )
+    )
+
+
 @calendar_bp.route("/exceptions/<exc_id>", methods=["DELETE"])
 @jwt_required()
 @require_roles(UserRole.ADMIN)

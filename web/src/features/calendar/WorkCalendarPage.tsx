@@ -23,11 +23,27 @@ import dayjs, { type Dayjs } from 'dayjs';
 import { Link } from 'react-router-dom';
 import {
   calendarApi,
+  type CalendarAffectedJob,
   type CalendarExceptionType,
   type WorkCalendarException,
 } from '../../api/calendar.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
+import RescheduleAffectedJobs from './RescheduleAffectedJobs';
+
+const TYPE_LABEL: Record<CalendarExceptionType, string> = {
+  OVERTIME: 'Overtime',
+  SPECIAL_WORKING_DAY: 'Special working day',
+  HOLIDAY_NO_WORK: 'Holiday',
+};
+
+function dateRangeLabel(from: string, to: string): string {
+  const a = dayjs(from);
+  const b = dayjs(to);
+  return from === to
+    ? a.format('MMM D, YYYY')
+    : `${a.format('MMM D')} – ${b.format('MMM D, YYYY')}`;
+}
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -84,6 +100,10 @@ export default function WorkCalendarPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<WorkCalendarException | null>(null);
   const [saving, setSaving] = useState(false);
+  const [affected, setAffected] = useState<{
+    changeLabel: string;
+    jobs: CalendarAffectedJob[];
+  } | null>(null);
   const [form] = Form.useForm();
   const watchType = Form.useWatch('type', form) as CalendarExceptionType | undefined;
 
@@ -111,13 +131,13 @@ export default function WorkCalendarPage() {
     fetchMonth(anchor);
   }, [anchor]);
 
-  const openCreate = (date: Dayjs) => {
-    if (!isAdmin) return;
+  const openDay = (date: Dayjs) => {
     const existing = byDate.get(date.format('YYYY-MM-DD'));
     if (existing) {
       openEdit(existing);
       return;
     }
+    if (!isAdmin) return;
     setEditing(null);
     const type: CalendarExceptionType = isNormalWorkingDay(date)
       ? 'OVERTIME'
@@ -145,6 +165,17 @@ export default function WorkCalendarPage() {
       note: exc.note || undefined,
     });
     setFormOpen(true);
+  };
+
+  const offerReschedule = async (from: string, to: string, change: string) => {
+    try {
+      const { data } = await calendarApi.affectedJobs(from, to);
+      if (data.jobs.length) {
+        setAffected({ changeLabel: `${change} ${dateRangeLabel(from, to)}`, jobs: data.jobs });
+      }
+    } catch {
+      /* advisory only; the calendar change itself already saved */
+    }
   };
 
   const onTypeChange = (type: CalendarExceptionType) => {
@@ -177,6 +208,7 @@ export default function WorkCalendarPage() {
         note: values.note?.trim() || null,
       };
 
+      let changed: { from: string; to: string; label: string };
       if (editing) {
         await calendarApi.update(editing.id, {
           type: payload.type,
@@ -186,6 +218,8 @@ export default function WorkCalendarPage() {
           note: payload.note,
         });
         message.success('Exception updated');
+        const [from, to] = [editing.date, payload.date].sort();
+        changed = { from, to, label: `${TYPE_LABEL[type]} changed on` };
       } else {
         const { data } = await calendarApi.create(payload);
         message.success(
@@ -193,9 +227,15 @@ export default function WorkCalendarPage() {
             ? `Created ${data.length} calendar exceptions`
             : 'Exception created'
         );
+        changed = {
+          from: payload.date,
+          to: payload.dateTo || payload.date,
+          label: `${TYPE_LABEL[type]} added on`,
+        };
       }
       setFormOpen(false);
       await fetchMonth(anchor);
+      await offerReschedule(changed.from, changed.to, changed.label);
     } catch (err) {
       if (err && typeof err === 'object' && 'errorFields' in err) return;
       message.error(getErrorMessage(err));
@@ -223,7 +263,7 @@ export default function WorkCalendarPage() {
         <div>
           <p style={{ marginBottom: 8 }}>
             Deleting may leave schedules in hours that are no longer working time.
-            This does not auto-reschedule anything.
+            Nothing is moved automatically; you can re-propose affected jobs afterwards.
           </p>
           {impactCount > 0 ? (
             <p style={{ marginBottom: 0 }}>
@@ -249,6 +289,7 @@ export default function WorkCalendarPage() {
           setFormOpen(false);
           setEditing(null);
           await fetchMonth(anchor);
+          void offerReschedule(exc.date, exc.date, `${TYPE_LABEL[exc.type]} removed on`);
         } catch (err) {
           message.error(getErrorMessage(err));
           throw err;
@@ -340,7 +381,7 @@ export default function WorkCalendarPage() {
                   className={classes}
                   disabled={!isAdmin && !exc}
                   onClick={() => {
-                    if (isAdmin || exc) openCreate(day);
+                    if (isAdmin || exc) openDay(day);
                   }}
                   title={exc ? exceptionBadge(exc) : undefined}
                 >
@@ -375,12 +416,18 @@ export default function WorkCalendarPage() {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="app-form-modal__title">
-              {editing ? 'Edit calendar exception' : 'Add calendar exception'}
+              {!isAdmin
+                ? 'Calendar exception'
+                : editing
+                  ? 'Edit calendar exception'
+                  : 'Add calendar exception'}
             </div>
             <div className="app-form-modal__sub">
-              {editing
-                ? 'Update overtime, special working days, or shop closures.'
-                : 'Set overtime, special working days, or shop closures for scheduling.'}
+              {!isAdmin
+                ? 'View only. Ask an Admin to change the work calendar.'
+                : editing
+                  ? 'Update overtime, special working days, or shop closures.'
+                  : 'Set overtime, special working days, or shop closures for scheduling.'}
             </div>
           </div>
           <button
@@ -496,6 +543,14 @@ export default function WorkCalendarPage() {
           )}
         </div>
       </Modal>
+
+      {affected ? (
+        <RescheduleAffectedJobs
+          changeLabel={affected.changeLabel}
+          jobs={affected.jobs}
+          onClose={() => setAffected(null)}
+        />
+      ) : null}
     </div>
   );
 }

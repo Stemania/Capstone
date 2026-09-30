@@ -877,3 +877,93 @@ def assign_operation_worker(operation, worker_id):
     except Exception:
         db.session.rollback()
         raise
+
+
+def _same_instant(a, b) -> bool:
+    from app.services.schedule_calendar import ensure_utc
+
+    if a is None or b is None:
+        return a is None and b is None
+    return ensure_utc(a) == ensure_utc(b)
+
+
+def apply_released_schedule(job, operations):
+    """
+    Admin confirms a re-proposed schedule for a released job. Only operations
+    that have not started get new windows; started or completed work never moves.
+    """
+    from app.models.machine import MachineUnit
+
+    if job.status in (JobOrderStatus.DRAFT, JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED):
+        raise AppError(
+            "Only released jobs with work still to do can be re-scheduled.",
+            "INVALID_TRANSITION",
+            409,
+        )
+    if not operations:
+        raise AppError("operations is required", "VALIDATION_ERROR", 400)
+
+    by_id = {op.id: op for op in job.operations}
+    try:
+        for data in operations:
+            op = by_id.get(data.get("id"))
+            if op is None:
+                raise AppError(
+                    "Operation does not belong to this job", "VALIDATION_ERROR", 400
+                )
+            start = _parse_datetime(data.get("scheduledStart"))
+            end = _parse_datetime(data.get("scheduledEnd"))
+            started = op.status in _STARTED_OPERATION_STATUSES or op.actual_start is not None
+            if started:
+                start_kept = (
+                    start is None
+                    or _same_instant(start, op.scheduled_start)
+                    or _same_instant(start, op.actual_start)
+                )
+                end_kept = end is None or _same_instant(end, op.scheduled_end)
+                if not (start_kept and end_kept):
+                    raise AppError(
+                        f"{op.operation_name or f'Operation {op.sequence_no}'} has already "
+                        "started, so its schedule can't be moved.",
+                        "OPERATION_STARTED",
+                        409,
+                    )
+                continue
+            if not start or not end or end <= start:
+                raise AppError(
+                    f"{op.operation_name or f'Operation {op.sequence_no}'} needs a valid window.",
+                    "VALIDATION_ERROR",
+                    400,
+                )
+            unit_id = data.get("machineUnitId") or None
+            if unit_id:
+                unit = MachineUnit.query.get(unit_id)
+                if unit is None or (
+                    op.machine_type_id and unit.machine_type_id != op.machine_type_id
+                ):
+                    raise AppError(
+                        "Machine unit does not match the operation's machine type",
+                        "VALIDATION_ERROR",
+                        400,
+                    )
+            worker_id = data.get("assignedWorkerId") or op.assigned_worker_id
+            if worker_id and worker_id != op.assigned_worker_id:
+                if User.query.get(worker_id) is None:
+                    raise AppError("Worker not found", "VALIDATION_ERROR", 400)
+
+            op.scheduled_start = start
+            op.scheduled_end = end
+            op.machine_unit_id = unit_id or op.machine_unit_id
+            op.assigned_worker_id = worker_id
+            if op.status == OperationStatus.PENDING and worker_id:
+                op.status = OperationStatus.SCHEDULED
+
+        job.status = derive_job_status(job)
+        db.session.commit()
+        return get_job_order(job.id, job.created_by_id, UserRole.ADMIN.value)
+    except AppError:
+        db.session.rollback()
+        raise
+    except Exception:
+        db.session.rollback()
+        raise

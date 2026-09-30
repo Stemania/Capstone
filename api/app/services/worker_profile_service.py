@@ -461,6 +461,76 @@ def calendar_exception_delete_impact(exc_id):
     }
 
 
+def jobs_affected_by_calendar_change(from_s, to_s=None):
+    """
+    Released jobs with not-yet-started operations scheduled on the changed
+    date(s). Nothing is moved here; the Admin chooses which jobs to re-propose.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.job_order import JobOrder, JobOrderStatus
+    from app.models.operation import JobOperation, OperationStatus
+    from app.services.schedule_calendar import SHOP_TZ
+
+    d0 = _parse_date(from_s)
+    d1 = _parse_date(to_s) if to_s else d0
+    if not d0 or not d1:
+        raise AppError("date required", "VALIDATION_ERROR", 400)
+    if d1 < d0:
+        d0, d1 = d1, d0
+
+    start_utc = datetime.combine(d0, time.min, tzinfo=SHOP_TZ).astimezone(timezone.utc)
+    end_utc = (
+        datetime.combine(d1, time.min, tzinfo=SHOP_TZ) + timedelta(days=1)
+    ).astimezone(timezone.utc)
+
+    ops = (
+        JobOperation.query.join(JobOrder)
+        .filter(
+            JobOrder.status.in_((JobOrderStatus.SCHEDULED, JobOrderStatus.IN_PROGRESS)),
+            JobOperation.status.in_(
+                (OperationStatus.PENDING, OperationStatus.SCHEDULED, OperationStatus.REWORK)
+            ),
+            JobOperation.actual_start.is_(None),
+            JobOperation.scheduled_start.isnot(None),
+            JobOperation.scheduled_end.isnot(None),
+            JobOperation.scheduled_start < end_utc,
+            JobOperation.scheduled_end > start_utc,
+        )
+        .order_by(JobOperation.scheduled_start.asc())
+        .all()
+    )
+
+    jobs = {}
+    for op in ops:
+        job = op.job_order
+        entry = jobs.get(job.id)
+        if entry is None:
+            entry = jobs[job.id] = {
+                "jobOrderId": job.id,
+                "jobNumber": job.job_number,
+                "title": job.title,
+                "clientName": job.client.name if job.client else None,
+                "dueDate": job.due_date.isoformat() if job.due_date else None,
+                "operations": [],
+            }
+        entry["operations"].append(
+            {
+                "id": op.id,
+                "sequenceNo": op.sequence_no,
+                "operationName": op.operation_name,
+                "scheduledStart": op.scheduled_start.isoformat(),
+                "scheduledEnd": op.scheduled_end.isoformat(),
+            }
+        )
+
+    return {
+        "from": d0.isoformat(),
+        "to": d1.isoformat(),
+        "jobs": list(jobs.values()),
+    }
+
+
 def list_operation_types(active_only=True):
     q = OperationType.query
     if active_only:
