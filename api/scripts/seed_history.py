@@ -205,31 +205,35 @@ MATERIAL_CATALOG = [
 ]
 LINES_PER_JOB = ([1, 2, 3], [45, 35, 20])
 
-# Supplier weight, price factor, and delivery delta (days vs stated lead time).
+# Weight for secondary lines, price factor, and target share of deliveries on
+# time (counted per purchase line, as the reliability score does for lines with no PO).
 SUPPLIER_PROFILES = {
-    "STP": {
-        "weight": 55,
-        "price_factor": 1.00,
-        "delay": ([-1, 0, 1, 2, 4], [10, 60, 15, 10, 5]),
-    },
-    "Railim": {
-        "weight": 30,
-        "price_factor": 0.97,
-        "delay": ([-1, 0, 1, 2, 3, 6], [10, 45, 15, 12, 10, 8]),
-    },
-    "Seno Metals": {
-        "weight": 15,
-        "price_factor": 1.08,
-        "delay": ([0, 1, 2], [80, 15, 5]),
-    },
+    "STP": {"weight": 55, "price_factor": 1.00, "on_time": 0.85},
+    "Railim": {"weight": 30, "price_factor": 0.97, "on_time": 0.70},
+    "Seno Metals": {"weight": 15, "price_factor": 1.08, "on_time": 0.60},
 }
+# Primary supplier per fabrication job, in rotation so each supplier gets
+# enough deliveries for a reliability score.
+PRIMARY_SUPPLIER_ROTATION = [
+    "Railim", "Seno Metals", "STP", "Railim", "Seno Metals", "STP", "Railim", "Seno Metals",
+]
 
+# Fabrication jobs whose materials arrived after the planned start.
+LATE_MATERIAL_SHARE = 0.22
+# Which supplier was late on those jobs: fixed proportions.
+LATE_SUPPLIER_SHARES = {"Railim": 0.50, "Seno Metals": 0.35, "STP": 0.15}
 
-# Started fabrication jobs whose materials arrived after the planned start
-# (about one fabrication job in five, since some are not started yet).
-LATE_MATERIAL_SHARE_OF_STARTED = 0.25
-# Which supplier was late on those jobs: deliberately uneven.
-LATE_SUPPLIER_WEIGHTS = {"STP": 15, "Railim": 50, "Seno Metals": 35}
+# Breakdowns, and other stoppages, for late-delivered jobs with no other recorded cause.
+BREAKDOWN_REASONS = [
+    ("Spindle bearing overheated", DowntimeCategory.MECHANICAL_FAILURE),
+    ("Coolant pump failure", DowntimeCategory.MECHANICAL_FAILURE),
+    ("Drive motor tripped", DowntimeCategory.ELECTRICAL_FAULT),
+]
+STOPPAGE_NOTES = [
+    "Waiting for client drawing clarification",
+    "Waiting for QC sign-off on first piece",
+    "Fixture rework before continuing",
+]
 
 
 def _assert_local_db():
@@ -686,21 +690,21 @@ def _job_type_mix_for_profile(profile_kind: str, rng: random.Random):
     """
     roll = rng.random()
     if profile_kind == "construction":
-        if roll < 0.82:
+        if roll < 0.90:
             return JobType.FABRICATION, PartCondition.RAW_MATERIAL
-        if roll < 0.92:
+        if roll < 0.96:
             return JobType.MODIFICATION, PartCondition.CLIENT_SUPPLIED_ITEM
         return JobType.REPAIR, PartCondition.CLIENT_SUPPLIED_ITEM
     if profile_kind == "manufacturing":
-        if roll < 0.55:
+        if roll < 0.40:
             return JobType.MODIFICATION, PartCondition.CLIENT_SUPPLIED_ITEM
-        if roll < 0.85:
+        if roll < 0.60:
             return JobType.REPAIR, PartCondition.CLIENT_SUPPLIED_ITEM
         return JobType.FABRICATION, PartCondition.RAW_MATERIAL
     # mixed
-    if roll < 0.45:
+    if roll < 0.65:
         return JobType.FABRICATION, PartCondition.RAW_MATERIAL
-    if roll < 0.75:
+    if roll < 0.85:
         return JobType.MODIFICATION, PartCondition.CLIENT_SUPPLIED_ITEM
     return JobType.REPAIR, PartCondition.CLIENT_SUPPLIED_ITEM
 
@@ -781,68 +785,27 @@ def _add_purchase_lines(
     suppliers: dict,
     today: date,
     rng: random.Random,
-    late_rng: random.Random | None = None,
+    primary: str,
 ) -> list:
     """
-    One to three purchase lines for a fabrication job, ordered together.
-
-    Started jobs: ordered early enough that every delivery lands on or before the
-    first operation's start day (the start gate requires it), consumed at that start.
-    About one started job in four (one fabrication job in five overall) instead had
-    its materials arrive after the planned start: see _record_late_material.
-    Not-started jobs: ordered on the job day; lines whose delivery is still in the
-    future stay on order.
+    One to three purchase lines for a fabrication job, mostly from ``primary``.
+    Started jobs consume them at the first operation's start. Delivery dates are
+    set afterwards by _shape_deliveries.
     """
     materials = _pick_materials(rng)
-    primary = _pick_supplier_name(rng)
     line_suppliers = [primary] + [
         _pick_supplier_name(rng) if rng.random() < 0.25 else primary
         for _ in materials[1:]
     ]
-
-    lead_by_supplier = {}
-    for name in dict.fromkeys(line_suppliers):
-        stated = suppliers[name].typical_lead_time_days or 1
-        deltas, weights = SUPPLIER_PROFILES[name]["delay"]
-        lead_by_supplier[name] = max(1, stated + rng.choices(deltas, weights=weights)[0])
-
     starts = [o.actual_start for o in ops if o.actual_start]
     first_start = min(starts) if starts else None
-    late_supplier = None
-    if first_start and late_rng is not None and late_rng.random() < LATE_MATERIAL_SHARE_OF_STARTED:
-        names = list(LATE_SUPPLIER_WEIGHTS)
-        late_supplier = late_rng.choices(names, weights=[LATE_SUPPLIER_WEIGHTS[n] for n in names])[0]
-        line_suppliers[0] = late_supplier
-        if late_supplier not in lead_by_supplier:
-            lead_by_supplier[late_supplier] = suppliers[late_supplier].typical_lead_time_days or 1
-        stated = suppliers[late_supplier].typical_lead_time_days or 1
-        # Late by enough that the delivery lands after the start planned on the promised date.
-        lead_by_supplier[late_supplier] = stated + late_rng.randint(3, 8)
-        lead_by_supplier = {
-            n: l for n, l in lead_by_supplier.items() if n in line_suppliers
-        }
-        primary = late_supplier
     if first_start:
         first_day = first_start.astimezone(ZoneInfo("Asia/Manila")).date()
-        if late_supplier:
-            # Work starts on the arrival day or the next working day.
-            buffer_days = late_rng.choice([0, 0, 1])
-            order_day = first_day - timedelta(days=lead_by_supplier[late_supplier] + buffer_days)
-        else:
-            buffer_days = rng.choice([0, 0, 1, 1, 2])
-            order_day = first_day - timedelta(days=max(lead_by_supplier.values()) + buffer_days)
+        longest = max(suppliers[n].typical_lead_time_days or 1 for n in line_suppliers)
+        order_day = first_day - timedelta(days=longest + rng.choice([0, 0, 1, 1, 2]))
     else:
         order_day = job.created_at.astimezone(ZoneInfo("Asia/Manila")).date()
     order_day = _skip_sunday_back(min(order_day, today))
-
-    received_by_supplier = {}
-    for name, lead in lead_by_supplier.items():
-        arrival = order_day + timedelta(days=lead)
-        if arrival.weekday() == 6:
-            arrival += timedelta(days=1)
-        if first_start and name != late_supplier:
-            arrival = min(arrival, first_day)
-        received_by_supplier[name] = arrival if arrival <= today else None
 
     lines = []
     for (name, spec, unit, (lo, hi), qtys, _w), supplier_name in zip(materials, line_suppliers):
@@ -856,21 +819,13 @@ def _add_purchase_lines(
             unit_cost=cost,
             supplier_id=suppliers[supplier_name].id,
             date_ordered=order_day,
-            date_received=received_by_supplier[supplier_name],
+            date_received=None,
             consumed_at=first_start,
         )
         job.material_purchases.append(line)
         lines.append(line)
 
-    order_created = shop_local_to_utc(order_day, time(7, 30))
-    if job.created_at > order_created:
-        job.created_at = order_created
-    if job.po_date and job.po_date > order_day:
-        job.po_date = order_day
     job.supplier_id = suppliers[primary].id
-    job.material_expected_date = order_day + timedelta(
-        days=suppliers[primary].typical_lead_time_days or 1
-    )
     job.raw_materials = [
         {"name": ln.material_name, "quantity": float(ln.quantity), "unit": ln.unit}
         for ln in lines
@@ -878,16 +833,245 @@ def _add_purchase_lines(
     for ln, planned in zip(lines, job.raw_materials):
         ln.planned_material_id = planned["id"]
     db.session.flush()
-    sync_job_material_from_purchases(job)
-    if late_supplier and received_by_supplier.get(late_supplier):
-        _record_late_material(
-            job,
-            suppliers[late_supplier],
-            order_day,
-            received_by_supplier[late_supplier],
-            first_start,
-        )
     return lines
+
+
+def _shop_day(dt) -> date:
+    return dt.astimezone(ZoneInfo("Asia/Manila")).date()
+
+
+def _quotas(total: int, shares: dict) -> dict:
+    """Split ``total`` by ``shares`` with the largest-remainder method."""
+    raw = {k: total * v for k, v in shares.items()}
+    out = {k: int(v) for k, v in raw.items()}
+    leftover = total - sum(out.values())
+    for k in sorted(raw, key=lambda k: raw[k] - out[k], reverse=True)[:leftover]:
+        out[k] += 1
+    return out
+
+
+def _pick_late_material_jobs(fab_jobs, first_start_by_job, suppliers, rng) -> dict:
+    """Started fabrication jobs whose materials arrived after the planned start,
+    with the late supplier assigned in LATE_SUPPLIER_SHARES proportions.
+    Returns {job id: supplier name}."""
+    started = [j for j in fab_jobs if first_start_by_job.get(j.id)]
+    base = max(1, round(len(fab_jobs) * LATE_MATERIAL_SHARE))
+
+    def split_error(n):
+        q = _quotas(n, LATE_SUPPLIER_SHARES)
+        return sum(abs(q[k] / n - s) for k, s in LATE_SUPPLIER_SHARES.items())
+
+    total = min(
+        len(started),
+        min(range(max(1, base - 1), base + 2), key=lambda n: (split_error(n), abs(n - base))),
+    )
+    chosen = {}
+    for name, k in _quotas(total, LATE_SUPPLIER_SHARES).items():
+        sid = suppliers[name].id
+        free = [j for j in started if j.id not in chosen]
+        pool = [j for j in free if j.supplier_id == sid]
+        pool += [j for j in free if j not in pool and any(p.supplier_id == sid for p in j.material_purchases)]
+        pool += [j for j in free if j not in pool]
+        if len(pool) > k:
+            primary_pool = [j for j in pool if j.supplier_id == sid]
+            pick = rng.sample(primary_pool, k) if len(primary_pool) >= k else pool[:k]
+        else:
+            pick = pool
+        for job in pick:
+            chosen[job.id] = name
+    return chosen
+
+
+def _apply_late_material(job, supplier, first_start, rng):
+    """That supplier's lines arrived 3-8 days after the promised date, on or just
+    before the first operation's start day. Returns (order day, arrival)."""
+    group = [p for p in job.material_purchases if p.supplier_id == supplier.id]
+    if not group:
+        group = [job.material_purchases[0]]
+        group[0].supplier_id = supplier.id
+    stated = supplier.typical_lead_time_days or 1
+    arrival = _shop_day(first_start) - timedelta(days=rng.choice([0, 0, 1]))
+    if arrival.weekday() == 6:
+        arrival -= timedelta(days=1)
+    order_day = _skip_sunday_back(arrival - timedelta(days=stated + rng.randint(3, 8)))
+    for p in group:
+        p.date_ordered = order_day
+        p.date_received = arrival
+    return order_day, arrival
+
+
+def _shape_deliveries(fab_jobs, first_start_by_job, suppliers, late_material, today, rng):
+    """
+    Set each (job, supplier) delivery on time or late so every supplier lands near
+    its SUPPLIER_PROFILES on-time share. Late-material deliveries already count late.
+
+    Started jobs: every delivery lands on or before the first operation's start day
+    (the start gate requires it). Not-started jobs: ordered on the job day; a
+    delivery not promised yet stays on order, a late one is received by today.
+    """
+    by_id = {s.id: s for s in suppliers.values()}
+    due = defaultdict(int)
+    late = defaultdict(int)
+    groups = []
+    for job in fab_jobs:
+        per_supplier = defaultdict(list)
+        for p in job.material_purchases:
+            per_supplier[p.supplier_id].append(p)
+        for sid, lines in per_supplier.items():
+            if late_material.get(job.id) == by_id[sid].name:
+                due[sid] += len(lines)
+                late[sid] += len(lines)
+            else:
+                groups.append((job, by_id[sid], lines))
+    groups.sort(key=lambda g: (g[2][0].date_ordered, g[0].created_at))
+
+    for job, supplier, lines in groups:
+        stated = supplier.typical_lead_time_days or 1
+        n = len(lines)
+        target_late = 1 - SUPPLIER_PROFILES[supplier.name]["on_time"]
+        make_late = late[supplier.id] + n / 2 < target_late * (due[supplier.id] + n)
+        first_start = first_start_by_job.get(job.id)
+        if first_start:
+            first_day = _shop_day(first_start)
+            days_late = rng.randint(1, 3) if make_late else 0
+            buffer_days = rng.choice([0, 0, 1, 1, 2])
+            order_day = _skip_sunday_back(
+                min(first_day - timedelta(days=stated + days_late + buffer_days), today)
+            )
+            promised = order_day + timedelta(days=stated)
+            if make_late:
+                received = promised + timedelta(days=days_late)
+            else:
+                received = promised - timedelta(days=rng.choice([0, 0, 0, 1]))
+                received = max(received, order_day)
+        else:
+            order_day = lines[0].date_ordered
+            promised = order_day + timedelta(days=stated)
+            if promised >= today:
+                for p in lines:
+                    p.date_received = None
+                continue
+            if make_late:
+                received = min(promised + timedelta(days=rng.randint(1, 3)), today)
+            else:
+                received = max(promised - timedelta(days=rng.choice([0, 0, 0, 1])), order_day)
+        if received.weekday() == 6:
+            step = 1 if received > promised and received - timedelta(days=1) <= promised else -1
+            received += timedelta(days=step)
+        if received <= order_day:
+            received = order_day + timedelta(days=1)
+            if received.weekday() == 6:
+                received += timedelta(days=1)
+        received = min(received, first_day if first_start else today)
+        for p in lines:
+            p.date_ordered = order_day
+            p.date_received = received
+        due[supplier.id] += n
+        if received > promised:
+            late[supplier.id] += n
+
+
+def _finish_job_materials(job, suppliers):
+    """Job dates and material status follow the final order and delivery dates."""
+    lines = list(job.material_purchases)
+    if not lines:
+        return
+    first_order = min(p.date_ordered for p in lines)
+    order_created = shop_local_to_utc(first_order, time(7, 30))
+    if job.created_at > order_created:
+        job.created_at = order_created
+    if job.po_date and job.po_date > first_order:
+        job.po_date = first_order
+    primary = next(s for s in suppliers.values() if s.id == job.supplier_id)
+    primary_order = min(p.date_ordered for p in lines if p.supplier_id == primary.id) if any(
+        p.supplier_id == primary.id for p in lines
+    ) else first_order
+    job.material_expected_date = primary_order + timedelta(
+        days=primary.typical_lead_time_days or 1
+    )
+    db.session.flush()
+    sync_job_material_from_purchases(job)
+
+
+def _settle_purchases(fab_jobs, first_start_by_job, suppliers, today, rng) -> dict:
+    """Late-material jobs, final delivery dates, and job material status.
+    Returns {job id: late supplier name}."""
+    late_material = _pick_late_material_jobs(fab_jobs, first_start_by_job, suppliers, rng)
+    late_arrivals = {}
+    for job in fab_jobs:
+        name = late_material.get(job.id)
+        if name:
+            late_arrivals[job.id] = _apply_late_material(
+                job, suppliers[name], first_start_by_job[job.id], rng
+            )
+    _shape_deliveries(fab_jobs, first_start_by_job, suppliers, late_material, today, rng)
+    for job in fab_jobs:
+        _finish_job_materials(job, suppliers)
+        if job.id in late_arrivals:
+            order_day, arrival = late_arrivals[job.id]
+            _record_late_material(
+                job, suppliers[late_material[job.id]], order_day, arrival,
+                first_start_by_job[job.id],
+            )
+    return late_material
+
+
+def _add_stoppage(job, breakdown: bool, reported_by_id, rng) -> str | None:
+    """Pause one completed operation inside its longest worked stretch: a machine
+    breakdown (with a downtime record linked to the job) or another stoppage.
+    Returns the cause added, or None when no stretch is long enough."""
+    best = None
+    for op in job.operations:
+        if op.status != OperationStatus.COMPLETED:
+            continue
+        if breakdown and not op.machine_unit_id:
+            continue
+        logs = (
+            OperationTimeLog.query.filter_by(operation_id=op.id)
+            .order_by(OperationTimeLog.event_at)
+            .all()
+        )
+        open_at = None
+        for log in logs:
+            if log.event in (OperationTimeEvent.START, OperationTimeEvent.RESUME):
+                open_at = log.event_at
+            elif log.event in (OperationTimeEvent.PAUSE, OperationTimeEvent.COMPLETE) and open_at:
+                if best is None or log.event_at - open_at > best[2] - best[1]:
+                    best = (op, open_at, log.event_at, logs[0].worker_id)
+                open_at = None
+    if best is None or best[2] - best[1] < timedelta(hours=1):
+        return _add_stoppage(job, False, reported_by_id, rng) if breakdown else None
+
+    op, seg_start, seg_end, worker_id = best
+    length = seg_end - seg_start
+    pause_at = (seg_start + length * 0.4).replace(second=0, microsecond=0)
+    duration = min(max(length * 0.35, timedelta(minutes=30)), timedelta(hours=3))
+    resume_at = pause_at + duration
+    if breakdown:
+        reason_text, category = rng.choice(BREAKDOWN_REASONS)
+        _append_log(op, worker_id, OperationTimeEvent.PAUSE, pause_at,
+                    reason=OperationPauseReason.MACHINE_DOWN, note=f"{TAG} {reason_text}")
+        db.session.add(
+            MachineDowntime(
+                machine_unit_id=op.machine_unit_id,
+                started_at=pause_at,
+                ended_at=resume_at,
+                category=category,
+                reason=reason_text,
+                reported_by_id=reported_by_id,
+                job_order_id=job.id,
+                operation_id=op.id,
+                note=f"{TAG} breakdown during {op.operation_name}",
+            )
+        )
+    else:
+        _append_log(op, worker_id, OperationTimeEvent.PAUSE, pause_at,
+                    reason=OperationPauseReason.OTHER, note=f"{TAG} {rng.choice(STOPPAGE_NOTES)}")
+    _append_log(op, worker_id, OperationTimeEvent.RESUME, resume_at)
+    db.session.flush()
+    db.session.refresh(op)
+    recompute_variance(op)
+    return "breakdown" if breakdown else "pause"
 
 
 def _record_late_material(job, supplier, order_day: date, arrived: date, first_start):
@@ -1107,6 +1291,7 @@ def seed_history():
     purchase_rng = random.Random(RNG_SEED + 1)
     late_rng = random.Random(RNG_SEED + 2)
     suppliers = _load_suppliers()
+    first_start_by_job = {}
     rework_count = 0
     variance_ops = 0
     pending_rework_budget = 2
@@ -1348,9 +1533,17 @@ def seed_history():
                     job.status = JobOrderStatus.COMPLETED
 
         if job_type == JobType.FABRICATION:
+            primary = PRIMARY_SUPPLIER_ROTATION[
+                len(first_start_by_job) % len(PRIMARY_SUPPLIER_ROTATION)
+            ]
+            starts = [o.actual_start for o in ops_for_job if o.actual_start]
+            first_start_by_job[job.id] = min(starts) if starts else None
             created_purchases.extend(
-                _add_purchase_lines(job, ops_for_job, suppliers, today, purchase_rng, late_rng)
+                _add_purchase_lines(job, ops_for_job, suppliers, today, purchase_rng, primary)
             )
+
+    fab_jobs = [j for j in created_jobs if j.job_type == JobType.FABRICATION]
+    late_material = _settle_purchases(fab_jobs, first_start_by_job, suppliers, today, late_rng)
 
     # Explicit on-time / late mix for completed jobs (~22% late)
     completed_for_due = [
@@ -1395,6 +1588,25 @@ def seed_history():
             delivered = max(delivered, completed_at)
             job.delivered_at = shop_local_to_utc(min(delivered, today), time(15, 0))
             job.status = JobOrderStatus.DELIVERED
+
+        # Every job delivered late has a recorded cause: late material, redo, or
+        # else a breakdown or other stoppage during one of its operations.
+        stoppage_rng = random.Random(RNG_SEED + 4)
+        added = 0
+        for job in completed_for_due:
+            if not job.delivered_at or _shop_day(job.delivered_at) <= job.due_date:
+                continue
+            if job.id in late_material:
+                continue
+            if any(
+                o.rework_of_operation_id and o.status == OperationStatus.COMPLETED
+                for o in job.operations
+            ):
+                continue
+            if _add_stoppage(job, added % 2 == 0, creator.id, stoppage_rng):
+                added += 1
+            else:
+                print(f"WARNING: no cause recorded for late job {job.client_po_number}")
 
     # Schedule open pipeline via live propose_schedule (capacity forecast demo)
     schedule_stats = _schedule_open_jobs(created_jobs, catalog, machines, rng)
