@@ -7,6 +7,7 @@ import {
   Modal,
   Select,
   Table,
+  Tooltip,
   Typography,
   message,
 } from 'antd';
@@ -18,6 +19,7 @@ import { inventoryApi } from '../../api/tools.api';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { suppliersApi } from '../../api/suppliers.api';
 import { getErrorMessage } from '../../api/client';
+import OverdueTag from '../../components/OverdueTag';
 import StatusPill from '../../components/StatusPill';
 import type { PillColor } from '../../components/StatusPill';
 import type {
@@ -28,6 +30,7 @@ import type {
   Supplier,
 } from '../../types';
 import { exportCsv } from '../../utils/csvExport';
+import { useAuth } from '../../hooks/useAuth';
 
 const { Text } = Typography;
 
@@ -66,6 +69,7 @@ function bucketQuantity(b: MaterialStockBucket) {
 
 export default function RawMaterialsPanel() {
   const navigate = useNavigate();
+  const { isOfficeStaff: canEdit } = useAuth();
   const [rows, setRows] = useState<MaterialPurchase[]>([]);
   const [summary, setSummary] = useState<MaterialPurchaseList['summary']>({
     purchaseCount: 0,
@@ -80,7 +84,7 @@ export default function RawMaterialsPanel() {
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [supplierId, setSupplierId] = useState<string | undefined>();
   const [material, setMaterial] = useState('');
-  const [status, setStatus] = useState<MaterialPurchaseStatus | undefined>();
+  const [status, setStatus] = useState<MaterialPurchaseStatus | 'OVERDUE' | undefined>();
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
@@ -152,6 +156,9 @@ export default function RawMaterialsPanel() {
     {
       title: 'Material',
       dataIndex: 'materialName',
+      width: 220,
+      fixed: 'left',
+      ellipsis: true,
       sorter: (a, b) => a.materialName.localeCompare(b.materialName),
       render: (n: string) => (
         <span style={{ fontWeight: 600, color: '#0f172a' }}>{n}</span>
@@ -222,7 +229,9 @@ export default function RawMaterialsPanel() {
             {r.poNumber}
           </Button>
         ) : (
-          <span style={{ fontSize: 12, color: '#64748b' }}>Recorded without a PO</span>
+          <Tooltip title="Recorded without a supplier order">
+            <span style={{ fontSize: 12, color: '#64748b' }}>No PO</span>
+          </Tooltip>
         ),
     },
     {
@@ -240,13 +249,23 @@ export default function RawMaterialsPanel() {
     {
       title: 'Status',
       dataIndex: 'status',
-      width: 110,
+      width: 190,
       render: (_: string, r) => {
         const pill = STATUS_PILL[purchaseStatus(r)];
         return (
-          <StatusPill color={pill.color} compact>
-            {pill.label}
-          </StatusPill>
+          <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <StatusPill color={pill.color} compact>
+              {pill.label}
+            </StatusPill>
+            <OverdueTag
+              days={r.daysOverdue}
+              tooltip={
+                r.currentExpectedDate
+                  ? `Expected ${dayjs(r.currentExpectedDate).format('MMM D, YYYY')} and not received yet.`
+                  : undefined
+              }
+            />
+          </span>
         );
       },
     },
@@ -255,7 +274,7 @@ export default function RawMaterialsPanel() {
       key: 'act',
       width: 110,
       render: (_: unknown, r) =>
-        r.dateReceived ? null : (
+        !canEdit || r.dateReceived ? null : (
           <Button size="small" onClick={() => markReceived(r)}>
             Received
           </Button>
@@ -271,9 +290,9 @@ export default function RawMaterialsPanel() {
         style={{ marginBottom: 16 }}
         message="Raw materials are bought for specific job orders, not kept as general stock. On hand means delivered and waiting for its job to start; lines become consumed automatically when the job's first operation starts."
         action={
-          <Link to="/analytics/purchasing">
+          <Link to="/analytics/suppliers">
             <Button size="small" type="link" icon={<LinkOutlined />}>
-              Analytics · Purchasing
+              Analytics · Suppliers
             </Button>
           </Link>
         }
@@ -359,6 +378,10 @@ export default function RawMaterialsPanel() {
             value={status}
             onChange={(v) => setStatus(v)}
             options={[
+              {
+                value: 'OVERDUE',
+                label: `Overdue${summary.overdueCount ? ` (${summary.overdueCount})` : ''}`,
+              },
               { value: 'ORDERED', label: 'Ordered' },
               { value: 'RECEIVED', label: 'Received (on hand)' },
               { value: 'CONSUMED', label: 'Consumed' },
@@ -401,17 +424,22 @@ export default function RawMaterialsPanel() {
 
       <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 8 }}>
         For spend by material or supplier, see{' '}
-        <Link to="/analytics/purchasing">Analytics → Purchasing</Link>.
+        <Link to="/analytics/suppliers">Analytics → Suppliers</Link>.
       </Text>
 
       <Table
-        className="std-list-table"
+        className="std-list-table raw-materials-table"
         rowKey="id"
         loading={loading}
         dataSource={rows}
         columns={columns}
         pagination={{ pageSize: 25, showSizeChanger: true }}
-        scroll={{ x: 1100 }}
+        scroll={{ x: 1510 }}
+        sticky={{
+          offsetHeader: 0,
+          getContainer: () =>
+            (document.querySelector('.app-shell__scroll') as HTMLElement | null) ?? window,
+        }}
         locale={{ emptyText: 'No material purchases match these filters.' }}
       />
     </div>

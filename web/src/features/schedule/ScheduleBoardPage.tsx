@@ -24,6 +24,7 @@ import { useNavigate } from 'react-router-dom';
 import { scheduleApi, type ScheduleBoardOperation, type ScheduleBoardResponse } from '../../api/schedule.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
+import { useOverdueCheck } from '../../hooks/useOverdueCheck';
 import { adminPx } from '../../theme/adminTheme';
 import {
   HOUR_END,
@@ -46,6 +47,7 @@ import {
   scheduleOpTitle,
   SCHEDULE_BAR_LABEL_SPAN_STYLE,
   SCHEDULE_BAR_META_STYLE,
+  MATERIAL_WAIT_BAR_IMAGE,
   SCHEDULE_BAR_TITLE_STYLE,
   mergeAdjacentWeekPieces,
   splitSegmentAcrossWeekDays,
@@ -115,8 +117,10 @@ function AdminOfficeScheduleBoard() {
   const [loading, setLoading] = useState(true);
 
   const { from, to } = useMemo(() => periodBounds(anchor, viewMode), [anchor, viewMode]);
+  const overdueChecked = useOverdueCheck();
 
   useEffect(() => {
+    if (!overdueChecked) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -139,7 +143,7 @@ function AdminOfficeScheduleBoard() {
     return () => {
       cancelled = true;
     };
-  }, [from, to, machineTypeId, workerId, clientId, includeCompleted]);
+  }, [from, to, machineTypeId, workerId, clientId, includeCompleted, overdueChecked]);
 
   const machineTypes = useMemo(() => {
     const map = new Map<string, string>();
@@ -260,6 +264,15 @@ function AdminOfficeScheduleBoard() {
   const showingToday = !today.isBefore(from, 'day') && !today.isAfter(to, 'day');
   const nearFull = summary?.machinesNearFullCapacity || [];
   const atRiskCount = summary?.jobsAtRisk?.length ?? 0;
+  const waitingJobs = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const op of data?.operations || []) {
+      if (op.waitingForMaterials && !seen.has(op.jobOrderId)) {
+        seen.set(op.jobOrderId, op.jobNumber || op.jobTitle || op.jobOrderId.slice(0, 8));
+      }
+    }
+    return [...seen.values()];
+  }, [data]);
   const activeFilterCount =
     [machineTypeId, workerId, clientId].filter(Boolean).length + (includeCompleted ? 0 : 1);
 
@@ -466,6 +479,10 @@ function AdminOfficeScheduleBoard() {
               <div className="sched-m__stat-n">{atRiskCount}</div>
               <div className="sched-m__stat-l">At risk</div>
             </div>
+            <div className="sched-m__stat">
+              <div className="sched-m__stat-n">{waitingJobs.length}</div>
+              <div className="sched-m__stat-l">No material</div>
+            </div>
           </div>
           {nearFull.length ? (
             <div className="sched-m__caps">
@@ -577,6 +594,19 @@ function AdminOfficeScheduleBoard() {
                   : 'No jobs past their date required'
             }
             danger={(summary?.jobsAtRisk?.length || 0) > 0}
+            compact={isMobile}
+            fit={isMobile}
+          />
+          <SummaryChip
+            label={isMobile ? 'No material' : 'Waiting for materials'}
+            value={String(waitingJobs.length)}
+            hint={
+              isMobile
+                ? undefined
+                : waitingJobs.length
+                  ? waitingJobs.slice(0, 4).join(', ') + (waitingJobs.length > 4 ? '…' : '')
+                  : 'Every job on the board has its materials'
+            }
             compact={isMobile}
             fit={isMobile}
           />
@@ -987,6 +1017,11 @@ function AdminOfficeScheduleBoard() {
                                     {formatShopDateTime(op.scheduledEnd)}
                                   </div>
                                   <div>Status: {statusLabel(op.status)}</div>
+                                  {op.waitingForMaterials ? (
+                                    <div style={{ color: '#FCD34D' }}>
+                                      Waiting for materials: {op.materialWaitReason}
+                                    </div>
+                                  ) : null}
                                   {late ? (
                                     <div style={{ color: '#E8C5CB' }}>
                                       At risk of missing date required ({op.dueDate || '—'})
@@ -1005,6 +1040,9 @@ function AdminOfficeScheduleBoard() {
                                   left: barLeft,
                                   width: barW,
                                   background: color,
+                                  backgroundImage: op.waitingForMaterials
+                                    ? MATERIAL_WAIT_BAR_IMAGE
+                                    : undefined,
                                   border: columnFill ? 'none' : late ? '2px solid #7A1528' : 'none',
                                   borderRadius: columnFill ? 0 : 4,
                                   color: '#fff',

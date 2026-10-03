@@ -299,6 +299,20 @@ export default function AssignmentDetailPage() {
                   {job.priority === 'HIGH' ? 'High' : job.priority === 'LOW' ? 'Low' : 'Moderate'}
                 </span>
               )}
+              {job.waitingForMaterials && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: '3px 10px',
+                    borderRadius: 999,
+                    background: 'rgba(217,119,6,0.12)',
+                    color: colors.amber,
+                  }}
+                >
+                  Waiting for materials
+                </span>
+              )}
               <span style={{ fontSize: 12, color: overdue ? colors.red : colors.textSecondary }}>
                 Due {dayjs(job.dueDate).format('MMM D, YYYY')}
               </span>
@@ -577,7 +591,26 @@ export default function AssignmentDetailPage() {
                     </div>
                   ) : null}
 
-                  {canStart && (
+                  {canStart && job.waitingForMaterials && (
+                    <>
+                      <Button block size="large" disabled style={{ height: 46, fontWeight: 700 }}>
+                        Start Operation
+                      </Button>
+                      <div
+                        style={{
+                          marginTop: 8,
+                          fontSize: 12,
+                          color: colors.amber,
+                          fontWeight: 600,
+                          textAlign: 'center',
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        Waiting for materials. {job.materialWaitReason}
+                      </div>
+                    </>
+                  )}
+                  {canStart && !job.waitingForMaterials && (
                     <Button
                       type="primary"
                       block

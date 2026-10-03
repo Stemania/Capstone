@@ -92,7 +92,7 @@ export default function ScheduleProposalPanel({
           ) : null}
         </div>
         <div className="jo-plan__schedule-meta-aside">
-          <Tag style={{ margin: 0 }}>Edits update the week view live — not saved until release</Tag>
+          <Tag style={{ margin: 0 }}>Edits update the week view live — not saved until you confirm</Tag>
           {onRefreshProposal && !readOnly ? (
             <Tooltip title="Reset to proposed schedule">
               <Button

@@ -11,9 +11,7 @@ import {
   Tooltip,
   Space,
   message,
-  DatePicker,
   Input,
-  Modal,
   Row,
   Col,
 } from 'antd';
@@ -24,6 +22,7 @@ import {
   DeleteOutlined,
   PlusOutlined,
   StarFilled,
+  WarningOutlined,
   ArrowUpOutlined,
   ArrowDownOutlined,
   ArrowLeftOutlined,
@@ -32,12 +31,12 @@ import {
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { jobOrdersApi, workersApi } from '../../api/jobOrders.api';
-import { suppliersApi } from '../../api/suppliers.api';
 import { operationTypesApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import { MACHINE_OPTIONS } from '../../types';
 import ScheduleProposalPanel from './ScheduleProposalPanel';
 import ScheduleWeekView from './ScheduleWeekView';
+import MaterialOrdersSummary from './MaterialOrdersSummary';
 import ScheduleExpandShell from '../schedule/ScheduleExpandShell';
 import JobOrderFlowSteps, {
   resolveJobFlowStep,
@@ -59,16 +58,11 @@ import type {
 const { Title, Text } = Typography;
 
 const MATERIAL_STATUS_OPTIONS: { value: MaterialStatus; label: string }[] = [
-  { value: 'NOT_REQUIRED', label: 'Not required' },
   { value: 'TO_ORDER', label: 'To order' },
+  { value: 'NOT_REQUIRED', label: 'Not required' },
 ];
 
 /** Ordered / Received come from purchase lines and are never set here. */
-const DERIVED_MATERIAL_LABEL: Partial<Record<MaterialStatus, string>> = {
-  ORDERED: 'Ordered (from purchases)',
-  RECEIVED: 'Received (from purchases)',
-};
-
 function isDerivedMaterialStatus(s: MaterialStatus) {
   return s === 'ORDERED' || s === 'RECEIVED';
 }
@@ -129,7 +123,7 @@ function workerOptions(workers: User[]) {
       disabled: !free,
       label: free
         ? w.fullName
-        : `${w.fullName} (unavailable${title ? ` Â· ${title}` : ''})`,
+        : `${w.fullName} (unavailable${title ? ` · ${title}` : ''})`,
     };
   });
 }
@@ -181,27 +175,28 @@ export default function JobOrderPlanningPage() {
     materialConstraintReason?: string | null;
   } | null>(null);
   const [materialStatus, setMaterialStatus] = useState<MaterialStatus>('TO_ORDER');
-  const [materialExpectedDate, setMaterialExpectedDate] = useState<string | null>(null);
-  const [supplierId, setSupplierId] = useState<string | null>(null);
-  const [supplierReference, setSupplierReference] = useState('');
-  const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([]);
+  const materialsNeeded = materialStatus !== 'NOT_REQUIRED';
+  const hasMaterialsToBuy = (job?.rawMaterials || []).some((m) => !m.fromStock);
   const linesReadiness =
-    materialStatus !== 'NOT_REQUIRED' && job?.materialReadiness?.source === 'PURCHASE_LINES'
+    materialsNeeded && job?.materialReadiness?.source === 'PURCHASE_LINES'
       ? job.materialReadiness
       : null;
-  const noLeadTimeSuppliers = Array.from(
-    new Set(
-      (linesReadiness?.lines || [])
-        .filter((l) => l.basis === 'TYPED_DATE' || l.basis === 'UNKNOWN')
-        .map((l) => l.supplierName || 'Unnamed supplier')
-    )
-  );
-  const materialDateUnknown = noLeadTimeSuppliers.length > 0 && !materialExpectedDate;
+  const unorderedMaterials = materialsNeeded
+    ? job?.materialReadiness?.unorderedMaterials || []
+    : [];
+  const materialsNotOrdered =
+    materialsNeeded &&
+    (unorderedMaterials.length > 0 ||
+      !(job?.materialReadiness?.supplierOrders || []).some(
+        (o) => o.status !== 'DRAFT' && o.status !== 'CANCELLED'
+      ));
+  const noLeadTimeSuppliers = linesReadiness?.missingLeadTimeSuppliers || [];
+  const materialDateUnknown = noLeadTimeSuppliers.length > 0;
   const [scheduleWarnings, setScheduleWarnings] = useState<Record<number, ScheduleWarning[]>>({});
   const [proposing, setProposing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [releasing, setReleasing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState('');
   const workerFetchSeq = useRef<Record<number, number>>({});
   const suggestionFetchSeq = useRef<Record<number, number>>({});
@@ -256,7 +251,7 @@ export default function JobOrderPlanningPage() {
 
   const goToStep = (step: JobFlowStepId) => {
     if (step === 1 && id) {
-      navigate(`/job-orders/${id}/edit?step=1`);
+      navigate(`/job-orders/${id}/edit?from=plan`);
       return;
     }
     setWizardStep(step);
@@ -300,7 +295,8 @@ export default function JobOrderPlanningPage() {
     return items;
   }, [operations, operationTypes]);
 
-  const canAdvanceToSchedule = operationsMissingItems.length === 0 && !materialDateUnknown;
+  const canAdvanceToSchedule =
+    operationsMissingItems.length === 0 && !materialDateUnknown;
   const advanceTooltip = !canAdvanceToSchedule
     ? [
         ...operationsMissingItems,
@@ -405,23 +401,21 @@ export default function JobOrderPlanningPage() {
     (async () => {
       setLoading(true);
       try {
-        const [jobRes, machinesRes, unitsRes, typesRes, suppliersRes] = await Promise.all([
+        const [jobRes, machinesRes, unitsRes, typesRes] = await Promise.all([
           jobOrdersApi.get(id),
           jobOrdersApi.machines(),
           jobOrdersApi.machineUnits(),
           operationTypesApi.list(),
-          suppliersApi.list({ activeOnly: true }),
         ]);
         if (cancelled) return;
         const j = jobRes.data;
-        setSuppliers(suppliersRes.data.map((s) => ({ id: s.id, name: s.name })));
         const land = resolveJobFlowStep(j);
         const rawStep = Number(searchParams.get('step'));
         const requested =
           rawStep === 2 || rawStep === 3 || rawStep === 4 ? (rawStep as JobFlowStepId) : null;
 
         if (!isPlanningStatus(j.status) && requested !== 4 && land !== 4) {
-          message.info('This job is already released. Opening confirmation.');
+          message.info('This job is already scheduled. Opening confirmation.');
         }
 
         let initial: JobFlowStepId = requested || land;
@@ -435,9 +429,6 @@ export default function JobOrderPlanningPage() {
 
         setJob(j);
         setMaterialStatus(j.materialStatus || 'TO_ORDER');
-        setMaterialExpectedDate(j.materialExpectedDate || null);
-        setSupplierId(j.supplierId || null);
-        setSupplierReference(j.supplierReference || '');
         setWizardStep(initial);
         if (String(searchParams.get('step')) !== String(initial)) {
           setSearchParams({ step: String(initial) }, { replace: true });
@@ -633,7 +624,7 @@ export default function JobOrderPlanningPage() {
       };
     });
 
-  const buildReleasePayload = () =>
+  const buildConfirmPayload = () =>
     buildOperationsPayload().map((op, i) => {
       const proposed = scheduleOps?.find((p) => p.sequenceNo === i + 1);
       if (!proposed?.scheduled) return op;
@@ -648,18 +639,14 @@ export default function JobOrderPlanningPage() {
     });
 
   const buildDraftSchedulePayload = () =>
-    buildReleasePayload().map((op) => ({
+    buildConfirmPayload().map((op) => ({
       ...op,
-      // Stay PENDING until release; windows alone mark schedule stage.
+      // Stay PENDING until the schedule is confirmed; windows alone mark schedule stage.
       status: op.status === 'SCHEDULED' ? 'PENDING' : op.status || 'PENDING',
     }));
 
-  const materialPayload = () => ({
-    ...(isDerivedMaterialStatus(materialStatus) ? {} : { materialStatus }),
-    materialExpectedDate: materialExpectedDate || null,
-    supplierId: supplierId || null,
-    supplierReference: supplierReference.trim() || null,
-  });
+  const materialPayload = () =>
+    isDerivedMaterialStatus(materialStatus) ? {} : { materialStatus };
 
   const savePlanning = async (exit = false) => {
     if (!id) return;
@@ -676,9 +663,6 @@ export default function JobOrderPlanningPage() {
       });
       setJob(data);
       setMaterialStatus(data.materialStatus || materialStatus);
-      setMaterialExpectedDate(data.materialExpectedDate || null);
-      setSupplierId(data.supplierId || null);
-      setSupplierReference(data.supplierReference || '');
       // Keep form rows in sync with persisted schedule so reopen lands on step 3.
       if (wizardStep === 3 && scheduleOps?.some((o) => o.scheduled)) {
         setOperations((prev) =>
@@ -716,9 +700,6 @@ export default function JobOrderPlanningPage() {
       });
       setJob(saved);
       setMaterialStatus(saved.materialStatus || materialStatus);
-      setMaterialExpectedDate(saved.materialExpectedDate || null);
-      setSupplierId(saved.supplierId || null);
-      setSupplierReference(saved.supplierReference || '');
       const { data } = await jobOrdersApi.proposeSchedule(id, {
         operations: buildOperationsPayload(),
       });
@@ -910,49 +891,23 @@ export default function JobOrderPlanningPage() {
     }
   };
 
-  const handleRelease = async () => {
+  const handleConfirmSchedule = async () => {
     if (!id || !scheduleOps?.some((o) => o.scheduled)) return;
-
-    const runRelease = async () => {
-      setReleasing(true);
-      setError('');
-      try {
-        await jobOrdersApi.update(id, {
-          operations: buildReleasePayload(),
-          ...materialPayload(),
-        });
-        const { data } = await jobOrdersApi.release(id);
-        setJob(data);
-        if (data.materialReleaseWarning) {
-          message.warning(data.materialReleaseWarning);
-        } else {
-          message.success('Released to production');
-        }
-        goToStep(4);
-      } catch (err) {
-        setError(getErrorMessage(err));
-      } finally {
-        setReleasing(false);
-      }
-    };
-
-    if (materialStatus === 'TO_ORDER' || materialStatus === 'ORDERED') {
-      const expectedIso = linesReadiness?.expectedDate || materialExpectedDate;
-      const expected = expectedIso ? dayjs(expectedIso).format('MMM D, YYYY') : 'not set';
-      Modal.confirm({
-        title: 'Material has not arrived',
-        content:
-          materialStatus === 'TO_ORDER'
-            ? `Material is still to order. Expected arrival: ${expected}. You can still release to plan ahead of delivery.`
-            : `Material is ordered but not received. Expected arrival: ${expected}. You can still release to plan ahead of delivery.`,
-        okText: 'Release anyway',
-        cancelText: 'Cancel',
-        onOk: () => runRelease(),
+    setConfirming(true);
+    setError('');
+    try {
+      const { data } = await jobOrdersApi.confirmSchedule(id, {
+        operations: buildConfirmPayload(),
+        ...materialPayload(),
       });
-      return;
+      setJob(data);
+      message.success('Schedule confirmed. The job is now scheduled.');
+      goToStep(4);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setConfirming(false);
     }
-
-    await runRelease();
   };
 
   const moveRow = (index: number, dir: -1 | 1) => {
@@ -982,9 +937,9 @@ export default function JobOrderPlanningPage() {
   const qtyLabel =
     job.quantity != null
       ? `${job.quantity}${job.unitOfMeasure ? ` ${job.unitOfMeasure}` : ''}`
-      : 'â€”';
+      : '—';
   const readOnly = !isPlanningStatus(job.status);
-  const canRelease = Boolean(scheduleOps?.some((o) => o.scheduled));
+  const canConfirm = Boolean(scheduleOps?.some((o) => o.scheduled));
 
   const columns: ColumnsType<OpFormRow> = [
     {
@@ -1130,7 +1085,7 @@ export default function JobOrderPlanningPage() {
       : wizardStep === 3
         ? 'Schedule'
         : wizardStep === 4
-          ? 'Released'
+          ? 'Scheduled'
           : 'Plan Job Order';
 
   return (
@@ -1165,11 +1120,11 @@ export default function JobOrderPlanningPage() {
 
       <div className="jo-plan__summary">
         {[
-          ['Client', job.clientName || 'â€”'],
+          ['Client', job.clientName || '—'],
           ['Title', job.title],
-          ['Date required', job.dueDate ? dayjs(job.dueDate).format('MMM D, YYYY') : 'â€”'],
+          ['Date required', job.dueDate ? dayjs(job.dueDate).format('MMM D, YYYY') : '—'],
           ['Quantity', qtyLabel],
-          ['Job type', job.jobType?.replace(/_/g, ' ') || 'â€”'],
+          ['Job type', job.jobType?.replace(/_/g, ' ') || '—'],
         ].map(([label, value]) => (
           <div key={label}>
             <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
@@ -1183,10 +1138,10 @@ export default function JobOrderPlanningPage() {
       {wizardStep === 4 ? (
         <div className="jo-plan__released">
           <CheckCircleFilled style={{ fontSize: 40, color: '#0f1c2e', marginBottom: 12 }} />
-          <h2 className="jo-plan__released-title">Job released to production</h2>
+          <h2 className="jo-plan__released-title">Job scheduled</h2>
           <p className="jo-plan__released-copy">
-            {job.jobNumber || 'This job'} is on the shop floor. Workers can see assigned operations,
-            and the client was notified that the job was received.
+            {job.jobNumber || 'This job'} is on the schedule. Workers can see their assigned
+            operations, and the client was notified that the job was received.
           </p>
           <div className="jo-plan__released-actions">
             <Link to={`/job-orders/${job.id}`}>
@@ -1204,127 +1159,62 @@ export default function JobOrderPlanningPage() {
       {wizardStep === 2 ? (
       <div className="jo-plan__panel">
         <div className="jo-plan__section-title">Material readiness</div>
-        <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 13 }}>
-          The first operation cannot start before material is available. Set expected arrival from
-          supplier lead time (typically 1–5 days after the PO).
+        <Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 13 }}>
+          The first operation cannot start before material arrives. The arrival date comes from
+          the job&apos;s supplier orders.
         </Text>
-        <Row gutter={[12, 12]} style={{ marginBottom: 20 }}>
-          <Col xs={24} sm={8}>
-            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>Status</div>
-            <Select
-              style={{ width: '100%' }}
-              value={materialStatus}
-              disabled={readOnly}
-              options={
-                isDerivedMaterialStatus(materialStatus)
-                  ? [
-                      ...MATERIAL_STATUS_OPTIONS,
-                      {
-                        value: materialStatus,
-                        label: DERIVED_MATERIAL_LABEL[materialStatus] ?? materialStatus,
-                        disabled: true,
-                      },
-                    ]
-                  : MATERIAL_STATUS_OPTIONS
-              }
-              onChange={(v) => setMaterialStatus(v)}
-            />
-          </Col>
-          <Col xs={24} sm={8}>
-            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>Expected arrival</div>
-            {linesReadiness && noLeadTimeSuppliers.length === 0 ? (
-              <div style={{ fontWeight: 600, color: '#0f172a', padding: '4px 0' }}>
-                {linesReadiness.expectedDate
-                  ? dayjs(linesReadiness.expectedDate).format('MMM D, YYYY')
-                  : '—'}
-                <div style={{ fontSize: 11, fontWeight: 400, color: '#64748b' }}>
-                  From purchase lines
-                </div>
-              </div>
-            ) : (
-              <DatePicker
-                style={{ width: '100%' }}
-                value={materialExpectedDate ? dayjs(materialExpectedDate) : null}
-                disabled={readOnly || materialStatus === 'NOT_REQUIRED'}
-                onChange={(d) => setMaterialExpectedDate(d ? d.format('YYYY-MM-DD') : null)}
-              />
-            )}
-          </Col>
-          <Col xs={24} sm={8}>
-            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>Supplier</div>
-            <Select
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              style={{ width: '100%' }}
-              placeholder="Select supplier"
-              value={supplierId || undefined}
-              disabled={readOnly || materialStatus === 'NOT_REQUIRED'}
-              options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
-              onChange={(v) => setSupplierId(v || null)}
-            />
-          </Col>
-          <Col xs={24} sm={8}>
-            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>
-              Supplier PO / invoice #
+        <Row gutter={[16, 12]} style={{ marginBottom: 24 }}>
+          <Col xs={24} md={8}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+              Materials needed?
             </div>
-            <Input
-              placeholder="Their order or invoice number"
-              value={supplierReference}
-              disabled={readOnly || materialStatus === 'NOT_REQUIRED'}
-              onChange={(e) => setSupplierReference(e.target.value)}
+            <Select<MaterialStatus>
+              style={{ width: '100%' }}
+              value={materialsNeeded ? 'TO_ORDER' : 'NOT_REQUIRED'}
+              disabled={readOnly}
+              options={MATERIAL_STATUS_OPTIONS.map((o) =>
+                o.value === 'TO_ORDER' ? { ...o, disabled: !hasMaterialsToBuy } : o
+              )}
+              onChange={(v) => {
+                // Ordered / Received are kept: they follow the purchase lines.
+                if (v === 'NOT_REQUIRED' || !isDerivedMaterialStatus(materialStatus)) {
+                  setMaterialStatus(v);
+                }
+              }}
             />
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>
+              {materialsNeeded
+                ? 'Set by the planned materials. Scheduling waits until they arrive.'
+                : hasMaterialsToBuy
+                  ? 'Marked Not required: the shop already has the material. Scheduling does not wait.'
+                  : 'No planned materials to buy. Add them in the job details if this job needs material.'}
+            </div>
           </Col>
+          {materialsNeeded ? (
+            <Col xs={24} md={16}>
+              {materialsNotOrdered ? (
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 10 }}
+                  message="Materials not ordered yet. The first operation is placed after the longest supplier lead time."
+                  description={
+                    <>
+                      {unorderedMaterials.length ? `${unorderedMaterials.join(', ')}. ` : ''}
+                      <Link to={`/job-orders/${job.id}#supplier-orders`}>
+                        View the job&apos;s supplier orders
+                      </Link>
+                    </>
+                  }
+                />
+              ) : null}
+              <MaterialOrdersSummary
+                planned={job.plannedMaterials}
+                readiness={job.materialReadiness}
+              />
+            </Col>
+          ) : null}
         </Row>
-
-        {noLeadTimeSuppliers.length > 0 ? (
-          <Alert
-            type="warning"
-            showIcon
-            style={{ marginBottom: 12 }}
-            message={`${noLeadTimeSuppliers.join(', ')} ${
-              noLeadTimeSuppliers.length === 1 ? 'has' : 'have'
-            } no lead time`}
-            description={
-              materialDateUnknown
-                ? 'Material arrival is unknown, so a schedule cannot be proposed. Set the lead time on the Suppliers page, or type an expected arrival date above.'
-                : 'The expected arrival date you typed is used for these lines. Setting the supplier’s lead time replaces it.'
-            }
-          />
-        ) : null}
-
-        {linesReadiness && linesReadiness.expectedDate && noLeadTimeSuppliers.length === 0 ? (
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 20 }}
-            message={`Schedule cannot start before ${dayjs(linesReadiness.expectedDate).format(
-              'MMM D, YYYY'
-            )}: latest material arrival across ${linesReadiness.lines.length} purchase line${
-              linesReadiness.lines.length === 1 ? '' : 's'
-            }`}
-            description={
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
-                {linesReadiness.lines.map((l) => (
-                  <li
-                    key={l.purchaseId}
-                    style={{
-                      fontWeight:
-                        l.purchaseId === linesReadiness.limitingLine?.purchaseId ? 600 : 400,
-                    }}
-                  >
-                    {l.materialName}
-                    {l.gradeOrSpec ? ` (${l.gradeOrSpec})` : ''}
-                    {l.supplierName ? ` · ${l.supplierName}` : ''} ·{' '}
-                    {l.basis === 'RECEIVED'
-                      ? `received ${dayjs(l.dateReceived).format('MMM D')}`
-                      : `ordered ${dayjs(l.dateOrdered).format('MMM D')} + ${l.leadTimeDays} day lead time → ${dayjs(l.expectedArrival).format('MMM D')}`}
-                  </li>
-                ))}
-              </ul>
-            }
-          />
-        ) : null}
 
         <div className="jo-plan__section-title">Operations</div>
         <Table
@@ -1418,6 +1308,15 @@ export default function JobOrderPlanningPage() {
                               {(s.score * 100).toFixed(0)}%
                             </Tag>
                           </div>
+                          {s.attendanceWarning && (
+                            <Tag
+                              color="warning"
+                              icon={<WarningOutlined />}
+                              style={{ margin: '4px 0 0', fontSize: 11 }}
+                            >
+                              {s.attendanceWarning}
+                            </Tag>
+                          )}
                           {s.reason && (
                             <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
                               {s.reason}
@@ -1492,7 +1391,7 @@ export default function JobOrderPlanningPage() {
         <div className="jo-plan__section-title">Schedule</div>
         <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 13 }}>
           Review times and pick the specific machine unit for each operation. Changes show in the
-          week view immediately. Release when ready.
+          week view immediately. Confirming the schedule releases the job to the shop floor.
         </Text>
 
         {scheduleOps ? (
@@ -1555,7 +1454,7 @@ export default function JobOrderPlanningPage() {
             type="info"
             showIcon
             style={{ marginTop: 12 }}
-            message="Go back to Operations and use â€œView proposed scheduleâ€ to generate a first draft."
+            message="Go back to Operations and use “View proposed schedule” to generate a first draft."
           />
         )}
 
@@ -1563,13 +1462,13 @@ export default function JobOrderPlanningPage() {
           <div className="jo-plan__footer">
             <Button onClick={goBackStep}>Back</Button>
             <Tooltip
-              title={!canRelease ? 'Propose a schedule before releasing to production.' : undefined}
+              title={!canConfirm ? 'Propose a schedule before confirming it.' : undefined}
             >
               <span>
                 <SplitActionButton
-                  loading={releasing || saving}
-                  disabled={!canRelease}
-                  onClick={handleRelease}
+                  loading={confirming || saving}
+                  disabled={!canConfirm}
+                  onClick={handleConfirmSchedule}
                   menu={{
                     items: [
                       {
@@ -1580,7 +1479,7 @@ export default function JobOrderPlanningPage() {
                     ],
                   }}
                 >
-                  Release to production
+                  Confirm schedule
                 </SplitActionButton>
               </span>
             </Tooltip>
@@ -1588,6 +1487,7 @@ export default function JobOrderPlanningPage() {
         ) : null}
       </div>
       ) : null}
+
     </div>
   );
 }

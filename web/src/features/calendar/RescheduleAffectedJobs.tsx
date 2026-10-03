@@ -44,7 +44,7 @@ export default function RescheduleAffectedJobs({ changeLabel, jobs, onClose }: P
         }
       >
         <p style={{ marginTop: 0, color: '#475569', fontSize: 13 }}>
-          {changeLabel}. These released jobs have operations on that date that have not started.
+          {changeLabel}. These scheduled jobs have operations on that date that have not started.
           Nothing has been moved. Re-propose a job to see its new schedule before confirming.
           Operations already in progress or completed never move.
         </p>
@@ -109,7 +109,7 @@ export default function RescheduleAffectedJobs({ changeLabel, jobs, onClose }: P
   );
 }
 
-function ReproposeModal({
+export function ReproposeModal({
   jobId,
   onClose,
   onConfirmed,

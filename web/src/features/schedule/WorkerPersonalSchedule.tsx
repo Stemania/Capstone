@@ -12,7 +12,12 @@ import {
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { WorkerPageHeader, useWorkerTheme } from '../../layouts/WorkerLayout';
-import { parseHm, periodBounds, scheduleOpTitle } from './scheduleTimelineUtils';
+import {
+  MATERIAL_WAIT_BAR_IMAGE,
+  parseHm,
+  periodBounds,
+  scheduleOpTitle,
+} from './scheduleTimelineUtils';
 import { SHOP_TZ } from '../../utils/shopTime';
 
 type ViewMode = 'day' | 'week';
@@ -309,6 +314,7 @@ export default function WorkerPersonalSchedule() {
                     border: 'none',
                     borderRadius: dayFill ? 0 : 8,
                     background: color,
+                    backgroundImage: b.op.waitingForMaterials ? MATERIAL_WAIT_BAR_IMAGE : undefined,
                     color: '#fff',
                     textAlign: 'left',
                     cursor: 'pointer',
@@ -347,7 +353,7 @@ export default function WorkerPersonalSchedule() {
                         width: '100%',
                       }}
                     >
-                      {b.labelSub}
+                      {b.op.waitingForMaterials ? 'Waiting for materials' : b.labelSub}
                     </span>
                   ) : null}
                 </button>

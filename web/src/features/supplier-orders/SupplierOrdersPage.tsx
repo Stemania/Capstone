@@ -6,14 +6,18 @@ import { useNavigate } from 'react-router-dom';
 import { supplierOrdersApi } from '../../api/supplierOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill from '../../components/StatusPill';
+import OverdueTag from '../../components/OverdueTag';
+import { useAuth } from '../../hooks/useAuth';
+import { useOverdueCheck } from '../../hooks/useOverdueCheck';
 import type { SupplierOrder, SupplierOrderStatus } from '../../types';
 import OrderMaterialsModal from './OrderMaterialsModal';
 import { ORDER_STATUS_PILL, fmtDay, fmtMoney } from './supplierOrderUi';
 
-type Filter = 'ALL' | SupplierOrderStatus;
+type Filter = 'ALL' | 'OVERDUE' | SupplierOrderStatus;
 
 const FILTERS: { label: string; value: Filter }[] = [
   { label: 'All', value: 'ALL' },
+  { label: 'Overdue', value: 'OVERDUE' },
   { label: 'Draft', value: 'DRAFT' },
   { label: 'Issued', value: 'ISSUED' },
   { label: 'Partly received', value: 'PARTIALLY_RECEIVED' },
@@ -23,12 +27,15 @@ const FILTERS: { label: string; value: Filter }[] = [
 
 export default function SupplierOrdersPage() {
   const navigate = useNavigate();
+  const { isOfficeStaff } = useAuth();
   const [rows, setRows] = useState<SupplierOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('ALL');
   const [newOpen, setNewOpen] = useState(false);
+  const checked = useOverdueCheck();
 
   const fetchRows = useCallback(async () => {
+    if (!checked) return;
     setLoading(true);
     try {
       const { data } = await supplierOrdersApi.list(
@@ -40,7 +47,7 @@ export default function SupplierOrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filter, checked]);
 
   useEffect(() => {
     void fetchRows();
@@ -80,8 +87,13 @@ export default function SupplierOrdersPage() {
     {
       title: 'Expected',
       dataIndex: 'expectedDeliveryDate',
-      width: 120,
-      render: (v) => fmtDay(v),
+      width: 170,
+      render: (v, r) => (
+        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          {fmtDay(v)}
+          <OverdueTag days={r.daysOverdue} tooltip="Not received by the expected date. Follow up with the supplier." />
+        </span>
+      ),
     },
     {
       title: 'Subtotal',
@@ -106,9 +118,11 @@ export default function SupplierOrdersPage() {
         }}
       >
         <Segmented<Filter> options={FILTERS} value={filter} onChange={setFilter} />
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setNewOpen(true)}>
-          New supplier order
-        </Button>
+        {isOfficeStaff && (
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setNewOpen(true)}>
+            New supplier order
+          </Button>
+        )}
       </div>
 
       <Table
@@ -122,7 +136,9 @@ export default function SupplierOrdersPage() {
           onClick: () => navigate(`/supplier-orders/${r.id}`),
           style: { cursor: 'pointer' },
         })}
-        locale={{ emptyText: 'No supplier orders yet.' }}
+        locale={{
+          emptyText: filter === 'OVERDUE' ? 'No overdue supplier orders.' : 'No supplier orders yet.',
+        }}
       />
 
       <OrderMaterialsModal

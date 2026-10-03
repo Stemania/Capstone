@@ -77,12 +77,15 @@ export const jobOrdersApi = {
   update: (id: string, data: Record<string, unknown>) =>
     apiClient.patch<JobOrder>(`/job-orders/${id}`, data),
   delete: (id: string) => apiClient.delete(`/job-orders/${id}`),
-  release: (id: string) => apiClient.post<JobOrder>(`/job-orders/${id}/release`),
+  confirmSchedule: (id: string, body: Record<string, unknown>) =>
+    apiClient.post<JobOrder>(`/job-orders/${id}/schedule/confirm`, body),
   deliver: (id: string) => apiClient.post<JobOrder>(`/job-orders/${id}/deliver`),
   markMaterialReceived: (id: string, receivedDate?: string) =>
     apiClient.post<JobOrder>(`/job-orders/${id}/material-received`, {
       receivedDate,
     }),
+  setPlannedMaterialFromStock: (id: string, materialId: string, fromStock: boolean) =>
+    apiClient.patch<JobOrder>(`/job-orders/${id}/planned-materials/${materialId}`, { fromStock }),
   listBreakdowns: (jobId: string) =>
     apiClient.get<MachineDowntimeRecord[]>(`/job-orders/${jobId}/breakdowns`),
   listMaterialPurchases: (jobId: string) =>

@@ -28,6 +28,7 @@ import {
   scheduleOpTitle,
   SCHEDULE_BAR_LABEL_SPAN_STYLE,
   SCHEDULE_BAR_META_STYLE,
+  MATERIAL_WAIT_BAR_IMAGE,
   SCHEDULE_BAR_TITLE_STYLE,
   mergeAdjacentWeekPieces,
   splitSegmentAcrossWeekDays,
@@ -577,6 +578,11 @@ export default function ScheduleTimelineBoard({
                           {!planningHighlight && (
                             <div>Status: {statusLabel(op.status)}</div>
                           )}
+                          {op.waitingForMaterials ? (
+                            <div style={{ color: '#FCD34D' }}>
+                              Waiting for materials: {op.materialWaitReason}
+                            </div>
+                          ) : null}
                           {late ? (
                             <div style={{ color: '#E8C5CB' }}>
                               At risk of missing date required ({op.dueDate || '—'})
@@ -608,6 +614,10 @@ export default function ScheduleTimelineBoard({
                         left: barLeft,
                         width: barW,
                         background: color,
+                        backgroundImage:
+                          op.waitingForMaterials && (isThisJob || !planningHighlight)
+                            ? MATERIAL_WAIT_BAR_IMAGE
+                            : undefined,
                         border: columnFill
                           ? 'none'
                           : isThisJob

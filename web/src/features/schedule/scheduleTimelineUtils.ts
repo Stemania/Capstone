@@ -567,6 +567,10 @@ export const SCHEDULE_BAR_TITLE_STYLE = {
   lineHeight: 1.15,
 };
 
+/** Amber stripes over a bar whose job is waiting for materials. */
+export const MATERIAL_WAIT_BAR_IMAGE =
+  'repeating-linear-gradient(135deg, rgba(217,119,6,0.55) 0 6px, transparent 6px 12px)';
+
 export const SCHEDULE_BAR_META_STYLE = {
   overflow: 'hidden' as const,
   textOverflow: 'ellipsis' as const,

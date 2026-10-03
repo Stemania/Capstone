@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Table, Button, Typography, Select, Dropdown, Input, Space, Spin, message, Drawer, Badge, Segmented, Modal, Tooltip } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
@@ -12,6 +12,9 @@ import {
   SearchOutlined,
   FilterOutlined,
   CloseOutlined,
+  CalendarOutlined,
+  AppstoreOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -19,8 +22,11 @@ import { scheduleFlagStyle } from '../../utils/shopTime';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
+import MaterialDelayTag from '../../components/MaterialDelayTag';
+import MaterialWaitTag from '../../components/MaterialWaitTag';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
 import { useAuth } from '../../hooks/useAuth';
+import { useOverdueCheck } from '../../hooks/useOverdueCheck';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import type { JobOrder, JobOrderStatus, JobPriority } from '../../types';
 
@@ -61,14 +67,129 @@ function isJobOverdue(job: JobOrder) {
 
 function JobStatusBadge({ job }: { job: JobOrder }) {
   const overdue = isJobOverdue(job);
-  if (overdue) return <StatusPill color="red" compact>Overdue</StatusPill>;
   const st = statusStyle[job.status] || statusStyle.SCHEDULED;
-  return <StatusPill color={st.color} compact>{st.label}</StatusPill>;
+  const pill = overdue ? (
+    <StatusPill color="red" compact>Overdue</StatusPill>
+  ) : (
+    <StatusPill color={st.color} compact>{st.label}</StatusPill>
+  );
+  const delayed = !!job.materialDelay && job.status === 'SCHEDULED';
+  if (!job.waitingForMaterials && !delayed) return pill;
+  return (
+    <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
+      {pill}
+      <MaterialWaitTag wait={job} />
+      <MaterialDelayTag job={job} />
+    </span>
+  );
 }
 
-function draftOpenPath(job: JobOrder): string {
-  if (!job.opsTotal) return `/job-orders/${job.id}/edit?step=1`;
-  return `/job-orders/${job.id}/plan`;
+function DuePill({ job }: { job: JobOrder }) {
+  const st = job.scheduleFlag ? scheduleFlagStyle[job.scheduleFlag] : null;
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        fontSize: 12,
+        fontWeight: 600,
+        padding: '3px 8px',
+        borderRadius: 6,
+        whiteSpace: 'nowrap',
+        lineHeight: 1.25,
+        color: st ? st.color : '#475569',
+        background: st ? st.bg : '#f1f5f9',
+        border: st ? `1px solid ${st.border}` : '1px solid #e2e8f0',
+      }}
+    >
+      {dayjs(job.dueDate).format('MMM D, YYYY')}
+    </span>
+  );
+}
+
+type ViewMode = 'cards' | 'list';
+const VIEW_STORAGE_KEY = 'jobOrders.view';
+
+function readViewMode(): ViewMode {
+  return localStorage.getItem(VIEW_STORAGE_KEY) === 'cards' ? 'cards' : 'list';
+}
+
+const VIEW_OPTIONS: { key: ViewMode; label: string; icon: ReactNode }[] = [
+  { key: 'cards', label: 'Cards', icon: <AppstoreOutlined /> },
+  { key: 'list', label: 'List', icon: <UnorderedListOutlined /> },
+];
+
+type JobCardProps = {
+  job: JobOrder;
+  isDraftTab: boolean;
+  selected: boolean;
+  actions: MenuProps['items'];
+  onClick: () => void;
+};
+
+function JobCard({ job, isDraftTab, selected, actions, onClick }: JobCardProps) {
+  const total = job.opsTotal || 0;
+  const done = job.opsCompleted || 0;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const pri = priorityStyle[job.priority || 'MODERATE'];
+  const modified = job.updatedAt || job.createdAt;
+  const menu = (
+    <div onClick={(e) => e.stopPropagation()}>
+      <Dropdown menu={{ items: actions }} trigger={['click']} placement="bottomRight">
+        <Button
+          type="text"
+          size="small"
+          icon={<MoreOutlined style={{ fontSize: 16 }} />}
+          aria-label="More actions"
+        />
+      </Dropdown>
+    </div>
+  );
+
+  return (
+    <div
+      className={`jo-card${selected ? ' is-selected' : ''}`}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onClick();
+      }}
+    >
+      <div className="jo-card__top">
+        <span className="jo-card__number">{job.jobNumber || job.id.slice(0, 8).toUpperCase()}</span>
+        <JobStatusBadge job={job} />
+        {menu}
+      </div>
+      <div className="jo-card__title" title={job.title}>
+        {job.title}
+      </div>
+      <div className="jo-card__client">{job.clientName || 'No client'}</div>
+      <div className="jo-card__pills">
+        <DuePill job={job} />
+        <StatusPill color={pri.color} compact>
+          {pri.label}
+        </StatusPill>
+      </div>
+      {isDraftTab ? (
+        <div className="jo-card__stage">{job.draftStage || '—'}</div>
+      ) : (
+        <div className="jo-card__progress">
+          <div className="jo-card__progress-label">
+            {done}/{total} ops
+          </div>
+          <div className="jo-card__bar">
+            <div className="jo-card__bar-fill" style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+      )}
+      <div className="jo-card__foot">
+        {modified && dayjs(modified).isValid()
+          ? `Modified ${dayjs(modified).format('MMM D, YYYY')}`
+          : '—'}
+        {isDraftTab && job.createdByName ? ` · ${job.createdByName}` : ''}
+      </div>
+    </div>
+  );
 }
 
 function jobSearchHaystack(job: JobOrder) {
@@ -102,7 +223,18 @@ export default function JobOrderListPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [error, setError] = useState('');
   const [delivering, setDelivering] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>(readViewMode);
   const navigate = useNavigate();
+
+  const changeViewMode = (mode: ViewMode) => {
+    setViewMode(mode);
+    localStorage.setItem(VIEW_STORAGE_KEY, mode);
+  };
+
+  const toggleSelected = (jobId: string) =>
+    setSelectedKeys((keys) =>
+      keys.includes(jobId) ? keys.filter((k) => k !== jobId) : [...keys, jobId]
+    );
   const { isAdmin, isOfficeStaff } = useAuth();
   const isPhone = useIsPhone();
 
@@ -140,9 +272,12 @@ export default function JobOrderListPage() {
     }
   };
 
+  const overdueChecked = useOverdueCheck();
+
   useEffect(() => {
+    if (!overdueChecked) return;
     fetchJobs(listTab);
-  }, [listTab, awaitingMaterialOnly]);
+  }, [listTab, awaitingMaterialOnly, overdueChecked]);
 
   const clientOptions = useMemo(() => {
     const names = new Set<string>();
@@ -253,19 +388,16 @@ export default function JobOrderListPage() {
 
   const confirmDeleteJob = (record: JobOrder) => {
     const label = record.jobNumber || 'This job order';
-    const isDraft = record.status === 'DRAFT';
     Modal.confirm({
-      title: isDraft ? 'Delete this pending job?' : 'Delete this job order?',
-      content: isDraft
-        ? `${label} will be permanently removed. This cannot be undone.`
-        : `${label} and all of its scheduled operations will be permanently removed from the shop schedule. This cannot be undone.`,
+      title: 'Delete this pending job?',
+      content: `${label} will be permanently removed. This cannot be undone.`,
       okText: 'Delete',
       okType: 'danger',
       cancelText: 'Cancel',
       onOk: async () => {
         try {
           await jobOrdersApi.delete(record.id);
-          message.success(isDraft ? 'Pending job deleted' : 'Job order deleted');
+          message.success('Pending job deleted');
           setSelectedKeys((keys) => keys.filter((k) => k !== record.id));
           await fetchJobs();
         } catch (err) {
@@ -288,12 +420,19 @@ export default function JobOrderListPage() {
           label: 'View',
           onClick: () => navigate(`/job-orders/${record.id}`),
         });
+        if (isAdmin) {
+          items.push({
+            key: 'plan',
+            icon: <CalendarOutlined />,
+            label: 'Plan',
+            onClick: () => navigate(`/job-orders/${record.id}/plan`),
+          });
+        }
         items.push({
           key: 'edit',
           icon: <EditOutlined />,
-          label: 'Edit',
-          onClick: () =>
-            navigate(isAdmin ? draftOpenPath(record) : `/job-orders/${record.id}/edit?step=1`),
+          label: isAdmin ? 'Edit details' : 'Edit',
+          onClick: () => navigate(`/job-orders/${record.id}/edit`),
         });
         items.push({
           key: 'delete',
@@ -319,7 +458,7 @@ export default function JobOrderListPage() {
         key: 'edit',
         icon: <EditOutlined />,
         label: 'Edit',
-        onClick: () => navigate(`/job-orders/${record.id}/edit?step=1`),
+        onClick: () => navigate(`/job-orders/${record.id}/edit`),
       });
     }
     items.push({
@@ -342,16 +481,6 @@ export default function JobOrderListPage() {
             message.error(getErrorMessage(err));
           }
         },
-      });
-    }
-    if (isOfficeStaff || isAdmin) {
-      items.push({ type: 'divider' });
-      items.push({
-        key: 'delete',
-        icon: <DeleteOutlined />,
-        label: 'Delete',
-        danger: true,
-        onClick: () => confirmDeleteJob(record),
       });
     }
     return items;
@@ -425,28 +554,7 @@ export default function JobOrderListPage() {
       width: 112,
       defaultSortOrder: 'ascend',
       sorter: (a, b) => dayjs(a.dueDate).valueOf() - dayjs(b.dueDate).valueOf(),
-      render: (d: string, record) => {
-        const flag = record.scheduleFlag;
-        const st = flag ? scheduleFlagStyle[flag] : null;
-        return (
-          <span
-            style={{
-              display: 'inline-block',
-              fontSize: 12,
-              fontWeight: 600,
-              padding: '3px 8px',
-              borderRadius: 6,
-              whiteSpace: 'nowrap',
-              lineHeight: 1.25,
-              color: st ? st.color : '#475569',
-              background: st ? st.bg : '#f1f5f9',
-              border: st ? `1px solid ${st.border}` : '1px solid #e2e8f0',
-            }}
-          >
-            {dayjs(d).format('MMM D, YYYY')}
-          </span>
-        );
-      },
+      render: (_d: string, record) => <DuePill job={record} />,
     },
     {
       title: 'Progress',
@@ -493,7 +601,7 @@ export default function JobOrderListPage() {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 108,
+      width: 150,
       render: (_s: JobOrderStatus, record) => <JobStatusBadge job={record} />,
     },
     {
@@ -570,7 +678,7 @@ export default function JobOrderListPage() {
           {
             label: (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                Pending
+                {isAdmin ? 'To plan' : 'Pending'}
                 {draftCount > 0 ? <Badge count={draftCount} size="small" /> : null}
               </span>
             ),
@@ -582,7 +690,7 @@ export default function JobOrderListPage() {
   ) : null;
 
   const openJob = (job: JobOrder) => {
-    if (job.status === 'DRAFT' && isAdmin) navigate(draftOpenPath(job));
+    if (job.status === 'DRAFT' && isAdmin) navigate(`/job-orders/${job.id}/plan`);
     else navigate(`/job-orders/${job.id}`);
   };
 
@@ -602,14 +710,16 @@ export default function JobOrderListPage() {
                 onChange={(e) => setSearch(e.target.value)}
                 className="jo-m__search"
               />
-              <button
-                type="button"
-                className="sched-m__icon jo-m__add"
-                onClick={() => navigate('/job-orders/new')}
-                aria-label="New job order"
-              >
-                <PlusOutlined />
-              </button>
+              {isOfficeStaff && (
+                <button
+                  type="button"
+                  className="sched-m__icon jo-m__add"
+                  onClick={() => navigate('/job-orders/new')}
+                  aria-label="New job order"
+                >
+                  <PlusOutlined />
+                </button>
+              )}
               <button
                 type="button"
                 className={`sched-m__icon${selectMode ? ' is-on' : ''}`}
@@ -742,6 +852,23 @@ export default function JobOrderListPage() {
           />
         </div>
         <div className="jo-list-actions">
+          <Dropdown
+            trigger={['click']}
+            placement="bottomRight"
+            menu={{
+              selectable: true,
+              selectedKeys: [viewMode],
+              items: VIEW_OPTIONS.map((o) => ({ key: o.key, label: o.label, icon: o.icon })),
+              onClick: ({ key }) => changeViewMode(key as ViewMode),
+            }}
+          >
+            <Tooltip title="View">
+              <Button
+                icon={VIEW_OPTIONS.find((o) => o.key === viewMode)?.icon}
+                aria-label="Change view"
+              />
+            </Tooltip>
+          </Dropdown>
           <Tooltip title={selectMode ? 'Done selecting' : 'Select multiple'}>
             <Button
               icon={<SelectMultipleIcon />}
@@ -751,14 +878,16 @@ export default function JobOrderListPage() {
               aria-label={selectMode ? 'Done selecting' : 'Select multiple'}
             />
           </Tooltip>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => navigate('/job-orders/new')}
-            style={{ fontWeight: 700 }}
-          >
-            New Job Order
-          </Button>
+          {isOfficeStaff && (
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => navigate('/job-orders/new')}
+              style={{ fontWeight: 700 }}
+            >
+              New Job Order
+            </Button>
+          )}
         </div>
       </div>
       )}
@@ -889,6 +1018,33 @@ export default function JobOrderListPage() {
                 </div>
               );
             })}
+        </div>
+      ) : viewMode === 'cards' ? (
+        <div className="jo-cards">
+          {loading && (
+            <div className="page-spinner">
+              <Spin />
+            </div>
+          )}
+          {!loading && filtered.length === 0 && (
+            <div className="jo-cards__empty">No job orders match your filters yet</div>
+          )}
+          {!loading &&
+            filtered.map((job) => (
+              <JobCard
+                key={job.id}
+                job={job}
+                isDraftTab={listTab === 'drafts'}
+                selected={selectedKeys.includes(job.id)}
+                actions={jobActionItems(job)}
+                onClick={() => (selectMode ? toggleSelected(job.id) : openJob(job))}
+              />
+            ))}
+          {!loading && filtered.length > 0 && (
+            <div className="jo-cards__total">
+              {filtered.length} job{filtered.length === 1 ? '' : 's'}
+            </div>
+          )}
         </div>
       ) : (
       <Table

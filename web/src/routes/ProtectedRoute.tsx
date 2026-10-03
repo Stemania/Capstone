@@ -23,7 +23,7 @@ export function ProtectedRoute({ roles }: ProtectedRouteProps) {
   }
 
   if (roles && !roles.includes(user.role)) {
-    const fallback = user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/job-orders';
+    const fallback = user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/schedule';
     return <Navigate to={fallback} replace />;
   }
 

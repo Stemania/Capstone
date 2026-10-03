@@ -28,15 +28,18 @@ import {
   EditOutlined,
   FileTextOutlined,
   PrinterOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
-import { jobOrdersApi } from '../../api/jobOrders.api';
+import { jobOrdersApi, workersApi } from '../../api/jobOrders.api';
 import { operationsApi } from '../../api/operations.api';
 import { notificationsApi } from '../../api/notifications.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
+import MaterialWaitTag from '../../components/MaterialWaitTag';
+import MaterialDelayTag from '../../components/MaterialDelayTag';
 import type {
   JobOrder,
   JobOrderStatus,
@@ -48,12 +51,16 @@ import type {
   OperationPauseReason,
   OperationStatus,
   ReworkReasonCategory,
+  User,
 } from '../../types';
 import { formatDifferenceFromTarget } from '../analytics/analyticsPeriod';
 import { WorkerPageHeader } from '../../layouts/WorkerLayout';
 import { jobOrdersListPath } from './jobOrderListPaths';
 import JobScheduleColorPicker from './JobScheduleColorPicker';
 import OrderMaterialsModal from '../supplier-orders/OrderMaterialsModal';
+import { MaterialArrivalNote, PlannedMaterialsTable } from './MaterialOrdersSummary';
+import { ORDER_STATUS_PILL } from '../supplier-orders/supplierOrderUi';
+import { ReproposeModal } from '../calendar/RescheduleAffectedJobs';
 
 const { Title, Text } = Typography;
 
@@ -194,19 +201,6 @@ function fmtVariance(hours?: number | null, pct?: number | null) {
 
 const VAT_RATE_PCT = 12;
 
-const PLANNED_STATUS_PILL: Record<string, { label: string; color: PillColor }> = {
-  TO_ORDER: { label: 'To order', color: 'red' },
-  PARTLY_ORDERED: { label: 'To order', color: 'amber' },
-  ON_DRAFT_ORDER: { label: 'On draft PO', color: 'gray' },
-  PURCHASED: { label: 'Purchased', color: 'green' },
-};
-
-function fmtQty(n: number | null | undefined, unit?: string | null) {
-  if (n == null) return '—';
-  const q = Number(n).toLocaleString(undefined, { maximumFractionDigits: 4 });
-  return unit ? `${q} ${unit}` : q;
-}
-
 const PURCHASE_STATUS_PILL: Record<string, { label: string; color: PillColor }> = {
   DRAFT: { label: 'On draft PO', color: 'gray' },
   ORDERED: { label: 'Ordered', color: 'amber' },
@@ -234,9 +228,97 @@ function cardStyle(extra?: CSSProperties): CSSProperties {
   };
 }
 
+const SUBHEAD: CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: MUTED,
+  textTransform: 'uppercase',
+  letterSpacing: 0.4,
+  marginBottom: 6,
+};
+
+const DETAIL_GRID: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'auto 1fr',
+  gap: '8px 16px',
+  fontSize: 13,
+};
+
+const ACTIVITY_ROW: CSSProperties = {
+  padding: '8px 0',
+  borderTop: `1px solid ${BORDER}`,
+  fontSize: 12,
+  color: MUTED,
+};
+
+function OperationWorkerSelect({ op, onAssigned }: { op: Operation; onAssigned: () => Promise<void> }) {
+  const [workers, setWorkers] = useState<User[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const isChecking =
+    (op.operationTypeCode || '').toUpperCase() === 'CHECKING' ||
+    op.operationName.trim().toLowerCase() === 'checking';
+
+  const loadWorkers = async () => {
+    if (workers) return;
+    try {
+      const { data } = await workersApi.list(
+        isChecking
+          ? { forChecking: true, operationName: op.operationName }
+          : {
+              machineTypeId: op.machineTypeId || undefined,
+              operationTypeId: op.operationTypeId || undefined,
+              operationName: op.operationName,
+            }
+      );
+      setWorkers(data);
+    } catch (err) {
+      message.error(getErrorMessage(err));
+      setWorkers([]);
+    }
+  };
+
+  const options = useMemo(() => {
+    const list = (workers || []).map((w) => ({ value: w.id, label: w.fullName }));
+    if (op.assignedWorkerId && !list.some((o) => o.value === op.assignedWorkerId)) {
+      list.unshift({ value: op.assignedWorkerId, label: op.assignedWorkerName || 'Current worker' });
+    }
+    return list;
+  }, [workers, op.assignedWorkerId, op.assignedWorkerName]);
+
+  return (
+    <Select
+      size="small"
+      style={{ minWidth: 160 }}
+      placeholder="Assign a worker"
+      value={op.assignedWorkerId || undefined}
+      options={options}
+      loading={saving}
+      disabled={saving}
+      showSearch
+      optionFilterProp="label"
+      onDropdownVisibleChange={(open) => {
+        if (open) void loadWorkers();
+      }}
+      onChange={async (workerId: string) => {
+        setSaving(true);
+        try {
+          await operationsApi.assign(op.id, workerId);
+          message.success('Worker assigned. Re-propose the schedule to fit their time.');
+          await onAssigned();
+        } catch (err) {
+          message.error(getErrorMessage(err));
+        } finally {
+          setSaving(false);
+        }
+      }}
+    />
+  );
+}
+
 export default function JobOrderDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, isAdmin, isOfficeStaff, isWorker } = useAuth();
   const canManage = isAdmin || isOfficeStaff;
 
@@ -256,6 +338,8 @@ export default function JobOrderDetailPage() {
   const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
   const [breakdowns, setBreakdowns] = useState<MachineDowntimeRecord[]>([]);
   const [purchaseOpen, setPurchaseOpen] = useState(false);
+  const [reproposeOpen, setReproposeOpen] = useState(false);
+  const [stockSavingId, setStockSavingId] = useState<string | null>(null);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [invoiceSaving, setInvoiceSaving] = useState(false);
   const [invoiceForm] = Form.useForm();
@@ -266,6 +350,12 @@ export default function JobOrderDetailPage() {
     const { data } = await jobOrdersApi.get(id);
     setJob(data);
   }, [id]);
+
+  const hasJob = Boolean(job);
+  useEffect(() => {
+    if (!hasJob || !location.hash) return;
+    document.getElementById(location.hash.slice(1))?.scrollIntoView({ behavior: 'smooth' });
+  }, [hasJob, location.hash]);
 
   const fetchPurchases = useCallback(async () => {
     if (!id || !canManage) return;
@@ -592,6 +682,20 @@ export default function JobOrderDetailPage() {
     }
   };
 
+  const toggleFromStock = async (materialId: string, fromStock: boolean) => {
+    if (!job) return;
+    setStockSavingId(materialId);
+    try {
+      const { data } = await jobOrdersApi.setPlannedMaterialFromStock(job.id, materialId, fromStock);
+      setJob(data);
+      message.success(fromStock ? 'Marked From stock: it will not be ordered' : 'Material needs ordering again');
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setStockSavingId(null);
+    }
+  };
+
   const handleSetMaterialNotRequired = () => {
     if (!job) return;
     Modal.confirm({
@@ -630,17 +734,15 @@ export default function JobOrderDetailPage() {
     if (!job) return;
     const label = job.jobNumber || 'This job order';
     Modal.confirm({
-      title: isDraft ? 'Delete this pending job?' : 'Delete this job order?',
-      content: isDraft
-        ? `${label} will be permanently removed. This cannot be undone.`
-        : `${label} and all of its scheduled operations will be permanently removed from the shop schedule. This cannot be undone.`,
+      title: 'Delete this pending job?',
+      content: `${label} will be permanently removed. This cannot be undone.`,
       okText: 'Delete',
       okType: 'danger',
       cancelText: 'Cancel',
       onOk: async () => {
         try {
           await jobOrdersApi.delete(job.id);
-          message.success(isDraft ? 'Pending job deleted' : 'Job order deleted');
+          message.success('Pending job deleted');
           navigate(backTo, { replace: true });
         } catch (err) {
           message.error(getErrorMessage(err));
@@ -677,6 +779,11 @@ export default function JobOrderDetailPage() {
     job.status !== 'DRAFT' &&
     dayjs(job.dueDate).isBefore(dayjs(), 'day');
   const isDraft = job.status === 'DRAFT';
+  const isInvoicedOrDelivered = Boolean(job.salesInvoice) || job.status === 'DELIVERED';
+  const isNotStarted = (op: Operation) =>
+    op.status !== 'IN_PROGRESS' && op.status !== 'COMPLETED' && !op.actualStart;
+  const canRepropose =
+    !isDraft && job.status !== 'DELIVERED' && (job.operations || []).some(isNotStarted);
 
   return (
     <div className="jo-detail-page" style={{ maxWidth: 1200, margin: '0 auto', padding: isWorker ? '0 12px 24px' : undefined }}>
@@ -743,7 +850,7 @@ export default function JobOrderDetailPage() {
               />
               <Button
                 icon={<EditOutlined />}
-                onClick={() => navigate(`/job-orders/${job.id}/edit?step=1`)}
+                onClick={() => navigate(`/job-orders/${job.id}/edit`)}
               >
                 {isDraft ? 'Edit details' : 'Edit'}
               </Button>
@@ -755,7 +862,7 @@ export default function JobOrderDetailPage() {
           >
             Print
           </Button>
-          {canManage &&
+          {isOfficeStaff &&
             job.materialStatus &&
             job.materialStatus !== 'NOT_REQUIRED' &&
             job.materialStatus !== 'RECEIVED' && (
@@ -804,7 +911,12 @@ export default function JobOrderDetailPage() {
               </Button>
             </Tooltip>
           )}
-          {canManage && (
+          {isAdmin && canRepropose && (
+            <Button icon={<ReloadOutlined />} onClick={() => setReproposeOpen(true)}>
+              Re-propose schedule
+            </Button>
+          )}
+          {canManage && isDraft && (
             <Button danger icon={<DeleteOutlined />} onClick={handleDelete}>
               Delete
             </Button>
@@ -839,27 +951,13 @@ export default function JobOrderDetailPage() {
             {dash(job.clientName)}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            {isDraft ? (
-              <>
-                <StatusPill color={status.color}>{status.label}</StatusPill>
-                {job.draftStage ? (
-                  <span
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      letterSpacing: 0.4,
-                      textTransform: 'uppercase',
-                      color: '#94a3b8',
-                    }}
-                  >
-                    {job.draftStage}
-                  </span>
-                ) : null}
-              </>
-            ) : (
-              <StatusPill color={status.color}>{status.label}</StatusPill>
-            )}
+            <StatusPill color={status.color}>
+              {status.label}
+              {isDraft && job.draftStage ? ` · ${job.draftStage}` : ''}
+            </StatusPill>
             {priority && <StatusPill color={priority.color}>{priority.label}</StatusPill>}
+            <MaterialWaitTag wait={job} compact={false} />
+            <MaterialDelayTag job={job} compact={false} />
             <span style={{ fontSize: 13, color: overdue ? '#7A1528' : MUTED, fontWeight: 600 }}>
               Due {fmtDate(job.dueDate)}
             </span>
@@ -879,126 +977,38 @@ export default function JobOrderDetailPage() {
         </div>
       </div>
 
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={24} lg={14}>
-          <div style={cardStyle()}>
-            <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 12 }}>
-              Reference
-            </div>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-                gap: '10px 20px',
-                fontSize: 13,
-              }}
-            >
-              <RefItem label="Client PO #" value={dash(job.clientPoNumber)} />
-              <RefItem label="PO date" value={fmtDate(job.poDate)} />
-              <RefItem label="Job type" value={friendlyEnum(job.jobType, JOB_TYPE_LABEL)} />
-              <RefItem
-                label="Material"
-                value={
-                  job.materialStatus === 'NOT_REQUIRED'
-                    ? 'Not required'
-                    : job.materialStatus === 'RECEIVED'
-                      ? `Received ${fmtDate(job.materialReceivedDate)}`
-                      : job.materialStatus === 'ORDERED'
-                        ? `Ordered · expected ${fmtDate(job.materialReadiness?.expectedDate ?? job.materialExpectedDate)}`
-                        : job.materialStatus === 'TO_ORDER'
-                          ? `To order · expected ${fmtDate(job.materialReadiness?.expectedDate ?? job.materialExpectedDate)}`
-                          : '—'
-                }
-              />
-              {job.supplierName ? (
-                <RefItem label="Supplier" value={job.supplierName} />
-              ) : null}
-              {job.supplierReference ? (
-                <RefItem label="Supplier PO / invoice" value={job.supplierReference} />
-              ) : null}
-              <RefItem
-                label="Stage of the part"
-                value={friendlyEnum(job.partCondition, PART_STAGE_LABEL)}
-              />
-              <RefItem label="Created" value={fmtDate(job.createdAt)} />
-            </div>
-            {job.description ? (
-              <div style={{ marginTop: 14, fontSize: 13, color: MUTED }}>
-                <div style={{ fontWeight: 700, color: '#475569', marginBottom: 4 }}>Description</div>
-                {job.description}
+      {canManage && job.materialDelay ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={
+            job.materialDelay.kind === 'MATERIAL'
+              ? 'Schedule moved later because of materials'
+              : 'Rescheduled because the planned start date had passed'
+          }
+          description={
+            <>
+              <div>
+                Originally planned to start {fmtDateTime(job.materialDelay.originalStart)}
+                {job.materialDelay.currentStart
+                  ? `; now starts ${fmtDateTime(job.materialDelay.currentStart)}`
+                  : ''}
+                .
               </div>
-            ) : null}
-          </div>
-        </Col>
-        <Col xs={24} lg={10}>
-          <div style={cardStyle({ height: '100%' })}>
-            <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 12 }}>
-              Raw Materials
-            </div>
-            {!job.rawMaterials?.length ? (
-              <Text type="secondary">—</Text>
-            ) : job.plannedMaterials?.length ? (
-              <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ color: MUTED, fontSize: 11, textAlign: 'left' }}>
-                    <th style={{ fontWeight: 600, paddingBottom: 6 }}>Material</th>
-                    <th style={{ fontWeight: 600, paddingBottom: 6, textAlign: 'right' }}>Planned</th>
-                    <th style={{ fontWeight: 600, paddingBottom: 6, textAlign: 'right' }}>Purchased</th>
-                    <th style={{ fontWeight: 600, paddingBottom: 6, textAlign: 'right' }}>Still to order</th>
-                    <th style={{ paddingBottom: 6 }} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {job.plannedMaterials.map((m) => {
-                    const pill = PLANNED_STATUS_PILL[m.status];
-                    return (
-                      <tr key={m.id} style={{ borderTop: `1px solid ${BORDER}` }}>
-                        <td style={{ padding: '6px 0', color: NAVY, fontWeight: 600 }}>{m.name}</td>
-                        <td style={{ textAlign: 'right', color: MUTED }}>
-                          {fmtQty(m.plannedQuantity, m.unit)}
-                        </td>
-                        <td style={{ textAlign: 'right', color: MUTED }}>
-                          {fmtQty(m.purchasedQuantity, m.unit)}
-                          {m.draftQuantity > 0 ? (
-                            <div style={{ fontSize: 11 }}>
-                              + {fmtQty(m.draftQuantity, m.unit)} on draft PO
-                            </div>
-                          ) : null}
-                        </td>
-                        <td style={{ textAlign: 'right', color: MUTED }}>
-                          {fmtQty(m.remainingQuantity, m.unit)}
-                        </td>
-                        <td style={{ textAlign: 'right', paddingLeft: 8 }}>
-                          {job.materialStatus !== 'NOT_REQUIRED' && pill ? (
-                            <StatusPill color={pill.color} compact>
-                              {pill.label}
-                            </StatusPill>
-                          ) : null}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            ) : (
-              job.rawMaterials.map((m, i) => (
-                <div
-                  key={`${m.name}-${i}`}
-                  style={{ fontSize: 13, color: MUTED, marginBottom: 6 }}
-                >
-                  <span style={{ color: NAVY, fontWeight: 600 }}>{m.name}</span>
-                  {(m.quantity != null || m.unit) && (
-                    <>
-                      {' '}
-                      — {[m.quantity, m.unit].filter((x) => x != null && x !== '').join(' ')}
-                    </>
-                  )}
+              {job.materialDelay.reason && <div>{job.materialDelay.reason}</div>}
+              {job.materialDelay.supplierOrderId && (
+                <div>
+                  Supplier order:{' '}
+                  <a onClick={() => navigate(`/supplier-orders/${job.materialDelay!.supplierOrderId}`)}>
+                    {job.materialDelay.poNumber || 'View order'}
+                  </a>
                 </div>
-              ))
-            )}
-          </div>
-        </Col>
-      </Row>
+              )}
+            </>
+          }
+        />
+      ) : null}
 
       {canManage && job.materialStatus !== 'NOT_REQUIRED' && outstandingLines.length > 0 && !jobStarted ? (
         <Alert
@@ -1030,10 +1040,12 @@ export default function JobOrderDetailPage() {
           description={
             (purchases.some((p) => p.status === 'DRAFT')
               ? 'This job\u2019s materials are on a draft supplier order that has not been issued yet. '
-              : 'Nothing has been ordered for this job. Use Order materials below. ') +
+              : isOfficeStaff
+                ? 'Nothing has been ordered for this job. Use Order materials below. '
+                : 'Nothing has been ordered for this job. Office Staff order it from the Materials section. ') +
             (isAdmin
-              ? 'If the shop already has the material, set material to Not required.'
-              : 'If the shop already has the material, ask the Admin to set it to Not required.')
+              ? 'If the shop already has a material, mark it From stock under Materials, or set the whole job to Not required.'
+              : 'If the shop already has a material, ask the Admin to mark it From stock.')
           }
           action={
             isAdmin ? (
@@ -1045,187 +1057,614 @@ export default function JobOrderDetailPage() {
         />
       ) : null}
 
-      {canManage && job.materialStatus !== 'NOT_REQUIRED' ? (
-        <div style={{ ...cardStyle(), marginBottom: 16 }}>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 12,
-              gap: 12,
-              flexWrap: 'wrap',
-            }}
-          >
-            <div>
-              <div style={{ fontWeight: 800, fontSize: 14, color: NAVY }}>
-                Material purchases
-              </div>
-              <div style={{ fontSize: 12, color: MUTED }}>
-                Lines on supplier orders for this job. Planned requirements stay under Raw
-                Materials.
-              </div>
+      <Row gutter={[16, 16]} align="top" style={{ marginBottom: 24 }}>
+        <Col xs={24} lg={16}>
+          <div id="supplier-orders" style={{ ...cardStyle(), marginBottom: 16, scrollMarginTop: 80 }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
+                flexWrap: 'wrap',
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ fontWeight: 800, fontSize: 14, color: NAVY }}>Materials</div>
+              {isOfficeStaff && job.materialStatus !== 'NOT_REQUIRED' ? (
+                <Button type="primary" onClick={() => setPurchaseOpen(true)}>
+                  Order materials
+                </Button>
+              ) : null}
             </div>
-            <Button type="primary" onClick={() => setPurchaseOpen(true)}>
-              Order materials
-            </Button>
+            <div style={SUBHEAD}>Planned</div>
+            {!job.rawMaterials?.length ? (
+              <Text type="secondary">—</Text>
+            ) : job.plannedMaterials?.length ? (
+              <PlannedMaterialsTable
+                materials={job.plannedMaterials}
+                showStatus={job.materialStatus !== 'NOT_REQUIRED'}
+                renderAction={(m) =>
+                  isAdmin &&
+                  (m.fromStock || (m.purchasedQuantity === 0 && m.draftQuantity === 0)) ? (
+                    <div>
+                      <Button
+                        type="link"
+                        size="small"
+                        style={{ padding: 0, fontSize: 11 }}
+                        loading={stockSavingId === m.id}
+                        onClick={() => toggleFromStock(m.id, !m.fromStock)}
+                      >
+                        {m.fromStock ? 'Buy it instead' : 'Use from stock'}
+                      </Button>
+                    </div>
+                  ) : null
+                }
+              />
+            ) : (
+              job.rawMaterials.map((m, i) => (
+                <div
+                  key={`${m.name}-${i}`}
+                  style={{ fontSize: 13, color: MUTED, marginBottom: 6 }}
+                >
+                  <span style={{ color: NAVY, fontWeight: 600 }}>{m.name}</span>
+                  {(m.quantity != null || m.unit) && (
+                    <>
+                      {' '}
+                      — {[m.quantity, m.unit].filter((x) => x != null && x !== '').join(' ')}
+                    </>
+                  )}
+                </div>
+              ))
+            )}
+            {canManage && job.materialStatus !== 'NOT_REQUIRED' ? (
+              <div style={{ marginTop: 18 }}>
+                <div style={SUBHEAD}>On supplier orders</div>
+                {purchases.length === 0 ? (
+                  <Text type="secondary" style={{ fontSize: 13 }}>
+                    Nothing ordered yet.
+                  </Text>
+                ) : (
+                  <Table
+                    size="small"
+                    rowKey="id"
+                    pagination={false}
+                    dataSource={purchases}
+                    columns={[
+                      {
+                        title: 'Material',
+                        key: 'material',
+                        render: (_: unknown, r: MaterialPurchase) => (
+                          <>
+                            <div style={{ color: NAVY, fontWeight: 600 }}>{r.materialName}</div>
+                            <div style={{ fontSize: 11, color: MUTED }}>
+                              {[r.gradeOrSpec, `${r.quantity} ${r.unit}`, `${fmtMoney(r.unitCost)} each`]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </div>
+                            {!r.plannedMaterialId && job.rawMaterials?.length ? (
+                              <div style={{ fontSize: 11, color: MUTED }}>Not on the planned list</div>
+                            ) : null}
+                          </>
+                        ),
+                      },
+                      {
+                        title: 'Supplier order',
+                        key: 'po',
+                        render: (_: unknown, r: MaterialPurchase) => (
+                          <>
+                            <div>{r.supplierName || '—'}</div>
+                            {r.supplierOrderId ? (
+                              <Space size={6} wrap>
+                                <a onClick={() => navigate(`/supplier-orders/${r.supplierOrderId}`)}>
+                                  {r.poNumber || 'Draft (not issued)'}
+                                </a>
+                                {r.orderStatus ? (
+                                  <StatusPill color={ORDER_STATUS_PILL[r.orderStatus].color} compact>
+                                    {ORDER_STATUS_PILL[r.orderStatus].label}
+                                  </StatusPill>
+                                ) : null}
+                              </Space>
+                            ) : (
+                              <div style={{ fontSize: 11, color: MUTED }}>Recorded without a PO</div>
+                            )}
+                          </>
+                        ),
+                      },
+                      {
+                        title: 'Dates',
+                        key: 'dates',
+                        width: 150,
+                        render: (_: unknown, r: MaterialPurchase) => (
+                          <div style={{ fontSize: 12, color: MUTED }}>
+                            <div>Ordered {r.dateOrdered ? fmtDate(r.dateOrdered) : '—'}</div>
+                            {r.dateReceived ? (
+                              <div>Received {fmtDate(r.dateReceived)}</div>
+                            ) : r.expectedDeliveryDate ? (
+                              <div>Expected {fmtDate(r.expectedDeliveryDate)}</div>
+                            ) : null}
+                          </div>
+                        ),
+                      },
+                      {
+                        title: 'Status',
+                        key: 'status',
+                        width: 120,
+                        render: (_: unknown, r: MaterialPurchase) => {
+                          const pill =
+                            PURCHASE_STATUS_PILL[r.status || (r.dateReceived ? 'RECEIVED' : 'ORDERED')] ||
+                            PURCHASE_STATUS_PILL.ORDERED;
+                          const canReceive =
+                            isOfficeStaff &&
+                            !r.dateReceived &&
+                            r.status !== 'DRAFT' &&
+                            r.status !== 'CANCELLED';
+                          return (
+                            <>
+                              <StatusPill color={pill.color} compact>
+                                {pill.label}
+                              </StatusPill>
+                              {canReceive ? (
+                                <div style={{ marginTop: 4 }}>
+                                  <Button size="small" onClick={() => markLineReceived(r)}>
+                                    Received
+                                  </Button>
+                                </div>
+                              ) : null}
+                            </>
+                          );
+                        },
+                      },
+                    ]}
+                  />
+                )}
+                <div style={{ marginTop: 10 }}>
+                  <MaterialArrivalNote readiness={job.materialReadiness} />
+                </div>
+              </div>
+            ) : null}
           </div>
-          <Table
-            size="small"
-            rowKey="id"
-            pagination={false}
-            dataSource={purchases}
-            locale={{ emptyText: 'No materials ordered yet.' }}
-            columns={[
-              {
-                title: 'Material',
-                dataIndex: 'materialName',
-                render: (v: string, r: MaterialPurchase) => (
-                  <>
-                    {v}
-                    {!r.plannedMaterialId && job.rawMaterials?.length ? (
-                      <div style={{ fontSize: 11, color: MUTED }}>Other material</div>
-                    ) : null}
-                  </>
-                ),
-              },
-              {
-                title: 'Grade / spec',
-                dataIndex: 'gradeOrSpec',
-                width: 120,
-                render: (v: string | null) => v || '—',
-              },
-              {
-                title: 'Qty',
-                key: 'qty',
-                width: 90,
-                render: (_: unknown, r: MaterialPurchase) =>
-                  `${r.quantity} ${r.unit}`,
-              },
-              {
-                title: 'Unit cost',
-                dataIndex: 'unitCost',
-                width: 100,
-                align: 'right',
-                render: (v: number) => fmtMoney(v),
-              },
-              {
-                title: 'Supplier',
-                dataIndex: 'supplierName',
-                width: 120,
-              },
-              {
-                title: 'Supplier order',
-                key: 'po',
-                width: 150,
-                render: (_: unknown, r: MaterialPurchase) =>
-                  r.supplierOrderId ? (
-                    <a onClick={() => navigate(`/supplier-orders/${r.supplierOrderId}`)}>
-                      {r.poNumber || 'Draft (not issued)'}
-                    </a>
-                  ) : (
-                    <span style={{ fontSize: 12, color: MUTED }}>Recorded without a PO</span>
-                  ),
-              },
-              {
-                title: 'Ordered',
-                dataIndex: 'dateOrdered',
-                width: 110,
-                render: (v: string | null) => (v ? fmtDate(v) : '—'),
-              },
-              {
-                title: 'Received',
-                dataIndex: 'dateReceived',
-                width: 110,
-                render: (v: string | null) => (v ? fmtDate(v) : '—'),
-              },
-              {
-                title: 'Status',
-                key: 'status',
-                width: 100,
-                render: (_: unknown, r: MaterialPurchase) => {
-                  const pill =
-                    PURCHASE_STATUS_PILL[r.status || (r.dateReceived ? 'RECEIVED' : 'ORDERED')] ||
-                    PURCHASE_STATUS_PILL.ORDERED;
-                  return (
-                    <StatusPill color={pill.color} compact>
-                      {pill.label}
-                    </StatusPill>
-                  );
-                },
-              },
-              {
-                title: '',
-                key: 'act',
-                width: 110,
-                render: (_: unknown, r: MaterialPurchase) =>
-                  r.dateReceived || r.status === 'DRAFT' || r.status === 'CANCELLED' ? null : (
-                    <Button size="small" onClick={() => markLineReceived(r)}>
-                      Received
-                    </Button>
-                  ),
-              },
-            ]}
-          />
-        </div>
-      ) : null}
 
-      {canManage ? (
-        <div style={{ ...cardStyle(), marginBottom: 16 }}>
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontWeight: 800, fontSize: 14, color: NAVY }}>Machine breakdowns</div>
-            <div style={{ fontSize: 12, color: MUTED }}>
-              Breakdowns reported while working on this job&apos;s operations.
+          <div style={cardStyle({ marginBottom: 16 })}>
+            <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 12 }}>
+              Operations
             </div>
+            {ops.length === 0 ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <Text type="secondary" style={{ fontSize: 13 }}>
+                  {!isDraft
+                    ? 'No operations on this job.'
+                    : isAdmin
+                      ? 'No operations yet. Add them in the planning step.'
+                      : 'No operations yet. The Admin adds them in the planning step.'}
+                </Text>
+                {isDraft && isAdmin ? (
+                  <Button size="small" onClick={() => navigate(`/job-orders/${job.id}/plan`)}>
+                    Open planning
+                  </Button>
+                ) : null}
+              </div>
+            ) : (
+              <div style={{ position: 'relative', paddingLeft: 4 }}>
+                {ops.map((op, index) => {
+                  const done = op.status === 'COMPLETED';
+                  const active = op.status === 'IN_PROGRESS';
+                  const isLast = index === ops.length - 1;
+                  const opSt = OP_STATUS[op.status] || OP_STATUS.PENDING;
+                  const isMine = op.assignedWorkerId === user?.id;
+                  const canStart =
+                    !isDraft &&
+                    isMine &&
+                    (op.status === 'PENDING' || op.status === 'SCHEDULED' || op.status === 'REWORK') &&
+                    ops.slice(0, index).every((o) => o.status === 'COMPLETED');
+                  const machine =
+                    op.machineUnitLabel ||
+                    op.machineTypeName ||
+                    op.machineTypeCode ||
+                    null;
+                  const logs = [...(op.timeLogs || [])].sort(
+                    (a, b) => dayjs(a.eventAt).valueOf() - dayjs(b.eventAt).valueOf()
+                  );
+
+                  return (
+                    <div key={op.id} style={{ display: 'flex', gap: 16, position: 'relative' }}>
+                      {!isLast && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            left: 15,
+                            top: 36,
+                            bottom: 0,
+                            width: 2,
+                            background: done ? GREEN : BORDER,
+                          }}
+                        />
+                      )}
+                      <div
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: '50%',
+                          flexShrink: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 800,
+                          fontSize: 13,
+                          zIndex: 1,
+                          background: done ? GREEN : active ? '#2563eb' : 'rgba(217,119,6,0.15)',
+                          color: done || active ? '#fff' : '#d97706',
+                          border: done || active ? 'none' : '2px solid #d97706',
+                        }}
+                      >
+                        {done ? <CheckCircleFilled /> : op.sequenceNo}
+                      </div>
+
+                      <div
+                        style={cardStyle({
+                          flex: 1,
+                          marginBottom: 12,
+                          borderColor: active ? '#2563eb' : BORDER,
+                          opacity: done ? 0.95 : 1,
+                        })}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            alignItems: 'center',
+                            marginBottom: 10,
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          <span style={{ fontWeight: 800, fontSize: 15, color: NAVY }}>
+                            {op.operationName}
+                            {op.reworkOfOperationId ? (
+                              <Text type="secondary" style={{ fontWeight: 600, fontSize: 12 }}>
+                                {' '}
+                                (redo)
+                              </Text>
+                            ) : null}
+                          </span>
+                          <StatusPill color={opSt.color} compact>
+                            {opSt.label}
+                            {active && op.isPaused ? ' · Paused' : ''}
+                          </StatusPill>
+                        </div>
+
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                            gap: '8px 16px',
+                            fontSize: 12,
+                            color: MUTED,
+                            marginBottom: 10,
+                          }}
+                        >
+                          <span>
+                            <strong style={{ color: '#475569' }}>Machine:</strong> {dash(machine)}
+                          </span>
+                          <span>
+                            <strong style={{ color: '#475569' }}>Worker:</strong>{' '}
+                            {isAdmin && !isDraft && !isInvoicedOrDelivered && isNotStarted(op) ? (
+                              <OperationWorkerSelect op={op} onAssigned={fetchJob} />
+                            ) : (
+                              dash(op.assignedWorkerName)
+                            )}
+                          </span>
+                          <span>
+                            <strong style={{ color: '#475569' }}>Scheduled:</strong>{' '}
+                            {op.scheduledStart || op.scheduledEnd
+                              ? `${fmtDateTime(op.scheduledStart)} → ${fmtDateTime(op.scheduledEnd)}`
+                              : '—'}
+                          </span>
+                          <span>
+                            <strong style={{ color: '#475569' }}>Started–finished:</strong>{' '}
+                            {op.actualStart || op.actualEnd
+                              ? `${fmtDateTime(op.actualStart)} → ${fmtDateTime(op.actualEnd)}`
+                              : '—'}
+                          </span>
+                          <span>
+                            <strong style={{ color: '#475569' }}>Target hours:</strong>{' '}
+                            {fmtHours(op.estimatedHours)}
+                          </span>
+                          <span>
+                            <strong style={{ color: '#475569' }}>Hours worked:</strong>{' '}
+                            {fmtHours(op.actualWorkedHours)}
+                          </span>
+                          <span>
+                            <strong style={{ color: '#475569' }}>Difference from target:</strong>{' '}
+                            {fmtVariance(op.varianceHours, op.variancePct)}
+                          </span>
+                        </div>
+
+                        {op.reworkReasonCategory || op.reworkReason ? (
+                          <div style={{ fontSize: 12, color: MUTED, marginBottom: 8 }}>
+                            Redo reason
+                            {op.reworkReasonCategory
+                              ? `: ${reworkCategoryLabel(op.reworkReasonCategory)}`
+                              : ''}
+                            {op.reworkReason
+                              ? `${op.reworkReasonCategory ? ' — ' : ': '}${op.reworkReason}`
+                              : ''}
+                          </div>
+                        ) : null}
+
+                        <Collapse
+                          size="small"
+                          ghost
+                          items={[
+                            {
+                              key: 'logs',
+                              label: (
+                                <span style={{ fontSize: 12, fontWeight: 600, color: MUTED }}>
+                                  Time log ({logs.length})
+                                </span>
+                              ),
+                              children:
+                                logs.length === 0 ? (
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    —
+                                  </Text>
+                                ) : (
+                                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: MUTED }}>
+                                    {logs.map((log) => (
+                                      <li key={log.id}>
+                                        {TIME_EVENT_LABEL[log.event] || log.event}
+                                        {log.reason
+                                          ? ` / ${PAUSE_REASON_LABEL[log.reason] || log.reason}`
+                                          : ''}
+                                        {' · '}
+                                        {fmtDateTime(log.eventAt)}
+                                        {log.workerName ? ` · ${log.workerName}` : ''}
+                                        {log.note ? ` — ${log.note}` : ''}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ),
+                            },
+                          ]}
+                        />
+
+                        {!isDraft && isMine && (canStart || active) && (
+                          <Space wrap style={{ marginTop: 10 }}>
+                            {canStart && (
+                              <Tooltip
+                                title={
+                                  job.waitingForMaterials
+                                    ? job.materialWaitReason
+                                    : undefined
+                                }
+                              >
+                                <Button
+                                  type="primary"
+                                  size="small"
+                                  loading={actionLoading === op.id}
+                                  disabled={!!job.waitingForMaterials}
+                                  onClick={() => runOpAction(op, 'start')}
+                                >
+                                  Start
+                                </Button>
+                              </Tooltip>
+                            )}
+                            {canStart && job.waitingForMaterials && (
+                              <span style={{ fontSize: 12, color: '#d97706', fontWeight: 600 }}>
+                                Waiting for materials
+                              </span>
+                            )}
+                            {active && !op.isPaused && (
+                              <>
+                                <Button
+                                  size="small"
+                                  loading={actionLoading === op.id}
+                                  onClick={() => setPauseForOp(op)}
+                                >
+                                  Pause
+                                </Button>
+                                <Button
+                                  type="primary"
+                                  size="small"
+                                  loading={actionLoading === op.id}
+                                  onClick={() => runOpAction(op, 'complete')}
+                                >
+                                  Complete
+                                </Button>
+                              </>
+                            )}
+                            {active && op.isPaused && (
+                              <Button
+                                type="primary"
+                                size="small"
+                                loading={actionLoading === op.id}
+                                onClick={() => runOpAction(op, 'resume')}
+                              >
+                                Resume
+                              </Button>
+                            )}
+                          </Space>
+                        )}
+
+                        {canManage && !isDraft && !isInvoicedOrDelivered && op.status === 'COMPLETED' && (
+                          <Button
+                            size="small"
+                            style={{ marginTop: 8 }}
+                            loading={reworkLoading === op.id}
+                            onClick={() => handleRework(op)}
+                          >
+                            Send for redo
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-          <Table
-            size="small"
-            rowKey="id"
-            pagination={false}
-            dataSource={breakdowns}
-            locale={{ emptyText: 'No breakdowns linked to this job.' }}
-            columns={[
-              { title: 'Machine', dataIndex: 'machineUnitLabel', width: 120 },
-              {
-                title: 'Operation',
-                dataIndex: 'operationName',
-                render: (v: string | null) => v || '—',
-              },
-              { title: 'Category', dataIndex: 'reason', width: 170 },
-              {
-                title: 'Started',
-                dataIndex: 'startedAt',
-                width: 170,
-                render: (v: string) => fmtDateTime(v),
-              },
-              {
-                title: 'Ended',
-                dataIndex: 'endedAt',
-                width: 170,
-                render: (v: string | null) =>
-                  v ? (
-                    fmtDateTime(v)
-                  ) : (
-                    <StatusPill color="red" compact>
-                      Still down
-                    </StatusPill>
-                  ),
-              },
-              {
-                title: 'Reported by',
-                dataIndex: 'reportedByName',
-                width: 140,
-                render: (v: string | null) => v || '—',
-              },
-              {
-                title: 'Note',
-                dataIndex: 'note',
-                render: (v: string | null) => v || '—',
-              },
-            ]}
-          />
-        </div>
-      ) : null}
+        </Col>
+
+        <Col xs={24} lg={8}>
+          <div style={cardStyle({ marginBottom: 16 })}>
+            <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 12 }}>
+              Details
+            </div>
+            <div style={DETAIL_GRID}>
+              <DetailRow label="Client PO #" value={dash(job.clientPoNumber)} />
+              <DetailRow label="PO date" value={fmtDate(job.poDate)} />
+              <DetailRow label="Job type" value={friendlyEnum(job.jobType, JOB_TYPE_LABEL)} />
+              <DetailRow
+                label="Material"
+                value={
+                  job.materialStatus === 'NOT_REQUIRED'
+                    ? 'Not required'
+                    : job.materialStatus === 'RECEIVED'
+                      ? `Received ${fmtDate(job.materialReceivedDate)}`
+                      : job.materialStatus === 'ORDERED'
+                        ? `Ordered · expected ${fmtDate(job.materialReadiness?.expectedDate)}`
+                        : job.materialStatus === 'TO_ORDER'
+                          ? 'To order'
+                          : '—'
+                }
+              />
+              <DetailRow
+                label="Stage of the part"
+                value={friendlyEnum(job.partCondition, PART_STAGE_LABEL)}
+              />
+              <DetailRow label="Created" value={fmtDate(job.createdAt)} />
+            </div>
+            {job.description ? (
+              <div style={{ marginTop: 14, fontSize: 13, color: MUTED }}>
+                <div style={SUBHEAD}>Description</div>
+                {job.description}
+              </div>
+            ) : null}
+          </div>
+
+          {jobStarted ? (
+            <div style={cardStyle({ marginBottom: 16 })}>
+              <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 12 }}>
+                Time taken
+              </div>
+              <div style={DETAIL_GRID}>
+                <DetailRow label="Target hours" value={fmtHours(totals.estimated)} />
+                <DetailRow label="Hours worked" value={fmtHours(totals.worked)} />
+                <DetailRow
+                  label="Difference from target"
+                  value={fmtVariance(totals.varianceHours, null)}
+                />
+              </div>
+            </div>
+          ) : null}
+
+          {canManage ? (
+            <div style={cardStyle({ marginBottom: 16 })}>
+              <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 4 }}>
+                Activity
+              </div>
+              <Collapse
+                size="small"
+                ghost
+                items={[
+                  {
+                    key: 'breakdowns',
+                    label: (
+                      <ActivityLabel
+                        title="Machine breakdowns"
+                        count={breakdowns.length}
+                        alert={
+                          breakdowns.some((b) => !b.endedAt) ? 'still down' : undefined
+                        }
+                      />
+                    ),
+                    children: breakdowns.length ? (
+                      breakdowns.map((b) => (
+                        <div key={b.id} style={ACTIVITY_ROW}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                            <span style={{ fontWeight: 700, color: NAVY }}>{b.machineUnitLabel}</span>
+                            {b.endedAt ? null : (
+                              <StatusPill color="red" compact>
+                                Still down
+                              </StatusPill>
+                            )}
+                          </div>
+                          <div>
+                            {b.reason}
+                            {b.operationName ? ` · ${b.operationName}` : ''}
+                          </div>
+                          <div>
+                            {fmtDateTime(b.startedAt)} → {b.endedAt ? fmtDateTime(b.endedAt) : 'now'}
+                            {b.reportedByName ? ` · ${b.reportedByName}` : ''}
+                          </div>
+                          {b.note ? <div>{b.note}</div> : null}
+                        </div>
+                      ))
+                    ) : (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        No breakdowns linked to this job.
+                      </Text>
+                    ),
+                  },
+                  {
+                    key: 'notifications',
+                    label: (
+                      <ActivityLabel
+                        title="Client notifications"
+                        count={notifications?.length ?? 0}
+                        alert={
+                          notifications?.some((n) => n.status === 'FAILED') ? 'failed' : undefined
+                        }
+                      />
+                    ),
+                    children:
+                      notifications == null ? (
+                        <Spin size="small" />
+                      ) : notifications.length ? (
+                        notifications.map((n) => (
+                          <div key={n.id} style={ACTIVITY_ROW}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                              <span style={{ fontWeight: 700, color: NAVY }}>
+                                {friendlyEnum(n.milestone, NOTIF_UPDATE_LABEL)}
+                              </span>
+                              <span style={{ color: n.status === 'FAILED' ? '#b91c1c' : MUTED }}>
+                                {friendlyEnum(n.status, NOTIF_STATUS_LABEL)}
+                              </span>
+                            </div>
+                            <div>
+                              {friendlyEnum(n.channel, NOTIF_CHANNEL_LABEL)} to {n.recipient}
+                            </div>
+                            <div>
+                              {n.sentAt
+                                ? `Sent ${dayjs(n.sentAt).format('MMM D, HH:mm')}`
+                                : n.createdAt
+                                  ? `Queued ${dayjs(n.createdAt).format('MMM D, HH:mm')}`
+                                  : '—'}
+                            </div>
+                            {n.status === 'FAILED' ? (
+                              <Button
+                                size="small"
+                                style={{ marginTop: 4 }}
+                                loading={resendingId === n.id}
+                                onClick={() => handleResend(n.id)}
+                              >
+                                Send again
+                              </Button>
+                            ) : null}
+                          </div>
+                        ))
+                      ) : (
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          No client notifications sent for this job yet.
+                        </Text>
+                      ),
+                  },
+                ]}
+              />
+            </div>
+          ) : null}
+        </Col>
+      </Row>
 
       <Modal
         open={invoiceOpen}
@@ -1294,251 +1733,16 @@ export default function JobOrderDetailPage() {
         }}
       />
 
-      <div style={{ fontWeight: 800, fontSize: 15, color: NAVY, marginBottom: 12 }}>
-        Operations
-      </div>
-
-      <div style={{ position: 'relative', paddingLeft: 4, marginBottom: 20 }}>
-        {ops.map((op, index) => {
-          const done = op.status === 'COMPLETED';
-          const active = op.status === 'IN_PROGRESS';
-          const isLast = index === ops.length - 1;
-          const opSt = OP_STATUS[op.status] || OP_STATUS.PENDING;
-          const isMine = op.assignedWorkerId === user?.id;
-          const canStart =
-            !isDraft &&
-            isMine &&
-            (op.status === 'PENDING' || op.status === 'SCHEDULED' || op.status === 'REWORK') &&
-            ops.slice(0, index).every((o) => o.status === 'COMPLETED');
-          const machine =
-            op.machineUnitLabel ||
-            op.machineTypeName ||
-            op.machineTypeCode ||
-            null;
-          const logs = [...(op.timeLogs || [])].sort(
-            (a, b) => dayjs(a.eventAt).valueOf() - dayjs(b.eventAt).valueOf()
-          );
-
-          return (
-            <div key={op.id} style={{ display: 'flex', gap: 16, position: 'relative' }}>
-              {!isLast && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    left: 15,
-                    top: 36,
-                    bottom: 0,
-                    width: 2,
-                    background: done ? GREEN : BORDER,
-                  }}
-                />
-              )}
-              <div
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: '50%',
-                  flexShrink: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 800,
-                  fontSize: 13,
-                  zIndex: 1,
-                  background: done ? GREEN : active ? '#2563eb' : 'rgba(217,119,6,0.15)',
-                  color: done || active ? '#fff' : '#d97706',
-                  border: done || active ? 'none' : '2px solid #d97706',
-                }}
-              >
-                {done ? <CheckCircleFilled /> : op.sequenceNo}
-              </div>
-
-              <div
-                style={cardStyle({
-                  flex: 1,
-                  marginBottom: 12,
-                  borderColor: active ? '#2563eb' : BORDER,
-                  opacity: done ? 0.95 : 1,
-                })}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    gap: 8,
-                    alignItems: 'center',
-                    marginBottom: 10,
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <span style={{ fontWeight: 800, fontSize: 15, color: NAVY }}>
-                    {op.operationName}
-                    {op.reworkOfOperationId ? (
-                      <Text type="secondary" style={{ fontWeight: 600, fontSize: 12 }}>
-                        {' '}
-                        (redo)
-                      </Text>
-                    ) : null}
-                  </span>
-                  <StatusPill color={opSt.color} compact>
-                    {opSt.label}
-                    {active && op.isPaused ? ' · Paused' : ''}
-                  </StatusPill>
-                </div>
-
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-                    gap: '8px 16px',
-                    fontSize: 12,
-                    color: MUTED,
-                    marginBottom: 10,
-                  }}
-                >
-                  <span>
-                    <strong style={{ color: '#475569' }}>Machine:</strong> {dash(machine)}
-                  </span>
-                  <span>
-                    <strong style={{ color: '#475569' }}>Worker:</strong>{' '}
-                    {dash(op.assignedWorkerName)}
-                  </span>
-                  <span>
-                    <strong style={{ color: '#475569' }}>Scheduled:</strong>{' '}
-                    {op.scheduledStart || op.scheduledEnd
-                      ? `${fmtDateTime(op.scheduledStart)} → ${fmtDateTime(op.scheduledEnd)}`
-                      : '—'}
-                  </span>
-                  <span>
-                    <strong style={{ color: '#475569' }}>Started–finished:</strong>{' '}
-                    {op.actualStart || op.actualEnd
-                      ? `${fmtDateTime(op.actualStart)} → ${fmtDateTime(op.actualEnd)}`
-                      : '—'}
-                  </span>
-                  <span>
-                    <strong style={{ color: '#475569' }}>Target hours:</strong>{' '}
-                    {fmtHours(op.estimatedHours)}
-                  </span>
-                  <span>
-                    <strong style={{ color: '#475569' }}>Hours worked:</strong>{' '}
-                    {fmtHours(op.actualWorkedHours)}
-                  </span>
-                  <span>
-                    <strong style={{ color: '#475569' }}>Difference from target:</strong>{' '}
-                    {fmtVariance(op.varianceHours, op.variancePct)}
-                  </span>
-                </div>
-
-                {op.reworkReasonCategory || op.reworkReason ? (
-                  <div style={{ fontSize: 12, color: MUTED, marginBottom: 8 }}>
-                    Redo reason
-                    {op.reworkReasonCategory
-                      ? `: ${reworkCategoryLabel(op.reworkReasonCategory)}`
-                      : ''}
-                    {op.reworkReason
-                      ? `${op.reworkReasonCategory ? ' — ' : ': '}${op.reworkReason}`
-                      : ''}
-                  </div>
-                ) : null}
-
-                <Collapse
-                  size="small"
-                  ghost
-                  items={[
-                    {
-                      key: 'logs',
-                      label: (
-                        <span style={{ fontSize: 12, fontWeight: 600, color: MUTED }}>
-                          Time log ({logs.length})
-                        </span>
-                      ),
-                      children:
-                        logs.length === 0 ? (
-                          <Text type="secondary" style={{ fontSize: 12 }}>
-                            —
-                          </Text>
-                        ) : (
-                          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: MUTED }}>
-                            {logs.map((log) => (
-                              <li key={log.id}>
-                                {TIME_EVENT_LABEL[log.event] || log.event}
-                                {log.reason
-                                  ? ` / ${PAUSE_REASON_LABEL[log.reason] || log.reason}`
-                                  : ''}
-                                {' · '}
-                                {fmtDateTime(log.eventAt)}
-                                {log.workerName ? ` · ${log.workerName}` : ''}
-                                {log.note ? ` — ${log.note}` : ''}
-                              </li>
-                            ))}
-                          </ul>
-                        ),
-                    },
-                  ]}
-                />
-
-                {!isDraft && isMine && (canStart || active) && (
-                  <Space wrap style={{ marginTop: 10 }}>
-                    {canStart && (
-                      <Button
-                        type="primary"
-                        size="small"
-                        loading={actionLoading === op.id}
-                        onClick={() => runOpAction(op, 'start')}
-                      >
-                        Start
-                      </Button>
-                    )}
-                    {active && !op.isPaused && (
-                      <>
-                        <Button
-                          size="small"
-                          loading={actionLoading === op.id}
-                          onClick={() => setPauseForOp(op)}
-                        >
-                          Pause
-                        </Button>
-                        <Button
-                          type="primary"
-                          size="small"
-                          loading={actionLoading === op.id}
-                          onClick={() => runOpAction(op, 'complete')}
-                        >
-                          Complete
-                        </Button>
-                      </>
-                    )}
-                    {active && op.isPaused && (
-                      <Button
-                        type="primary"
-                        size="small"
-                        loading={actionLoading === op.id}
-                        onClick={() => runOpAction(op, 'resume')}
-                      >
-                        Resume
-                      </Button>
-                    )}
-                  </Space>
-                )}
-
-                {canManage && !isDraft && op.status === 'COMPLETED' && (
-                  <Button
-                    size="small"
-                    style={{ marginTop: 8 }}
-                    loading={reworkLoading === op.id}
-                    onClick={() => handleRework(op)}
-                  >
-                    Send for redo
-                  </Button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-        {ops.length === 0 && (
-          <Text type="secondary">No operations on this job yet.</Text>
-        )}
-      </div>
+      {reproposeOpen && (
+        <ReproposeModal
+          jobId={job.id}
+          onClose={() => setReproposeOpen(false)}
+          onConfirmed={async () => {
+            setReproposeOpen(false);
+            await fetchJob();
+          }}
+        />
+      )}
 
       <Modal
         open={Boolean(pauseForOp)}
@@ -1565,112 +1769,25 @@ export default function JobOrderDetailPage() {
         </Space>
       </Modal>
 
-      <div style={cardStyle({ marginBottom: 16 })}>
-        <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 12 }}>
-          Time taken
-        </div>
-        <Row gutter={16}>
-          <Col xs={8}>
-            <div style={{ fontSize: 12, color: MUTED }}>Total target hours</div>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtHours(totals.estimated)}</div>
-          </Col>
-          <Col xs={8}>
-            <div style={{ fontSize: 12, color: MUTED }}>Total hours worked</div>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtHours(totals.worked)}</div>
-          </Col>
-          <Col xs={8}>
-            <div style={{ fontSize: 12, color: MUTED }}>Difference from target</div>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>
-              {fmtVariance(totals.varianceHours, null)}
-            </div>
-          </Col>
-        </Row>
-      </div>
-
-      {canManage && (
-        <div style={cardStyle({ marginBottom: 24 })}>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 12,
-              gap: 8,
-              flexWrap: 'wrap',
-            }}
-          >
-            <div style={{ fontWeight: 800, fontSize: 14, color: NAVY }}>
-              Notification history
-            </div>
-          </div>
-          <Table
-            size="small"
-            pagination={false}
-            rowKey="id"
-            loading={notifications == null}
-            dataSource={notifications || []}
-            locale={{ emptyText: 'No client notifications sent for this job yet' }}
-            columns={[
-              {
-                title: 'When',
-                dataIndex: 'createdAt',
-                width: 140,
-                render: (v?: string) => (v ? dayjs(v).format('MMM D, HH:mm') : '—'),
-              },
-              {
-                title: 'Update',
-                dataIndex: 'milestone',
-                width: 130,
-                render: (m: string) => friendlyEnum(m, NOTIF_UPDATE_LABEL),
-              },
-              {
-                title: 'Channel',
-                dataIndex: 'channel',
-                width: 80,
-                render: (c: string) => friendlyEnum(c, NOTIF_CHANNEL_LABEL),
-              },
-              { title: 'To', dataIndex: 'recipient', ellipsis: true },
-              {
-                title: 'Status',
-                dataIndex: 'status',
-                width: 90,
-                render: (s: string) => friendlyEnum(s, NOTIF_STATUS_LABEL),
-              },
-              {
-                title: 'Time sent',
-                dataIndex: 'sentAt',
-                width: 140,
-                render: (v?: string | null) =>
-                  v ? dayjs(v).format('MMM D, HH:mm') : '—',
-              },
-              {
-                title: '',
-                key: 'actions',
-                width: 100,
-                render: (_: unknown, row: NotificationLog) =>
-                  row.status === 'FAILED' ? (
-                    <Button
-                      size="small"
-                      loading={resendingId === row.id}
-                      onClick={() => handleResend(row.id)}
-                    >
-                      Send again
-                    </Button>
-                  ) : null,
-              },
-            ]}
-          />
-        </div>
-      )}
     </div>
   );
 }
 
-function RefItem({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: MUTED, marginBottom: 2 }}>{label}</div>
-      <div style={{ color: NAVY, fontWeight: 600 }}>{value}</div>
-    </div>
+    <>
+      <div style={{ color: MUTED }}>{label}</div>
+      <div style={{ color: NAVY, fontWeight: 600, textAlign: 'right' }}>{value}</div>
+    </>
+  );
+}
+
+function ActivityLabel({ title, count, alert }: { title: string; count: number; alert?: string }) {
+  return (
+    <span style={{ fontSize: 13, fontWeight: 600, color: NAVY }}>
+      {title}
+      <span style={{ color: MUTED, fontWeight: 400 }}> · {count}</span>
+      {alert ? <span style={{ color: '#b91c1c', fontWeight: 600 }}> · {alert}</span> : null}
+    </span>
   );
 }

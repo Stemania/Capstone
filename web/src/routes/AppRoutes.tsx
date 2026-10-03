@@ -19,6 +19,7 @@ import MyAssignmentsPage from '../features/my-assignments/MyAssignmentsPage';
 import AssignmentDetailPage from '../features/my-assignments/AssignmentDetailPage';
 import UsersPage from '../features/users/UsersPage';
 import WorkerSetupPage from '../features/workers/WorkerSetupPage';
+import AttendancePage from '../features/attendance/AttendancePage';
 import ToolsPage from '../features/tool-tracking/ToolsPage';
 import ScanToolPage from '../features/tool-tracking/ScanToolPage';
 import ClientsPage from '../features/clients/ClientsPage';
@@ -39,12 +40,9 @@ import SalesInvoicePrintPage from '../features/reports/SalesInvoicePrintPage';
 
 const AnalyticsLayout = lazy(() => import('../features/analytics/AnalyticsLayout'));
 const AnalyticsOverviewPage = lazy(() => import('../features/analytics/AnalyticsOverviewPage'));
-const AnalyticsEfficiencyPage = lazy(() => import('../features/analytics/AnalyticsEfficiencyPage'));
 const AnalyticsDelaysPage = lazy(() => import('../features/analytics/AnalyticsDelaysPage'));
-const AnalyticsSalesPage = lazy(() => import('../features/analytics/AnalyticsSalesPage'));
 const AnalyticsForecastPage = lazy(() => import('../features/analytics/AnalyticsForecastPage'));
-const AnalyticsCapacityPage = lazy(() => import('../features/analytics/AnalyticsCapacityPage'));
-const AnalyticsPurchasingPage = lazy(() => import('../features/analytics/AnalyticsPurchasingPage'));
+const AnalyticsSuppliersPage = lazy(() => import('../features/analytics/AnalyticsSuppliersPage'));
 
 function WorkerSetupFromUser() {
   const { id } = useParams();
@@ -110,7 +108,9 @@ export default function AppRoutes() {
 
                   <Route element={<ProtectedRoute roles={['ADMIN', 'OFFICE_STAFF']} />}>
                     <Route path="/job-orders" element={<JobOrderListPage />} />
-                    <Route path="/job-orders/new" element={<JobOrderFormPage />} />
+                    <Route element={<ProtectedRoute roles={['OFFICE_STAFF']} />}>
+                      <Route path="/job-orders/new" element={<JobOrderFormPage />} />
+                    </Route>
                     <Route path="/job-orders/:id/edit" element={<JobOrderFormPage />} />
                     <Route
                       path="/analytics"
@@ -121,12 +121,13 @@ export default function AppRoutes() {
                       }
                     >
                       <Route index element={<AnalyticsOverviewPage />} />
-                      <Route path="efficiency" element={<AnalyticsEfficiencyPage />} />
                       <Route path="delays" element={<AnalyticsDelaysPage />} />
-                      <Route path="sales" element={<AnalyticsSalesPage />} />
                       <Route path="forecast" element={<AnalyticsForecastPage />} />
-                      <Route path="capacity" element={<AnalyticsCapacityPage />} />
-                      <Route path="purchasing" element={<AnalyticsPurchasingPage />} />
+                      <Route path="suppliers" element={<AnalyticsSuppliersPage />} />
+                      <Route path="efficiency" element={<Navigate to="/analytics" replace />} />
+                      <Route path="sales" element={<Navigate to="/analytics" replace />} />
+                      <Route path="capacity" element={<Navigate to="/analytics/forecast" replace />} />
+                      <Route path="purchasing" element={<Navigate to="/analytics/suppliers" replace />} />
                     </Route>
                     <Route path="/tools" element={<ToolsPage />} />
                     <Route path="/clients" element={<ClientsPage />} />
@@ -150,6 +151,7 @@ export default function AppRoutes() {
                     <Route path="/users" element={<UsersPage />} />
                     <Route path="/users/:id" element={<WorkerSetupFromUser />} />
                     <Route path="/worker-setup" element={<WorkerSetupPage />} />
+                    <Route path="/attendance" element={<AttendancePage />} />
                     <Route
                       path="/settings/scoring-weights"
                       element={<Navigate to="/worker-setup" replace />}

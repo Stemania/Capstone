@@ -19,6 +19,9 @@ function opStatusBadge(
   op: Operation,
   colors: { red: string; accent: string; green: string; greenSoft: string }
 ) {
+  if (op.waitingForMaterials && op.status !== 'COMPLETED' && op.status !== 'IN_PROGRESS') {
+    return { text: 'Waiting for materials', bg: 'rgba(217,119,6,0.12)', color: '#d97706' };
+  }
   const overdue =
     op.status !== 'COMPLETED' && op.dueDate && dayjs(op.dueDate).isBefore(dayjs(), 'day');
   if (overdue) {

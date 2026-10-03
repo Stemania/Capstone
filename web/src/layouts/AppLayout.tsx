@@ -18,6 +18,7 @@ import {
   FieldTimeOutlined,
   ShopOutlined,
   ShoppingCartOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -26,6 +27,7 @@ import { adminPx } from '../theme/adminTheme';
 import { confirmLogout } from '../utils/confirmLogout';
 import KeepAliveOutlet from '../navigation/KeepAliveOutlet';
 import { useNavMemory } from '../navigation/navMemory';
+import NotificationBell from '../components/NotificationBell';
 
 const { Header, Sider, Content } = Layout;
 
@@ -71,31 +73,47 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
     title: 'Worker setup',
     subtitle: 'Skills, weekly hours, and work history',
   },
+  '/attendance': {
+    title: 'Attendance',
+    subtitle: 'Record each worker\u2019s clock-in and clock-out',
+  },
 };
 
 function Brand({ collapsed }: { collapsed: boolean }) {
   return (
     <div
       style={{
-        padding: collapsed ? '20px 8px' : '20px 16px',
+        padding: collapsed ? '16px 8px' : '14px 16px',
         borderBottom: '1px solid rgba(255,255,255,0.08)',
-        textAlign: collapsed ? 'center' : 'left',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 8,
+        textAlign: 'center',
       }}
     >
-      <div
-        style={{
-          fontSize: collapsed ? 13 : 16,
-          fontWeight: 800,
-          letterSpacing: 0.3,
-          color: '#fff',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {collapsed ? 'BMSC' : 'Brothers Machine Shop'}
-      </div>
+      <img
+        src="/logo.png"
+        alt="Brothers Machine Shop logo"
+        style={{ width: collapsed ? 40 : 60, height: 'auto', flexShrink: 0 }}
+      />
       {!collapsed && (
-        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
-          Production Management
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 15,
+              fontWeight: 800,
+              letterSpacing: 0.3,
+              color: '#fff',
+              whiteSpace: 'nowrap',
+              lineHeight: 1.25,
+            }}
+          >
+            Brothers Machine Shop
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
+            Production Scheduling
+          </div>
         </div>
       )}
     </div>
@@ -119,6 +137,7 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { resolveSectionNav } = useNavMemory();
+  const showBell = isAdmin || isOfficeStaff;
 
   const goSection = (sectionKey: string) => {
     const { to } = resolveSectionNav(sectionKey);
@@ -147,6 +166,7 @@ export default function AppLayout() {
     menuItems.push(
       { key: '/users', icon: <TeamOutlined />, label: 'Users & Roles' },
       { key: '/worker-setup', icon: <SettingOutlined />, label: 'Worker setup' },
+      { key: '/attendance', icon: <ClockCircleOutlined />, label: 'Attendance' },
     );
   }
 
@@ -316,9 +336,12 @@ export default function AppLayout() {
         }}
       >
         <div className="app-nav-drawer__top">
-          <div>
-            <div className="app-nav-drawer__shop">Brothers Machine Shop</div>
-            <div className="app-nav-drawer__tag">Production Management</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <img src="/logo.png" alt="Brothers Machine Shop logo" style={{ width: 40, height: 'auto', flexShrink: 0 }} />
+            <div>
+              <div className="app-nav-drawer__shop">Brothers Machine Shop</div>
+              <div className="app-nav-drawer__tag">Production Scheduling</div>
+            </div>
           </div>
           <button type="button" className="app-nav-drawer__close" onClick={() => setMobileOpen(false)} aria-label="Close menu">
             ×
@@ -370,6 +393,7 @@ export default function AppLayout() {
                   {meta.subtitle && <div className="app-shell__subtitle">{meta.subtitle}</div>}
                 </div>
                 <div className="app-shell__phone-actions">
+                  {showBell && <NotificationBell className="app-shell__cal" />}
                   {!onSchedule && (
                     <button
                       type="button"
@@ -428,13 +452,16 @@ export default function AppLayout() {
                     {meta.subtitle && <div className="app-shell__subtitle">{meta.subtitle}</div>}
                   </div>
                 </div>
-                <div className="app-shell__who">
-                  <div className="app-shell__who-icon">
-                    <UserOutlined />
-                  </div>
-                  <div className="app-shell__who-copy">
-                    <div className="app-shell__who-name">{user?.fullName}</div>
-                    <div className="app-shell__who-role">{roleLabel(user?.role)}</div>
+                <div className="app-shell__header-actions">
+                  {showBell && <NotificationBell />}
+                  <div className="app-shell__who">
+                    <div className="app-shell__who-icon">
+                      <UserOutlined />
+                    </div>
+                    <div className="app-shell__who-copy">
+                      <div className="app-shell__who-name">{user?.fullName}</div>
+                      <div className="app-shell__who-role">{roleLabel(user?.role)}</div>
+                    </div>
                   </div>
                 </div>
               </>

@@ -29,6 +29,7 @@ import dayjs, { type Dayjs } from 'dayjs';
 import { supplierOrdersApi } from '../../api/supplierOrders.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
+import OverdueTag from '../../components/OverdueTag';
 import StatusPill from '../../components/StatusPill';
 import type { MaterialPurchase, SupplierOrder } from '../../types';
 import OrderMaterialsModal from './OrderMaterialsModal';
@@ -60,7 +61,7 @@ function askDate(title: string, intro: string, okText: string, onOk: (d: string)
 export default function SupplierOrderDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { isAdmin } = useAuth();
+  const { isOfficeStaff } = useAuth();
   const [order, setOrder] = useState<SupplierOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -74,6 +75,9 @@ export default function SupplierOrderDetailPage() {
   }>({ quantity: null, unitCost: null, gradeOrSpec: '' });
   const [notes, setNotes] = useState('');
   const [vatRate, setVatRate] = useState<number | null>(null);
+  const [dateOpen, setDateOpen] = useState(false);
+  const [newDate, setNewDate] = useState<Dayjs | null>(null);
+  const [dateNote, setDateNote] = useState('');
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -98,7 +102,10 @@ export default function SupplierOrderDetailPage() {
     setBusy(true);
     try {
       const { data } = await fn();
-      setOrder(data);
+      setOrder((prev) => ({
+        ...data,
+        expectedDeliveryChanges: data.expectedDeliveryChanges ?? prev?.expectedDeliveryChanges,
+      }));
       setNotes(data.notes || '');
       setVatRate(data.vatRate ?? null);
       setToReceive([]);
@@ -124,8 +131,10 @@ export default function SupplierOrderDetailPage() {
   const receivable = order.status === 'ISSUED' || order.status === 'PARTIALLY_RECEIVED';
   const lines = order.lines || [];
   const pill = ORDER_STATUS_PILL[order.status];
+  const editableDraft = isDraft && isOfficeStaff;
+  const receivableByMe = receivable && isOfficeStaff;
   const draftDirty =
-    isDraft && ((order.notes || '') !== notes || (order.vatRate ?? null) !== vatRate);
+    editableDraft && ((order.notes || '') !== notes || (order.vatRate ?? null) !== vatRate);
 
   const issue = () =>
     askDate(
@@ -136,6 +145,42 @@ export default function SupplierOrderDetailPage() {
       'Issue order',
       (d) => run(() => supplierOrdersApi.issue(order.id, d), 'Order issued')
     );
+
+  const openDateChange = () => {
+    setNewDate(order.expectedDeliveryDate ? dayjs(order.expectedDeliveryDate) : null);
+    setDateNote('');
+    setDateOpen(true);
+  };
+
+  const saveDateChange = async () => {
+    if (!newDate || !dateNote.trim()) return;
+    setBusy(true);
+    try {
+      const { data } = await supplierOrdersApi.changeExpectedDelivery(
+        order.id,
+        newDate.format('YYYY-MM-DD'),
+        dateNote.trim()
+      );
+      setOrder(data);
+      setDateOpen(false);
+      const moved = data.movedJobs || [];
+      const stuck = data.notMovedJobs || [];
+      message.success(
+        moved.length
+          ? `Expected delivery updated. Moved later: ${moved.map((j) => j.jobNumber).join(', ')}`
+          : 'Expected delivery updated. No job needed to move.'
+      );
+      if (stuck.length) {
+        message.warning(
+          `No free slot found for ${stuck.map((j) => j.jobNumber).join(', ')}; their schedule was left as it is.`
+        );
+      }
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const receiveSelected = () =>
     askDate(
@@ -302,6 +347,7 @@ export default function SupplierOrderDetailPage() {
       key: 'act',
       width: 90,
       render: (_: unknown, ln) => {
+        if (!isOfficeStaff) return null;
         if (isDraft) {
           return (
             <Space size={0}>
@@ -356,24 +402,26 @@ export default function SupplierOrderDetailPage() {
           <StatusPill color={pill.color}>{pill.label}</StatusPill>
         </Space>
         <Space wrap>
-          {isDraft ? (
+          {editableDraft ? (
             <Button icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>
               Add lines
             </Button>
           ) : null}
           {isDraft ? (
-            <Tooltip title={isAdmin ? undefined : 'Only the Admin can issue a supplier order.'}>
+            <Tooltip
+              title={isOfficeStaff ? undefined : 'Only Office Staff can issue a supplier order.'}
+            >
               <Button
                 type="primary"
                 icon={<CheckOutlined />}
-                disabled={!isAdmin || busy || lines.length === 0 || draftDirty}
+                disabled={!isOfficeStaff || busy || lines.length === 0 || draftDirty}
                 onClick={issue}
               >
                 Issue order
               </Button>
             </Tooltip>
           ) : null}
-          {receivable ? (
+          {receivableByMe ? (
             <Button
               type="primary"
               icon={<CheckOutlined />}
@@ -386,7 +434,7 @@ export default function SupplierOrderDetailPage() {
           <Button icon={<PrinterOutlined />} onClick={() => navigate(`/supplier-orders/${order.id}/print`)}>
             Print PO
           </Button>
-          {order.status === 'DRAFT' || order.status === 'ISSUED' ? (
+          {isOfficeStaff && (order.status === 'DRAFT' || order.status === 'ISSUED') ? (
             <Button danger icon={<StopOutlined />} disabled={busy} onClick={cancelOrder}>
               Cancel order
             </Button>
@@ -405,9 +453,54 @@ export default function SupplierOrderDetailPage() {
           {
             key: 'exp',
             label: 'Expected delivery',
-            children: order.expectedDeliveryDate
-              ? fmtDay(order.expectedDeliveryDate)
-              : `Issue date + ${order.supplierLeadTimeDays ?? '—'} days`,
+            children: (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {!order.expectedDeliveryDate ? (
+                    `Issue date + ${order.supplierLeadTimeDays ?? '—'} days`
+                  ) : order.originalExpectedDeliveryDate ? (
+                    <>
+                      <div>
+                        <span style={{ color: '#64748b' }}>Currently expected:</span>{' '}
+                        <strong>{fmtDay(order.expectedDeliveryDate)}</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: '#64748b' }}>Originally expected:</span>{' '}
+                        {fmtDay(order.originalExpectedDeliveryDate)}
+                      </div>
+                    </>
+                  ) : (
+                    fmtDay(order.expectedDeliveryDate)
+                  )}
+                  {order.daysOverdue ? (
+                    <div style={{ marginTop: 4 }}>
+                      <OverdueTag
+                        days={order.daysOverdue}
+                        tooltip="Not received by the expected date. Follow up with the supplier."
+                      />
+                    </div>
+                  ) : null}
+                </div>
+                {receivable ? (
+                  <Tooltip
+                    title={
+                      isOfficeStaff
+                        ? 'Change expected delivery date'
+                        : 'Only Office Staff can change the expected delivery date.'
+                    }
+                  >
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<EditOutlined />}
+                      aria-label="Change expected delivery date"
+                      disabled={!isOfficeStaff || busy}
+                      onClick={openDateChange}
+                    />
+                  </Tooltip>
+                ) : null}
+              </div>
+            ),
           },
           { key: 'prep', label: 'Prepared by', children: order.preparedByName || '—' },
           { key: 'iss', label: 'Issued by', children: order.issuedByName || '—' },
@@ -416,7 +509,7 @@ export default function SupplierOrderDetailPage() {
           {
             key: 'vat',
             label: 'VAT',
-            children: isDraft ? (
+            children: editableDraft ? (
               <InputNumber
                 size="small"
                 min={0}
@@ -436,7 +529,7 @@ export default function SupplierOrderDetailPage() {
           {
             key: 'notes',
             label: 'Notes',
-            children: isDraft ? (
+            children: editableDraft ? (
               <Input.TextArea
                 autoSize={{ minRows: 1, maxRows: 4 }}
                 value={notes}
@@ -448,6 +541,41 @@ export default function SupplierOrderDetailPage() {
           },
         ]}
       />
+
+      {order.expectedDeliveryChanges && order.expectedDeliveryChanges.length > 0 ? (
+        <div
+          style={{
+            background: '#fff',
+            border: '1px solid #e2e8f0',
+            borderRadius: 8,
+            padding: '10px 14px',
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
+            Expected delivery changes
+          </div>
+          {order.expectedDeliveryChanges.map((c, i) => (
+            <div
+              key={`${c.changedAt}-${i}`}
+              style={{
+                fontSize: 13,
+                padding: '6px 0',
+                borderTop: i ? '1px solid #f1f5f9' : undefined,
+              }}
+            >
+              <div>
+                {fmtDay(c.from)} → <strong>{fmtDay(c.to)}</strong>
+                {c.note ? <span style={{ color: '#334155' }}> · {c.note}</span> : null}
+              </div>
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                {c.changedByName || 'Unknown'}
+                {c.changedAt ? `, ${dayjs(c.changedAt).format('D MMM YYYY, h:mm A')}` : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {draftDirty ? (
         <Alert
@@ -487,9 +615,9 @@ export default function SupplierOrderDetailPage() {
         pagination={false}
         dataSource={lines}
         columns={columns}
-        locale={{ emptyText: 'No lines yet. Add lines to this draft.' }}
+        locale={{ emptyText: editableDraft ? 'No lines yet. Add lines to this draft.' : 'No lines yet.' }}
         rowSelection={
-          receivable
+          receivableByMe
             ? {
                 selectedRowKeys: toReceive,
                 onChange: (keys) => setToReceive(keys as string[]),
@@ -509,6 +637,49 @@ export default function SupplierOrderDetailPage() {
           else navigate(`/supplier-orders/${saved.id}`);
         }}
       />
+
+      <Modal
+        open={dateOpen}
+        onCancel={() => setDateOpen(false)}
+        onOk={saveDateChange}
+        okText="Save"
+        okButtonProps={{ disabled: !newDate || !dateNote.trim() }}
+        confirmLoading={busy}
+        title="Change expected delivery date"
+        destroyOnHidden
+      >
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ fontSize: 13, color: '#475569' }}>
+            Applies to every line on this order that has not been received. A later date moves
+            affected jobs later; an earlier date moves nothing.
+          </div>
+          <div>
+            <div style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>
+              New expected delivery date
+            </div>
+            <DatePicker
+              style={{ width: '100%' }}
+              format="YYYY-MM-DD"
+              allowClear={false}
+              value={newDate}
+              onChange={(d) => setNewDate(d)}
+              disabledDate={(d) =>
+                !!order.dateIssued && d.isBefore(dayjs(order.dateIssued), 'day')
+              }
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>Note (required)</div>
+            <Input.TextArea
+              autoSize={{ minRows: 2, maxRows: 4 }}
+              maxLength={500}
+              placeholder="Supplier confirmed delivery on 15 Oct"
+              value={dateNote}
+              onChange={(e) => setDateNote(e.target.value)}
+            />
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={!!editLine}

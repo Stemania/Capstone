@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Input, InputNumber, Modal, Select, Space, Table, Typography, message } from 'antd';
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { Alert, Button, Input, InputNumber, Modal, Select, Table, Typography, message } from 'antd';
+import { DeleteOutlined, PlusOutlined, ShoppingCartOutlined } from '@ant-design/icons';
 import { supplierOrdersApi } from '../../api/supplierOrders.api';
 import { suppliersApi } from '../../api/suppliers.api';
 import { getErrorMessage } from '../../api/client';
@@ -10,10 +10,35 @@ import type {
   Supplier,
   SupplierOrder,
   SupplierOrderLineInput,
+  SupplierReliability,
 } from '../../types';
 import { fmtQty } from './supplierOrderUi';
 
 const { Text } = Typography;
+
+function reliabilityColor(pct: number) {
+  if (pct >= 90) return '#15803d';
+  if (pct >= 70) return '#b45309';
+  return '#b91c1c';
+}
+
+/** "92% on time" (on or before the date promised at issue), or "Not enough deliveries". */
+function ReliabilityText({ row }: { row?: SupplierReliability }) {
+  if (!row) return null;
+  if (!row.enoughData || row.reliabilityPct == null) {
+    return <span style={{ fontSize: 12, color: '#94a3b8' }}>{row.label}</span>;
+  }
+  return (
+    <span
+      style={{ fontSize: 12, fontWeight: 600, color: reliabilityColor(row.reliabilityPct) }}
+      title={`${row.onTimeDeliveries} of ${row.dueDeliveries} deliveries on or before the promised date${
+        row.lateDeliveries ? `; late ones averaged ${row.avgDaysLate} days` : ''
+      }`}
+    >
+      {row.label}
+    </span>
+  );
+}
 
 type PlannedEdit = { quantity: number | null; unitCost: number | null; gradeOrSpec: string };
 
@@ -48,6 +73,7 @@ export default function OrderMaterialsModal({
   defaultSupplierId?: string | null;
 }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [reliability, setReliability] = useState<Record<string, SupplierReliability>>({});
   const [supplierId, setSupplierId] = useState<string | undefined>();
   const [data, setData] = useState<OutstandingMaterials | null>(null);
   const [loading, setLoading] = useState(false);
@@ -63,6 +89,10 @@ export default function OrderMaterialsModal({
     setEdits({});
     setExtras([]);
     setLoading(true);
+    suppliersApi
+      .reliability()
+      .then(({ data: rows }) => setReliability(Object.fromEntries(rows.map((r) => [r.supplierId, r]))))
+      .catch(() => setReliability({}));
     Promise.all([suppliersApi.list({ activeOnly: true }), supplierOrdersApi.outstanding(jobId)])
       .then(([s, o]) => {
         setSuppliers(s.data);
@@ -167,18 +197,35 @@ export default function OrderMaterialsModal({
     <Modal
       open={open}
       onCancel={onClose}
-      title={jobId ? 'Order materials for this job' : 'New supplier order'}
       width={1040}
+      centered
       destroyOnHidden
-      footer={
-        <Space>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button type="primary" loading={saving} onClick={onSubmit} disabled={!supplierId}>
-            Save to draft order
-          </Button>
-        </Space>
-      }
+      footer={null}
+      closable={false}
+      className="app-form-modal"
+      styles={{
+        container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
+        body: { padding: 0 },
+      }}
     >
+      <div className="app-form-modal__head">
+        <div className="app-form-modal__icon">
+          <ShoppingCartOutlined />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="app-form-modal__title">
+            {jobId ? 'Order materials for this job' : 'New supplier order'}
+          </div>
+          <div className="app-form-modal__sub">
+            Pick a supplier, then the materials to add to its draft order.
+          </div>
+        </div>
+        <button type="button" className="app-form-modal__close" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+      </div>
+
+      <div style={{ padding: '18px 24px 12px' }}>
       <div style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 13, color: '#475569', marginBottom: 6 }}>Supplier</div>
         <Select
@@ -189,6 +236,22 @@ export default function OrderMaterialsModal({
           value={supplierId}
           onChange={setSupplierId}
           options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+          optionRender={(o) => (
+            <span style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+              <span>{o.label}</span>
+              <ReliabilityText row={reliability[String(o.value)]} />
+            </span>
+          )}
+          labelRender={(o) => (
+            <span>
+              {o.label}
+              {o.value ? (
+                <span style={{ marginLeft: 8 }}>
+                  <ReliabilityText row={reliability[String(o.value)]} />
+                </span>
+              ) : null}
+            </span>
+          )}
         />
         {supplier ? (
           <Text type="secondary" style={{ marginLeft: 12, fontSize: 12 }}>
@@ -209,7 +272,7 @@ export default function OrderMaterialsModal({
             loading={loading}
             rowKey={rowKey}
             pagination={false}
-            scroll={{ y: 320 }}
+            scroll={{ y: 'min(320px, calc(100vh - 470px))' }}
             dataSource={data?.materials || []}
             locale={{ emptyText: 'Nothing planned is waiting to be ordered.' }}
             rowSelection={{
@@ -411,6 +474,22 @@ export default function OrderMaterialsModal({
       ) : (
         <Alert type="info" showIcon message="Choose a supplier to see the materials still to order." />
       )}
+      </div>
+
+      <div className="app-form-modal__footer">
+        <Button onClick={onClose} style={{ minWidth: 96 }}>
+          Cancel
+        </Button>
+        <Button
+          type="primary"
+          loading={saving}
+          onClick={onSubmit}
+          disabled={!supplierId}
+          style={{ fontWeight: 700, minWidth: 120 }}
+        >
+          Save to draft order
+        </Button>
+      </div>
     </Modal>
   );
 }

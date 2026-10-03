@@ -4,7 +4,7 @@ export const JOB_FLOW_STEPS = [
   { id: 1, label: 'Job information' },
   { id: 2, label: 'Operations' },
   { id: 3, label: 'Schedule' },
-  { id: 4, label: 'Released' },
+  { id: 4, label: 'Scheduled' },
 ] as const;
 
 export type JobFlowStepId = (typeof JOB_FLOW_STEPS)[number]['id'];

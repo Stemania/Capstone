@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   Col,
@@ -85,11 +85,69 @@ function defaultsForType(type: CalendarExceptionType): {
   };
 }
 
+function excTitle(exc: WorkCalendarException): string {
+  if (exc.type === 'HOLIDAY_NO_WORK') return 'Holiday';
+  if (exc.type === 'OVERTIME') return 'Overtime';
+  return dayjs(exc.date).day() === 0 ? 'Sunday work' : 'Special day';
+}
+
+function excDetail(exc: WorkCalendarException): string {
+  if (exc.type === 'HOLIDAY_NO_WORK') return exc.note || 'Closed';
+  const start = exc.startTime?.slice(0, 5);
+  const end = exc.endTime?.slice(0, 5);
+  if (exc.type === 'OVERTIME') return start && end ? `${start}–${end}` : `until ${end ?? '—'}`;
+  return `${start ?? '08:00'}–${end ?? '17:00'}`;
+}
+
+/** Monday-first grid holding only the weeks the month touches (5 or 6, sometimes 4). */
 function monthCells(anchor: Dayjs): Dayjs[] {
   const start = anchor.startOf('month');
-  // Monday-first grid
-  const gridStart = start.subtract((start.day() + 6) % 7, 'day');
-  return Array.from({ length: 42 }, (_, i) => gridStart.add(i, 'day'));
+  const lead = (start.day() + 6) % 7;
+  const gridStart = start.subtract(lead, 'day');
+  const weeks = Math.ceil((lead + anchor.daysInMonth()) / 7);
+  return Array.from({ length: weeks * 7 }, (_, i) => gridStart.add(i, 'day'));
+}
+
+const MIN_CALENDAR_HEIGHT = 520;
+
+/**
+ * Height that makes the element end exactly at the bottom of the app's scroll
+ * area, keeping whatever padding sits below it.
+ */
+function useFitToScrollArea(deps: unknown[]) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | undefined>(undefined);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const scroller = el?.closest('.app-shell__scroll') as HTMLElement | null;
+    if (!el || !scroller) return;
+    const fit = () => {
+      const top =
+        el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+      let below = parseFloat(getComputedStyle(el).marginBottom) || 0;
+      for (let node = el.parentElement; node && node !== scroller; node = node.parentElement) {
+        const cs = getComputedStyle(node);
+        below +=
+          (parseFloat(cs.paddingBottom) || 0) +
+          (parseFloat(cs.borderBottomWidth) || 0) +
+          (parseFloat(cs.marginBottom) || 0);
+      }
+      const next = Math.floor(scroller.clientHeight - top - below);
+      setHeight(Math.max(MIN_CALENDAR_HEIGHT, next));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(scroller);
+    window.addEventListener('resize', fit);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', fit);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+
+  return { ref, height };
 }
 
 export default function WorkCalendarPage() {
@@ -298,34 +356,21 @@ export default function WorkCalendarPage() {
     });
   };
 
+  const { ref: shellRef, height: shellHeight } = useFitToScrollArea([]);
   const cells = monthCells(anchor);
+  const weeks = cells.length / 7;
   const todayKey = dayjs().format('YYYY-MM-DD');
+  const monthExceptions = [...exceptions]
+    .filter((x) => dayjs(x.date).isSame(anchor, 'month'))
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   return (
     <div className="work-calendar-page">
-      <div className="work-calendar__shell">
-        <header className="work-calendar__intro">
-          <div>
-            <h1 className="work-calendar__title">Work calendar</h1>
-            <p className="work-calendar__sub">
-              Shop-wide overtime, special working days, and holidays. Applies to every worker&apos;s
-              schedule for that date.
-              {!isAdmin ? ' Viewing only — ask an Admin to make changes.' : ' Click a day to add or edit.'}
-            </p>
-          </div>
-          <div className="work-calendar__legend">
-            <span>
-              <i className="work-calendar__dot work-calendar__dot--ot" /> Overtime
-            </span>
-            <span>
-              <i className="work-calendar__dot work-calendar__dot--special" /> Special day
-            </span>
-            <span>
-              <i className="work-calendar__dot work-calendar__dot--holiday" /> Holiday
-            </span>
-          </div>
-        </header>
-
+      <div
+        ref={shellRef}
+        className="work-calendar__shell"
+        style={shellHeight ? { height: shellHeight } : undefined}
+      >
         <div className="work-calendar__toolbar">
           <div className="work-calendar__nav">
             <Button
@@ -341,59 +386,111 @@ export default function WorkCalendarPage() {
               onClick={() => setAnchor((a) => a.add(1, 'month'))}
               aria-label="Next month"
             />
+            <Button size="small" onClick={() => setAnchor(dayjs())}>
+              Today
+            </Button>
           </div>
-          <Button size="small" onClick={() => setAnchor(dayjs())}>
-            Today
-          </Button>
+          <div className="work-calendar__legend">
+            <span>
+              <i className="work-calendar__dot work-calendar__dot--ot" /> Overtime
+            </span>
+            <span>
+              <i className="work-calendar__dot work-calendar__dot--special" /> Special day
+            </span>
+            <span>
+              <i className="work-calendar__dot work-calendar__dot--holiday" /> Holiday
+            </span>
+            <span className="work-calendar__mode">
+              {isAdmin ? 'Click a day to edit' : 'View only'}
+            </span>
+          </div>
         </div>
 
-        {loading ? (
-          <div className="page-spinner">
-            <Spin size="large" />
-          </div>
-        ) : (
-          <div className="work-calendar__grid" role="grid" aria-label="Work calendar">
-            {WEEKDAYS.map((d) => (
-              <div key={d} className="work-calendar__weekday">
-                {d}
-              </div>
-            ))}
-            {cells.map((day) => {
-              const key = day.format('YYYY-MM-DD');
-              const inMonth = day.month() === anchor.month();
-              const exc = byDate.get(key);
-              const normal = isNormalWorkingDay(day);
-              const classes = [
-                'work-calendar__cell',
-                inMonth ? '' : 'work-calendar__cell--outside',
-                key === todayKey ? 'work-calendar__cell--today' : '',
-                !normal && !exc ? 'work-calendar__cell--off' : '',
-                exc ? `work-calendar__cell--${exc.type.toLowerCase()}` : '',
-                isAdmin || exc ? 'work-calendar__cell--interactive' : '',
-              ]
-                .filter(Boolean)
-                .join(' ');
+        <div className="work-calendar__body">
+          {loading ? (
+            <div className="work-calendar__loading">
+              <Spin size="large" />
+            </div>
+          ) : (
+            <div
+              className="work-calendar__grid"
+              role="grid"
+              aria-label="Work calendar"
+              style={{ gridTemplateRows: `auto repeat(${weeks}, minmax(0, 1fr))` }}
+            >
+              {WEEKDAYS.map((d) => (
+                <div key={d} className="work-calendar__weekday">
+                  {d}
+                </div>
+              ))}
+              {cells.map((day) => {
+                const key = day.format('YYYY-MM-DD');
+                const inMonth = day.month() === anchor.month();
+                const exc = inMonth ? byDate.get(key) : undefined;
+                const normal = isNormalWorkingDay(day);
+                const classes = [
+                  'work-calendar__cell',
+                  inMonth ? '' : 'work-calendar__cell--outside',
+                  inMonth && key === todayKey ? 'work-calendar__cell--today' : '',
+                  inMonth && !normal && !exc ? 'work-calendar__cell--off' : '',
+                  exc ? `work-calendar__cell--${exc.type.toLowerCase()}` : '',
+                  inMonth && (isAdmin || exc) ? 'work-calendar__cell--interactive' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ');
 
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  className={classes}
-                  disabled={!isAdmin && !exc}
-                  onClick={() => {
-                    if (isAdmin || exc) openDay(day);
-                  }}
-                  title={exc ? exceptionBadge(exc) : undefined}
-                >
-                  <span className="work-calendar__day-num">{day.date()}</span>
-                  {exc ? (
-                    <span className="work-calendar__badge">{exceptionBadge(exc)}</span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-        )}
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className={classes}
+                    disabled={!inMonth || (!isAdmin && !exc)}
+                    onClick={() => {
+                      if (isAdmin || exc) openDay(day);
+                    }}
+                    title={exc ? exceptionBadge(exc) : undefined}
+                  >
+                    <span className="work-calendar__day-num">{day.date()}</span>
+                    {exc ? (
+                      <span className="work-calendar__event">
+                        <span className="work-calendar__event-title">{excTitle(exc)}</span>
+                        <span className="work-calendar__event-detail">{excDetail(exc)}</span>
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <aside className="work-calendar__aside" aria-label="This month">
+            <div className="work-calendar__aside-title">This month</div>
+            {monthExceptions.length === 0 ? (
+              <div className="work-calendar__aside-empty">
+                Normal hours all month. No overtime, special days, or holidays.
+              </div>
+            ) : (
+              <ul className="work-calendar__aside-list">
+                {monthExceptions.map((x) => (
+                  <li key={x.id}>
+                    <button
+                      type="button"
+                      className={`work-calendar__aside-item work-calendar__aside-item--${x.type.toLowerCase()}`}
+                      onClick={() => openDay(dayjs(x.date))}
+                    >
+                      <span className="work-calendar__aside-date">
+                        {dayjs(x.date).format('ddd, MMM D')}
+                      </span>
+                      <span className="work-calendar__aside-what">
+                        {excTitle(x)} · {excDetail(x)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </aside>
+        </div>
       </div>
 
       <Modal

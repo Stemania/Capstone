@@ -1,4 +1,5 @@
 import apiClient from './client';
+import type { MaterialWait } from '../types';
 
 export type ShopDayWindow = {
   date: string;
@@ -36,7 +37,7 @@ export type ScheduleBoardOperation = {
   scheduleFlag?: 'GREEN' | 'AMBER' | 'RED' | null;
   isLate?: boolean;
   scheduleColor?: string | null;
-};
+} & MaterialWait;
 
 export type ScheduleBoardDowntime = {
   id: string;

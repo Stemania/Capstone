@@ -185,7 +185,7 @@ export default function SupplierOrderPrintPage() {
             <div>Prepared by</div>
           </div>
           <div className="jo-print-sig">
-            <div style={{ minHeight: 14 }}>{order.issuedByName || ''}</div>
+            <div style={{ minHeight: 14 }} />
             <div className="jo-print-sig-line" />
             <div>Approved by</div>
           </div>

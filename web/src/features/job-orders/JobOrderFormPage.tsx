@@ -12,49 +12,38 @@ import {
   Row,
   Col,
   Space,
+  Modal,
 } from 'antd';
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import SplitActionButton from '../../components/SplitActionButton';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { clientsApi, jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
-import { useAuth } from '../../hooks/useAuth';
 import type { Client } from '../../types';
-import JobOrderFlowSteps, { resolveJobFlowStep } from './JobOrderFlowSteps';
-import { jobOrdersDraftsListPath, jobOrdersListPath } from './jobOrderListPaths';
+import { jobOrdersDraftsListPath } from './jobOrderListPaths';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
-
-type SaveDestination = 'plan' | 'list' | 'detail';
 
 export default function JobOrderFormPage() {
   const { id } = useParams();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { isAdmin } = useAuth();
-  const stayOnStep1 = searchParams.get('step') === '1';
+  const fromPlanning = searchParams.get('from') === 'plan';
   const [form] = Form.useForm();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(isEdit);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [jobStatus, setJobStatus] = useState<string | null>(null);
   const [jobNumber, setJobNumber] = useState<string | null>(null);
-  const [reachedStep, setReachedStep] = useState<1 | 2 | 3 | 4>(1);
   const NAVY = '#0f1c2e';
-  const backTo =
-    isEdit && id && jobStatus && jobStatus !== 'DRAFT'
-      ? `/job-orders/${id}`
-      : jobOrdersDraftsListPath();
-  // New jobs are DRAFT; planning entry only applies while still DRAFT.
-  const canEnterPlanning = !isEdit || jobStatus === 'DRAFT' || jobStatus === null;
-  const showAdminSplit = isAdmin && canEnterPlanning;
-  const maxInteractive = isAdmin ? 4 : 1;
-  const inWizardStep1 = isEdit && stayOnStep1 && canEnterPlanning;
-  const pageHeading = inWizardStep1 || !isEdit ? 'New Job Order' : 'Edit Job Information';
+  const backTo = !id
+    ? jobOrdersDraftsListPath()
+    : fromPlanning
+      ? `/job-orders/${id}/plan`
+      : `/job-orders/${id}`;
+  const pageHeading = isEdit ? 'Edit Job Information' : 'New Job Order';
 
   useEffect(() => {
     let cancelled = false;
@@ -79,20 +68,7 @@ export default function JobOrderFormPage() {
       try {
         const { data } = await jobOrdersApi.get(id);
         if (cancelled) return;
-
-        // Edit always uses ?step=1. Only auto-continue drafts that open /edit
-        // without step=1 (legacy links) into the planning wizard.
-        if (isAdmin && !stayOnStep1 && data.status === 'DRAFT') {
-          const land = resolveJobFlowStep(data);
-          if (land > 1) {
-            navigate(`/job-orders/${id}/plan?step=${land}`, { replace: true });
-            return;
-          }
-        }
-
-        setJobStatus(data.status);
         setJobNumber(data.jobNumber || data.id.slice(0, 8).toUpperCase());
-        setReachedStep(resolveJobFlowStep(data));
         form.setFieldsValue({
           clientId: data.clientId,
           title: data.title,
@@ -119,32 +95,9 @@ export default function JobOrderFormPage() {
     return () => {
       cancelled = true;
     };
-  }, [form, id, isEdit, isAdmin, navigate, stayOnStep1]);
+  }, [form, id, isEdit]);
 
-  const fillSampleData = () => {
-    const clientId = clients[0]?.id;
-    if (!clientId) {
-      setError('Add a client first, then use sample fill.');
-      return;
-    }
-    setError('');
-    form.setFieldsValue({
-      clientId,
-      clientPoNumber: 'SAMPLE-PO-001',
-      poDate: dayjs(),
-      title: 'Sample — Modification of Cyclodrive Base',
-      jobType: 'FABRICATION',
-      priority: 'MODERATE',
-      dueDate: dayjs().add(14, 'day'),
-      quantity: 1,
-      unitOfMeasure: 'pcs',
-      amount: 15000,
-      description: 'Temporary sample data for flow testing.',
-      rawMaterials: [{ name: 'Mild steel round bar', quantity: 2, unit: 'pcs' }],
-    });
-  };
-
-  const saveJob = async (destination: SaveDestination) => {
+  const saveJob = async () => {
     let values: {
       clientId: string;
       title: string;
@@ -163,6 +116,23 @@ export default function JobOrderFormPage() {
       values = await form.validateFields();
     } catch {
       return;
+    }
+
+    const hasPlannedMaterials = (values.rawMaterials || []).some((m) => m.name?.trim());
+    if (values.jobType === 'FABRICATION' && !hasPlannedMaterials) {
+      const proceed = await new Promise<boolean>((resolve) => {
+        Modal.confirm({
+          title: 'No raw materials planned',
+          content:
+            'Fabrication usually needs material. Without planned materials this job is marked ' +
+            'Not required and nothing will be ordered for it. Is that correct?',
+          okText: 'Save anyway',
+          cancelText: 'Add materials',
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        });
+      });
+      if (!proceed) return;
     }
 
     setSubmitting(true);
@@ -190,22 +160,12 @@ export default function JobOrderFormPage() {
     };
 
     try {
-      let jobId = id;
       if (isEdit && id) {
         await jobOrdersApi.update(id, payload);
+        navigate(backTo);
       } else {
         const { data } = await jobOrdersApi.create(payload);
-        jobId = data.id;
-      }
-
-      if (destination === 'plan' && jobId) {
-        navigate(`/job-orders/${jobId}/plan?step=2`);
-      } else if (destination === 'list') {
-        navigate(jobOrdersListPath(jobStatus || 'DRAFT'));
-      } else if (jobId) {
-        navigate(`/job-orders/${jobId}`);
-      } else {
-        navigate(jobOrdersDraftsListPath());
+        navigate(`/job-orders/${data.id}`);
       }
     } catch (err) {
       setError(getErrorMessage(err));
@@ -238,43 +198,12 @@ export default function JobOrderFormPage() {
             </Title>
           </div>
         </Space>
-        <Space wrap size={8} align="center">
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            Fields marked <span style={{ color: '#7A1528' }}>*</span> are required
-          </Text>
-          {!isEdit && (
-            <Button
-              type="link"
-              size="small"
-              onClick={fillSampleData}
-              disabled={clients.length === 0}
-              style={{ fontSize: 12, padding: 0, height: 'auto' }}
-            >
-              Fill sample (temp)
-            </Button>
-          )}
-        </Space>
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          Fields marked <span style={{ color: '#7A1528' }}>*</span> are required
+        </Text>
       </div>
 
-      <JobOrderFlowSteps
-        current={1}
-        reached={isAdmin ? Math.max(reachedStep, 1) as 1 | 2 | 3 | 4 : 1}
-        maxInteractive={maxInteractive}
-        onStepClick={(step) => {
-          if (!id || !isAdmin || step === 1) return;
-          navigate(`/job-orders/${id}/plan?step=${step}`);
-        }}
-      />
-
       {error && <Alert type="error" message={error} style={{ marginBottom: 10 }} showIcon />}
-      {jobStatus === 'DRAFT' && (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 10 }}
-          message="This job is pending. You can update PO details; Admin owns operations and release."
-        />
-      )}
 
       <Form
         form={form}
@@ -445,32 +374,14 @@ export default function JobOrderFormPage() {
 
         <div className="jo-form__footer">
           <Button onClick={() => navigate(backTo)}>Back</Button>
-          {showAdminSplit ? (
-            <SplitActionButton
-              loading={submitting}
-              onClick={() => saveJob('plan')}
-              menu={{
-                items: [
-                  {
-                    key: 'draft',
-                    label: 'Save as pending',
-                    onClick: () => saveJob('list'),
-                  },
-                ],
-              }}
-            >
-              Proceed to planning
-            </SplitActionButton>
-          ) : (
-            <Button
-              type="primary"
-              loading={submitting}
-              onClick={() => saveJob(canEnterPlanning ? 'list' : 'detail')}
-              style={{ fontWeight: 600, minWidth: 160 }}
-            >
-              {canEnterPlanning ? 'Save as pending' : 'Save Job Information'}
-            </Button>
-          )}
+          <Button
+            type="primary"
+            loading={submitting}
+            onClick={saveJob}
+            style={{ fontWeight: 600, minWidth: 160 }}
+          >
+            Save
+          </Button>
         </div>
       </Form>
     </div>

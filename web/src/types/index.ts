@@ -100,6 +100,63 @@ export interface Supplier {
   updatedAt?: string | null;
 }
 
+export interface AttendanceRecord {
+  id: string;
+  workerId: string;
+  workerName: string | null;
+  workDate: string;
+  clockIn: string;
+  clockOut: string | null;
+  hoursWorked: number | null;
+  note: string | null;
+  recordedByName: string | null;
+  updatedByName: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export type AttendanceStatus =
+  | 'PRESENT'
+  | 'CLOCKED_IN'
+  | 'INCOMPLETE'
+  | 'ABSENT'
+  | 'NOT_IN'
+  | 'NOT_YET'
+  | 'OFF';
+
+export interface AttendanceRow {
+  workerId: string;
+  workerName: string;
+  date: string;
+  scheduledStart: string | null;
+  scheduledEnd: string | null;
+  isWorkingDay: boolean;
+  status: AttendanceStatus;
+  lateMinutes: number;
+  record: AttendanceRecord | null;
+}
+
+export interface AttendanceDaySheet {
+  date: string;
+  rows: AttendanceRow[];
+  counts: Partial<Record<AttendanceStatus, number>>;
+  lateCount: number;
+}
+
+export interface AttendanceHistory {
+  workerId: string;
+  workerName: string;
+  from: string;
+  to: string;
+  rows: AttendanceRow[];
+  summary: {
+    daysPresent: number;
+    daysAbsent: number;
+    daysLate: number;
+    hoursPresent: number;
+  };
+}
+
 export interface MaterialPurchase {
   id: string;
   jobOrderId: string;
@@ -124,9 +181,29 @@ export interface MaterialPurchase {
   poNumber?: string | null;
   orderStatus?: SupplierOrderStatus | null;
   expectedDeliveryDate?: string | null;
+  /** The PO's expected date as edited, or date ordered + lead time without a PO. */
+  currentExpectedDate?: string | null;
+  /** Days past the current expected date while not received; 0 otherwise. */
+  daysOverdue?: number;
   status?: MaterialPurchaseStatus | string;
   createdAt?: string | null;
   updatedAt?: string | null;
+}
+
+export interface SupplierReliability {
+  supplierId: string;
+  supplierName: string;
+  active: boolean;
+  dueDeliveries: number;
+  onTimeDeliveries: number;
+  lateDeliveries: number;
+  overdueDeliveries: number;
+  /** Null when fewer than 3 deliveries were due. */
+  reliabilityPct: number | null;
+  avgDaysLate: number;
+  enoughData: boolean;
+  label: string;
+  rank: number | null;
 }
 
 export type MaterialPurchaseStatus = 'DRAFT' | 'ORDERED' | 'RECEIVED' | 'CONSUMED' | 'CANCELLED';
@@ -138,6 +215,24 @@ export type SupplierOrderStatus =
   | 'RECEIVED'
   | 'CANCELLED';
 
+export interface ExpectedDeliveryChange {
+  from: string | null;
+  to: string | null;
+  note: string | null;
+  changedByName: string | null;
+  changedAt: string | null;
+}
+
+export interface MaterialRescheduleOutcome {
+  jobId: string;
+  jobNumber: string | null;
+  outcome: 'MOVED' | 'NO_SLOT' | 'UNCHANGED';
+  previousStart?: string;
+  newStart?: string;
+  materialDate?: string;
+  message?: string | null;
+}
+
 export interface SupplierOrder {
   id: string;
   poNumber: string | null;
@@ -147,6 +242,11 @@ export interface SupplierOrder {
   status: SupplierOrderStatus;
   dateIssued?: string | null;
   expectedDeliveryDate?: string | null;
+  originalExpectedDeliveryDate?: string | null;
+  expectedDeliveryNote?: string | null;
+  expectedDeliveryChanges?: ExpectedDeliveryChange[];
+  movedJobs?: MaterialRescheduleOutcome[];
+  notMovedJobs?: MaterialRescheduleOutcome[];
   receivedDate?: string | null;
   notes?: string | null;
   vatRate?: number | null;
@@ -157,6 +257,8 @@ export interface SupplierOrder {
   lineCount: number;
   jobCount: number;
   subtotal: number;
+  /** Days past the expected delivery date for lines not yet received. */
+  daysOverdue?: number;
   createdAt?: string | null;
   lines?: MaterialPurchase[];
 }
@@ -227,6 +329,8 @@ export interface MaterialPurchaseList {
     purchaseCount: number;
     totalSpend: number;
     awaitingDeliveryCount: number;
+    /** Placed lines past their current expected date and not received. */
+    overdueCount?: number;
     onOrder: MaterialStockBucket;
     onHand: MaterialStockBucket;
     consumed: MaterialStockBucket;
@@ -316,6 +420,8 @@ export interface RawMaterial {
   name: string;
   quantity?: number;
   unit?: string;
+  /** The shop already has it; it is not bought for this job. Set by the Admin. */
+  fromStock?: boolean;
 }
 
 export type OperationTimeEvent = 'START' | 'PAUSE' | 'RESUME' | 'COMPLETE';
@@ -346,7 +452,45 @@ export interface ScheduleSegment {
   end: string;
 }
 
-export interface Operation {
+/** A released, unstarted job whose first operation the start gate would refuse. */
+export interface MaterialWait {
+  waitingForMaterials?: boolean;
+  materialWaitCode?: 'MATERIALS_NOT_ORDERED' | 'MATERIALS_NOT_RECEIVED' | null;
+  materialWaitReason?: string | null;
+}
+
+export type StaffAlertKind = 'MATERIAL_DELAY' | (string & {});
+
+/** One entry in the header bell. */
+export interface StaffAlert {
+  id: string;
+  kind: StaffAlertKind;
+  title: string;
+  message: string | null;
+  jobOrderId: string | null;
+  jobNumber: string | null;
+  supplierOrderId: string | null;
+  poNumber: string | null;
+  read: boolean;
+  readAt: string | null;
+  createdAt: string | null;
+}
+
+/** MATERIAL: late or unordered materials set the new start. RESCHEDULED: only a passed start date. */
+export type DelayKind = 'MATERIAL' | 'RESCHEDULED';
+
+/** Set when the schedule was moved later automatically. */
+export interface MaterialDelay {
+  originalStart: string | null;
+  currentStart: string | null;
+  kind: DelayKind;
+  reason: string | null;
+  supplierOrderId: string | null;
+  poNumber: string | null;
+  delayedAt: string;
+}
+
+export interface Operation extends MaterialWait {
   id: string;
   jobOrderId: string;
   jobTitle?: string;
@@ -484,7 +628,7 @@ export interface ScheduleValidateResult {
   scheduleFlag?: ScheduleFlag | null;
 }
 
-export interface JobOrder {
+export interface JobOrder extends MaterialWait {
   id: string;
   jobNumber?: string;
   clientId: string;
@@ -508,8 +652,8 @@ export interface JobOrder {
   supplierId?: string | null;
   supplierName?: string | null;
   supplierReference?: string | null;
-  materialReleaseWarning?: string | null;
   materialReadiness?: MaterialReadiness;
+  materialDelay?: MaterialDelay | null;
   plannedMaterials?: PlannedMaterialSummary[];
   createdById?: string;
   createdByName?: string | null;
@@ -539,7 +683,8 @@ export interface PlannedMaterialSummary {
   /** On a draft supplier order, not yet sent. */
   draftQuantity: number;
   remainingQuantity: number | null;
-  status: 'TO_ORDER' | 'PARTLY_ORDERED' | 'ON_DRAFT_ORDER' | 'PURCHASED';
+  fromStock: boolean;
+  status: 'TO_ORDER' | 'PARTLY_ORDERED' | 'ON_DRAFT_ORDER' | 'PURCHASED' | 'FROM_STOCK';
 }
 
 export interface MaterialLineArrival {
@@ -550,8 +695,25 @@ export interface MaterialLineArrival {
   dateOrdered: string | null;
   leadTimeDays: number | null;
   dateReceived: string | null;
+  poNumber?: string | null;
   expectedArrival: string | null;
-  basis: 'RECEIVED' | 'LEAD_TIME' | 'TYPED_DATE' | 'UNKNOWN';
+  basis: 'RECEIVED' | 'LEAD_TIME' | 'UNKNOWN';
+  /** Arrival taken from the supplier order's expected delivery date. */
+  fromOrderDeliveryDate?: boolean;
+  /** Days past the expected date; arrival is then tomorrow at the earliest. */
+  daysOverdue?: number;
+}
+
+/** A supplier order holding this job's lines, or lines recorded without a PO. */
+export interface JobSupplierOrderSummary {
+  supplierOrderId: string | null;
+  poNumber: string | null;
+  supplierName: string | null;
+  /** Null for lines recorded without a PO. */
+  status: SupplierOrderStatus | null;
+  expectedDeliveryDate: string | null;
+  lineCount: number;
+  daysOverdue?: number;
 }
 
 export interface MaterialReadiness {
@@ -561,6 +723,9 @@ export interface MaterialReadiness {
   limitingLine: MaterialLineArrival | null;
   missingLeadTimeSuppliers: string[];
   lines: MaterialLineArrival[];
+  supplierOrders: JobSupplierOrderSummary[];
+  /** Planned materials not yet fully on a placed order. */
+  unorderedMaterials: string[];
 }
 
 export type NotificationMilestone =
@@ -614,6 +779,8 @@ export interface WorkerSuggestion {
   qualified?: boolean;
   components?: ScoringComponents;
   reason?: string;
+  /** Set when the operation starts today and the worker is past their start time without a clock-in. */
+  attendanceWarning?: string | null;
 }
 
 export type ToolCategory = 'RETURNABLE_TOOL' | 'CONSUMABLE';
@@ -1009,11 +1176,48 @@ export interface AnalyticsDowntimeRow {
   openCount: number;
 }
 
+export interface AnalyticsMaterialDelayRow {
+  jobOrderId: string;
+  jobNumber: string;
+  cause: 'SUPPLIER_LATE' | 'NOT_ORDERED';
+  causeLabel: string;
+  originalStart: string;
+  firstStart: string;
+  started: boolean;
+  /** First start, or now while the job has not started. */
+  countedUntil: string;
+  hours: number | null;
+  moveCount: number;
+  suppliers: { supplierId: string | null; supplierName: string; poNumber: string | null }[];
+  supplierNames: string | null;
+  reason: string | null;
+}
+
+export interface AnalyticsLateJobCause {
+  cause: string;
+  label: string;
+  hours: number;
+  detail: string | null;
+}
+
+export interface AnalyticsLateJobRow {
+  jobOrderId: string;
+  jobNumber: string;
+  clientName: string | null;
+  dueDate: string;
+  deliveredDate: string;
+  daysLate: number;
+  causes: AnalyticsLateJobCause[];
+}
+
 export interface AnalyticsDelays extends AnalyticsPeriodMeta {
   pauseReasons: AnalyticsPauseReasonRow[];
   machineDowntime: AnalyticsDowntimeRow[];
   causes: AnalyticsDelayCauseRow[];
   totalDelayHours: number | null;
+  materialDelays?: AnalyticsMaterialDelayRow[];
+  breakdownOverlapHours?: number | null;
+  lateJobs?: AnalyticsLateJobRow[];
   excludedNonWorkingPauses?: {
     breakHours: number | null;
     endOfShiftHours: number | null;

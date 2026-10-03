@@ -8,8 +8,10 @@ import type {
 } from '../types';
 
 export const supplierOrdersApi = {
-  list: (params?: { status?: SupplierOrderStatus; supplierId?: string }) =>
+  list: (params?: { status?: SupplierOrderStatus | 'OVERDUE'; supplierId?: string }) =>
     apiClient.get<SupplierOrder[]>('/supplier-orders', { params }),
+  /** Re-plans jobs held up by overdue deliveries and alerts Office Staff (idempotent). */
+  overdueCheck: () => apiClient.post<{ overdueLines: number }>('/supplier-orders/overdue-check'),
   get: (id: string) => apiClient.get<SupplierOrder>(`/supplier-orders/${id}`),
   outstanding: (jobId?: string) =>
     apiClient.get<OutstandingMaterials>('/supplier-orders/outstanding', {
@@ -22,6 +24,11 @@ export const supplierOrdersApi = {
     apiClient.patch<SupplierOrder>(`/supplier-orders/${id}`, data),
   issue: (id: string, dateIssued?: string) =>
     apiClient.post<SupplierOrder>(`/supplier-orders/${id}/issue`, { dateIssued }),
+  changeExpectedDelivery: (id: string, expectedDeliveryDate: string, note: string) =>
+    apiClient.patch<SupplierOrder>(`/supplier-orders/${id}/expected-delivery`, {
+      expectedDeliveryDate,
+      note,
+    }),
   cancel: (id: string) => apiClient.post<SupplierOrder>(`/supplier-orders/${id}/cancel`),
   receive: (id: string, lineIds: string[], receivedDate?: string) =>
     apiClient.post<SupplierOrder>(`/supplier-orders/${id}/receive`, { lineIds, receivedDate }),
