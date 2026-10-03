@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Tooltip } from 'antd';
 import type { Dayjs } from 'dayjs';
 import type {
@@ -37,11 +37,6 @@ import {
   type TimelineViewMode,
   type WeekTimelineLayout,
 } from './scheduleTimelineUtils';
-import {
-  buildJobConnectorPaths,
-  collectJobBarAnchors,
-  tracksBlockHeight,
-} from './scheduleJobConnectors';
 
 export type TimelineRow = {
   key: string;
@@ -62,6 +57,19 @@ const STATUS_COLOR: Record<string, string> = {
 
 const OTHER_JOB_COLOR = '#e2e8f0';
 const THIS_JOB_COLOR = '#2563eb';
+const NO_MACHINE_KEY = '__none__';
+const EMPTY: never[] = [];
+
+function groupBy<T>(items: T[], keyOf: (item: T) => string | null | undefined) {
+  const map = new Map<string | null | undefined, T[]>();
+  for (const item of items) {
+    const key = keyOf(item);
+    const list = map.get(key);
+    if (list) list.push(item);
+    else map.set(key, [item]);
+  }
+  return map;
+}
 
 function statusLabel(s: string) {
   if (s === 'REWORK') return 'Redo';
@@ -104,11 +112,11 @@ type Props = {
   footerNote?: string;
   showLegend?: boolean;
   shopDayWindows?: ShopDayWindow[];
-  /** Draw curves between consecutive stages of the same job (main schedule “Job stage links”). */
-  showJobConnections?: boolean;
 };
 
-export default function ScheduleTimelineBoard({
+export default memo(ScheduleTimelineBoard);
+
+function ScheduleTimelineBoard({
   from,
   to,
   viewMode = 'week',
@@ -124,7 +132,6 @@ export default function ScheduleTimelineBoard({
   footerNote,
   showLegend = false,
   shopDayWindows,
-  showJobConnections = false,
 }: Props) {
   const labelW = isMobile ? adminPx(96) : adminPx(168);
   const rowH = isMobile ? adminPx(40) : adminPx(44);
@@ -134,7 +141,10 @@ export default function ScheduleTimelineBoard({
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const measure = () => setAvailW(el.clientWidth);
+    // A kept-alive page hidden with display:none reports 0; keep the last real width.
+    const measure = () => {
+      if (el.clientWidth > 0) setAvailW(el.clientWidth);
+    };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
@@ -168,70 +178,33 @@ export default function ScheduleTimelineBoard({
   const columnFill = true;
   const posArgs = [from, viewMode, isMobile, weekLayout, dayHourPx] as const;
 
+  const opsByRowKey = useMemo(
+    () =>
+      groupBy(operations, (o) =>
+        rowMode === 'worker' ? o.assignedWorkerId : o.machineUnitId || NO_MACHINE_KEY
+      ),
+    [operations, rowMode]
+  );
+  const downtimesByUnit = useMemo(
+    () => groupBy(downtimes, (d) => d.machineUnitId),
+    [downtimes]
+  );
+
   const opsForRow = (row: TimelineRow): ScheduleBoardOperation[] => {
-    if (rowMode === 'worker') {
-      return operations.filter((o) => o.assignedWorkerId === row.workerId);
-    }
-    if (row.noMachine) {
-      return operations.filter((o) => !o.machineUnitId);
-    }
-    return operations.filter((o) => o.machineUnitId === row.machineUnitId);
+    if (rowMode === 'worker') return opsByRowKey.get(row.workerId) ?? EMPTY;
+    if (row.noMachine) return opsByRowKey.get(NO_MACHINE_KEY) ?? EMPTY;
+    return opsByRowKey.get(row.machineUnitId) ?? EMPTY;
   };
 
   const downtimesForRow = (row: TimelineRow) => {
-    if (rowMode !== 'machine' || !row.machineUnitId) return [];
-    return downtimes.filter((d) => d.machineUnitId === row.machineUnitId);
+    if (rowMode !== 'machine' || !row.machineUnitId) return EMPTY;
+    return downtimesByUnit.get(row.machineUnitId) ?? EMPTY;
   };
 
   const rowHasHighlight = (row: TimelineRow) => {
     if (!highlightJobId) return false;
     return opsForRow(row).some((op) => op.jobOrderId === highlightJobId);
   };
-
-  const colorForOp = (op: ScheduleBoardOperation) => {
-    const isThisJob = Boolean(highlightJobId) && op.jobOrderId === highlightJobId;
-    if (isThisJob) {
-      return highlightColor || op.scheduleColor || THIS_JOB_COLOR;
-    }
-    if (highlightJobId) return OTHER_JOB_COLOR;
-    return op.scheduleColor || STATUS_COLOR[op.status] || '#2563eb';
-  };
-
-  const jobConnectorPaths = useMemo(() => {
-    if (!showJobConnections) return [];
-    const anchors = collectJobBarAnchors({
-      rows,
-      opsForRow: (row) => opsForRow(row as TimelineRow),
-      rowH,
-      columnFill,
-      viewMode,
-      weekLayout,
-      from,
-      to,
-      posArgs: [...posArgs],
-      colorForOp,
-    });
-    return buildJobConnectorPaths(anchors);
-  }, [
-    showJobConnections,
-    rows,
-    operations,
-    rowMode,
-    rowH,
-    columnFill,
-    viewMode,
-    weekLayout,
-    from,
-    to,
-    isMobile,
-    highlightJobId,
-    highlightColor,
-  ]);
-
-  const tracksH = useMemo(() => {
-    if (!showJobConnections) return 0;
-    return tracksBlockHeight(rows, (row) => opsForRow(row as TimelineRow), rowH);
-  }, [showJobConnections, rows, operations, rowMode, rowH]);
 
   return (
     <div
@@ -307,36 +280,6 @@ export default function ScheduleTimelineBoard({
         </div>
 
         <div style={{ position: 'relative' }}>
-          {showJobConnections && jobConnectorPaths.length > 0 && tracksH > 0 ? (
-            <svg
-              width={boardW}
-              height={tracksH}
-              viewBox={`0 0 ${boardW} ${tracksH}`}
-              aria-hidden
-              style={{
-                position: 'absolute',
-                left: labelW,
-                top: 0,
-                width: boardW,
-                height: tracksH,
-                pointerEvents: 'none',
-                zIndex: 2,
-                overflow: 'visible',
-              }}
-            >
-              {jobConnectorPaths.map((p) => (
-                <path
-                  key={p.key}
-                  d={p.d}
-                  fill="none"
-                  stroke={p.color}
-                  strokeWidth={1.75}
-                  strokeOpacity={0.72}
-                  strokeLinecap="round"
-                />
-              ))}
-            </svg>
-          ) : null}
         {rows.map((row) => {
           const ops = opsForRow(row);
           const dts = downtimesForRow(row);

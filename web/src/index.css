@@ -1983,18 +1983,6 @@ button.admin-card {
   min-width: 0;
 }
 
-.jo-week-view__links-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #475569;
-  white-space: nowrap;
-  cursor: pointer;
-  user-select: none;
-}
-
 .jo-week-view__nav-label {
   font-size: 12px;
   font-weight: 600;
@@ -2003,10 +1991,12 @@ button.admin-card {
   text-align: center;
 }
 
-.jo-week-view__nav-hint {
-  font-size: 11px;
-  color: #94a3b8;
-  margin-left: 4px;
+.jo-week-view__nav-label .ant-picker-input > input {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f1c2e;
+  text-align: center;
+  cursor: pointer;
 }
 
 .jo-week-view__nav-expand {

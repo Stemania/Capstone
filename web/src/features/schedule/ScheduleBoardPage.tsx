@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Badge,
   Button,
@@ -19,9 +19,14 @@ import {
   FilterOutlined,
   CloseOutlined,
 } from '@ant-design/icons';
-import dayjs from 'dayjs';
+import dayjs, { type Dayjs } from 'dayjs';
 import { useNavigate } from 'react-router-dom';
-import { scheduleApi, type ScheduleBoardOperation, type ScheduleBoardResponse } from '../../api/schedule.api';
+import {
+  scheduleApi,
+  type ScheduleBoardDowntime,
+  type ScheduleBoardOperation,
+  type ScheduleBoardResponse,
+} from '../../api/schedule.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { useOverdueCheck } from '../../hooks/useOverdueCheck';
@@ -54,15 +59,11 @@ import {
   timelineWidth,
   widthPx,
   type TimelineViewMode,
+  type WeekTimelineLayout,
 } from './scheduleTimelineUtils';
 import { formatShopDateTime, SHOP_TZ } from '../../utils/shopTime';
 import ScheduleExpandShell from './ScheduleExpandShell';
 import WorkerPersonalSchedule from './WorkerPersonalSchedule';
-import {
-  buildJobConnectorPaths,
-  collectJobBarAnchors,
-  tracksBlockHeight,
-} from './scheduleJobConnectors';
 
 const { Text } = Typography;
 
@@ -92,6 +93,30 @@ type RowDef = {
   noMachine?: boolean;
 };
 
+const NO_MACHINE_KEY = '__none__';
+const NO_OPS: ScheduleBoardOperation[] = [];
+const NO_DOWNTIMES: ScheduleBoardDowntime[] = [];
+
+function opGroupKey(op: ScheduleBoardOperation, rowMode: RowMode) {
+  return rowMode === 'worker' ? op.assignedWorkerId : op.machineUnitId || NO_MACHINE_KEY;
+}
+
+function rowGroupKey(row: RowDef, rowMode: RowMode) {
+  if (rowMode === 'worker') return row.workerId;
+  return row.noMachine ? NO_MACHINE_KEY : row.machineUnitId;
+}
+
+function groupBy<T>(items: T[], keyOf: (item: T) => string | null | undefined) {
+  const map = new Map<string | null | undefined, T[]>();
+  for (const item of items) {
+    const key = keyOf(item);
+    const list = map.get(key);
+    if (list) list.push(item);
+    else map.set(key, [item]);
+  }
+  return map;
+}
+
 export default function ScheduleBoardPage() {
   const { isWorker } = useAuth();
   if (isWorker) return <WorkerPersonalSchedule />;
@@ -108,7 +133,6 @@ function AdminOfficeScheduleBoard() {
   const [rowMode, setRowMode] = useState<RowMode>('machine');
   const [anchor, setAnchor] = useState(() => dayjs().tz(SHOP_TZ));
   const [includeCompleted, setIncludeCompleted] = useState(true);
-  const [showJobConnections, setShowJobConnections] = useState(false);
   const [machineTypeId, setMachineTypeId] = useState<string | undefined>();
   const [workerId, setWorkerId] = useState<string | undefined>();
   const [clientId, setClientId] = useState<string | undefined>();
@@ -199,21 +223,22 @@ function AdminOfficeScheduleBoard() {
     setIncludeCompleted(true);
   };
 
-  const opsForRow = (row: RowDef): ScheduleBoardOperation[] => {
-    const ops = data?.operations || [];
-    if (rowMode === 'worker') {
-      return ops.filter((o) => o.assignedWorkerId === row.workerId);
-    }
-    if (row.noMachine) {
-      return ops.filter((o) => !o.machineUnitId);
-    }
-    return ops.filter((o) => o.machineUnitId === row.machineUnitId);
-  };
+  const opsByRowKey = useMemo(
+    () => groupBy(data?.operations ?? NO_OPS, (o) => opGroupKey(o, rowMode)),
+    [data, rowMode]
+  );
+  const downtimesByUnit = useMemo(
+    () => groupBy(data?.downtimes ?? NO_DOWNTIMES, (d) => d.machineUnitId),
+    [data]
+  ) as Map<string, ScheduleBoardDowntime[]>;
 
-  const downtimesForRow = (row: RowDef) => {
-    if (rowMode !== 'machine' || !row.machineUnitId) return [];
-    return (data?.downtimes || []).filter((d) => d.machineUnitId === row.machineUnitId);
-  };
+  // navigate changes identity on every route change; keep the bars' click handler stable.
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  const openJob = useCallback(
+    (jobOrderId: string) => navigateRef.current(`/job-orders/${jobOrderId}`),
+    []
+  );
 
   const summary = data?.summary;
   const isPhoneBoard = isMobile;
@@ -223,7 +248,10 @@ function AdminOfficeScheduleBoard() {
   useEffect(() => {
     const el = boardScrollRef.current;
     if (!el) return;
-    const measure = () => setBoardAvailW(el.clientWidth);
+    // A kept-alive page hidden with display:none reports 0; keep the last real width.
+    const measure = () => {
+      if (el.clientWidth > 0) setBoardAvailW(el.clientWidth);
+    };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
@@ -251,10 +279,11 @@ function AdminOfficeScheduleBoard() {
   }, [viewMode, isMobile, boardAvailW, labelW]);
 
   const boardW = timelineWidth(from, to, viewMode, isMobile, weekLayout, dayHourPx);
-  const dayColumns = dayColumnsForView(from, to, viewMode, isMobile, weekLayout, dayHourPx);
+  const dayColumns = useMemo(
+    () => dayColumnsForView(from, to, viewMode, isMobile, weekLayout, dayHourPx),
+    [from, to, viewMode, isMobile, weekLayout, dayHourPx]
+  );
   const pph = dayHourPx ?? pxPerHour(viewMode, isMobile);
-  const columnFill = true;
-  const posArgs = [from, viewMode, isMobile, weekLayout, dayHourPx] as const;
   const boardCollapsedMaxHeight = isPhoneBoard
       ? 'calc(100dvh - 340px)'
       : isMobile
@@ -275,40 +304,6 @@ function AdminOfficeScheduleBoard() {
   }, [data]);
   const activeFilterCount =
     [machineTypeId, workerId, clientId].filter(Boolean).length + (includeCompleted ? 0 : 1);
-
-  const jobConnectorPaths = useMemo(() => {
-    if (!showJobConnections || !data) return [];
-    const anchors = collectJobBarAnchors({
-      rows,
-      opsForRow: (row) => opsForRow(row as RowDef),
-      rowH,
-      columnFill,
-      viewMode,
-      weekLayout,
-      from,
-      to,
-      posArgs: [...posArgs],
-      colorForOp: (op) => op.scheduleColor || STATUS_COLOR[op.status] || '#2563eb',
-    });
-    return buildJobConnectorPaths(anchors);
-  }, [
-    showJobConnections,
-    data,
-    rows,
-    rowH,
-    columnFill,
-    viewMode,
-    weekLayout,
-    from,
-    to,
-    isMobile,
-    rowMode,
-  ]);
-
-  const tracksH = useMemo(() => {
-    if (!showJobConnections) return 0;
-    return tracksBlockHeight(rows, (row) => opsForRow(row as RowDef), rowH);
-  }, [showJobConnections, rows, rowH, data, rowMode]);
 
   const periodLabel =
     viewMode === 'day'
@@ -377,18 +372,6 @@ function AdminOfficeScheduleBoard() {
       >
         <Switch size="small" checked={includeCompleted} onChange={setIncludeCompleted} />
         Show completed
-      </label>
-      <label
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-          fontSize: 13,
-          whiteSpace: 'nowrap',
-        }}
-      >
-        <Switch size="small" checked={showJobConnections} onChange={setShowJobConnections} />
-        Job stage links
       </label>
     </>
   );
@@ -747,343 +730,24 @@ function AdminOfficeScheduleBoard() {
               </div>
             </div>
 
-            <div style={{ position: 'relative' }}>
-              {showJobConnections && jobConnectorPaths.length > 0 && tracksH > 0 ? (
-                <svg
-                  width={boardW}
-                  height={tracksH}
-                  viewBox={`0 0 ${boardW} ${tracksH}`}
-                  aria-hidden
-                  style={{
-                    position: 'absolute',
-                    left: labelW,
-                    top: 0,
-                    width: boardW,
-                    height: tracksH,
-                    pointerEvents: 'none',
-                    zIndex: 2,
-                    overflow: 'visible',
-                  }}
-                >
-                  {jobConnectorPaths.map((p) => (
-                    <path
-                      key={p.key}
-                      d={p.d}
-                      fill="none"
-                      stroke={p.color}
-                      strokeWidth={1.75}
-                      strokeOpacity={0.72}
-                      strokeLinecap="round"
-                    />
-                  ))}
-                </svg>
-              ) : null}
-            {rows.map((row) => {
-              const ops = opsForRow(row);
-              const dts = downtimesForRow(row);
-              const stackLanes = Boolean(row.noMachine);
-              const laneItems = stackLanes
-                ? ops
-                    .map((op) => {
-                      const segs =
-                        op.segments.length > 0
-                          ? op.segments
-                          : op.scheduledStart && op.scheduledEnd
-                            ? [{ start: op.scheduledStart, end: op.scheduledEnd }]
-                            : [];
-                      if (!segs.length) return null;
-                      let start = segs[0].start;
-                      let end = segs[0].end;
-                      for (const seg of segs) {
-                        if (seg.start < start) start = seg.start;
-                        if (seg.end > end) end = seg.end;
-                      }
-                      return { id: op.id, start, end };
-                    })
-                    .filter((x): x is { id: string; start: string; end: string } => x != null)
-                : [];
-              const { laneById, laneCount } = stackLanes
-                ? assignOverlapLanes(laneItems)
-                : { laneById: new Map<string, number>(), laneCount: 1 };
-              const trackH = rowH * laneCount;
-
-              return (
-                <div key={row.key}>
-                  {row.group ? (
-                    <div
-                      style={{
-                        position: 'sticky',
-                        left: 0,
-                        zIndex: 2,
-                        background: '#f1f5f9',
-                        padding: '4px 8px',
-                        fontSize: 10,
-                        fontWeight: 700,
-                        letterSpacing: 0.5,
-                        textTransform: 'uppercase',
-                        color: '#94a3b8',
-                        borderBottom: `1px solid ${BORDER}`,
-                      }}
-                    >
-                      {row.group}
-                    </div>
-                  ) : null}
-                  <div
-                    style={{
-                      display: 'flex',
-                      minHeight: trackH,
-                      borderBottom: `1px solid #f1f5f9`,
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: labelW,
-                        flexShrink: 0,
-                        position: 'sticky',
-                        left: 0,
-                        zIndex: 2,
-                        background: '#fff',
-                        borderRight: `1px solid ${BORDER}`,
-                        padding: '6px 8px',
-                        fontSize: isMobile ? 11 : 12,
-                        fontWeight: 600,
-                        color: row.noMachine ? '#64748b' : NAVY,
-                        display: 'flex',
-                        alignItems: 'center',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        minHeight: trackH,
-                      }}
-                    >
-                      {row.label}
-                    </div>
-                    <div
-                      style={{
-                        position: 'relative',
-                        width: boardW,
-                        minHeight: trackH,
-                        height: trackH,
-                        backgroundImage:
-                          viewMode === 'day'
-                            ? `repeating-linear-gradient(90deg, transparent, transparent ${pph - 1}px, #f1f5f9 ${pph - 1}px, #f1f5f9 ${pph}px)`
-                            : undefined,
-                      }}
-                    >
-                      {dayColumns.map((col, i) => (
-                        <div
-                          key={col.key}
-                          style={{
-                            position: 'absolute',
-                            left: col.left,
-                            top: 0,
-                            bottom: 0,
-                            width: 1,
-                            background: i === 0 ? 'transparent' : '#f1f5f9',
-                          }}
-                        />
-                      ))}
-
-                      {laneCount > 1
-                        ? Array.from({ length: laneCount - 1 }, (_, i) => (
-                            <div
-                              key={`lane-rule-${i}`}
-                              style={{
-                                position: 'absolute',
-                                left: 0,
-                                right: 0,
-                                top: rowH * (i + 1),
-                                height: 1,
-                                background: '#e2e8f0',
-                                zIndex: 0,
-                                pointerEvents: 'none',
-                              }}
-                            />
-                          ))
-                        : null}
-
-                      {dts.flatMap((d) => {
-                        const clipped = clipSegmentToPeriod(
-                          d.segmentStart,
-                          d.segmentEnd,
-                          from,
-                          to
-                        );
-                        if (!clipped) return [];
-                        const barLeft = leftPx(clipped.start, ...posArgs);
-                        const barW = widthPx(clipped.start, clipped.end, ...posArgs);
-                        if (barLeft == null || barW == null || barW <= 0) return [];
-                        return [
-                          <Tooltip
-                            key={d.id}
-                            title={
-                              <div>
-                                <div style={{ fontWeight: 600 }}>Machine breakdown</div>
-                                <div>{d.reason}</div>
-                                <div>
-                                  {formatShopDateTime(d.startedAt)} →{' '}
-                                  {d.open ? 'still down' : formatShopDateTime(d.endedAt)}
-                                </div>
-                              </div>
-                            }
-                          >
-                            <div
-                              style={{
-                                position: 'absolute',
-                                top: columnFill ? 0 : 4,
-                                height: columnFill ? trackH : trackH - 8,
-                                left: barLeft,
-                                width: barW,
-                                background:
-                                  'repeating-linear-gradient(-45deg, #E8C5CB, #E8C5CB 4px, #F5E6E9 4px, #F5E6E9 8px)',
-                                border: '1px solid #C45A6A',
-                                borderRadius: columnFill ? 0 : 4,
-                                opacity: 0.9,
-                                zIndex: 1,
-                              }}
-                            />
-                          </Tooltip>,
-                        ];
-                      })}
-
-                      {ops.flatMap((op) => {
-                        const lane = laneById.get(op.id) ?? 0;
-                        const barTop = columnFill ? lane * rowH : lane * rowH + 4;
-                        const barHeight = columnFill ? rowH : rowH - 8;
-                        const rawSegs =
-                          op.segments.length > 0
-                            ? op.segments
-                            : op.scheduledStart && op.scheduledEnd
-                              ? [{ start: op.scheduledStart, end: op.scheduledEnd }]
-                              : [];
-                        const dayPieces = rawSegs.flatMap((seg) =>
-                          viewMode === 'week' && weekLayout
-                            ? splitSegmentAcrossWeekDays(seg.start, seg.end, weekLayout)
-                            : [seg]
-                        );
-                        const spans =
-                          viewMode === 'week' && weekLayout
-                            ? mergeAdjacentWeekPieces(dayPieces)
-                            : dayPieces;
-                        return spans.flatMap((seg, i) => {
-                          const clipped = clipSegmentToPeriod(seg.start, seg.end, from, to);
-                          if (!clipped) return [];
-                          const barLeft = leftPx(clipped.start, ...posArgs);
-                          const barW = widthPx(clipped.start, clipped.end, ...posArgs);
-                          if (barLeft == null || barW == null || barW <= 0) return [];
-                          const color =
-                            op.scheduleColor || STATUS_COLOR[op.status] || '#2563eb';
-                          const late = !!op.isLate;
-                          const label =
-                            barW >= 22
-                              ? scheduleBarLabelParts(
-                                  op.operationName,
-                                  op.jobNumber,
-                                  op.clientName,
-                                  barW,
-                                  isMobile,
-                                  op.sequenceNo
-                                )
-                              : null;
-                          const textStyle = scheduleBarTextStyle({
-                            mobile: isMobile,
-                            barWidthPx: barW,
-                            columnFill,
-                          });
-                          const metaFontSize = Math.max(
-                            9,
-                            Math.round((textStyle.fontSize as number) * 0.88)
-                          );
-                          return [
-                            <Tooltip
-                              key={`${op.id}-${i}`}
-                              title={
-                                <div style={{ maxWidth: 260 }}>
-                                  <div style={{ fontWeight: 700 }}>
-                                    {scheduleOpTitle(op.sequenceNo, op.operationName)}
-                                  </div>
-                                  <div>
-                                    {op.jobNumber} · {op.jobTitle}
-                                  </div>
-                                  <div>Client: {op.clientName || '—'}</div>
-                                  <div>Worker: {op.assignedWorkerName || '—'}</div>
-                                  <div>
-                                    Target hours:{' '}
-                                    {op.estimatedHours != null ? op.estimatedHours : '—'}
-                                  </div>
-                                  <div>
-                                    Scheduled:{' '}
-                                    {formatShopDateTime(op.scheduledStart)} →{' '}
-                                    {formatShopDateTime(op.scheduledEnd)}
-                                  </div>
-                                  <div>Status: {statusLabel(op.status)}</div>
-                                  {op.waitingForMaterials ? (
-                                    <div style={{ color: '#FCD34D' }}>
-                                      Waiting for materials: {op.materialWaitReason}
-                                    </div>
-                                  ) : null}
-                                  {late ? (
-                                    <div style={{ color: '#E8C5CB' }}>
-                                      At risk of missing date required ({op.dueDate || '—'})
-                                    </div>
-                                  ) : null}
-                                </div>
-                              }
-                            >
-                              <button
-                                type="button"
-                                onClick={() => navigate(`/job-orders/${op.jobOrderId}`)}
-                                style={{
-                                  position: 'absolute',
-                                  top: barTop,
-                                  height: barHeight,
-                                  left: barLeft,
-                                  width: barW,
-                                  background: color,
-                                  backgroundImage: op.waitingForMaterials
-                                    ? MATERIAL_WAIT_BAR_IMAGE
-                                    : undefined,
-                                  border: columnFill ? 'none' : late ? '2px solid #7A1528' : 'none',
-                                  borderRadius: columnFill ? 0 : 4,
-                                  color: '#fff',
-                                  ...textStyle,
-                                  cursor: 'pointer',
-                                  zIndex: 2,
-                                  boxShadow: columnFill
-                                    ? late
-                                      ? 'inset 0 0 0 2px #7A1528'
-                                      : undefined
-                                    : late
-                                      ? '0 0 0 1px rgba(122,21,40,0.35)'
-                                      : undefined,
-                                }}
-                              >
-                                {label ? (
-                                  <span style={SCHEDULE_BAR_LABEL_SPAN_STYLE}>
-                                    <span style={SCHEDULE_BAR_TITLE_STYLE}>{label.title}</span>
-                                    {label.meta ? (
-                                      <span
-                                        style={{
-                                          ...SCHEDULE_BAR_META_STYLE,
-                                          fontSize: metaFontSize,
-                                        }}
-                                      >
-                                        {label.meta}
-                                      </span>
-                                    ) : null}
-                                  </span>
-                                ) : null}
-                              </button>
-                            </Tooltip>,
-                          ];
-                        });
-                      })}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-            </div>
+            <BoardRows
+              rows={rows}
+              rowMode={rowMode}
+              opsByRowKey={opsByRowKey}
+              downtimesByUnit={downtimesByUnit}
+              rowH={rowH}
+              labelW={labelW}
+              boardW={boardW}
+              pph={pph}
+              dayColumns={dayColumns}
+              from={from}
+              to={to}
+              viewMode={viewMode}
+              isMobile={isMobile}
+              weekLayout={weekLayout}
+              dayHourPx={dayHourPx}
+              onOpenJob={openJob}
+            />
           </div>
           <div style={{ padding: '8px 12px', fontSize: 11, color: '#94a3b8' }}>
             {viewMode === 'week' && weekLayout
@@ -1226,25 +890,6 @@ function AdminOfficeScheduleBoard() {
                 Hide done
               </button>
             </div>
-            <div className="sched-f__label" style={{ marginTop: 12 }}>
-              Job stage links
-            </div>
-            <div className="sched-m__pills" role="tablist" aria-label="Job stage links">
-              <button
-                type="button"
-                className={`sched-m__pill${showJobConnections ? ' is-on' : ''}`}
-                onClick={() => setShowJobConnections(true)}
-              >
-                On
-              </button>
-              <button
-                type="button"
-                className={`sched-m__pill${!showJobConnections ? ' is-on' : ''}`}
-                onClick={() => setShowJobConnections(false)}
-              >
-                Off
-              </button>
-            </div>
           </div>
 
           <button type="button" className="sched-f__done" onClick={() => setFiltersOpen(false)}>
@@ -1320,3 +965,353 @@ function SummaryChip({
     </div>
   );
 }
+
+type BoardRowsProps = {
+  rows: RowDef[];
+  rowMode: RowMode;
+  opsByRowKey: Map<string | null | undefined, ScheduleBoardOperation[]>;
+  downtimesByUnit: Map<string, ScheduleBoardDowntime[]>;
+  rowH: number;
+  labelW: number;
+  boardW: number;
+  pph: number;
+  dayColumns: ReturnType<typeof dayColumnsForView>;
+  from: Dayjs;
+  to: Dayjs;
+  viewMode: ViewMode;
+  isMobile: boolean;
+  weekLayout: WeekTimelineLayout | null;
+  dayHourPx: number | undefined;
+  onOpenJob: (jobOrderId: string) => void;
+};
+
+const BoardRows = memo(function BoardRows({
+  rows,
+  rowMode,
+  opsByRowKey,
+  downtimesByUnit,
+  rowH,
+  labelW,
+  boardW,
+  pph,
+  dayColumns,
+  from,
+  to,
+  viewMode,
+  isMobile,
+  weekLayout,
+  dayHourPx,
+  onOpenJob,
+}: BoardRowsProps) {
+  const columnFill = true;
+  const posArgs = [from, viewMode, isMobile, weekLayout, dayHourPx] as const;
+  return (
+    <div style={{ position: 'relative' }}>
+    {rows.map((row) => {
+      const ops = opsByRowKey.get(rowGroupKey(row, rowMode)) ?? NO_OPS;
+      const dts = (rowMode === 'machine' && row.machineUnitId ? downtimesByUnit.get(row.machineUnitId) : undefined) ?? NO_DOWNTIMES;
+      const stackLanes = Boolean(row.noMachine);
+      const laneItems = stackLanes
+        ? ops
+            .map((op) => {
+              const segs =
+                op.segments.length > 0
+                  ? op.segments
+                  : op.scheduledStart && op.scheduledEnd
+                    ? [{ start: op.scheduledStart, end: op.scheduledEnd }]
+                    : [];
+              if (!segs.length) return null;
+              let start = segs[0].start;
+              let end = segs[0].end;
+              for (const seg of segs) {
+                if (seg.start < start) start = seg.start;
+                if (seg.end > end) end = seg.end;
+              }
+              return { id: op.id, start, end };
+            })
+            .filter((x): x is { id: string; start: string; end: string } => x != null)
+        : [];
+      const { laneById, laneCount } = stackLanes
+        ? assignOverlapLanes(laneItems)
+        : { laneById: new Map<string, number>(), laneCount: 1 };
+      const trackH = rowH * laneCount;
+
+      return (
+        <div key={row.key}>
+          {row.group ? (
+            <div
+              style={{
+                position: 'sticky',
+                left: 0,
+                zIndex: 2,
+                background: '#f1f5f9',
+                padding: '4px 8px',
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: 0.5,
+                textTransform: 'uppercase',
+                color: '#94a3b8',
+                borderBottom: `1px solid ${BORDER}`,
+              }}
+            >
+              {row.group}
+            </div>
+          ) : null}
+          <div
+            style={{
+              display: 'flex',
+              minHeight: trackH,
+              borderBottom: `1px solid #f1f5f9`,
+            }}
+          >
+            <div
+              style={{
+                width: labelW,
+                flexShrink: 0,
+                position: 'sticky',
+                left: 0,
+                zIndex: 2,
+                background: '#fff',
+                borderRight: `1px solid ${BORDER}`,
+                padding: '6px 8px',
+                fontSize: isMobile ? 11 : 12,
+                fontWeight: 600,
+                color: row.noMachine ? '#64748b' : NAVY,
+                display: 'flex',
+                alignItems: 'center',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                minHeight: trackH,
+              }}
+            >
+              {row.label}
+            </div>
+            <div
+              style={{
+                position: 'relative',
+                width: boardW,
+                minHeight: trackH,
+                height: trackH,
+                backgroundImage:
+                  viewMode === 'day'
+                    ? `repeating-linear-gradient(90deg, transparent, transparent ${pph - 1}px, #f1f5f9 ${pph - 1}px, #f1f5f9 ${pph}px)`
+                    : undefined,
+              }}
+            >
+              {dayColumns.map((col, i) => (
+                <div
+                  key={col.key}
+                  style={{
+                    position: 'absolute',
+                    left: col.left,
+                    top: 0,
+                    bottom: 0,
+                    width: 1,
+                    background: i === 0 ? 'transparent' : '#f1f5f9',
+                  }}
+                />
+              ))}
+
+              {laneCount > 1
+                ? Array.from({ length: laneCount - 1 }, (_, i) => (
+                    <div
+                      key={`lane-rule-${i}`}
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        right: 0,
+                        top: rowH * (i + 1),
+                        height: 1,
+                        background: '#e2e8f0',
+                        zIndex: 0,
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  ))
+                : null}
+
+              {dts.flatMap((d) => {
+                const clipped = clipSegmentToPeriod(
+                  d.segmentStart,
+                  d.segmentEnd,
+                  from,
+                  to
+                );
+                if (!clipped) return [];
+                const barLeft = leftPx(clipped.start, ...posArgs);
+                const barW = widthPx(clipped.start, clipped.end, ...posArgs);
+                if (barLeft == null || barW == null || barW <= 0) return [];
+                return [
+                  <Tooltip
+                    key={d.id}
+                    title={
+                      <div>
+                        <div style={{ fontWeight: 600 }}>Machine breakdown</div>
+                        <div>{d.reason}</div>
+                        <div>
+                          {formatShopDateTime(d.startedAt)} →{' '}
+                          {d.open ? 'still down' : formatShopDateTime(d.endedAt)}
+                        </div>
+                      </div>
+                    }
+                  >
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: columnFill ? 0 : 4,
+                        height: columnFill ? trackH : trackH - 8,
+                        left: barLeft,
+                        width: barW,
+                        background:
+                          'repeating-linear-gradient(-45deg, #E8C5CB, #E8C5CB 4px, #F5E6E9 4px, #F5E6E9 8px)',
+                        border: '1px solid #C45A6A',
+                        borderRadius: columnFill ? 0 : 4,
+                        opacity: 0.9,
+                        zIndex: 1,
+                      }}
+                    />
+                  </Tooltip>,
+                ];
+              })}
+
+              {ops.flatMap((op) => {
+                const lane = laneById.get(op.id) ?? 0;
+                const barTop = columnFill ? lane * rowH : lane * rowH + 4;
+                const barHeight = columnFill ? rowH : rowH - 8;
+                const rawSegs =
+                  op.segments.length > 0
+                    ? op.segments
+                    : op.scheduledStart && op.scheduledEnd
+                      ? [{ start: op.scheduledStart, end: op.scheduledEnd }]
+                      : [];
+                const dayPieces = rawSegs.flatMap((seg) =>
+                  viewMode === 'week' && weekLayout
+                    ? splitSegmentAcrossWeekDays(seg.start, seg.end, weekLayout)
+                    : [seg]
+                );
+                const spans =
+                  viewMode === 'week' && weekLayout
+                    ? mergeAdjacentWeekPieces(dayPieces)
+                    : dayPieces;
+                return spans.flatMap((seg, i) => {
+                  const clipped = clipSegmentToPeriod(seg.start, seg.end, from, to);
+                  if (!clipped) return [];
+                  const barLeft = leftPx(clipped.start, ...posArgs);
+                  const barW = widthPx(clipped.start, clipped.end, ...posArgs);
+                  if (barLeft == null || barW == null || barW <= 0) return [];
+                  const color =
+                    op.scheduleColor || STATUS_COLOR[op.status] || '#2563eb';
+                  const late = !!op.isLate;
+                  const label =
+                    barW >= 22
+                      ? scheduleBarLabelParts(
+                          op.operationName,
+                          op.jobNumber,
+                          op.clientName,
+                          barW,
+                          isMobile,
+                          op.sequenceNo
+                        )
+                      : null;
+                  const textStyle = scheduleBarTextStyle({
+                    mobile: isMobile,
+                    barWidthPx: barW,
+                    columnFill,
+                  });
+                  const metaFontSize = Math.max(
+                    9,
+                    Math.round((textStyle.fontSize as number) * 0.88)
+                  );
+                  return [
+                    <Tooltip
+                      key={`${op.id}-${i}`}
+                      title={
+                        <div style={{ maxWidth: 260 }}>
+                          <div style={{ fontWeight: 700 }}>
+                            {scheduleOpTitle(op.sequenceNo, op.operationName)}
+                          </div>
+                          <div>
+                            {op.jobNumber} · {op.jobTitle}
+                          </div>
+                          <div>Client: {op.clientName || '—'}</div>
+                          <div>Worker: {op.assignedWorkerName || '—'}</div>
+                          <div>
+                            Target hours:{' '}
+                            {op.estimatedHours != null ? op.estimatedHours : '—'}
+                          </div>
+                          <div>
+                            Scheduled:{' '}
+                            {formatShopDateTime(op.scheduledStart)} →{' '}
+                            {formatShopDateTime(op.scheduledEnd)}
+                          </div>
+                          <div>Status: {statusLabel(op.status)}</div>
+                          {op.waitingForMaterials ? (
+                            <div style={{ color: '#FCD34D' }}>
+                              Waiting for materials: {op.materialWaitReason}
+                            </div>
+                          ) : null}
+                          {late ? (
+                            <div style={{ color: '#E8C5CB' }}>
+                              At risk of missing date required ({op.dueDate || '—'})
+                            </div>
+                          ) : null}
+                        </div>
+                      }
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onOpenJob(op.jobOrderId)}
+                        style={{
+                          position: 'absolute',
+                          top: barTop,
+                          height: barHeight,
+                          left: barLeft,
+                          width: barW,
+                          background: color,
+                          backgroundImage: op.waitingForMaterials
+                            ? MATERIAL_WAIT_BAR_IMAGE
+                            : undefined,
+                          border: columnFill ? 'none' : late ? '2px solid #7A1528' : 'none',
+                          borderRadius: columnFill ? 0 : 4,
+                          color: '#fff',
+                          ...textStyle,
+                          cursor: 'pointer',
+                          zIndex: 2,
+                          boxShadow: columnFill
+                            ? late
+                              ? 'inset 0 0 0 2px #7A1528'
+                              : undefined
+                            : late
+                              ? '0 0 0 1px rgba(122,21,40,0.35)'
+                              : undefined,
+                        }}
+                      >
+                        {label ? (
+                          <span style={SCHEDULE_BAR_LABEL_SPAN_STYLE}>
+                            <span style={SCHEDULE_BAR_TITLE_STYLE}>{label.title}</span>
+                            {label.meta ? (
+                              <span
+                                style={{
+                                  ...SCHEDULE_BAR_META_STYLE,
+                                  fontSize: metaFontSize,
+                                }}
+                              >
+                                {label.meta}
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : null}
+                      </button>
+                    </Tooltip>,
+                  ];
+                });
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    })}
+    </div>
+  );
+});

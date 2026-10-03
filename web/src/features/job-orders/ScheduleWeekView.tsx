@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Button, Segmented, Switch, Spin } from 'antd';
+import { Button, DatePicker, Segmented, Spin } from 'antd';
 import { LeftOutlined, RightOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import {
@@ -22,6 +22,8 @@ import JobScheduleColorPicker from './JobScheduleColorPicker';
 
 type RowMode = 'machine' | 'worker';
 type BoardWorker = { id: string; fullName: string };
+
+const NO_DOWNTIMES: ScheduleBoardDowntime[] = [];
 
 function buildMachineRows(units: MachineUnitInfo[]): TimelineRow[] {
   const rows: TimelineRow[] = [];
@@ -104,18 +106,6 @@ function proposedToBoardOp(
   };
 }
 
-function periodHasThisJob(from: Dayjs, to: Dayjs, ops: ProposedOperation[]): boolean {
-  const rangeStart = from.startOf('day');
-  const rangeEnd = to.endOf('day');
-  return ops.some((op) =>
-    segmentsForOp(op).some((seg) => {
-      const start = dayjs(seg.start).tz(SHOP_TZ);
-      const end = dayjs(seg.end).tz(SHOP_TZ);
-      return end.isAfter(rangeStart) && start.isBefore(rangeEnd);
-    })
-  );
-}
-
 type Props = {
   jobId: string;
   jobNumber?: string | null;
@@ -147,8 +137,6 @@ export default function ScheduleWeekView({
   const [fetchError, setFetchError] = useState('');
   const [rowMode, setRowMode] = useState<RowMode>('machine');
   const [viewMode, setViewMode] = useState<TimelineViewMode>('week');
-  const [showJobConnections, setShowJobConnections] = useState(false);
-
   const proposed = useMemo(
     () => operations.filter((o) => o.scheduled && o.scheduledStart && o.scheduledEnd),
     [operations]
@@ -170,11 +158,6 @@ export default function ScheduleWeekView({
   const { from, to } = useMemo(() => periodBounds(anchor, viewMode), [anchor, viewMode]);
   const fromKey = from.format('YYYY-MM-DD');
   const toKey = to.format('YYYY-MM-DD');
-  const thisJobInView = useMemo(
-    () => periodHasThisJob(from, to, proposed),
-    [from, to, proposed]
-  );
-
   const periodLabel =
     viewMode === 'day'
       ? from.format('ddd, MMM D, YYYY')
@@ -301,7 +284,19 @@ export default function ScheduleWeekView({
             aria-label={`Previous ${periodHint}`}
             onClick={() => shiftPeriod(-1)}
           />
-          <span className="jo-week-view__nav-label">{periodLabel}</span>
+          <DatePicker
+            size="small"
+            variant="borderless"
+            allowClear={false}
+            picker={viewMode === 'day' ? 'date' : viewMode}
+            value={anchor}
+            format={() => periodLabel}
+            onChange={(v) => {
+              if (v) setAnchor(dayjs.tz(v.format('YYYY-MM-DD'), SHOP_TZ).startOf('day'));
+            }}
+            className="jo-week-view__nav-label"
+            aria-label={`Pick a ${periodHint}`}
+          />
           <Button
             type="text"
             size="small"
@@ -310,21 +305,8 @@ export default function ScheduleWeekView({
             aria-label={`Next ${periodHint}`}
             onClick={() => shiftPeriod(1)}
           />
-          {!thisJobInView ? (
-            <span className="jo-week-view__nav-hint">
-              No ops for this job in this {periodHint}
-            </span>
-          ) : null}
         </div>
         <div className="jo-week-view__nav-right">
-          <label className="jo-week-view__links-toggle">
-            <Switch
-              size="small"
-              checked={showJobConnections}
-              onChange={setShowJobConnections}
-            />
-            Job stage links
-          </label>
           {navTrailing}
         </div>
       </div>
@@ -340,11 +322,10 @@ export default function ScheduleWeekView({
         rowMode={rowMode}
         rows={rows}
         operations={mergedOps}
-        downtimes={rowMode === 'machine' ? downtimes : []}
+        downtimes={rowMode === 'machine' ? downtimes : NO_DOWNTIMES}
         highlightJobId={jobId}
         highlightColor={scheduleColor}
         shopDayWindows={shopDayWindows}
-        showJobConnections={showJobConnections}
         showLegend
         footerNote={
           viewMode === 'week'
