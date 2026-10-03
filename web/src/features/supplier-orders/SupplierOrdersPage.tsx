@@ -65,7 +65,7 @@ export default function SupplierOrdersPage() {
           <span style={{ color: '#64748b' }}>Not issued</span>
         ),
     },
-    { title: 'Supplier', dataIndex: 'supplierName' },
+    { title: 'Supplier', dataIndex: 'supplierName', width: 200, ellipsis: true },
     {
       title: 'Status',
       dataIndex: 'status',
@@ -87,7 +87,7 @@ export default function SupplierOrdersPage() {
     {
       title: 'Expected',
       dataIndex: 'expectedDeliveryDate',
-      width: 170,
+      width: 150,
       render: (v, r) => (
         <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           {fmtDay(v)}
@@ -102,7 +102,7 @@ export default function SupplierOrdersPage() {
       align: 'right',
       render: (v: number) => fmtMoney(v),
     },
-    { title: 'Prepared by', dataIndex: 'preparedByName', width: 140 },
+    { title: 'Prepared by', dataIndex: 'preparedByName', width: 140, ellipsis: true },
   ];
 
   return (
@@ -131,6 +131,7 @@ export default function SupplierOrdersPage() {
         loading={loading}
         dataSource={rows}
         columns={columns}
+        scroll={{ x: 'max-content' }}
         pagination={{ pageSize: 20 }}
         onRow={(r) => ({
           onClick: () => navigate(`/supplier-orders/${r.id}`),
