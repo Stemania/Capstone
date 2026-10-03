@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Spin, Typography, message } from 'antd';
+import { Spin, message } from 'antd';
 import {
   CartesianGrid,
   ComposedChart,
@@ -14,15 +14,17 @@ import {
 import { analyticsApi } from '../../api/analytics.api';
 import { getErrorMessage } from '../../api/client';
 import type { AnalyticsOverview, AnalyticsTrend } from '../../types';
+import { exportCsv } from '../../utils/csvExport';
 import { AnalyticsPeriodNote, SummaryCard } from './AnalyticsChrome';
+import { AnalyticsGrid, AnalyticsSection, CHART_BOX } from './AnalyticsSection';
+import PerformanceSection from './PerformanceSection';
+import SalesSection from './SalesSection';
 import {
   formatDifferenceFromTarget,
   formatInt,
   formatPct,
   useAnalyticsPeriod,
 } from './analyticsPeriod';
-
-const { Title } = Typography;
 
 const AXIS = { fontSize: 13, fill: '#334155' };
 const GRID = '#e2e8f0';
@@ -68,8 +70,7 @@ export default function AnalyticsOverviewPage() {
   if (!overview || !trend) return null;
 
   const delivered = overview.jobs.onTime + overview.jobs.late;
-  const onTimeRate =
-    delivered > 0 ? (overview.jobs.onTime / delivered) * 100 : null;
+  const onTimeRate = delivered > 0 ? (overview.jobs.onTime / delivered) * 100 : null;
 
   const chartData = trend.weeks.map((w) => ({
     week: w.weekStart.slice(5),
@@ -91,7 +92,7 @@ export default function AnalyticsOverviewPage() {
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
           gap: 12,
-          marginBottom: 24,
+          marginBottom: 16,
         }}
       >
         <SummaryCard
@@ -121,88 +122,99 @@ export default function AnalyticsOverviewPage() {
         />
       </div>
 
-      <Title level={5} style={{ marginTop: 0, marginBottom: 8, color: '#0f1c2e' }}>
-        Weekly difference from target
-      </Title>
-      <div
-        style={{
-          background: '#fff',
-          border: '1px solid #e2e8f0',
-          borderRadius: 8,
-          padding: '16px 8px 8px',
-          height: 360,
-        }}
-      >
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
-            <CartesianGrid stroke={GRID} strokeDasharray="3 3" />
-            <XAxis dataKey="week" tick={AXIS} label={{ value: 'Week starting', position: 'insideBottom', offset: -2, style: AXIS }} height={48} />
-            <YAxis
-              yAxisId="var"
-              tick={AXIS}
-              tickFormatter={(v) => `${v}%`}
-              label={{ value: 'Percent vs target', angle: -90, position: 'insideLeft', style: AXIS }}
-              width={64}
-            />
-            <YAxis
-              yAxisId="ops"
-              orientation="right"
-              tick={AXIS}
-              label={{ value: 'Finished operations', angle: 90, position: 'insideRight', style: AXIS }}
-              width={56}
-            />
-            <Tooltip
-              contentStyle={{ fontSize: 13 }}
-              formatter={(value: number, name: string) => {
-                if (name === 'variance')
-                  return [
-                    formatDifferenceFromTarget(null, value),
-                    'Average difference from target',
-                  ];
-                if (name === 'operations') return [value, 'Finished operations'];
-                return [value, name];
-              }}
-              labelFormatter={(_, payload) =>
-                payload?.[0]?.payload?.weekFull
-                  ? `Week of ${payload[0].payload.weekFull}`
-                  : ''
-              }
-            />
-            <Legend
-              wrapperStyle={{ fontSize: 13 }}
-              formatter={(value) =>
-                value === 'variance'
-                  ? 'Average difference from target'
-                  : value === 'operations'
-                    ? 'Finished operations'
-                    : value
-              }
-            />
-            <Bar
-              yAxisId="ops"
-              dataKey="operations"
-              name="operations"
-              fill="#94a3b8"
-              barSize={28}
-              radius={[3, 3, 0, 0]}
-            />
-            <Line
-              yAxisId="var"
-              type="monotone"
-              dataKey="variance"
-              name="variance"
-              stroke="#0f1c2e"
-              strokeWidth={2.5}
-              dot={{ r: 4, fill: '#0f1c2e' }}
-              connectNulls={false}
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
-      <div style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>
-        Bars show how many operations finished that week. The line shows how far those operations ran from
-        their target time. Weeks with no target times are left blank on the line.
-      </div>
+      <AnalyticsGrid>
+        <AnalyticsSection
+          span={7}
+          title="Weekly difference from target"
+          description="Bars show how many operations finished that week. The line shows how far those operations ran from their target time. Weeks with no target times are left blank on the line."
+          onExport={() =>
+            exportCsv(
+              `weekly-difference-from-target-${overview.period.from}_${overview.period.to}.csv`,
+              trend.weeks,
+              [
+                { key: 'week', header: 'WeekStarting', value: (r) => r.weekStart },
+                { key: 'ops', header: 'FinishedOperations', value: (r) => r.operationCount },
+                { key: 'var', header: 'DifferenceFromTargetPct', value: (r) => r.averageVariancePct },
+              ]
+            )
+          }
+          exportDisabled={!trend.weeks.length}
+        >
+          <div style={{ ...CHART_BOX, padding: '16px 8px 8px', height: 320 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={chartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                <CartesianGrid stroke={GRID} strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="week"
+                  tick={AXIS}
+                  label={{ value: 'Week starting', position: 'insideBottom', offset: -2, style: AXIS }}
+                  height={48}
+                />
+                <YAxis
+                  yAxisId="var"
+                  tick={AXIS}
+                  tickFormatter={(v) => `${v}%`}
+                  label={{ value: 'Percent vs target', angle: -90, position: 'insideLeft', style: AXIS }}
+                  width={64}
+                />
+                <YAxis
+                  yAxisId="ops"
+                  orientation="right"
+                  tick={AXIS}
+                  label={{ value: 'Finished operations', angle: 90, position: 'insideRight', style: AXIS }}
+                  width={56}
+                />
+                <Tooltip
+                  contentStyle={{ fontSize: 13 }}
+                  formatter={(value: number, name: string) => {
+                    if (name === 'variance')
+                      return [formatDifferenceFromTarget(null, value), 'Average difference from target'];
+                    if (name === 'operations') return [value, 'Finished operations'];
+                    return [value, name];
+                  }}
+                  labelFormatter={(_, payload) =>
+                    payload?.[0]?.payload?.weekFull ? `Week of ${payload[0].payload.weekFull}` : ''
+                  }
+                />
+                <Legend
+                  verticalAlign="top"
+                  wrapperStyle={{ fontSize: 13, paddingBottom: 6 }}
+                  formatter={(value) =>
+                    value === 'variance'
+                      ? 'Average difference from target'
+                      : value === 'operations'
+                        ? 'Finished operations'
+                        : value
+                  }
+                />
+                <Bar
+                  yAxisId="ops"
+                  dataKey="operations"
+                  name="operations"
+                  fill="#94a3b8"
+                  barSize={28}
+                  radius={[3, 3, 0, 0]}
+                />
+                <Line
+                  yAxisId="var"
+                  type="monotone"
+                  dataKey="variance"
+                  name="variance"
+                  stroke="#0f1c2e"
+                  strokeWidth={2.5}
+                  dot={{ r: 4, fill: '#0f1c2e' }}
+                  connectNulls={false}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </AnalyticsSection>
+        <SalesSection span={5} />
+      </AnalyticsGrid>
+
+      <AnalyticsGrid>
+        <PerformanceSection span={12} />
+      </AnalyticsGrid>
     </div>
   );
 }

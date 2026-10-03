@@ -10,12 +10,9 @@ import {
 
 const TABS = [
   { label: 'Overview', value: '/analytics' },
-  { label: 'Performance', value: '/analytics/efficiency' },
   { label: 'Delays', value: '/analytics/delays' },
-  { label: 'Sales', value: '/analytics/sales' },
-  { label: 'What’s coming', value: '/analytics/forecast' },
-  { label: 'Machine load', value: '/analytics/capacity' },
-  { label: 'Purchasing', value: '/analytics/purchasing' },
+  { label: 'Forecast', value: '/analytics/forecast' },
+  { label: 'Suppliers', value: '/analytics/suppliers' },
 ];
 
 export default function AnalyticsLayout() {
@@ -23,15 +20,12 @@ export default function AnalyticsLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const active = useMemo(() => {
-    if (location.pathname.startsWith('/analytics/efficiency')) return '/analytics/efficiency';
-    if (location.pathname.startsWith('/analytics/delays')) return '/analytics/delays';
-    if (location.pathname.startsWith('/analytics/sales')) return '/analytics/sales';
-    if (location.pathname.startsWith('/analytics/forecast')) return '/analytics/forecast';
-    if (location.pathname.startsWith('/analytics/capacity')) return '/analytics/capacity';
-    if (location.pathname.startsWith('/analytics/purchasing')) return '/analytics/purchasing';
-    return '/analytics';
-  }, [location.pathname]);
+  const active = useMemo(
+    () =>
+      TABS.find((t) => t.value !== '/analytics' && location.pathname.startsWith(t.value))?.value ??
+      '/analytics',
+    [location.pathname]
+  );
 
   return (
     <AnalyticsPeriodProvider range={range} setRange={setRange}>

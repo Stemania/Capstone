@@ -4,7 +4,9 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   LabelList,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -12,19 +14,36 @@ import {
 } from 'recharts';
 import { analyticsApi } from '../../api/analytics.api';
 import { getErrorMessage } from '../../api/client';
-import type { AnalyticsSalesForecast } from '../../types';
+import { inventoryApi } from '../../api/tools.api';
+import type {
+  AnalyticsDemandCapacity,
+  AnalyticsSalesForecast,
+  InventoryPurchaseSuggestions,
+} from '../../types';
+import { exportCsv } from '../../utils/csvExport';
 import { SummaryCard } from './AnalyticsChrome';
-import { formatInt, formatMoney, useAnalyticsPeriod } from './analyticsPeriod';
+import {
+  AnalyticsGrid,
+  AnalyticsSection,
+  CHART_BOX,
+  ComingSoon,
+  ShowDetails,
+  withoutAllZero,
+} from './AnalyticsSection';
+import { formatInt, formatMoney, formatNum, useAnalyticsPeriod } from './analyticsPeriod';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const AXIS = { fontSize: 13, fill: '#334155' };
 const GRID = '#e2e8f0';
-const COMMITTED = '#0f1c2e';
+const NORMAL = '#0f1c2e';
+const CONSTRAINT = '#b45309';
 
 export default function AnalyticsForecastPage() {
   const { params } = useAnalyticsPeriod();
-  const [data, setData] = useState<AnalyticsSalesForecast | null>(null);
+  const [capacity, setCapacity] = useState<AnalyticsDemandCapacity | null>(null);
+  const [forecast, setForecast] = useState<AnalyticsSalesForecast | null>(null);
+  const [lowStock, setLowStock] = useState<InventoryPurchaseSuggestions | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -32,8 +51,14 @@ export default function AnalyticsForecastPage() {
     (async () => {
       setLoading(true);
       try {
-        const res = await analyticsApi.salesForecast(params);
-        if (!cancelled) setData(res.data);
+        const [c, f] = await Promise.all([
+          analyticsApi.demandCapacity(params),
+          analyticsApi.salesForecast(params),
+        ]);
+        if (!cancelled) {
+          setCapacity(c.data);
+          setForecast(f.data);
+        }
       } catch (err) {
         if (!cancelled) message.error(getErrorMessage(err));
       } finally {
@@ -45,266 +70,374 @@ export default function AnalyticsForecastPage() {
     };
   }, [params.from, params.to]);
 
-  if (loading && !data) {
+  useEffect(() => {
+    let cancelled = false;
+    inventoryApi
+      .purchaseSuggestions()
+      .then((res) => {
+        if (!cancelled) setLowStock(res.data);
+      })
+      .catch((err) => {
+        if (!cancelled) message.error(getErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const rows = useMemo(() => {
+    if (!capacity) return [];
+    return withoutAllZero(capacity.machineTypes, (t) => [
+      t.activeUnitCount,
+      t.availableHours,
+      t.scheduledLoadHours,
+      t.projectedLoadPct,
+    ])
+      .sort((a, b) => (b.projectedLoadPct ?? 0) - (a.projectedLoadPct ?? 0))
+      .map((t) => ({
+        code: t.machineTypeCode,
+        name: t.machineTypeName || t.machineTypeCode,
+        units: t.activeUnitCount,
+        pct: t.projectedLoadPct ?? 0,
+        load: t.scheduledLoadHours ?? 0,
+        avail: t.availableHours ?? 0,
+        above: t.above80Pct,
+        yLabel: `${t.machineTypeCode} (${t.activeUnitCount} unit${t.activeUnitCount === 1 ? '' : 's'})`,
+      }));
+  }, [capacity]);
+
+  if (loading && !capacity) {
     return (
       <div style={{ padding: 48, textAlign: 'center' }}>
         <Spin size="large" />
       </div>
     );
   }
-  if (!data) return null;
+  if (!capacity || !forecast) return null;
 
-  const pipeline = data.committedPipeline;
-  const projected = data.projectedRevenue;
+  const constraints = rows.filter((r) => r.above);
+  const pipeline = forecast.committedPipeline;
+  const projected = forecast.projectedRevenue;
+  const pipelineMonths = withoutAllZero(pipeline.byExpectedCompletionMonth, (r) => [
+    r.jobCount,
+    r.amount,
+  ]);
+  const lowItems = lowStock?.items ?? [];
 
   return (
     <div>
-      <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
-        Looking at jobs from {data.period.from} → {data.period.to} · {data.workingDaysInSample}{' '}
-        shop days ({data.sampleWeeks} weeks). Accepted jobs not yet delivered and estimated income
-        are separate figures — do not mix them.
-      </Text>
-
-      {data.thinSample ? (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="Not enough jobs yet — treat this guess as a rough guide"
+      <AnalyticsGrid>
+        <AnalyticsSection
+          span={5}
+          title="Accepted jobs and estimated income"
           description={
-            `Only ${data.sampleWeeks} weeks of shop days so far (we like at least 8). This guess is rough.`
+            <>
+              Accepted jobs not yet delivered are money already on the books. Estimated income is a
+              rough guess: average income per shop day from finished jobs in {forecast.period.from} →{' '}
+              {forecast.period.to}, carried forward to {projected.horizon.from} →{' '}
+              {projected.horizon.to}. Keep the two figures separate.
+            </>
           }
-        />
-      ) : null}
-
-      <section
-        style={{
-          background: '#fff',
-          border: '2px solid #0f1c2e',
-          borderRadius: 8,
-          padding: 16,
-          marginBottom: 20,
-        }}
-      >
-        <div
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: 0.6,
-            textTransform: 'uppercase',
-            color: '#0f1c2e',
-            marginBottom: 4,
-          }}
+          onExport={() =>
+            exportCsv(
+              `accepted-jobs-by-month-${forecast.period.from}_${forecast.period.to}.csv`,
+              pipelineMonths,
+              [
+                { key: 'month', header: 'ExpectedMonth', value: (r) => r.month },
+                { key: 'jobs', header: 'Jobs', value: (r) => r.jobCount },
+                { key: 'amount', header: 'Amount', value: (r) => r.amount },
+              ]
+            )
+          }
+          exportDisabled={!pipelineMonths.length}
         >
-          Fact — not a forecast
-        </div>
-        <Title level={5} style={{ marginTop: 0, marginBottom: 6, color: '#0f1c2e' }}>
-          Accepted jobs not yet delivered
-        </Title>
-        <Text style={{ display: 'block', marginBottom: 12, fontSize: 13, color: '#334155' }}>
-          Jobs the shop has already accepted that are still open — money on the books, not a guess.
-        </Text>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-            gap: 12,
-            marginBottom: 16,
-          }}
-        >
-          <SummaryCard
-            label="Accepted, not delivered"
-            value={formatMoney(pipeline.totalAmount)}
-            hint={`${formatInt(pipeline.jobCount)} open jobs`}
-          />
-        </div>
-        <Title level={5} style={{ marginTop: 0, marginBottom: 8, color: '#0f1c2e', fontSize: 14 }}>
-          By expected completion month
-        </Title>
-        <PipelineMonthChart rows={pipeline.byExpectedCompletionMonth} />
-        <Table
-          style={{ marginTop: 12 }}
-          size="small"
-          pagination={false}
-          rowKey="month"
-          dataSource={pipeline.byExpectedCompletionMonth}
-          columns={[
-            { title: 'Expected month', dataIndex: 'month' },
-            { title: 'Jobs', dataIndex: 'jobCount', width: 80, align: 'right' },
-            {
-              title: 'Amount',
-              dataIndex: 'amount',
-              width: 140,
-              align: 'right',
-              render: (v: number | null) => formatMoney(v),
-            },
-          ]}
-        />
-      </section>
-
-      <section
-        style={{
-          background: '#f8fafc',
-          border: '1px dashed #64748b',
-          borderRadius: 8,
-          padding: 16,
-        }}
-      >
-        <div
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: 0.6,
-            textTransform: 'uppercase',
-            color: '#64748b',
-            marginBottom: 4,
-          }}
-        >
-          Estimate only
-        </div>
-        <Title level={5} style={{ marginTop: 0, marginBottom: 6, color: '#0f1c2e' }}>
-          Estimated income
-        </Title>
-        <Text style={{ display: 'block', marginBottom: 12, fontSize: 13, color: '#334155' }}>
-          Rough guess from recent finished jobs: average income per shop day, carried forward for
-          the next few weeks. Not the same as accepted jobs still open.
-        </Text>
-
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 8,
-            marginBottom: 14,
-            fontSize: 13,
-            color: '#0f1c2e',
-          }}
-        >
-          <SampleChip label="Finished jobs used" value={formatInt(projected.sampleCompletedJobs)} />
-          <SampleChip
-            label="Shop days used"
-            value={formatInt(projected.sampleWorkingDays)}
-          />
-          <SampleChip label="Weeks used" value={String(projected.sampleWeeks)} />
-          <SampleChip label="Looked at" value={`${data.period.from} → ${data.period.to}`} />
-          <SampleChip
-            label="Looking ahead"
-            value={`${projected.horizon.from} → ${projected.horizon.to} (${projected.horizonWorkingDays} shop days)`}
-          />
-        </div>
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-            gap: 12,
-          }}
-        >
-          <SummaryCard
-            label="Estimated income"
-            value={formatMoney(projected.projectedAmount)}
-            hint={`About ${formatMoney(projected.revenuePerWorkingDay)} per shop day × ${projected.horizonWorkingDays} days`}
-          />
-          <SummaryCard
-            label="Income per shop day"
-            value={formatMoney(projected.revenuePerWorkingDay)}
-            hint={`From ${formatInt(projected.sampleCompletedJobs)} finished jobs`}
-          />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function SampleChip({ label, value }: { label: string; value: string }) {
-  return (
-    <span
-      style={{
-        background: '#fff',
-        border: '1px solid #cbd5e1',
-        borderRadius: 6,
-        padding: '6px 10px',
-        lineHeight: 1.3,
-      }}
-    >
-      <span style={{ color: '#64748b', fontWeight: 600 }}>{label}: </span>
-      <span style={{ fontWeight: 700 }}>{value}</span>
-    </span>
-  );
-}
-
-function PipelineMonthChart({
-  rows,
-}: {
-  rows: AnalyticsSalesForecast['committedPipeline']['byExpectedCompletionMonth'];
-}) {
-  const chartRows = useMemo(
-    () => rows.map((r) => ({ month: r.month, amount: r.amount ?? 0, jobs: r.jobCount })),
-    [rows],
-  );
-
-  if (!chartRows.length) {
-    return (
-      <Text type="secondary" style={{ fontSize: 13 }}>
-        No accepted jobs waiting to be delivered.
-      </Text>
-    );
-  }
-
-  return (
-    <div
-      style={{
-        background: '#fff',
-        border: '1px solid #e2e8f0',
-        borderRadius: 8,
-        padding: '12px 8px 8px',
-        height: 260,
-      }}
-    >
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chartRows} margin={{ top: 12, right: 16, left: 8, bottom: 8 }}>
-          <CartesianGrid stroke={GRID} strokeDasharray="3 3" />
-          <XAxis
-            dataKey="month"
-            tick={AXIS}
-            label={{
-              value: 'Expected completion',
-              position: 'insideBottom',
-              offset: -2,
-              style: AXIS,
-            }}
-            height={40}
-          />
-          <YAxis
-            tick={AXIS}
-            tickFormatter={(v) => formatMoney(v, 0)}
-            width={72}
-            label={{ value: 'Amount', angle: -90, position: 'insideLeft', style: AXIS }}
-          />
-          <Tooltip
-            contentStyle={{ fontSize: 13 }}
-            formatter={(value: number) => [formatMoney(value), 'Amount']}
-            labelFormatter={(label, payload) => {
-              const jobs = payload?.[0]?.payload?.jobs;
-              return jobs != null ? `${label} · ${jobs} jobs` : String(label);
-            }}
-          />
-          <Bar
-            dataKey="amount"
-            name="Accepted jobs"
-            fill={COMMITTED}
-            barSize={36}
-            radius={[3, 3, 0, 0]}
-          >
-            <LabelList
-              dataKey="amount"
-              position="top"
-              formatter={(v: number) => formatMoney(v, 0)}
-              style={{ fontSize: 11, fill: '#334155' }}
+          {forecast.thinSample ? (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="Not enough jobs yet — treat this guess as a rough guide"
+              description={`Only ${forecast.sampleWeeks} weeks of shop days so far (we like at least 8). This guess is rough.`}
             />
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+          ) : null}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: 12,
+              marginBottom: 16,
+            }}
+          >
+            <SummaryCard
+              label="Accepted, not delivered"
+              value={formatMoney(pipeline.totalAmount)}
+              hint={`${formatInt(pipeline.jobCount)} open jobs`}
+            />
+            <SummaryCard
+              label="Estimated income"
+              value={formatMoney(projected.projectedAmount)}
+              hint={`About ${formatMoney(projected.revenuePerWorkingDay)} per shop day × ${projected.horizonWorkingDays} days, from ${formatInt(projected.sampleCompletedJobs)} finished jobs`}
+            />
+          </div>
+          <Table
+            size="small"
+            pagination={false}
+            rowKey="month"
+            dataSource={pipelineMonths}
+            locale={{ emptyText: 'No accepted jobs waiting to be delivered.' }}
+            columns={[
+              { title: 'Expected completion month', dataIndex: 'month' },
+              { title: 'Jobs', dataIndex: 'jobCount', width: 80, align: 'right' },
+              {
+                title: 'Amount',
+                dataIndex: 'amount',
+                width: 140,
+                align: 'right',
+                render: (v: number | null) => formatMoney(v),
+              },
+            ]}
+          />
+        </AnalyticsSection>
+        <AnalyticsSection
+          span={7}
+          title="Expected workload by machine type"
+          description={
+            <>
+              Looking ahead {capacity.horizon.from} → {capacity.horizon.to} ·{' '}
+              {capacity.horizonWorkingDays} shop days · {formatNum(capacity.availableHoursPerUnit, 0)}h
+              available per machine · {formatInt(capacity.scheduledOperationsInHorizon)} scheduled
+              operations ahead. Amber bars mark types running near full capacity (at or above 80%)
+              {constraints.length ? `: ${constraints.map((c) => c.code).join(', ')}` : ' — none right now'}.
+              Hours booked and percent full are both shown — 88% on one machine is not the same as 30%
+              across eight.
+            </>
+          }
+          onExport={() =>
+            exportCsv(
+              `expected-workload-${capacity.horizon.from}_${capacity.horizon.to}.csv`,
+              rows,
+              [
+                { key: 'code', header: 'MachineType', value: (r) => r.code },
+                { key: 'name', header: 'Name', value: (r) => r.name },
+                { key: 'units', header: 'MachinesUp', value: (r) => r.units },
+                { key: 'load', header: 'HoursBooked', value: (r) => r.load },
+                { key: 'avail', header: 'HoursAvailable', value: (r) => r.avail },
+                { key: 'pct', header: 'ExpectedWorkloadPct', value: (r) => r.pct },
+                { key: 'above', header: 'NearFull', value: (r) => (r.above ? 'Yes' : 'No') },
+              ]
+            )
+          }
+          exportDisabled={!rows.length}
+        >
+          {capacity.thinSample ? (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="No scheduled operations in this time window"
+              description="Expected workload is zero until open operations have scheduled times."
+            />
+          ) : null}
+          {rows.length === 0 ? (
+            <Text type="secondary">No machine types with hours available or booked.</Text>
+          ) : (
+            <>
+              <div
+                style={{ ...CHART_BOX, padding: '12px 8px 8px', height: Math.max(240, rows.length * 48 + 80) }}
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart layout="vertical" data={rows} margin={{ top: 20, right: 180, left: 8, bottom: 8 }}>
+                    <CartesianGrid stroke={GRID} strokeDasharray="3 3" horizontal={false} />
+                    <XAxis
+                      type="number"
+                      domain={[0, (max: number) => Math.max(100, Math.ceil(max / 10) * 10)]}
+                      tick={AXIS}
+                      tickFormatter={(v) => `${v}%`}
+                      label={{
+                        value: 'Expected workload %',
+                        position: 'insideBottom',
+                        offset: -2,
+                        style: AXIS,
+                      }}
+                      height={40}
+                    />
+                    <YAxis type="category" dataKey="yLabel" width={150} tick={AXIS} />
+                    <Tooltip
+                      contentStyle={{ fontSize: 13 }}
+                      formatter={(value: number, _name, item) => {
+                        const row = item?.payload;
+                        if (!row) return [`${value.toFixed(1)}%`, 'Hours booked'];
+                        return [
+                          `${value.toFixed(1)}% · ${formatNum(row.load, 0)}h of ${formatNum(row.avail, 0)}h`,
+                          row.above ? 'Near full' : 'Hours booked',
+                        ];
+                      }}
+                    />
+                    <ReferenceLine
+                      x={80}
+                      stroke="#b45309"
+                      strokeDasharray="4 4"
+                      label={{ value: '80%', position: 'top', fill: '#b45309', fontSize: 12 }}
+                    />
+                    <Bar dataKey="pct" barSize={18} radius={[0, 3, 3, 0]}>
+                      {rows.map((row) => (
+                        <Cell key={row.code} fill={row.above ? CONSTRAINT : NORMAL} />
+                      ))}
+                      <LabelList
+                        content={(props) => {
+                          const { x, y, width, height, index } = props;
+                          const row = rows[index as number];
+                          if (!row || x == null || y == null || width == null || height == null) {
+                            return null;
+                          }
+                          const label = `${row.pct.toFixed(1)}% · ${formatNum(row.load, 0)}h / ${formatNum(row.avail, 0)}h${
+                            row.above ? ' · near full' : ''
+                          }`;
+                          return (
+                            <text
+                              x={Number(x) + Number(width) + 8}
+                              y={Number(y) + Number(height) / 2}
+                              dy={4}
+                              fill="#334155"
+                              fontSize={12}
+                            >
+                              {label}
+                            </text>
+                          );
+                        }}
+                      />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <ShowDetails>
+                <Table
+                  size="small"
+                  pagination={false}
+                  rowKey="code"
+                  dataSource={rows}
+                  rowClassName={(r) => (r.above ? 'analytics-capacity-constraint' : '')}
+                  columns={[
+                    { title: 'Machine type', dataIndex: 'code', width: 110 },
+                    { title: 'Name', dataIndex: 'name' },
+                    { title: 'Machines up', dataIndex: 'units', width: 100, align: 'right' },
+                    {
+                      title: 'Hours booked',
+                      dataIndex: 'load',
+                      width: 110,
+                      align: 'right',
+                      render: (v: number) => formatNum(v, 1),
+                    },
+                    {
+                      title: 'Hours available',
+                      dataIndex: 'avail',
+                      width: 120,
+                      align: 'right',
+                      render: (v: number) => formatNum(v, 1),
+                    },
+                    {
+                      title: 'Expected workload',
+                      dataIndex: 'pct',
+                      width: 150,
+                      align: 'right',
+                      render: (v: number, row) => (
+                        <span
+                          style={{
+                            fontWeight: row.above ? 700 : 400,
+                            color: row.above ? CONSTRAINT : undefined,
+                          }}
+                        >
+                          {v.toFixed(1)}%{row.above ? ' · near full' : ''}
+                        </span>
+                      ),
+                    },
+                  ]}
+                />
+              </ShowDetails>
+            </>
+          )}
+        </AnalyticsSection>
+      </AnalyticsGrid>
+
+      <AnalyticsGrid>
+        <AnalyticsSection
+          span={8}
+          title="Consumables running low"
+          description={
+            lowStock
+              ? `Consumables at or below their minimum stock right now. Use per day comes from the last ${lowStock.workingDaysInSample} shop days (${lowStock.period.from} → ${lowStock.period.to}) and does not follow the date range above.`
+              : 'Consumables at or below their minimum stock right now.'
+          }
+          onExport={() =>
+            exportCsv(`consumables-running-low-${lowStock?.period.to ?? ''}.csv`, lowItems, [
+              { key: 'name', header: 'Item', value: (r) => r.name },
+              { key: 'code', header: 'Code', value: (r) => r.code },
+              { key: 'size', header: 'Size', value: (r) => r.sizeSpec },
+              { key: 'unit', header: 'Unit', value: (r) => r.unit },
+              { key: 'onHand', header: 'OnHand', value: (r) => r.quantityOnHand },
+              { key: 'min', header: 'MinimumStock', value: (r) => r.minimumStock },
+              { key: 'perDay', header: 'UsedPerShopDay', value: (r) => r.consumptionPerWorkingDay },
+              { key: 'suggest', header: 'SuggestedOrder', value: (r) => r.suggestedOrderQuantity },
+            ])
+          }
+          exportDisabled={!lowItems.length}
+        >
+          <Table
+            size="small"
+            pagination={false}
+            rowKey="toolId"
+            loading={!lowStock}
+            dataSource={lowItems}
+            locale={{ emptyText: 'No consumables are below their minimum stock.' }}
+            columns={[
+              {
+                title: 'Item',
+                dataIndex: 'name',
+                render: (name: string, r) => (
+                  <span>
+                    {name}
+                    {r.sizeSpec ? <Text type="secondary"> · {r.sizeSpec}</Text> : null}
+                  </span>
+                ),
+              },
+              {
+                title: 'On hand',
+                dataIndex: 'quantityOnHand',
+                width: 110,
+                align: 'right',
+                render: (v: number | null, r) => `${formatNum(v, 0)} ${r.unit}`,
+              },
+              {
+                title: 'Minimum',
+                dataIndex: 'minimumStock',
+                width: 110,
+                align: 'right',
+                render: (v: number | null, r) => `${formatNum(v, 0)} ${r.unit}`,
+              },
+              {
+                title: 'Used per shop day',
+                dataIndex: 'consumptionPerWorkingDay',
+                width: 150,
+                align: 'right',
+                render: (v: number | null) => formatNum(v, 1),
+              },
+              {
+                title: 'Suggested order',
+                dataIndex: 'suggestedOrderQuantity',
+                width: 140,
+                align: 'right',
+                render: (v: number | null, r) => (v == null ? '—' : `${formatNum(v, 0)} ${r.unit}`),
+              },
+            ]}
+          />
+        </AnalyticsSection>
+        <ComingSoon
+          span={4}
+          title="Demand forecast"
+          description="Expected incoming jobs by type for the weeks ahead, based on past orders."
+        />
+
+      </AnalyticsGrid>
     </div>
   );
 }

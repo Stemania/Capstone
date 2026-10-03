@@ -409,5 +409,29 @@ def shop_available_hours(period_from: date, period_to: date) -> float:
     return hours
 
 
+def shop_working_intervals(start_utc: datetime, end_utc: datetime) -> list[tuple[datetime, datetime]]:
+    """Shop working time (default hours plus calendar exceptions) inside [start, end)."""
+    start_utc, end_utc = ensure_utc(start_utc), ensure_utc(end_utc)
+    if end_utc <= start_utc:
+        return []
+    exceptions = load_calendar_exceptions(
+        utc_to_shop(start_utc).date(), utc_to_shop(end_utc).date()
+    )
+    return build_worker_working_windows(
+        default_shop_schedule_by_dow(), exceptions, start_utc, end_utc
+    )
+
+
+def shop_working_hours(intervals: list[tuple[datetime, datetime]]) -> float:
+    """Working hours (shop calendar) covered by the given clock intervals."""
+    merged = merge_intervals(intervals)
+    if not merged:
+        return 0.0
+    working = shop_working_intervals(merged[0][0], merged[-1][1])
+    return sum(
+        (e - s).total_seconds() for s, e in intersect_intervals(merged, working)
+    ) / 3600.0
+
+
 def full_horizon_interval(anchor_utc: datetime, end_utc: datetime) -> list[tuple[datetime, datetime]]:
     return [(ensure_utc(anchor_utc), ensure_utc(end_utc))]

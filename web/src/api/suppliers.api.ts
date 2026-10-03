@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { Supplier } from '../types';
+import type { Supplier, SupplierReliability } from '../types';
 
 export const suppliersApi = {
   list: (params?: { search?: string; activeOnly?: boolean }) =>
@@ -10,6 +10,9 @@ export const suppliersApi = {
       },
     }),
   get: (id: string) => apiClient.get<Supplier>(`/suppliers/${id}`),
+  /** All delivery history, or only deliveries promised within from–to. */
+  reliability: (params?: { from?: string; to?: string }) =>
+    apiClient.get<SupplierReliability[]>('/suppliers/reliability', { params }),
   create: (data: {
     name: string;
     contactPerson?: string;

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import case, func
@@ -21,9 +21,19 @@ from app.models.operation_time import (
 )
 from app.models.user import User
 from app.models.worker_skill import OperationType
+from app.services.delay_analysis_service import (
+    MATERIAL_CAUSE_LABEL,
+    PARETO_CAUSE,
+    late_jobs,
+    material_delays,
+    pause_intervals,
+)
 from app.services.schedule_calendar import (
     SHOP_TZ,
     derive_working_segments,
+    ensure_utc,
+    intersect_intervals,
+    shop_working_hours,
     load_calendar_exceptions,
     load_worker_schedule_maps,
     shop_available_hours,
@@ -610,43 +620,57 @@ def delays(from_s=None, to_s=None):
     period_from, period_to, start_utc, end_utc = _parse_period(from_s, to_s)
     excluded = count_excluded_null_estimate(start_utc, end_utc)
 
-    # Pause intervals: PAUSE -> next RESUME/COMPLETE for ops active in period
-    logs = (
-        db.session.query(OperationTimeLog)
-        .join(JobOperation, JobOperation.id == OperationTimeLog.operation_id)
-        .filter(
-            JobOperation.actual_end.isnot(None),
-            JobOperation.actual_end >= start_utc,
-            JobOperation.actual_end < end_utc,
-        )
-        .order_by(OperationTimeLog.operation_id, OperationTimeLog.event_at)
-        .all()
-    )
-    by_op = defaultdict(list)
-    for log in logs:
-        by_op[log.operation_id].append(log)
+    now_utc = shop_now().astimezone(timezone.utc)
+    # Open downtime runs until now, never into the future.
+    open_end = min(end_utc, max(now_utc, start_utc))
 
+    # Pause time inside the period, finished operations or not.
+    pauses = pause_intervals(start_utc, end_utc)
     pause_hours = defaultdict(float)
     pause_counts = defaultdict(int)
-    for op_logs in by_op.values():
-        i = 0
-        while i < len(op_logs):
-            log = op_logs[i]
-            if log.event == OperationTimeEvent.PAUSE and log.reason:
-                end_at = None
-                for j in range(i + 1, len(op_logs)):
-                    if op_logs[j].event in (
-                        OperationTimeEvent.RESUME,
-                        OperationTimeEvent.COMPLETE,
-                    ):
-                        end_at = op_logs[j].event_at
-                        break
-                if end_at and end_at > log.event_at:
-                    hrs = (end_at - log.event_at).total_seconds() / 3600.0
-                    key = log.reason.value
-                    pause_hours[key] += hrs
-                    pause_counts[key] += 1
-            i += 1
+    for p in pauses:
+        pause_hours[p["reason"]] += p["hours"]
+        pause_counts[p["reason"]] += 1
+
+    # Machine downtime in shop working hours, per unit (overlapping records once).
+    dts = MachineDowntime.query.filter(
+        MachineDowntime.started_at < end_utc,
+        db.or_(
+            MachineDowntime.ended_at.is_(None),
+            MachineDowntime.ended_at > start_utc,
+        ),
+    ).all()
+    dt_intervals = defaultdict(list)
+    dt_counts = defaultdict(int)
+    dt_open = defaultdict(int)
+    for row in dts:
+        clip_start = max(ensure_utc(row.started_at), start_utc)
+        clip_end = min(ensure_utc(row.ended_at), end_utc) if row.ended_at else open_end
+        if clip_end > clip_start:
+            dt_intervals[row.machine_unit_id].append((clip_start, clip_end))
+        dt_counts[row.machine_unit_id] += 1
+        if row.ended_at is None:
+            dt_open[row.machine_unit_id] += 1
+    dt_hours = {
+        uid: shop_working_hours(ivs) for uid, ivs in dt_intervals.items()
+    }
+    for uid in dt_counts:
+        dt_hours.setdefault(uid, 0.0)
+    total_downtime_hours = sum(dt_hours.values())
+
+    # A "Machine down" pause on a unit that also has a downtime record covering
+    # the same time is one breakdown: drop the overlap from the pause side.
+    overlap_hours = 0.0
+    down_pauses = defaultdict(list)
+    for p in pauses:
+        if p["reason"] == OperationPauseReason.MACHINE_DOWN.value and p["machineUnitId"]:
+            down_pauses[p["machineUnitId"]].append((p["start"], p["end"]))
+    for uid, ivs in down_pauses.items():
+        both = intersect_intervals(ivs, dt_intervals.get(uid, []))
+        overlap_hours += sum((e - s).total_seconds() for s, e in both) / 3600.0
+    if overlap_hours:
+        key = OperationPauseReason.MACHINE_DOWN.value
+        pause_hours[key] = max(pause_hours[key] - overlap_hours, 0.0)
 
     pause_breakdown = [
         {
@@ -656,33 +680,6 @@ def delays(from_s=None, to_s=None):
         }
         for reason in sorted(pause_hours.keys(), key=lambda r: -pause_hours[r])
     ]
-    # Include enum reasons with zero if none? Spec: breakdown of pause reasons — only those seen is fine.
-
-    # Downtime by unit overlapping the period
-    dts = MachineDowntime.query.filter(
-        MachineDowntime.started_at < end_utc,
-        db.or_(
-            MachineDowntime.ended_at.is_(None),
-            MachineDowntime.ended_at > start_utc,
-        ),
-    ).all()
-    dt_hours = defaultdict(float)
-    dt_counts = defaultdict(int)
-    dt_open = defaultdict(int)
-    unit_meta = {}
-    total_downtime_hours = 0.0
-    for row in dts:
-        clip_start = max(row.started_at, start_utc)
-        clip_end = row.ended_at if row.ended_at else end_utc
-        clip_end = min(clip_end, end_utc)
-        if clip_end > clip_start:
-            hrs = (clip_end - clip_start).total_seconds() / 3600.0
-            dt_hours[row.machine_unit_id] += hrs
-            total_downtime_hours += hrs
-        dt_counts[row.machine_unit_id] += 1
-        if row.ended_at is None:
-            dt_open[row.machine_unit_id] += 1
-        unit_meta[row.machine_unit_id] = row
 
     units = {}
     if dt_hours:
@@ -750,6 +747,19 @@ def delays(from_s=None, to_s=None):
                 "occurrenceCount": int(sum(dt_counts.values())),
             }
         )
+    material = material_delays(start_utc, end_utc)
+    for mcause, label in MATERIAL_CAUSE_LABEL.items():
+        rows = [r for r in material if r["cause"] == mcause]
+        if rows:
+            cause_rows.append(
+                {
+                    "cause": PARETO_CAUSE[mcause],
+                    "causeType": "MATERIAL",
+                    "label": label,
+                    "hours": float(sum(r["hours"] for r in rows)),
+                    "occurrenceCount": len({r["jobOrderId"] for r in rows}),
+                }
+            )
     for category, hrs, count in rework_by_category:
         if not (float(hrs or 0) > 0 or int(count or 0) > 0):
             continue
@@ -787,6 +797,11 @@ def delays(from_s=None, to_s=None):
     payload["machineDowntime"] = downtime_breakdown
     payload["causes"] = pareto
     payload["totalDelayHours"] = _num(total_cause_hours)
+    payload["materialDelays"] = [
+        {**r, "hours": _num(r["hours"])} for r in material
+    ]
+    payload["breakdownOverlapHours"] = _num(overlap_hours)
+    payload["lateJobs"] = late_jobs(period_from, period_to)
     payload["excludedNonWorkingPauses"] = {
         "breakHours": _num(excluded_pause_hours[OperationPauseReason.BREAK.value]),
         "endOfShiftHours": _num(excluded_pause_hours[OperationPauseReason.END_OF_SHIFT.value]),
