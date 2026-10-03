@@ -5,6 +5,10 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from flask import g, has_app_context
+from sqlalchemy import event
+from sqlalchemy.orm import Session
+
 from app.constants.scheduling import SCHEDULE_HORIZON_DAYS, SHOP_TIMEZONE
 from app.models.worker_skill import CalendarExceptionType, WorkCalendarException, WorkerSchedule
 
@@ -262,22 +266,71 @@ def build_worker_working_windows(
     return merge_intervals(windows)
 
 
+_CACHE_KEY = "_schedule_calendar_cache"
+# Extra days loaded around a requested exception range so later, slightly
+# different ranges in the same request are answered from the cache.
+_EXCEPTION_PAD_DAYS = 62
+
+
+def _request_cache() -> dict | None:
+    """Per-app-context cache, cleared by the session hooks below on any write."""
+    if not has_app_context():
+        return None
+    cache = g.get(_CACHE_KEY)
+    if cache is None:
+        cache = {"schedules": {}, "schedules_loaded": False, "exceptions": None}
+        setattr(g, _CACHE_KEY, cache)
+    return cache
+
+
+def clear_calendar_cache() -> None:
+    if has_app_context():
+        g.pop(_CACHE_KEY, None)
+
+
+def _clear_on_relevant_flush(session, _flush_context):
+    for obj in (*session.new, *session.dirty, *session.deleted):
+        if isinstance(obj, (WorkerSchedule, WorkCalendarException)):
+            clear_calendar_cache()
+            return
+
+
+def _clear_on_bulk_write(orm_execute_state):
+    if orm_execute_state.is_update or orm_execute_state.is_delete:
+        clear_calendar_cache()
+
+
+event.listen(Session, "after_flush", _clear_on_relevant_flush)
+event.listen(Session, "after_commit", lambda _s: clear_calendar_cache())
+event.listen(Session, "after_soft_rollback", lambda _s, _t: clear_calendar_cache())
+event.listen(Session, "do_orm_execute", _clear_on_bulk_write)
+
+
 def load_worker_schedule_maps(worker_id):
-    schedules = WorkerSchedule.query.filter_by(worker_id=worker_id).all()
-    schedule_by_dow = {s.day_of_week: s for s in schedules}
-    return schedule_by_dow
+    return dict(load_worker_schedule_maps_many([worker_id]).get(worker_id, {}))
 
 
 def load_worker_schedule_maps_many(worker_ids):
-    """Batch-load WorkerSchedule rows for many workers (one query)."""
+    """Batch-load WorkerSchedule rows for many workers (one query, cached per request)."""
     ids = [wid for wid in {*(worker_ids or [])} if wid]
     if not ids:
         return {}
-    schedules = WorkerSchedule.query.filter(WorkerSchedule.worker_id.in_(ids)).all()
-    by_worker = {wid: {} for wid in ids}
-    for s in schedules:
-        by_worker.setdefault(s.worker_id, {})[s.day_of_week] = s
-    return by_worker
+    cache = _request_cache()
+    if cache is None:
+        rows = WorkerSchedule.query.filter(WorkerSchedule.worker_id.in_(ids)).all()
+        by_worker = {wid: {} for wid in ids}
+        for s in rows:
+            by_worker[s.worker_id][s.day_of_week] = s
+        return by_worker
+    if not cache.get("schedules_loaded"):
+        # Seven rows per worker, so one query for everyone beats one per worker.
+        by_worker: dict = {}
+        for s in WorkerSchedule.query.all():
+            by_worker.setdefault(s.worker_id, {})[s.day_of_week] = s
+        cache["schedules"] = by_worker
+        cache["schedules_loaded"] = True
+    cached = cache["schedules"]
+    return {wid: dict(cached.get(wid, {})) for wid in ids}
 
 
 def shop_day_windows_union(period_from: date, period_to: date) -> list[dict]:
@@ -289,7 +342,7 @@ def shop_day_windows_union(period_from: date, period_to: date) -> list[dict]:
 
     workers = query_assignable_workers().all()
     exceptions = load_calendar_exceptions(period_from, period_to)
-    schedules_by_worker = {w.id: load_worker_schedule_maps(w.id) for w in workers}
+    schedules_by_worker = load_worker_schedule_maps_many([w.id for w in workers])
 
     out = []
     cur = period_from
@@ -364,11 +417,21 @@ def worker_day_windows(worker_id: str, period_from: date, period_to: date) -> li
 
 
 def load_calendar_exceptions(start_date: date, end_date: date):
-    rows = WorkCalendarException.query.filter(
-        WorkCalendarException.date >= start_date,
-        WorkCalendarException.date <= end_date,
-    ).all()
-    return {e.date: e for e in rows}
+    cache = _request_cache()
+    covered = cache["exceptions"] if cache is not None else None
+    if covered is None or start_date < covered[0] or end_date > covered[1]:
+        lo = start_date - timedelta(days=_EXCEPTION_PAD_DAYS)
+        hi = end_date + timedelta(days=_EXCEPTION_PAD_DAYS)
+        if covered is not None:
+            lo, hi = min(lo, covered[0]), max(hi, covered[1])
+        rows = WorkCalendarException.query.filter(
+            WorkCalendarException.date >= lo,
+            WorkCalendarException.date <= hi,
+        ).all()
+        covered = (lo, hi, {e.date: e for e in rows})
+        if cache is not None:
+            cache["exceptions"] = covered
+    return {d: e for d, e in covered[2].items() if start_date <= d <= end_date}
 
 
 def default_shop_schedule_by_dow():
