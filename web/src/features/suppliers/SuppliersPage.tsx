@@ -7,7 +7,8 @@ import {
   Input,
   InputNumber,
   Switch,
-  Space,
+  Row,
+  Col,
   message,
   Tag,
 } from 'antd';
@@ -17,12 +18,14 @@ import { suppliersApi } from '../../api/suppliers.api';
 import { getErrorMessage } from '../../api/client';
 import type { Supplier } from '../../types';
 import StatusPill from '../../components/StatusPill';
+import { useAuth } from '../../hooks/useAuth';
 
 function sectionLabel(text: string) {
   return <div className="app-form-section">{text}</div>;
 }
 
 export default function SuppliersPage() {
+  const { isOfficeStaff: canEdit } = useAuth();
   const [rows, setRows] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -135,14 +138,18 @@ export default function SuppliersPage() {
           </StatusPill>
         ),
     },
-    {
-      title: '',
-      key: 'actions',
-      width: 72,
-      render: (_: unknown, r) => (
-        <Button type="text" icon={<EditOutlined />} onClick={() => openEdit(r)} />
-      ),
-    },
+    ...(canEdit
+      ? [
+          {
+            title: '',
+            key: 'actions',
+            width: 72,
+            render: (_: unknown, r: Supplier) => (
+              <Button type="text" icon={<EditOutlined />} onClick={() => openEdit(r)} />
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -165,9 +172,11 @@ export default function SuppliersPage() {
           onChange={(e) => setSearch(e.target.value)}
           style={{ maxWidth: 320 }}
         />
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          Add supplier
-        </Button>
+        {canEdit && (
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+            Add supplier
+          </Button>
+        )}
       </div>
 
       <Table
@@ -183,7 +192,7 @@ export default function SuppliersPage() {
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         footer={null}
-        width={560}
+        width={760}
         centered
         destroyOnHidden
         className="app-form-modal"
@@ -220,37 +229,58 @@ export default function SuppliersPage() {
           onFinish={onSave}
           style={{ padding: '20px 24px 8px' }}
         >
-          {sectionLabel('Details')}
-          <Form.Item name="name" label="Name" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="contactPerson" label="Contact person">
-            <Input />
-          </Form.Item>
-          <Space style={{ width: '100%' }} styles={{ item: { flex: 1 } }}>
-            <Form.Item name="phone" label="Phone" style={{ flex: 1 }}>
-              <Input />
-            </Form.Item>
-            <Form.Item name="email" label="Email" style={{ flex: 1 }}>
-              <Input type="email" />
-            </Form.Item>
-          </Space>
-          <Form.Item name="address" label="Address">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          <Form.Item
-            name="typicalLeadTimeDays"
-            label="Typical lead time (days)"
-            rules={[{ required: true, message: 'Enter the supplier’s lead time in days' }]}
-          >
-            <InputNumber min={0} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="notes" label="Notes">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          <Form.Item name="active" label="Active" valuePropName="checked">
-            <Switch />
-          </Form.Item>
+          {sectionLabel('Supplier')}
+          <Row gutter={16}>
+            <Col xs={24} md={12}>
+              <Form.Item name="name" label="Name" rules={[{ required: true }]}>
+                <Input />
+              </Form.Item>
+            </Col>
+            <Col xs={14} md={7}>
+              <Form.Item
+                name="typicalLeadTimeDays"
+                label="Typical lead time"
+                tooltip="Days from ordering until the material arrives. Used to estimate when a job's materials are ready."
+                rules={[{ required: true, message: 'Enter the lead time in days' }]}
+              >
+                <InputNumber min={0} addonAfter="days" style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col xs={10} md={5}>
+              <Form.Item name="active" label="Status" valuePropName="checked">
+                <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          {sectionLabel('Contact')}
+          <Row gutter={16}>
+            <Col xs={24} md={8}>
+              <Form.Item name="contactPerson" label="Contact person">
+                <Input />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={8}>
+              <Form.Item name="phone" label="Phone">
+                <Input />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={8}>
+              <Form.Item name="email" label="Email">
+                <Input type="email" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item name="address" label="Address">
+                <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item name="notes" label="Notes">
+                <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} />
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
         <div className="app-form-modal__footer">
           <Button onClick={() => setModalOpen(false)} style={{ minWidth: 96 }}>

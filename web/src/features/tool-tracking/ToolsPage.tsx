@@ -40,6 +40,7 @@ import { getErrorMessage } from '../../api/client';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import { exportCsv } from '../../utils/csvExport';
 import StocktakePanel from './StocktakePanel';
+import { useAuth } from '../../hooks/useAuth';
 import ToolEventsPage from './ToolEventsPage';
 import ToolsAssetsPanel from './ToolsAssetsPanel';
 import RawMaterialsPanel from './RawMaterialsPanel';
@@ -53,6 +54,7 @@ function sectionLabel(text: string) {
 }
 
 export default function ToolsPage() {
+  const { isOfficeStaff: canEdit } = useAuth();
   const [tab, setTab] = useState<PageTab>('tools');
   const [tools, setTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
@@ -292,16 +294,20 @@ export default function ToolsPage() {
           <StatusPill color="green" compact>OK</StatusPill>
         ),
     },
-    {
-      title: '',
-      key: 'actions',
-      width: 56,
-      render: (_: unknown, record) => (
-        <Dropdown menu={{ items: actionItems(record) }} trigger={['click']}>
-          <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} />
-        </Dropdown>
-      ),
-    },
+    ...(canEdit
+      ? [
+          {
+            title: '',
+            key: 'actions',
+            width: 56,
+            render: (_: unknown, record: Tool) => (
+              <Dropdown menu={{ items: actionItems(record) }} trigger={['click']}>
+                <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} />
+              </Dropdown>
+            ),
+          },
+        ]
+      : []),
   ];
 
   const stockCsvFields = [
@@ -393,14 +399,16 @@ export default function ToolsPage() {
                 >
                   Export CSV
                 </Button>
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={() => setModalOpen(true)}
-                  style={{ fontWeight: 700 }}
-                >
-                  Add consumable
-                </Button>
+                {canEdit && (
+                  <Button
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    onClick={() => setModalOpen(true)}
+                    style={{ fontWeight: 700 }}
+                  >
+                    Add consumable
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -438,9 +446,11 @@ export default function ToolsPage() {
                             {[r.sizeSpec, r.code].filter(Boolean).join(' · ')}
                           </div>
                         </div>
-                        <Dropdown menu={{ items: actionItems(r) }} trigger={['click']}>
-                          <Button type="text" size="small" icon={<MoreOutlined />} />
-                        </Dropdown>
+                        {canEdit && (
+                          <Dropdown menu={{ items: actionItems(r) }} trigger={['click']}>
+                            <Button type="text" size="small" icon={<MoreOutlined />} />
+                          </Dropdown>
+                        )}
                       </div>
                       <div className="admin-card__row">
                         <span style={{ fontWeight: r.lowStock ? 800 : 600 }}>
@@ -498,6 +508,7 @@ export default function ToolsPage() {
             {countsTab === 'stocktake' && (
               <StocktakePanel
                 hideTitle
+                readOnly={!canEdit}
                 onSaved={() => {
                   void fetchTools();
                   void fetchUsage();

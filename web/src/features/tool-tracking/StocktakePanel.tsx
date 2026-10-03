@@ -19,9 +19,11 @@ type Props = {
   onSaved?: () => void;
   /** When true, omit the page-level Stocktake heading (e.g. inside a drawer). */
   hideTitle?: boolean;
+  /** Show counts and history without the count form. */
+  readOnly?: boolean;
 };
 
-export default function StocktakePanel({ onSaved, hideTitle }: Props) {
+export default function StocktakePanel({ onSaved, hideTitle, readOnly }: Props) {
   const [formItems, setFormItems] = useState<StocktakeFormItem[]>([]);
   const [previousOn, setPreviousOn] = useState<string | null>(null);
   const [previousBy, setPreviousBy] = useState<string | null>(null);
@@ -127,6 +129,9 @@ export default function StocktakePanel({ onSaved, hideTitle }: Props) {
         </Typography.Title>
       )}
 
+      {readOnly ? (
+        hideTitle && <div style={{ marginBottom: 16 }}>{tip}</div>
+      ) : (
       <Space wrap style={{ marginBottom: 16 }} align="center">
         {hideTitle && tip}
         <span style={{ fontSize: 13, color: '#64748b' }}>Count date</span>
@@ -151,6 +156,7 @@ export default function StocktakePanel({ onSaved, hideTitle }: Props) {
           Submit stocktake
         </Button>
       </Space>
+      )}
 
       <Table
         className="std-list-table"
@@ -188,22 +194,26 @@ export default function StocktakePanel({ onSaved, hideTitle }: Props) {
                 ? `${dayjs(r.lastCountedOn).format('MMM D')} · ${r.lastCountedQuantity ?? '—'} ${r.unit}`
                 : 'Never counted',
           },
-          {
-            title: 'Counted now',
-            align: 'right',
-            render: (_: unknown, r: StocktakeFormItem) => (
-              <InputNumber
-                min={0}
-                step={1}
-                value={counts[r.toolId] ?? 0}
-                onChange={(v) =>
-                  setCounts((prev) => ({ ...prev, [r.toolId]: v == null ? null : Number(v) }))
-                }
-                addonAfter={r.unit}
-                style={{ width: 140 }}
-              />
-            ),
-          },
+          ...(readOnly
+            ? []
+            : [
+                {
+                  title: 'Counted now',
+                  align: 'right' as const,
+                  render: (_: unknown, r: StocktakeFormItem) => (
+                    <InputNumber
+                      min={0}
+                      step={1}
+                      value={counts[r.toolId] ?? 0}
+                      onChange={(v) =>
+                        setCounts((prev) => ({ ...prev, [r.toolId]: v == null ? null : Number(v) }))
+                      }
+                      addonAfter={r.unit}
+                      style={{ width: 140 }}
+                    />
+                  ),
+                },
+              ]),
         ]}
       />
 

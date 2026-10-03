@@ -35,6 +35,7 @@ import StatusPill from '../../components/StatusPill';
 import type { InventoryUsageByWorker, ToolType, ToolUnit, ToolUnitStatus } from '../../types';
 import { exportCsv } from '../../utils/csvExport';
 import ToolEventsPage from './ToolEventsPage';
+import { useAuth } from '../../hooks/useAuth';
 
 function sectionLabel(text: string) {
   return <div className="app-form-section">{text}</div>;
@@ -56,6 +57,7 @@ function statusPill(status: ToolUnitStatus) {
 }
 
 export default function ToolsAssetsPanel() {
+  const { isOfficeStaff: canEdit } = useAuth();
   const [types, setTypes] = useState<ToolType[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
@@ -248,6 +250,7 @@ export default function ToolsAssetsPanel() {
       key: 'actions',
       width: 56,
       render: (_: unknown, r) => {
+        if (!canEdit) return null;
         const items: MenuProps['items'] = [
           {
             key: 'receive',
@@ -318,6 +321,7 @@ export default function ToolsAssetsPanel() {
                 >
                   QR
                 </Button>
+                {canEdit && (
                 <Dropdown
                   menu={{
                     items: [
@@ -348,6 +352,7 @@ export default function ToolsAssetsPanel() {
                 >
                   <Button size="small" type="text" icon={<MoreOutlined />} />
                 </Dropdown>
+                )}
               </Space>
             ),
           },
@@ -406,14 +411,16 @@ export default function ToolsAssetsPanel() {
           >
             Export CSV
           </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            style={{ fontWeight: 700 }}
-            onClick={() => setTypeModal(true)}
-          >
-            Add tool type
-          </Button>
+          {canEdit && (
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              style={{ fontWeight: 700 }}
+              onClick={() => setTypeModal(true)}
+            >
+              Add tool type
+            </Button>
+          )}
         </div>
       </div>
 

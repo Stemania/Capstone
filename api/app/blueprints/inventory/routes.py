@@ -96,7 +96,7 @@ def list_material_purchases():
 
 @inventory_bp.route("/stocktakes", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def create_stocktake():
     data = request.get_json() or {}
     st = stocktake.submit_stocktake(

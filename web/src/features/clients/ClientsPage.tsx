@@ -29,6 +29,7 @@ import { getErrorMessage } from '../../api/client';
 import StatusPill from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
 import { useIsPhone } from '../../hooks/useIsPhone';
+import { useAuth } from '../../hooks/useAuth';
 import type { Client } from '../../types';
 import { useNavigate } from 'react-router-dom';
 
@@ -47,6 +48,7 @@ function notifyLabel(r: Client) {
 
 export default function ClientsPage() {
   const navigate = useNavigate();
+  const { isOfficeStaff: canEdit } = useAuth();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -232,12 +234,16 @@ export default function ClientsPage() {
             label: 'View history',
             onClick: () => navigate(`/clients/${r.id}`),
           },
-          {
-            key: 'edit',
-            icon: <EditOutlined />,
-            label: 'Edit',
-            onClick: () => openEdit(r),
-          },
+          ...(canEdit
+            ? [
+                {
+                  key: 'edit',
+                  icon: <EditOutlined />,
+                  label: 'Edit',
+                  onClick: () => openEdit(r),
+                },
+              ]
+            : []),
         ];
         return (
           <Dropdown menu={{ items }} trigger={['click']} placement="bottomRight">
@@ -301,9 +307,11 @@ export default function ClientsPage() {
               }}
             />
           </Tooltip>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} style={{ fontWeight: 700 }}>
-            Register client
-          </Button>
+          {canEdit && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} style={{ fontWeight: 700 }}>
+              Register client
+            </Button>
+          )}
         </div>
       </div>
 
@@ -334,7 +342,13 @@ export default function ClientsPage() {
           )}
           {!loading &&
             filtered.map((c) => (
-              <div key={c.id} className="admin-card" onClick={() => openEdit(c)} role="button" tabIndex={0}>
+              <div
+                key={c.id}
+                className="admin-card"
+                onClick={() => (canEdit ? openEdit(c) : navigate(`/clients/${c.id}`))}
+                role="button"
+                tabIndex={0}
+              >
                 <div className="admin-card__top">
                   <div>
                     <div className="admin-card__title">{c.name}</div>
@@ -345,7 +359,12 @@ export default function ClientsPage() {
                   <div onClick={(e) => e.stopPropagation()}>
                     <Dropdown
                       menu={{
-                        items: [{ key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => openEdit(c) }],
+                        items: [
+                          { key: 'view', label: 'View history', onClick: () => navigate(`/clients/${c.id}`) },
+                          ...(canEdit
+                            ? [{ key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => openEdit(c) }]
+                            : []),
+                        ],
                       }}
                       trigger={['click']}
                       placement="bottomRight"

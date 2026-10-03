@@ -58,7 +58,7 @@ def list_clients():
 
 @clients_bp.route("", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def create_client():
     data = request.get_json() or {}
     client = Client(
@@ -135,7 +135,7 @@ def get_client(client_id):
 
 @clients_bp.route("/<client_id>", methods=["PATCH"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def update_client(client_id):
     client = Client.query.get(client_id)
     if not client:

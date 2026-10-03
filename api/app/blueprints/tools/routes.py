@@ -34,7 +34,7 @@ def list_tools():
 
 @tools_bp.route("", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def create_tool():
     data = request.get_json() or {}
     data.setdefault("category", "CONSUMABLE")
@@ -133,7 +133,7 @@ def lookup_unit():
 
 @tools_bp.route("/types", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def create_tool_type():
     data = request.get_json() or {}
     return jsonify(tt_service.create_tool_type(data)), 201
@@ -148,7 +148,7 @@ def get_tool_type(type_id):
 
 @tools_bp.route("/types/<type_id>", methods=["PATCH"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def patch_tool_type(type_id):
     data = request.get_json() or {}
     return jsonify(tt_service.update_tool_type(type_id, data))
@@ -156,7 +156,7 @@ def patch_tool_type(type_id):
 
 @tools_bp.route("/types/<type_id>/units", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def create_unit(type_id):
     data = request.get_json() or {}
     return jsonify(tt_service.create_tool_unit(type_id, data)), 201
@@ -164,7 +164,7 @@ def create_unit(type_id):
 
 @tools_bp.route("/types/<type_id>/receive", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def receive_tool_units(type_id):
     data = request.get_json() or {}
     units = te_service.receive_tool_units(
@@ -180,7 +180,7 @@ def receive_tool_units(type_id):
 
 @tools_bp.route("/units/<unit_id>", methods=["PATCH"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def patch_unit(unit_id):
     data = request.get_json() or {}
     return jsonify(tt_service.update_tool_unit(unit_id, data))
@@ -209,7 +209,7 @@ def get_tool(tool_id):
 
 @tools_bp.route("/<tool_id>", methods=["PATCH"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def patch_tool(tool_id):
     data = request.get_json() or {}
     tool = te_service.update_tool(tool_id, data)
@@ -230,7 +230,7 @@ def get_tool_qr(tool_id):
 
 @tools_bp.route("/<tool_id>/adjust", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def adjust_stock(tool_id):
     data = request.get_json() or {}
     event = te_service.adjust_stock(
@@ -244,7 +244,7 @@ def adjust_stock(tool_id):
 
 @tools_bp.route("/<tool_id>/receive", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def receive_stock(tool_id):
     data = request.get_json() or {}
     event = te_service.receive_stock(
