@@ -21,6 +21,8 @@ export const NAV_SECTIONS = [
   '/machines',
   '/work-calendar',
   '/clients',
+  '/supplier-orders',
+  '/suppliers',
   '/tools',
   '/users',
   '/scan',

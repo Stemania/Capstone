@@ -123,6 +123,8 @@ function useFitToScrollArea(deps: unknown[]) {
     const scroller = el?.closest('.app-shell__scroll') as HTMLElement | null;
     if (!el || !scroller) return;
     const fit = () => {
+      // Hidden kept-alive page (display:none ancestor): nothing to measure.
+      if (el.offsetParent === null) return;
       const top =
         el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
       let below = parseFloat(getComputedStyle(el).marginBottom) || 0;
