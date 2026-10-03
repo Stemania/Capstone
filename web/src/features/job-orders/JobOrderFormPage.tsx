@@ -76,7 +76,6 @@ export default function JobOrderFormPage() {
           dueDate: data.dueDate ? dayjs(data.dueDate) : undefined,
           clientPoNumber: data.clientPoNumber,
           poDate: data.poDate ? dayjs(data.poDate) : undefined,
-          priority: data.priority || 'MODERATE',
           jobType: data.jobType || 'FABRICATION',
           quantity: data.quantity,
           unitOfMeasure: data.unitOfMeasure,
@@ -105,7 +104,6 @@ export default function JobOrderFormPage() {
       dueDate: dayjs.Dayjs;
       clientPoNumber?: string;
       poDate?: dayjs.Dayjs;
-      priority: string;
       jobType: string;
       quantity?: number;
       unitOfMeasure?: string;
@@ -144,7 +142,6 @@ export default function JobOrderFormPage() {
       dueDate: values.dueDate.format('YYYY-MM-DD'),
       clientPoNumber: values.clientPoNumber || null,
       poDate: values.poDate ? values.poDate.format('YYYY-MM-DD') : null,
-      priority: values.priority,
       jobType: values.jobType,
       quantity: values.quantity ?? null,
       unitOfMeasure: values.unitOfMeasure || null,
@@ -211,7 +208,6 @@ export default function JobOrderFormPage() {
         size="large"
         className="jo-form"
         initialValues={{
-          priority: 'MODERATE',
           jobType: 'FABRICATION',
           rawMaterials: [{ name: '', quantity: undefined, unit: '' }],
         }}
@@ -255,18 +251,6 @@ export default function JobOrderFormPage() {
             </Form.Item>
           </Col>
           <Col xs={24} md={6}>
-            <Form.Item name="priority" label="Priority" rules={[{ required: true }]}>
-              <Select
-                options={[
-                  { value: 'HIGH', label: 'High' },
-                  { value: 'MODERATE', label: 'Moderate' },
-                  { value: 'LOW', label: 'Low' },
-                ]}
-              />
-            </Form.Item>
-          </Col>
-
-          <Col xs={24} md={6}>
             <Form.Item name="dueDate" label="Date Required" rules={[{ required: true }]}>
               <DatePicker style={{ width: '100%' }} />
             </Form.Item>
@@ -290,7 +274,7 @@ export default function JobOrderFormPage() {
               />
             </Form.Item>
           </Col>
-          <Col xs={24} md={10}>
+          <Col xs={24} md={16}>
             <Form.Item name="amount" label="Amount (PHP)">
               <InputNumber style={{ width: '100%' }} min={0} step={0.01} placeholder="0.00" />
             </Form.Item>

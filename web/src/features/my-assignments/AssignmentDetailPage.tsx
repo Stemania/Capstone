@@ -275,30 +275,6 @@ export default function AssignmentDetailPage() {
               >
                 {statusLabel}
               </span>
-              {job.priority && (
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    padding: '3px 10px',
-                    borderRadius: 999,
-                    background:
-                      job.priority === 'HIGH'
-                        ? 'rgba(122,21,40,0.12)'
-                        : job.priority === 'LOW'
-                          ? colors.greenSoft
-                          : 'rgba(217,119,6,0.12)',
-                    color:
-                      job.priority === 'HIGH'
-                        ? colors.red
-                        : job.priority === 'LOW'
-                          ? colors.green
-                          : colors.amber,
-                  }}
-                >
-                  {job.priority === 'HIGH' ? 'High' : job.priority === 'LOW' ? 'Low' : 'Moderate'}
-                </span>
-              )}
               {job.waitingForMaterials && (
                 <span
                   style={{

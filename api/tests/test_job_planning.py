@@ -164,6 +164,28 @@ def test_only_office_staff_create_job_orders(client, seeded):
     assert created.get_json()["status"] == "DRAFT"
 
 
+def test_priority_is_optional_and_kept_on_edit(client, seeded):
+    office = _auth_header(_login(client, "plan_office@test.local", "Office123!").get_json()["accessToken"])
+    body = {"clientId": seeded["client_id"], "title": "No priority", "dueDate": "2026-12-01"}
+
+    created = client.post("/api/v1/job-orders", json=body, headers=office)
+    assert created.status_code == 201, created.get_json()
+    assert created.get_json()["priority"] == "MODERATE"
+
+    with_null = client.post("/api/v1/job-orders", json={**body, "priority": None}, headers=office)
+    assert with_null.status_code == 201, with_null.get_json()
+    assert with_null.get_json()["priority"] == "MODERATE"
+
+    job = db.session.get(JobOrder, created.get_json()["id"])
+    job.priority = JobPriority.HIGH
+    db.session.flush()
+
+    for patch in ({"title": "Renamed"}, {"title": "Renamed again", "priority": None}):
+        res = client.patch(f"/api/v1/job-orders/{job.id}", json=patch, headers=office)
+        assert res.status_code == 200, res.get_json()
+        assert res.get_json()["priority"] == "HIGH"
+
+
 def test_worker_job_payload_omits_amount(client, seeded):
     job = _make_job(
         seeded, JobOrderStatus.SCHEDULED, worker_id=seeded["worker_id"], hours=2

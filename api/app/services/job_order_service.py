@@ -470,7 +470,7 @@ def create_job_order(data, created_by_id, actor_role=None):
     Planned materials decide the material status: some to buy means To order,
     none means Not required. Choosing Not required explicitly is Admin-only.
     """
-    priority = data.get("priority", "MODERATE")
+    priority = data.get("priority") or JobPriority.MODERATE.value
     try:
         priority_enum = JobPriority(priority)
     except ValueError:
@@ -614,7 +614,7 @@ def _apply_job_update(job, data, role):
         job.client_po_number = data.get("clientPoNumber") or None
     if "poDate" in data:
         job.po_date = _parse_date(data.get("poDate"))
-    if "priority" in data:
+    if data.get("priority"):
         try:
             job.priority = JobPriority(data["priority"])
         except ValueError:

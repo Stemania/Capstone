@@ -8,13 +8,6 @@ import { getErrorMessage } from '../../api/client';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
 import type { Operation } from '../../types';
 
-function priorityMeta(priority?: string): { label: string; color: string } {
-  const p = priority || 'MODERATE';
-  if (p === 'HIGH') return { label: 'High', color: '#7A1528' };
-  if (p === 'LOW') return { label: 'Low', color: '#16a34a' };
-  return { label: 'Moderate', color: '#d97706' };
-}
-
 function opStatusBadge(
   op: Operation,
   colors: { red: string; accent: string; green: string; greenSoft: string }
@@ -131,7 +124,6 @@ export default function MyAssignmentsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {filtered.map((op) => {
               const badge = opStatusBadge(op, colors);
-              const pri = priorityMeta(op.jobPriority);
               const name = op.operationName || op.name || 'Operation';
 
               return (
@@ -216,26 +208,6 @@ export default function MyAssignmentsPage() {
                           : ''}
                       </div>
                     </div>
-                  </div>
-
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      fontSize: 12,
-                      color: colors.textSecondary,
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        background: pri.color,
-                      }}
-                    />
-                    {pri.label} priority
                   </div>
                 </div>
               );

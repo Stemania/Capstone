@@ -43,7 +43,6 @@ import MaterialDelayTag from '../../components/MaterialDelayTag';
 import type {
   JobOrder,
   JobOrderStatus,
-  JobPriority,
   MachineDowntimeRecord,
   MaterialPurchase,
   NotificationLog,
@@ -78,12 +77,6 @@ const OP_STATUS: Record<OperationStatus, { label: string; color: PillColor }> = 
   IN_PROGRESS: { label: 'In Progress', color: 'blue' },
   COMPLETED: { label: 'Completed', color: 'green' },
   REWORK: { label: 'Redo', color: 'amber' },
-};
-
-const PRIORITY_PILL: Record<JobPriority, { label: string; color: PillColor }> = {
-  HIGH: { label: 'High', color: 'red' },
-  MODERATE: { label: 'Moderate', color: 'amber' },
-  LOW: { label: 'Low', color: 'green' },
 };
 
 const REWORK_CATEGORY_OPTIONS: { value: ReworkReasonCategory; label: string }[] = [
@@ -772,7 +765,6 @@ export default function JobOrderDetailPage() {
   }
 
   const status = STATUS_PILL[job.status] || STATUS_PILL.SCHEDULED;
-  const priority = job.priority ? PRIORITY_PILL[job.priority] : null;
   const overdue =
     job.status !== 'COMPLETED' &&
     job.status !== 'DELIVERED' &&
@@ -955,7 +947,6 @@ export default function JobOrderDetailPage() {
               {status.label}
               {isDraft && job.draftStage ? ` · ${job.draftStage}` : ''}
             </StatusPill>
-            {priority && <StatusPill color={priority.color}>{priority.label}</StatusPill>}
             <MaterialWaitTag wait={job} compact={false} />
             <MaterialDelayTag job={job} compact={false} />
             <span style={{ fontSize: 13, color: overdue ? '#7A1528' : MUTED, fontWeight: 600 }}>

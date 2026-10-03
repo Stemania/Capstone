@@ -28,7 +28,7 @@ import SelectMultipleIcon from '../../components/SelectMultipleIcon';
 import { useAuth } from '../../hooks/useAuth';
 import { useOverdueCheck } from '../../hooks/useOverdueCheck';
 import { useIsPhone } from '../../hooks/useIsPhone';
-import type { JobOrder, JobOrderStatus, JobPriority } from '../../types';
+import type { JobOrder, JobOrderStatus } from '../../types';
 
 type ListTab = 'production' | 'drafts';
 
@@ -49,12 +49,6 @@ const statusStyle: Record<JobOrderStatus, { label: string; color: PillColor }> =
   IN_PROGRESS: { label: 'In Progress', color: 'blue' },
   COMPLETED: { label: 'Completed', color: 'green' },
   DELIVERED: { label: 'Delivered', color: 'green' },
-};
-
-const priorityStyle: Record<JobPriority, { label: string; color: PillColor }> = {
-  HIGH: { label: 'High', color: 'red' },
-  MODERATE: { label: 'Moderate', color: 'amber' },
-  LOW: { label: 'Low', color: 'green' },
 };
 
 function isJobOverdue(job: JobOrder) {
@@ -130,7 +124,6 @@ function JobCard({ job, isDraftTab, selected, actions, onClick }: JobCardProps) 
   const total = job.opsTotal || 0;
   const done = job.opsCompleted || 0;
   const pct = total ? Math.round((done / total) * 100) : 0;
-  const pri = priorityStyle[job.priority || 'MODERATE'];
   const modified = job.updatedAt || job.createdAt;
   const menu = (
     <div onClick={(e) => e.stopPropagation()}>
@@ -166,9 +159,6 @@ function JobCard({ job, isDraftTab, selected, actions, onClick }: JobCardProps) 
       <div className="jo-card__client">{job.clientName || 'No client'}</div>
       <div className="jo-card__pills">
         <DuePill job={job} />
-        <StatusPill color={pri.color} compact>
-          {pri.label}
-        </StatusPill>
       </div>
       {isDraftTab ? (
         <div className="jo-card__stage">{job.draftStage || '—'}</div>
@@ -215,7 +205,6 @@ export default function JobOrderListPage() {
   );
   const [draftCount, setDraftCount] = useState(0);
   const [statusFilter, setStatusFilter] = useState<JobOrderStatus[]>([]);
-  const [priorityFilter, setPriorityFilter] = useState<JobPriority[]>([]);
   const [clientFilter, setClientFilter] = useState<string[]>([]);
   const [awaitingMaterialOnly, setAwaitingMaterialOnly] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
@@ -292,11 +281,10 @@ export default function JobOrderListPage() {
     return jobs.filter((job) => {
       if (q && !jobSearchHaystack(job).includes(q)) return false;
       if (statusFilter.length && !statusFilter.includes(job.status)) return false;
-      if (priorityFilter.length && !priorityFilter.includes(job.priority || 'MODERATE')) return false;
       if (clientFilter.length && !clientFilter.includes(job.clientName || '')) return false;
       return true;
     });
-  }, [jobs, search, statusFilter, priorityFilter, clientFilter]);
+  }, [jobs, search, statusFilter, clientFilter]);
 
   const selectedJobs = useMemo(
     () => filtered.filter((j) => selectedKeys.includes(j.id)),
@@ -305,7 +293,6 @@ export default function JobOrderListPage() {
   const selectedCompletable = selectedJobs.filter((j) => j.status === 'COMPLETED');
   const activeFilterCount =
     (statusFilter.length ? 1 : 0) +
-    (priorityFilter.length ? 1 : 0) +
     (clientFilter.length ? 1 : 0) +
     (awaitingMaterialOnly ? 1 : 0);
   const overdueCount = filtered.filter(isJobOverdue).length;
@@ -313,7 +300,6 @@ export default function JobOrderListPage() {
 
   const clearJobFilters = () => {
     setStatusFilter([]);
-    setPriorityFilter([]);
     setClientFilter([]);
     setAwaitingMaterialOnly(false);
   };
@@ -535,16 +521,6 @@ export default function JobOrderListPage() {
             {d && dayjs(d).isValid() ? dayjs(d).format('MMM D, YYYY') : '—'}
           </span>
         );
-      },
-    },
-    {
-      title: 'Priority',
-      dataIndex: 'priority',
-      key: 'priority',
-      width: 90,
-      render: (p: JobPriority | undefined) => {
-        const st = priorityStyle[p || 'MODERATE'];
-        return <StatusPill color={st.color} compact>{st.label}</StatusPill>;
       },
     },
     {
@@ -827,20 +803,6 @@ export default function JobOrderListPage() {
           <Select
             mode="multiple"
             allowClear
-            maxTagCount="responsive"
-            placeholder="Priority"
-            className="jo-list-filter jo-list-filter--sm"
-            value={priorityFilter}
-            onChange={setPriorityFilter}
-            options={[
-              { value: 'HIGH', label: 'High' },
-              { value: 'MODERATE', label: 'Moderate' },
-              { value: 'LOW', label: 'Low' },
-            ]}
-          />
-          <Select
-            mode="multiple"
-            allowClear
             showSearch
             optionFilterProp="label"
             maxTagCount="responsive"
@@ -960,7 +922,6 @@ export default function JobOrderListPage() {
           )}
           {!loading &&
             filtered.map((job) => {
-              const pri = priorityStyle[job.priority || 'MODERATE'];
               const selected = selectedKeys.includes(job.id);
               return (
                 <div
@@ -1011,9 +972,6 @@ export default function JobOrderListPage() {
                           : '—';
                       })()}
                     </span>
-                    <StatusPill color={pri.color} compact>
-                      {pri.label}
-                    </StatusPill>
                   </div>
                 </div>
               );
@@ -1153,24 +1111,6 @@ export default function JobOrderListPage() {
                   />
                 </div>
                 ) : null}
-                <div className="sched-f__row">
-                  <span className="sched-f__row-k">Priority</span>
-                  <Select
-                    mode="multiple"
-                    allowClear
-                    variant="borderless"
-                    maxTagCount={1}
-                    placeholder="All"
-                    className="sched-f__select"
-                    value={priorityFilter}
-                    onChange={setPriorityFilter}
-                    options={[
-                      { value: 'HIGH', label: 'High' },
-                      { value: 'MODERATE', label: 'Moderate' },
-                      { value: 'LOW', label: 'Low' },
-                    ]}
-                  />
-                </div>
                 <div className="sched-f__row">
                   <span className="sched-f__row-k">Client</span>
                   <Select
