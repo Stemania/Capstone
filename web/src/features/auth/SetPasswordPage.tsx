@@ -23,7 +23,7 @@ export default function SetPasswordPage() {
   const [info, setInfo] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [codeValidated, setCodeValidated] = useState(Boolean(tokenFromLink));
-  /** True only for invalid / expired / already-used invitation — hide the form. */
+  /** True only for invalid / expired / already-used invitation â€” hide the form. */
   const [tokenTerminal, setTokenTerminal] = useState(false);
 
   useEffect(() => {
@@ -103,7 +103,7 @@ export default function SetPasswordPage() {
       } else if (data.user.role === 'PRODUCTION_WORKER') {
         sessionStorage.setItem('bmsc_offer_pin', '1');
       }
-      navigate(data.user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/job-orders', {
+      navigate(data.user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/schedule', {
         replace: true,
       });
     } catch (err) {
@@ -124,6 +124,7 @@ export default function SetPasswordPage() {
       <div className="login-page__veil" aria-hidden />
       <div className="login-card">
         <div className="login-card__header">
+          <img className="login-card__logo" src="/logo.png" alt="Brothers Machine Shop logo" />
           <div className="login-card__brand">Brothers Machine Shop</div>
           <div className="login-card__subtitle">Set your password</div>
         </div>

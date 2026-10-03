@@ -98,7 +98,7 @@ export default function ResetPasswordPage() {
       );
       applySession(data);
       localStorage.removeItem('bmsc_has_pin');
-      navigate(data.user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/job-orders', {
+      navigate(data.user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/schedule', {
         replace: true,
       });
     } catch (err) {
@@ -117,6 +117,7 @@ export default function ResetPasswordPage() {
       <div className="login-page__veil" aria-hidden />
       <div className="login-card">
         <div className="login-card__header">
+          <img className="login-card__logo" src="/logo.png" alt="Brothers Machine Shop logo" />
           <div className="login-card__brand">Brothers Machine Shop</div>
           <div className="login-card__subtitle">Reset your password</div>
         </div>

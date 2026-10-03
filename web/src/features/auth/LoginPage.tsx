@@ -42,7 +42,7 @@ export default function LoginPage() {
   }, []);
 
   if (!loading && user) {
-    const dest = user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/job-orders';
+    const dest = user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/schedule';
     return <Navigate to={dest} replace />;
   }
 
@@ -102,8 +102,9 @@ export default function LoginPage() {
 
       <div className="login-card">
         <div className="login-card__header">
+          <img className="login-card__logo" src="/logo.png" alt="Brothers Machine Shop logo" />
           <div className="login-card__brand">Brothers Machine Shop</div>
-          <div className="login-card__subtitle">Production Management System</div>
+          <div className="login-card__subtitle">Production Scheduling System</div>
         </div>
 
         <div className="login-card__body">

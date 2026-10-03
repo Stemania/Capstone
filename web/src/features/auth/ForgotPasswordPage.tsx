@@ -30,8 +30,9 @@ export default function ForgotPasswordPage() {
       <div className="login-page__veil" aria-hidden />
       <div className="login-card">
         <div className="login-card__header">
+          <img className="login-card__logo" src="/logo.png" alt="Brothers Machine Shop logo" />
           <div className="login-card__brand">Brothers Machine Shop</div>
-          <div className="login-card__subtitle">Production Management System</div>
+          <div className="login-card__subtitle">Production Scheduling System</div>
         </div>
         <div className="login-card__body">
           <h1 className="login-card__title">Forgot password</h1>

@@ -50,6 +50,13 @@
   text-align: center;
 }
 
+.login-card__logo {
+  display: block;
+  width: 112px;
+  height: auto;
+  margin: 0 auto 12px;
+}
+
 .login-card__brand {
   font-size: 20px;
   font-weight: 800;
@@ -86,12 +93,24 @@
   color: #0f172a !important;
 }
 
+.login-card .ant-input,
 .login-card .ant-input-affix-wrapper,
 .login-card .ant-input-affix-wrapper-lg {
   border-radius: 0 !important;
   border-color: #e2e8f0 !important;
 }
 
+.login-card .ant-input-affix-wrapper .ant-input {
+  border-radius: 0 !important;
+}
+
+.login-card .ant-btn:not(.ant-btn-link),
+.login-card .ant-otp-input {
+  border-radius: 0 !important;
+}
+
+.login-card .ant-input:focus,
+.login-card .ant-input-focused,
 .login-card .ant-input-affix-wrapper-focused {
   border-color: #2563eb !important;
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12) !important;
