@@ -1,0 +1,570 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Button,
+  DatePicker,
+  Dropdown,
+  Form,
+  Input,
+  Modal,
+  Segmented,
+  Select,
+  Table,
+  TimePicker,
+  message,
+} from 'antd';
+import type { TableColumnsType } from 'antd';
+import {
+  ClockCircleOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
+  EditOutlined,
+  LeftOutlined,
+  LoginOutlined,
+  LogoutOutlined,
+  MoreOutlined,
+  RightOutlined,
+} from '@ant-design/icons';
+import dayjs, { type Dayjs } from 'dayjs';
+import { attendanceApi } from '../../api/attendance.api';
+import { getErrorMessage } from '../../api/client';
+import StatusPill, { type PillColor } from '../../components/StatusPill';
+import { downloadCsv } from '../../utils/csvExport';
+import type {
+  AttendanceDaySheet,
+  AttendanceHistory,
+  AttendanceRow,
+  AttendanceStatus,
+} from '../../types';
+
+const STATUS: Record<AttendanceStatus, { label: string; color: PillColor }> = {
+  PRESENT: { label: 'Present', color: 'green' },
+  CLOCKED_IN: { label: 'Still clocked in', color: 'blue' },
+  INCOMPLETE: { label: 'Incomplete', color: 'amber' },
+  ABSENT: { label: 'Absent', color: 'red' },
+  NOT_IN: { label: 'Not in yet', color: 'amber' },
+  NOT_YET: { label: 'Not yet', color: 'gray' },
+  OFF: { label: 'Day off', color: 'gray' },
+};
+
+type ModalMode = 'in' | 'out' | 'edit';
+
+function fmtTime(iso: string | null | undefined) {
+  return iso ? dayjs(iso).format('h:mm A') : '—';
+}
+
+function fmtHours(h: number | null | undefined) {
+  if (h == null) return '—';
+  const whole = Math.floor(h);
+  const mins = Math.round((h - whole) * 60);
+  return mins ? `${whole}h ${mins}m` : `${whole}h`;
+}
+
+function fmtShift(r: AttendanceRow) {
+  if (!r.isWorkingDay || !r.scheduledStart || !r.scheduledEnd) return 'Day off';
+  const t = (s: string) => dayjs(`2000-01-01T${s}`).format('h:mm A');
+  return `${t(r.scheduledStart)} – ${t(r.scheduledEnd)}`;
+}
+
+function atTime(day: string, t: Dayjs) {
+  return dayjs(day).hour(t.hour()).minute(t.minute()).second(0).millisecond(0);
+}
+
+function defaultTime(day: string, scheduled: string | null, fallback: string) {
+  if (dayjs(day).isSame(dayjs(), 'day')) return dayjs().second(0);
+  return dayjs(`2000-01-01T${scheduled || fallback}`);
+}
+
+function StatusCell({ row }: { row: AttendanceRow }) {
+  const s = STATUS[row.status];
+  return (
+    <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
+      <StatusPill color={s.color} compact>
+        {s.label}
+      </StatusPill>
+      {row.lateMinutes > 0 && (
+        <StatusPill color="amber" compact>
+          Late {fmtHours(row.lateMinutes / 60)}
+        </StatusPill>
+      )}
+    </span>
+  );
+}
+
+function SummaryTile({ label, value, color }: { label: string; value: string | number; color?: string }) {
+  return (
+    <div
+      style={{
+        background: '#fff',
+        border: '1px solid #e2e8f0',
+        borderRadius: 8,
+        padding: '10px 16px',
+        minWidth: 120,
+      }}
+    >
+      <div style={{ fontSize: 12, color: '#64748b' }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, color: color || '#0f172a' }}>{value}</div>
+    </div>
+  );
+}
+
+export default function AttendancePage() {
+  const [view, setView] = useState<'day' | 'history'>('day');
+  const [day, setDay] = useState<Dayjs>(dayjs());
+  const [sheet, setSheet] = useState<AttendanceDaySheet | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const [historyWorker, setHistoryWorker] = useState<string | undefined>();
+  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().startOf('month'), dayjs()]);
+  const [history, setHistory] = useState<AttendanceHistory | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const [modal, setModal] = useState<{ mode: ModalMode; row: AttendanceRow } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [form] = Form.useForm();
+
+  const dayKey = day.format('YYYY-MM-DD');
+
+  const loadDay = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data } = await attendanceApi.day(dayKey);
+      setSheet(data);
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [dayKey]);
+
+  const loadHistory = useCallback(async () => {
+    if (!historyWorker) {
+      setHistory(null);
+      return;
+    }
+    setHistoryLoading(true);
+    try {
+      const { data } = await attendanceApi.history(historyWorker, {
+        from: range[0].format('YYYY-MM-DD'),
+        to: range[1].format('YYYY-MM-DD'),
+      });
+      setHistory(data);
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyWorker, range]);
+
+  useEffect(() => {
+    void loadDay();
+  }, [loadDay]);
+
+  useEffect(() => {
+    if (view === 'history') void loadHistory();
+  }, [view, loadHistory]);
+
+  const workerOptions = useMemo(
+    () => (sheet?.rows || []).map((r) => ({ value: r.workerId, label: r.workerName })),
+    [sheet]
+  );
+
+  useEffect(() => {
+    if (view === 'history' && !historyWorker && workerOptions.length) {
+      setHistoryWorker(workerOptions[0].value);
+    }
+  }, [view, historyWorker, workerOptions]);
+
+  const openModal = (mode: ModalMode, row: AttendanceRow) => {
+    const rec = row.record;
+    form.resetFields();
+    form.setFieldsValue({
+      clockIn: rec ? dayjs(rec.clockIn) : defaultTime(row.date, row.scheduledStart, '08:00'),
+      clockOut: rec?.clockOut
+        ? dayjs(rec.clockOut)
+        : mode === 'out'
+          ? defaultTime(row.date, row.scheduledEnd, '17:00')
+          : null,
+      note: rec?.note || '',
+    });
+    setModal({ mode, row });
+  };
+
+  const refresh = async () => {
+    await loadDay();
+    if (view === 'history') await loadHistory();
+  };
+
+  const onSave = async (values: { clockIn?: Dayjs; clockOut?: Dayjs | null; note?: string }) => {
+    if (!modal) return;
+    const { mode, row } = modal;
+    const rec = row.record;
+    const inAt = values.clockIn ? atTime(row.date, values.clockIn) : rec ? dayjs(rec.clockIn) : null;
+    let outAt = values.clockOut ? atTime(row.date, values.clockOut) : null;
+    if (inAt && outAt && outAt.isBefore(inAt) && !outAt.add(1, 'day').isAfter(dayjs())) {
+      outAt = outAt.add(1, 'day');
+    }
+    try {
+      setSaving(true);
+      if (mode === 'in' && inAt) {
+        await attendanceApi.clockIn({
+          workerId: row.workerId,
+          clockIn: inAt.format(),
+          note: values.note || undefined,
+        });
+        message.success(`${row.workerName} clocked in at ${inAt.format('h:mm A')}`);
+      } else if (mode === 'out' && rec && outAt) {
+        await attendanceApi.clockOut(rec.id, { clockOut: outAt.format() });
+        message.success(`${row.workerName} clocked out at ${outAt.format('h:mm A')}`);
+      } else if (mode === 'edit' && rec && inAt) {
+        await attendanceApi.update(rec.id, {
+          clockIn: inAt.format(),
+          clockOut: outAt ? outAt.format() : null,
+          note: values.note || null,
+        });
+        message.success('Attendance updated');
+      }
+      setModal(null);
+      await refresh();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDelete = (row: AttendanceRow) => {
+    if (!row.record) return;
+    const id = row.record.id;
+    Modal.confirm({
+      title: `Delete ${row.workerName}'s attendance for ${dayjs(row.date).format('MMM D, YYYY')}?`,
+      content: 'Use this only for a record entered by mistake.',
+      okText: 'Delete',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await attendanceApi.remove(id);
+          message.success('Attendance deleted');
+          await refresh();
+        } catch (err) {
+          message.error(getErrorMessage(err));
+        }
+      },
+    });
+  };
+
+  const [exporting, setExporting] = useState(false);
+  const exportCurrent = async () => {
+    setExporting(true);
+    try {
+      if (view === 'day') {
+        const { data } = await attendanceApi.dayCsv(dayKey);
+        downloadCsv(`attendance-${dayKey}.csv`, data);
+      } else if (historyWorker) {
+        const from = range[0].format('YYYY-MM-DD');
+        const to = range[1].format('YYYY-MM-DD');
+        const { data } = await attendanceApi.historyCsv(historyWorker, { from, to });
+        const name = (history?.workerName || 'worker').toLowerCase().split(/\s+/).join('-');
+        downloadCsv(`attendance-${name}-${from}_${to}.csv`, data);
+      }
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const isFuture = (d: string) => dayjs(d).isAfter(dayjs(), 'day');
+
+  const actionsCell = (row: AttendanceRow) => {
+    const rec = row.record;
+    return (
+      <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+        {!rec && !isFuture(row.date) && (
+          <Button size="small" type="primary" icon={<LoginOutlined />} onClick={() => openModal('in', row)}>
+            Clock in
+          </Button>
+        )}
+        {rec && !rec.clockOut && (
+          <Button size="small" icon={<LogoutOutlined />} onClick={() => openModal('out', row)}>
+            Clock out
+          </Button>
+        )}
+        {rec && (
+          <Dropdown
+            trigger={['click']}
+            menu={{
+              items: [
+                { key: 'edit', icon: <EditOutlined />, label: 'Edit times', onClick: () => openModal('edit', row) },
+                {
+                  key: 'delete',
+                  icon: <DeleteOutlined />,
+                  danger: true,
+                  label: 'Delete',
+                  onClick: () => confirmDelete(row),
+                },
+              ],
+            }}
+          >
+            <Button size="small" type="text" icon={<MoreOutlined />} aria-label="More actions" />
+          </Dropdown>
+        )}
+      </span>
+    );
+  };
+
+  const dayColumns: TableColumnsType<AttendanceRow> = [
+    {
+      title: 'Worker',
+      dataIndex: 'workerName',
+      render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span>,
+    },
+    { title: 'Scheduled', key: 'shift', width: 170, render: (_: unknown, r) => fmtShift(r) },
+    { title: 'Clock in', key: 'in', width: 100, render: (_: unknown, r) => fmtTime(r.record?.clockIn) },
+    { title: 'Clock out', key: 'out', width: 100, render: (_: unknown, r) => fmtTime(r.record?.clockOut) },
+    {
+      title: 'Hours present',
+      key: 'hours',
+      width: 120,
+      render: (_: unknown, r) => fmtHours(r.record?.hoursWorked),
+    },
+    { title: 'Status', key: 'status', width: 220, render: (_: unknown, r) => <StatusCell row={r} /> },
+    {
+      title: 'Note',
+      key: 'note',
+      ellipsis: true,
+      render: (_: unknown, r) => r.record?.note || '',
+    },
+    { title: '', key: 'actions', width: 150, align: 'right', render: (_: unknown, r) => actionsCell(r) },
+  ];
+
+  const historyColumns: TableColumnsType<AttendanceRow> = [
+    {
+      title: 'Date',
+      dataIndex: 'date',
+      width: 150,
+      render: (v: string) => dayjs(v).format('ddd, MMM D, YYYY'),
+    },
+    ...dayColumns.slice(1),
+  ];
+
+  const counts = sheet?.counts || {};
+  const isToday = day.isSame(dayjs(), 'day');
+
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 12,
+          marginBottom: 16,
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
+        <Segmented
+          value={view}
+          onChange={(v) => setView(v as 'day' | 'history')}
+          options={[
+            { label: 'Daily sheet', value: 'day' },
+            { label: 'Worker history', value: 'history' },
+          ]}
+        />
+        {view === 'day' ? (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Button icon={<LeftOutlined />} onClick={() => setDay(day.subtract(1, 'day'))} aria-label="Previous day" />
+            <DatePicker
+              value={day}
+              allowClear={false}
+              format="ddd, MMM D, YYYY"
+              disabledDate={(d) => d.isAfter(dayjs(), 'day')}
+              onChange={(d) => d && setDay(d)}
+            />
+            <Button
+              icon={<RightOutlined />}
+              disabled={isToday}
+              onClick={() => setDay(day.add(1, 'day'))}
+              aria-label="Next day"
+            />
+            {!isToday && <Button onClick={() => setDay(dayjs())}>Today</Button>}
+            <Button
+              icon={<DownloadOutlined />}
+              loading={exporting}
+              disabled={!sheet?.rows.length}
+              onClick={exportCurrent}
+            >
+              Export CSV
+            </Button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Select
+              showSearch
+              optionFilterProp="label"
+              placeholder="Select a worker"
+              value={historyWorker}
+              onChange={setHistoryWorker}
+              options={workerOptions}
+              style={{ width: 220 }}
+            />
+            <DatePicker.RangePicker
+              value={range}
+              allowClear={false}
+              disabledDate={(d) => d.isAfter(dayjs(), 'day')}
+              onChange={(v) => v?.[0] && v?.[1] && setRange([v[0], v[1]])}
+            />
+            <Button
+              icon={<DownloadOutlined />}
+              loading={exporting}
+              disabled={!history?.rows.length}
+              onClick={exportCurrent}
+            >
+              Export CSV
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {view === 'day' ? (
+        <>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+            <SummaryTile
+              label="Present"
+              value={(counts.PRESENT || 0) + (counts.CLOCKED_IN || 0) + (counts.INCOMPLETE || 0)}
+              color="#16a34a"
+            />
+            {isToday ? (
+              <SummaryTile label="Still clocked in" value={counts.CLOCKED_IN || 0} color="#2563eb" />
+            ) : (
+              <SummaryTile label="Incomplete" value={counts.INCOMPLETE || 0} color="#d97706" />
+            )}
+            <SummaryTile label="Late" value={sheet?.lateCount || 0} color="#d97706" />
+            <SummaryTile
+              label={isToday ? 'Absent / not in yet' : 'Absent'}
+              value={(counts.ABSENT || 0) + (counts.NOT_IN || 0)}
+              color="#7A1528"
+            />
+            <SummaryTile label="Day off" value={counts.OFF || 0} color="#64748b" />
+          </div>
+          <Table
+            className="std-list-table"
+            rowKey="workerId"
+            loading={loading}
+            dataSource={sheet?.rows || []}
+            columns={dayColumns}
+            pagination={false}
+            scroll={{ x: 960 }}
+          />
+        </>
+      ) : !historyWorker ? (
+        <div style={{ color: '#64748b', padding: '32px 0', textAlign: 'center' }}>
+          Select a worker to see their attendance.
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+            <SummaryTile label="Days present" value={history?.summary.daysPresent ?? 0} color="#16a34a" />
+            <SummaryTile label="Days absent" value={history?.summary.daysAbsent ?? 0} color="#7A1528" />
+            <SummaryTile label="Days late" value={history?.summary.daysLate ?? 0} color="#d97706" />
+            <SummaryTile label="Hours present" value={fmtHours(history?.summary.hoursPresent ?? 0)} />
+          </div>
+          <Table
+            className="std-list-table"
+            rowKey="date"
+            loading={historyLoading}
+            dataSource={history?.rows || []}
+            columns={historyColumns}
+            pagination={{ pageSize: 31 }}
+            scroll={{ x: 1000 }}
+          />
+        </>
+      )}
+
+      <Modal
+        open={!!modal}
+        onCancel={() => setModal(null)}
+        footer={null}
+        width={460}
+        centered
+        destroyOnHidden
+        className="app-form-modal"
+        styles={{
+          container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
+          body: { padding: 0 },
+        }}
+        closable={false}
+      >
+        <div className="app-form-modal__head">
+          <div className="app-form-modal__icon">
+            <ClockCircleOutlined />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="app-form-modal__title">
+              {modal?.mode === 'in' ? 'Clock in' : modal?.mode === 'out' ? 'Clock out' : 'Edit attendance'}
+            </div>
+            <div className="app-form-modal__sub">
+              {modal?.row.workerName} · {modal ? dayjs(modal.row.date).format('ddd, MMM D, YYYY') : ''}
+              {modal && modal.row.isWorkingDay ? ` · Scheduled ${fmtShift(modal.row)}` : ''}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="app-form-modal__close"
+            onClick={() => setModal(null)}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <Form form={form} layout="vertical" onFinish={onSave} style={{ padding: '20px 24px 8px' }}>
+          <div style={{ display: 'flex', gap: 16 }}>
+            {modal?.mode !== 'out' && (
+              <Form.Item
+                name="clockIn"
+                label="Clock-in time"
+                rules={[{ required: true, message: 'Enter the clock-in time' }]}
+                style={{ flex: 1 }}
+              >
+                <TimePicker format="h:mm A" use12Hours style={{ width: '100%' }} />
+              </Form.Item>
+            )}
+            {modal?.mode !== 'in' && (
+              <Form.Item
+                name="clockOut"
+                label="Clock-out time"
+                rules={modal?.mode === 'out' ? [{ required: true, message: 'Enter the clock-out time' }] : []}
+                tooltip="A time earlier than clock-in is counted as the next day (overnight shift)."
+                style={{ flex: 1 }}
+              >
+                <TimePicker
+                  format="h:mm A"
+                  use12Hours
+                  style={{ width: '100%' }}
+                  allowClear={modal?.mode === 'edit'}
+                />
+              </Form.Item>
+            )}
+          </div>
+          {modal?.mode !== 'out' && (
+            <Form.Item name="note" label="Note (optional)">
+              <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="e.g. Half day, came in late due to traffic" />
+            </Form.Item>
+          )}
+        </Form>
+        <div className="app-form-modal__footer">
+          <Button onClick={() => setModal(null)} style={{ minWidth: 96 }}>
+            Cancel
+          </Button>
+          <Button
+            type="primary"
+            loading={saving}
+            onClick={() => form.submit()}
+            style={{ fontWeight: 700, minWidth: 120 }}
+          >
+            Save
+          </Button>
+        </div>
+      </Modal>
+    </div>
+  );
+}
