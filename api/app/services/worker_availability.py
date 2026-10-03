@@ -43,7 +43,7 @@ def list_worker_operations(worker_id, exclude_operation_id=None):
     return query.all()
 
 
-def get_busy_workers(start=None, end=None, exclude_operation_id=None):
+def get_busy_workers(start=None, end=None, exclude_operation_id=None, exclude_operation_ids=None):
     """
     Map worker_id -> conflicting JobOperation.
     With a proposed window: overlap on scheduled_start/end.
@@ -52,6 +52,9 @@ def get_busy_workers(start=None, end=None, exclude_operation_id=None):
     start = _parse_dt(start)
     end = _parse_dt(end)
     busy = {}
+    excluded = set(exclude_operation_ids or ())
+    if exclude_operation_id:
+        excluded.add(exclude_operation_id)
 
     if start and end:
         ops = JobOperation.query.filter(
@@ -61,7 +64,7 @@ def get_busy_workers(start=None, end=None, exclude_operation_id=None):
             JobOperation.scheduled_end.isnot(None),
         ).all()
         for op in ops:
-            if exclude_operation_id and op.id == exclude_operation_id:
+            if op.id in excluded:
                 continue
             if _windows_overlap(start, end, op.scheduled_start, op.scheduled_end):
                 busy[op.assigned_worker_id] = op
@@ -72,7 +75,7 @@ def get_busy_workers(start=None, end=None, exclude_operation_id=None):
         JobOperation.status == OperationStatus.IN_PROGRESS,
     ).all()
     for op in ops:
-        if exclude_operation_id and op.id == exclude_operation_id:
+        if op.id in excluded:
             continue
         busy[op.assigned_worker_id] = op
     return busy
@@ -83,9 +86,20 @@ def assert_worker_available(
     start=None,
     end=None,
     exclude_operation_id=None,
+    exclude_operation_ids=None,
 ):
+    """Refuse an assignment whose window overlaps the worker's other work.
+
+    Without a window there is nothing to clash with: a worker busy on another
+    job right now can still be planned for later work.
+    """
+    if not _parse_dt(start) or not _parse_dt(end):
+        return
     busy = get_busy_workers(
-        start=start, end=end, exclude_operation_id=exclude_operation_id
+        start=start,
+        end=end,
+        exclude_operation_id=exclude_operation_id,
+        exclude_operation_ids=exclude_operation_ids,
     )
     conflict = busy.get(worker_id)
     if conflict:

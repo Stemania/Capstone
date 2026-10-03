@@ -14,7 +14,6 @@ from app.models.job_order import (
     PartCondition,
     PRODUCTION_STATUSES,
     PRODUCTION_VISIBLE_STATUSES,
-    default_material_status,
 )
 from app.models.machine import MachineType
 from app.models.operation import JobOperation, OperationStatus
@@ -47,9 +46,14 @@ def _parse_decimal(value, field_name):
         raise AppError(f"Invalid {field_name}", "VALIDATION_ERROR", 400)
 
 
-def _normalize_raw_materials(items, existing_ids=frozenset()):
+def _normalize_raw_materials(items, existing=None):
     """Clean the planned list. An entry keeps its id only when it matches one
-    already on the job; new entries get a fresh id from the model validator."""
+    already on the job; new entries get a fresh id from the model validator.
+
+    From stock is Admin-only and set through its own endpoint, so a saved list
+    keeps each existing entry's flag and new entries start without it.
+    """
+    existing = existing or {}
     if items is None:
         return []
     if not isinstance(items, list):
@@ -69,9 +73,11 @@ def _normalize_raw_materials(items, existing_ids=frozenset()):
             continue
         entry = {"name": name}
         item_id = item.get("id")
-        if item_id in existing_ids and item_id not in kept_ids:
+        if item_id in existing and item_id not in kept_ids:
             entry["id"] = item_id
             kept_ids.add(item_id)
+            if existing[item_id].get("fromStock"):
+                entry["fromStock"] = True
         if item.get("quantity") not in (None, ""):
             entry["quantity"] = float(_parse_decimal(item["quantity"], "raw material quantity"))
         if item.get("unit"):
@@ -145,6 +151,7 @@ def _validate_worker(
     machine_type_id=None,
     operation_type_id=None,
     operation_name=None,
+    exclude_operation_ids=None,
 ):
     from app.services.worker_profile_service import (
         assert_worker_allowed_for_operation,
@@ -168,6 +175,7 @@ def _validate_worker(
         start=start,
         end=end,
         exclude_operation_id=exclude_operation_id,
+        exclude_operation_ids=exclude_operation_ids,
     )
     return worker
 
@@ -305,11 +313,18 @@ def check_job_access(job_order, user_id, user_role):
 
 
 def list_job_orders(user_id, user_role, status=None, scope=None, awaiting_material=False):
+    from sqlalchemy.orm import selectinload
+
+    from app.models.material_purchase import MaterialPurchase
+
     query = JobOrder.query.options(
         joinedload(JobOrder.operations).joinedload(JobOperation.assigned_worker),
         joinedload(JobOrder.operations).joinedload(JobOperation.machine_type),
         joinedload(JobOrder.client),
         joinedload(JobOrder.created_by),
+        selectinload(JobOrder.material_purchases).joinedload(
+            MaterialPurchase.supplier_order
+        ),
     )
     if user_role == UserRole.PRODUCTION_WORKER.value:
         query = query.filter(
@@ -443,8 +458,21 @@ def _direct_material_status(value, *, has_lines: bool) -> MaterialStatus:
     return status
 
 
-def create_job_order(data, created_by_id):
-    """Office creates a DRAFT from the client PO. Operations are optional; no notify."""
+def _assert_can_set_not_required(role):
+    if role != UserRole.ADMIN.value:
+        raise AppError(
+            "Only the Admin can set material to Not required.",
+            "FORBIDDEN",
+            403,
+        )
+
+
+def create_job_order(data, created_by_id, actor_role=None):
+    """Office creates a DRAFT from the client PO. Operations are optional; no notify.
+
+    Planned materials decide the material status: some to buy means To order,
+    none means Not required. Choosing Not required explicitly is Admin-only.
+    """
     priority = data.get("priority", "MODERATE")
     try:
         priority_enum = JobPriority(priority)
@@ -456,9 +484,16 @@ def create_job_order(data, created_by_id):
     except ValueError:
         raise AppError("Invalid jobType", "VALIDATION_ERROR", 400)
 
-    material_status = default_material_status(job_type)
+    raw_materials = _normalize_raw_materials(data.get("rawMaterials"))
+    material_status = (
+        MaterialStatus.TO_ORDER if raw_materials else MaterialStatus.NOT_REQUIRED
+    )
     if data.get("materialStatus"):
-        material_status = _direct_material_status(data["materialStatus"], has_lines=False)
+        requested = _direct_material_status(data["materialStatus"], has_lines=False)
+        if requested == MaterialStatus.NOT_REQUIRED and raw_materials:
+            if actor_role is not None:
+                _assert_can_set_not_required(actor_role)
+            material_status = MaterialStatus.NOT_REQUIRED
 
     try:
         job = JobOrder(
@@ -475,7 +510,7 @@ def create_job_order(data, created_by_id):
             quantity=_parse_decimal(data.get("quantity"), "quantity"),
             unit_of_measure=(data.get("unitOfMeasure") or None),
             amount=_parse_decimal(data.get("amount"), "amount"),
-            raw_materials=_normalize_raw_materials(data.get("rawMaterials")),
+            raw_materials=raw_materials,
             material_status=material_status,
             material_expected_date=_parse_date(data.get("materialExpectedDate")),
             material_received_date=_parse_date(data.get("materialReceivedDate")),
@@ -548,147 +583,7 @@ def update_job_order(job, data, actor_role=None):
     After release (SCHEDULED+), either role may update as before; status is re-derived.
     """
     try:
-        is_draft = job.status == JobOrderStatus.DRAFT
-        role = actor_role
-
-        if is_draft and role == UserRole.OFFICE_STAFF.value and "operations" in data:
-            raise AppError(
-                "Office staff cannot edit operations during planning",
-                "FORBIDDEN",
-                403,
-            )
-        if is_draft and role == UserRole.ADMIN.value:
-            # Admin planning screen — job info is read-only there; allow ops only.
-            # Still allow incidental field patches if sent, for API flexibility,
-            # but office-only restriction above is the hard gate.
-            pass
-
-        if "clientId" in data:
-            job.client_id = data["clientId"]
-        if "title" in data:
-            job.title = data["title"]
-        if "description" in data:
-            job.description = data["description"]
-        if "dueDate" in data:
-            job.due_date = _parse_date(data["dueDate"])
-        if "clientPoNumber" in data:
-            job.client_po_number = data.get("clientPoNumber") or None
-        if "poDate" in data:
-            job.po_date = _parse_date(data.get("poDate"))
-        if "priority" in data:
-            try:
-                job.priority = JobPriority(data["priority"])
-            except ValueError:
-                raise AppError("priority must be HIGH, MODERATE, or LOW", "VALIDATION_ERROR", 400)
-        if "jobType" in data:
-            try:
-                job.job_type = JobType(data["jobType"])
-            except ValueError:
-                raise AppError("Invalid jobType", "VALIDATION_ERROR", 400)
-            # Only reset initial stage when no ops have advanced the piece yet.
-            if not any(
-                op.status == OperationStatus.COMPLETED for op in (job.operations or [])
-            ):
-                job.part_condition = _initial_part_condition(job.job_type)
-        if "partCondition" in data and data["partCondition"]:
-            try:
-                job.part_condition = PartCondition(data["partCondition"])
-            except ValueError:
-                raise AppError("Invalid partCondition", "VALIDATION_ERROR", 400)
-        if "quantity" in data:
-            job.quantity = _parse_decimal(data.get("quantity"), "quantity")
-        if "unitOfMeasure" in data:
-            job.unit_of_measure = data.get("unitOfMeasure") or None
-        if "amount" in data:
-            job.amount = _parse_decimal(data.get("amount"), "amount")
-        if "rawMaterials" in data:
-            existing = {
-                m["id"]: m for m in (job.raw_materials or []) if isinstance(m, dict) and m.get("id")
-            }
-            new_list = _normalize_raw_materials(data.get("rawMaterials"), frozenset(existing))
-            kept = {m.get("id") for m in new_list}
-            in_use = {
-                p.planned_material_id
-                for p in (job.material_purchases or [])
-                if p.planned_material_id and p.cancelled_at is None
-            }
-            dropped = [existing[i]["name"] for i in existing if i in in_use and i not in kept]
-            if dropped:
-                raise AppError(
-                    "Cannot remove planned material with purchases recorded: "
-                    + ", ".join(dropped),
-                    "PLANNED_MATERIAL_IN_USE",
-                    409,
-                )
-            job.raw_materials = new_list
-        if "materialStatus" in data and data["materialStatus"]:
-            from app.services.material_purchase_service import placed_lines
-
-            has_lines = bool(placed_lines(job))
-            new_material_status = _direct_material_status(
-                data["materialStatus"], has_lines=has_lines
-            )
-            if (
-                new_material_status == MaterialStatus.NOT_REQUIRED
-                and job.material_status != MaterialStatus.NOT_REQUIRED
-                and not is_draft
-                and role != UserRole.ADMIN.value
-            ):
-                raise AppError(
-                    "Only the Admin can set material to Not required on a released job.",
-                    "FORBIDDEN",
-                    403,
-                )
-            if new_material_status == MaterialStatus.NOT_REQUIRED:
-                job.material_status = MaterialStatus.NOT_REQUIRED
-            elif has_lines:
-                # Status follows the lines; start from TO_ORDER and re-derive.
-                from app.services.material_purchase_service import (
-                    sync_job_material_from_purchases,
-                )
-
-                job.material_status = MaterialStatus.TO_ORDER
-                sync_job_material_from_purchases(job)
-            else:
-                job.material_status = new_material_status
-        if "materialExpectedDate" in data:
-            job.material_expected_date = _parse_date(data.get("materialExpectedDate"))
-        if "materialReceivedDate" in data:
-            job.material_received_date = _parse_date(data.get("materialReceivedDate"))
-        if "supplierId" in data:
-            sid = data.get("supplierId") or None
-            if sid:
-                from app.models.supplier import Supplier
-
-                if not Supplier.query.get(sid):
-                    raise AppError("Supplier not found", "NOT_FOUND", 404)
-            job.supplier_id = sid
-        if "supplierReference" in data:
-            job.supplier_reference = (data.get("supplierReference") or None)
-        if "scheduleColor" in data:
-            job.schedule_color = _normalize_schedule_color(data.get("scheduleColor"))
-
-        if "operations" in data:
-            if not is_draft:
-                raise AppError(
-                    "Operations can only be replaced while the job is pending. "
-                    "This job has been released; reassign, reschedule, or add rework "
-                    "to individual operations instead.",
-                    "OPERATIONS_LOCKED",
-                    409,
-                )
-            _assert_no_started_operations(job)
-            JobOperation.query.filter_by(job_order_id=job.id).delete()
-            for i, op_data in enumerate(data["operations"], start=1):
-                payload = dict(op_data)
-                payload.pop("id", None)
-                op = _build_operation(job.id, payload, i)
-                db.session.add(op)
-            db.session.flush()
-
-        if job.status != JobOrderStatus.DRAFT:
-            job.status = derive_job_status(job)
-        advance_part_condition(job)
+        _apply_job_update(job, data, actor_role)
         db.session.commit()
         return get_job_order(job.id, job.created_by_id, UserRole.OFFICE_STAFF.value)
     except AppError:
@@ -699,10 +594,149 @@ def update_job_order(job, data, actor_role=None):
         raise
 
 
+def _apply_job_update(job, data, role):
+    """Apply an update payload to the job without committing."""
+    is_draft = job.status == JobOrderStatus.DRAFT
+
+    if is_draft and role == UserRole.OFFICE_STAFF.value and "operations" in data:
+        raise AppError(
+            "Office staff cannot edit operations during planning",
+            "FORBIDDEN",
+            403,
+        )
+
+    if "clientId" in data:
+        job.client_id = data["clientId"]
+    if "title" in data:
+        job.title = data["title"]
+    if "description" in data:
+        job.description = data["description"]
+    if "dueDate" in data:
+        job.due_date = _parse_date(data["dueDate"])
+    if "clientPoNumber" in data:
+        job.client_po_number = data.get("clientPoNumber") or None
+    if "poDate" in data:
+        job.po_date = _parse_date(data.get("poDate"))
+    if "priority" in data:
+        try:
+            job.priority = JobPriority(data["priority"])
+        except ValueError:
+            raise AppError("priority must be HIGH, MODERATE, or LOW", "VALIDATION_ERROR", 400)
+    if "jobType" in data:
+        try:
+            job.job_type = JobType(data["jobType"])
+        except ValueError:
+            raise AppError("Invalid jobType", "VALIDATION_ERROR", 400)
+        # Only reset initial stage when no ops have advanced the piece yet.
+        if not any(
+            op.status == OperationStatus.COMPLETED for op in (job.operations or [])
+        ):
+            job.part_condition = _initial_part_condition(job.job_type)
+    if data.get("partCondition"):
+        raise AppError(
+            "The part stage is worked out from completed operations and cannot be set.",
+            "VALIDATION_ERROR",
+            400,
+        )
+    if "quantity" in data:
+        job.quantity = _parse_decimal(data.get("quantity"), "quantity")
+    if "unitOfMeasure" in data:
+        job.unit_of_measure = data.get("unitOfMeasure") or None
+    if "amount" in data:
+        job.amount = _parse_decimal(data.get("amount"), "amount")
+    if "rawMaterials" in data:
+        existing = {
+            m["id"]: m for m in (job.raw_materials or []) if isinstance(m, dict) and m.get("id")
+        }
+        new_list = _normalize_raw_materials(data.get("rawMaterials"), existing)
+        kept = {m.get("id") for m in new_list}
+        in_use = {
+            p.planned_material_id
+            for p in (job.material_purchases or [])
+            if p.planned_material_id and p.cancelled_at is None
+        }
+        dropped = [existing[i]["name"] for i in existing if i in in_use and i not in kept]
+        if dropped:
+            raise AppError(
+                "Cannot remove planned material with purchases recorded: "
+                + ", ".join(dropped),
+                "PLANNED_MATERIAL_IN_USE",
+                409,
+            )
+        previous = list(job.raw_materials or [])
+        job.raw_materials = new_list
+        if job.raw_materials != previous:
+            from app.services.material_purchase_service import (
+                apply_planned_materials_rule,
+            )
+
+            apply_planned_materials_rule(job, previous)
+    if "materialStatus" in data and data["materialStatus"]:
+        from app.services.material_purchase_service import placed_lines
+
+        has_lines = bool(placed_lines(job))
+        new_material_status = _direct_material_status(
+            data["materialStatus"], has_lines=has_lines
+        )
+        if (
+            new_material_status == MaterialStatus.NOT_REQUIRED
+            and job.material_status != MaterialStatus.NOT_REQUIRED
+        ):
+            _assert_can_set_not_required(role)
+        if new_material_status == MaterialStatus.NOT_REQUIRED:
+            job.material_status = MaterialStatus.NOT_REQUIRED
+        elif job.material_status == MaterialStatus.NOT_REQUIRED:
+            # Lifting Not required: the planned list and lines decide again.
+            from app.services.material_purchase_service import (
+                apply_planned_materials_rule,
+            )
+
+            job.material_status = MaterialStatus.TO_ORDER
+            apply_planned_materials_rule(job, [])
+    if "materialExpectedDate" in data:
+        job.material_expected_date = _parse_date(data.get("materialExpectedDate"))
+    if "materialReceivedDate" in data:
+        job.material_received_date = _parse_date(data.get("materialReceivedDate"))
+    if "supplierId" in data:
+        sid = data.get("supplierId") or None
+        if sid:
+            from app.models.supplier import Supplier
+
+            if not Supplier.query.get(sid):
+                raise AppError("Supplier not found", "NOT_FOUND", 404)
+        job.supplier_id = sid
+    if "supplierReference" in data:
+        job.supplier_reference = (data.get("supplierReference") or None)
+    if "scheduleColor" in data:
+        job.schedule_color = _normalize_schedule_color(data.get("scheduleColor"))
+
+    if "operations" in data:
+        if not is_draft:
+            raise AppError(
+                "Operations can only be replaced while the job is pending. "
+                "This job has been released; reassign, reschedule, or add rework "
+                "to individual operations instead.",
+                "OPERATIONS_LOCKED",
+                409,
+            )
+        _assert_no_started_operations(job)
+        JobOperation.query.filter_by(job_order_id=job.id).delete()
+        for i, op_data in enumerate(data["operations"], start=1):
+            payload = dict(op_data)
+            payload.pop("id", None)
+            op = _build_operation(job.id, payload, i)
+            db.session.add(op)
+        db.session.flush()
+
+    if job.status != JobOrderStatus.DRAFT:
+        job.status = derive_job_status(job)
+    advance_part_condition(job)
+
+
 def _release_missing_items(job: JobOrder) -> list[str]:
     ops = sorted(list(job.operations or []), key=lambda o: o.sequence_no or 0)
     if not ops:
-        return ["Add at least one operation before releasing."]
+        return ["Add at least one operation first."]
     missing = []
     for op in ops:
         label = op.operation_name or f"Operation {op.sequence_no}"
@@ -712,6 +746,47 @@ def _release_missing_items(job: JobOrder) -> list[str]:
         if op.estimated_hours is None:
             missing.append(f"#{seq} {label}: set target hours")
     return missing
+
+
+def set_planned_material_from_stock(job, material_id, from_stock):
+    """Admin marks one planned material as taken from the shop's stock (or not)."""
+    from app.services.material_purchase_service import apply_planned_materials_rule
+
+    items = list(job.raw_materials or [])
+    index = next(
+        (i for i, m in enumerate(items) if isinstance(m, dict) and m.get("id") == material_id),
+        None,
+    )
+    if index is None:
+        raise AppError("Planned material not found on this job", "NOT_FOUND", 404)
+    item = items[index]
+    if from_stock:
+        in_use = [
+            p
+            for p in (job.material_purchases or [])
+            if p.planned_material_id == material_id and p.cancelled_at is None
+        ]
+        if in_use:
+            raise AppError(
+                f"{item.get('name') or 'This material'} already has purchases recorded. "
+                "Cancel them before marking it From stock.",
+                "PLANNED_MATERIAL_IN_USE",
+                409,
+            )
+    updated = {k: v for k, v in item.items() if k != "fromStock"}
+    if from_stock:
+        updated["fromStock"] = True
+    if updated == item:
+        return get_job_order(job.id, job.created_by_id, UserRole.ADMIN.value)
+    try:
+        previous = items
+        job.raw_materials = items[:index] + [updated] + items[index + 1 :]
+        apply_planned_materials_rule(job, previous)
+        db.session.commit()
+        return get_job_order(job.id, job.created_by_id, UserRole.ADMIN.value)
+    except Exception:
+        db.session.rollback()
+        raise
 
 
 def mark_material_received(job, received_date=None):
@@ -732,75 +807,81 @@ def mark_material_received(job, received_date=None):
         raise
 
 
-def material_release_warning(job: JobOrder) -> str | None:
-    """Non-blocking warning when releasing before material has arrived."""
-    from app.services.material_purchase_service import material_readiness_date
+def _assert_first_operation_after_material_floor(job: JobOrder) -> None:
+    from app.services.material_purchase_service import scheduling_material_floor
+    from app.services.schedule_calendar import ensure_utc
+    from app.services.schedule_service import resolve_material_not_before_utc
 
-    if job.material_status in (MaterialStatus.TO_ORDER, MaterialStatus.ORDERED):
-        status_label = (
-            "still to order"
-            if job.material_status == MaterialStatus.TO_ORDER
-            else "ordered but not received"
+    floor_date, _ = scheduling_material_floor(job)
+    floor_utc = resolve_material_not_before_utc(job.material_status, None, floor_date)
+    if floor_utc is None:
+        return
+    first = min(job.operations, key=lambda o: o.sequence_no or 0)
+    if ensure_utc(first.scheduled_start) < floor_utc:
+        raise AppError(
+            f"The first operation cannot start before {floor_date.isoformat()}, "
+            "when the materials can be in. Propose the schedule again.",
+            "MATERIAL_NOT_READY",
+            400,
         )
-        expected, _ = material_readiness_date(job)
-        if expected:
-            return (
-                f"Material is {status_label}. Expected arrival "
-                f"{expected.isoformat()}. You can still release to plan ahead."
-            )
-        return (
-            f"Material is {status_label} and no expected arrival date is set. "
-            "You can still release to plan ahead."
-        )
-    return None
 
 
-def release_job_order(job):
-    """Admin releases a DRAFT job to production. Fires JOB_RECEIVED."""
+def confirm_job_schedule(job, data=None, actor_role=None):
+    """Admin confirms a pending job's schedule, which releases it to production.
+
+    Saves the operations sent (if any), checks every operation has a worker,
+    target hours and a window, then marks the job and its operations Scheduled
+    and fires JOB_RECEIVED. Nothing is saved when a check fails.
+    """
     from app.models.notification import NotificationMilestone
     from app.services.notification_service import safe_notify_job_milestone
 
+    data = data or {}
     if job.status != JobOrderStatus.DRAFT:
         raise AppError(
-            "Only pending jobs can be released",
+            "Only pending jobs can have their schedule confirmed",
             "INVALID_TRANSITION",
             409,
         )
 
-    missing = _release_missing_items(job)
-    if missing:
-        raise AppError(
-            "Cannot release yet — " + "; ".join(missing),
-            "VALIDATION_ERROR",
-            400,
-        )
-
-    unscheduled = [
-        f"#{op.sequence_no} {op.operation_name or f'Operation {op.sequence_no}'}"
-        for op in sorted(job.operations, key=lambda o: o.sequence_no or 0)
-        if not op.scheduled_start or not op.scheduled_end
-    ]
-    if unscheduled:
-        raise AppError(
-            "Cannot release yet — these operations have no scheduled window: "
-            + ", ".join(unscheduled)
-            + ". Schedule them first.",
-            "OPERATIONS_UNSCHEDULED",
-            400,
-        )
-
-    warning = material_release_warning(job)
-
     try:
+        update = {k: data[k] for k in ("operations", "materialStatus") if k in data}
+        if update:
+            _apply_job_update(job, update, actor_role)
+            db.session.flush()
+            db.session.expire(job, ["operations"])
+
+        missing = _release_missing_items(job)
+        if missing:
+            raise AppError(
+                "Cannot confirm the schedule yet — " + "; ".join(missing),
+                "VALIDATION_ERROR",
+                400,
+            )
+
+        unscheduled = [
+            f"#{op.sequence_no} {op.operation_name or f'Operation {op.sequence_no}'}"
+            for op in sorted(job.operations, key=lambda o: o.sequence_no or 0)
+            if not op.scheduled_start or not op.scheduled_end
+        ]
+        if unscheduled:
+            raise AppError(
+                "Cannot confirm the schedule yet — these operations have no "
+                "scheduled window: " + ", ".join(unscheduled) + ". Schedule them first.",
+                "OPERATIONS_UNSCHEDULED",
+                400,
+            )
+
+        _assert_first_operation_after_material_floor(job)
+
+        for op in job.operations:
+            if op.status == OperationStatus.PENDING:
+                op.status = OperationStatus.SCHEDULED
         job.status = JobOrderStatus.SCHEDULED
         job.status = derive_job_status(job)
         db.session.commit()
         safe_notify_job_milestone(job.id, NotificationMilestone.JOB_RECEIVED)
-        result = get_job_order(job.id, job.created_by_id, UserRole.ADMIN.value)
-        payload = result.to_dict(include_operations=True, viewer_role=UserRole.ADMIN.value)
-        if warning:
-            payload["materialReleaseWarning"] = warning
-        return payload
+        return get_job_order(job.id, job.created_by_id, UserRole.ADMIN.value)
     except AppError:
         db.session.rollback()
         raise
@@ -830,7 +911,14 @@ def _assert_no_started_operations(job):
 
 
 def delete_job_order(job):
-    """Permanently remove a job order, its operations, and schedule data."""
+    """Permanently remove a pending job order, its operations, and schedule data."""
+    if job.status != JobOrderStatus.DRAFT:
+        raise AppError(
+            "This job has been released and the client was told it was received, "
+            "so it can no longer be deleted.",
+            "JOB_RELEASED",
+            409,
+        )
     if job.sales_invoice is not None:
         raise AppError(
             "This job has an issued sales invoice and cannot be deleted.",
@@ -887,6 +975,48 @@ def _same_instant(a, b) -> bool:
     return ensure_utc(a) == ensure_utc(b)
 
 
+_BLOCKING_SCHEDULE_CODES = {
+    "INVALID_WINDOW",
+    "SEQUENCE_VIOLATION",
+    "OUTSIDE_WORKING_HOURS",
+    "WORKER_CONFLICT",
+    "MACHINE_CONFLICT",
+}
+
+
+def _assert_windows_fit_calendar(job, moved_ops):
+    """Moved windows must respect the work calendar, order, and in-job bookings."""
+    from app.services.schedule_service import validate_schedule
+
+    if not moved_ops:
+        return
+    windows = [
+        {
+            "id": op.id,
+            "sequenceNo": op.sequence_no,
+            "operationName": op.operation_name,
+            "assignedWorkerId": op.assigned_worker_id,
+            "machineUnitId": op.machine_unit_id,
+            "scheduledStart": op.scheduled_start.isoformat(),
+            "scheduledEnd": op.scheduled_end.isoformat(),
+        }
+        for op in sorted(job.operations, key=lambda o: o.sequence_no or 0)
+        if op.scheduled_start and op.scheduled_end
+    ]
+    moved_seqs = {op.sequence_no for op in moved_ops}
+    problems = [
+        w["message"]
+        for w in validate_schedule(windows)["warnings"]
+        if w["code"] in _BLOCKING_SCHEDULE_CODES and w["sequenceNo"] in moved_seqs
+    ]
+    if problems:
+        raise AppError(
+            "This schedule can't be applied: " + "; ".join(problems) + ".",
+            "SCHEDULE_INVALID",
+            409,
+        )
+
+
 def apply_released_schedule(job, operations):
     """
     Admin confirms a re-proposed schedule for a released job. Only operations
@@ -904,6 +1034,8 @@ def apply_released_schedule(job, operations):
         raise AppError("operations is required", "VALIDATION_ERROR", 400)
 
     by_id = {op.id: op for op in job.operations}
+    payload_ids = [d.get("id") for d in operations if d.get("id") in by_id]
+    moved = []
     try:
         for data in operations:
             op = by_id.get(data.get("id"))
@@ -946,10 +1078,26 @@ def apply_released_schedule(job, operations):
                         "VALIDATION_ERROR",
                         400,
                     )
+            label = op.operation_name or f"Operation {op.sequence_no}"
             worker_id = data.get("assignedWorkerId") or op.assigned_worker_id
-            if worker_id and worker_id != op.assigned_worker_id:
-                if User.query.get(worker_id) is None:
-                    raise AppError("Worker not found", "VALIDATION_ERROR", 400)
+            if not worker_id:
+                raise AppError(
+                    f"{label}: assign a worker to schedule this operation.",
+                    "VALIDATION_ERROR",
+                    400,
+                )
+            try:
+                _validate_worker(
+                    worker_id,
+                    start=start,
+                    end=end,
+                    machine_type_id=op.machine_type_id,
+                    operation_type_id=op.operation_type_id,
+                    operation_name=op.operation_name,
+                    exclude_operation_ids=payload_ids,
+                )
+            except AppError as exc:
+                raise AppError(f"{label}: {exc.message}", exc.code, exc.status_code)
 
             op.scheduled_start = start
             op.scheduled_end = end
@@ -957,6 +1105,9 @@ def apply_released_schedule(job, operations):
             op.assigned_worker_id = worker_id
             if op.status == OperationStatus.PENDING and worker_id:
                 op.status = OperationStatus.SCHEDULED
+            moved.append(op)
+
+        _assert_windows_fit_calendar(job, moved)
 
         job.status = derive_job_status(job)
         db.session.commit()

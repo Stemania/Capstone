@@ -14,6 +14,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
 from app.extensions import db
+from app.models.attendance import AttendanceRecord
 from app.models.audit_log import AuditLog
 from app.models.client import Client
 from app.models.job_order import JobOrder
@@ -31,6 +32,7 @@ from app.models.user import User
 from app.models.worker_skill import WorkCalendarException
 
 _COLUMN_SNAPSHOT_MODELS = (
+    AttendanceRecord,
     Supplier,
     SupplierOrder,
     MaterialPurchase,

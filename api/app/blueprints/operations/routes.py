@@ -19,7 +19,9 @@ operations_bp = Blueprint("operations", __name__)
 @require_roles(UserRole.PRODUCTION_WORKER)
 def my_operations():
     ops = op_service.list_my_operations(get_current_user_id())
-    return jsonify([op.to_dict() for op in ops])
+    return jsonify(
+        [op.to_dict(include_material_wait=True, for_worker=True) for op in ops]
+    )
 
 
 @operations_bp.route("/<operation_id>/assign", methods=["PATCH"])

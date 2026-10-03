@@ -59,11 +59,16 @@ def schedule_board(
     worker_id: str | None = None,
     client_id: str | None = None,
     include_completed: bool = True,
+    for_worker: bool = False,
 ):
     """
     Scheduled operations overlapping [from, to] (shop-local dates), with
     derived working segments (never overnight wall-clock blocks).
     """
+    from sqlalchemy.orm import selectinload
+
+    from app.models.material_purchase import MaterialPurchase
+    from app.services.material_purchase_service import material_wait_fields
     period_from = _parse_date(from_s, "from")
     period_to = _parse_date(to_s, "to")
     if period_to < period_from:
@@ -75,6 +80,10 @@ def schedule_board(
     q = (
         JobOperation.query.options(
             joinedload(JobOperation.job_order).joinedload(JobOrder.client),
+            joinedload(JobOperation.job_order).selectinload(JobOrder.operations),
+            joinedload(JobOperation.job_order)
+            .selectinload(JobOrder.material_purchases)
+            .joinedload(MaterialPurchase.supplier_order),
             joinedload(JobOperation.machine_type),
             joinedload(JobOperation.machine_unit),
             joinedload(JobOperation.assigned_worker),
@@ -135,6 +144,7 @@ def schedule_board(
                     "number": _job_number(job),
                     "title": job.title,
                     "status": job.status.value if job.status else None,
+                    "materialWait": material_wait_fields(job, for_worker=for_worker),
                 }
             else:
                 if op.scheduled_end and (
@@ -181,6 +191,7 @@ def schedule_board(
                 "scheduleFlag": schedule_flag,
                 "isLate": is_late,
                 "scheduleColor": job.schedule_color if job else None,
+                **(jobs_meta[job.id]["materialWait"] if job else {}),
             }
         )
 

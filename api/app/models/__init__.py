@@ -1,3 +1,4 @@
+from app.models.attendance import AttendanceRecord
 from app.models.audit_log import AuditLog
 from app.models.client import Client
 from app.models.job_order import (
@@ -25,6 +26,8 @@ from app.models.operation_time import (
     OperationTimeLog,
 )
 from app.models.sales_invoice import SalesInvoice
+from app.models.schedule_move import DelayKind, ScheduleMove
+from app.models.staff_alert import StaffAlert, StaffAlertKind
 from app.models.supplier import Supplier
 from app.models.supplier_order import SupplierOrder, SupplierOrderStatus
 from app.models.tool import Tool, ToolCategory
@@ -92,8 +95,13 @@ __all__ = [
     "Stocktake",
     "StocktakeLine",
     "AuditLog",
+    "AttendanceRecord",
     "NotificationLog",
     "NotificationMilestone",
     "NotificationChannel",
     "NotificationStatus",
+    "StaffAlert",
+    "StaffAlertKind",
+    "ScheduleMove",
+    "DelayKind",
 ]

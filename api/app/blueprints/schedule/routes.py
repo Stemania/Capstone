@@ -20,8 +20,9 @@ def _bool_arg(name: str, default: bool = True) -> bool:
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF, UserRole.PRODUCTION_WORKER)
 def board():
     worker_id = request.args.get("workerId") or request.args.get("worker_id")
+    is_worker = get_current_user_role() == UserRole.PRODUCTION_WORKER.value
     # Workers may only see their own assignments.
-    if get_current_user_role() == UserRole.PRODUCTION_WORKER.value:
+    if is_worker:
         worker_id = get_current_user_id()
     return jsonify(
         board_service.schedule_board(
@@ -32,5 +33,6 @@ def board():
             worker_id=worker_id,
             client_id=request.args.get("clientId") or request.args.get("client_id"),
             include_completed=_bool_arg("includeCompleted", True),
+            for_worker=is_worker,
         )
     )

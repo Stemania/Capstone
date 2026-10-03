@@ -378,52 +378,15 @@ def _busy_seconds_in_horizon(intervals, anchor_utc, end_utc) -> float:
     return total
 
 
-def _qualified_worker_ids(
-    machine_type_id,
-    preferred_worker_id=None,
-    *,
-    operation_type_id=None,
-    operation_name=None,
-) -> list:
-    """
-    Assignable workers skilled for machine_type_id.
-    Preferred worker is first (kept on ties) and included even without a skill row
-    so an explicit assignment still participates in the search.
+def _worker_label(worker_id) -> str:
+    from app.extensions import db
+    from app.models.user import User
 
-    Admins are only included for Checking (no machine).
-    """
-    from app.models.worker_skill import WorkerSkill
-    from app.services.worker_profile_service import (
-        is_checking_operation,
-        query_assignable_workers,
-    )
-
-    checking = is_checking_operation(operation_type_id, operation_name)
-    include_admin = checking and not machine_type_id
-    assignable_users = query_assignable_workers(include_admin=include_admin).all()
-    assignable = {w.id for w in assignable_users}
-
-    if not machine_type_id:
-        ordered: list = []
-        if preferred_worker_id and preferred_worker_id in assignable:
-            ordered.append(preferred_worker_id)
-        for wid in sorted(assignable):
-            if wid not in ordered:
-                ordered.append(wid)
-        return ordered
-
-    skilled = [
-        s.worker_id
-        for s in WorkerSkill.query.filter_by(machine_type_id=machine_type_id).all()
-        if s.worker_id in assignable
-    ]
-    ordered = []
-    if preferred_worker_id and preferred_worker_id in assignable:
-        ordered.append(preferred_worker_id)
-    for wid in skilled:
-        if wid not in ordered:
-            ordered.append(wid)
-    return ordered
+    try:
+        user = db.session.get(User, worker_id)
+    except Exception:
+        user = None
+    return user.full_name if user else "The assigned worker"
 
 
 def _find_earliest_slot(
@@ -591,6 +554,7 @@ def propose_schedule(
     honor_machine_pins=False,
     material_not_before_utc=None,
     material_constraint_reason=None,
+    never_earlier=False,
 ):
     """
     Earliest-fit proposal for a job's operations. Does not write to the database.
@@ -599,6 +563,7 @@ def propose_schedule(
       (used when re-fitting after a machine/time edit).
     honor_machine_pins: place each op on its machineUnitId when set (partial re-fit).
     material_not_before_utc: raises the first-op not_before floor (material readiness).
+    never_earlier: no op is placed before its current scheduled start.
     """
     anchor_utc = ensure_utc(anchor_utc or shop_now().astimezone(timezone.utc))
     end_utc = horizon_end_utc(anchor_utc)
@@ -652,7 +617,9 @@ def propose_schedule(
             _record_in_job_busy(kept, op, in_job_worker_busy, in_job_machine_busy)
             continue
 
-        if not op.get("assignedWorkerId") and not op.get("machineTypeId"):
+        # The Admin's worker choice is fixed; only the time moves.
+        assigned_worker = op.get("assignedWorkerId")
+        if not assigned_worker:
             results.append(
                 _failure_result(op, MISSING_WORKER_MESSAGE, required_hours=op["estimatedHours"])
             )
@@ -660,24 +627,15 @@ def propose_schedule(
 
         duration = timedelta(hours=float(op["estimatedHours"]))
         not_before = prev_end
+        if never_earlier and op.get("scheduledStart"):
+            current = op["scheduledStart"]
+            if isinstance(current, str):
+                current = datetime.fromisoformat(current.replace("Z", "+00:00"))
+            not_before = max(not_before, ensure_utc(current))
         preferred_unit = op.get("machineUnitId") if honor_machine_pins else None
-        preferred_worker = op.get("assignedWorkerId")
-        worker_ids = _qualified_worker_ids(
-            op.get("machineTypeId"),
-            preferred_worker,
-            operation_type_id=op.get("operationTypeId"),
-            operation_name=op.get("operationName"),
-        )
-        if not worker_ids and preferred_worker:
-            worker_ids = [preferred_worker]
-        if not worker_ids:
-            results.append(
-                _failure_result(op, MISSING_WORKER_MESSAGE, required_hours=op["estimatedHours"])
-            )
-            continue
 
-        start, end, unit_id, chosen_worker_id, placeable = _find_earliest_slot(
-            worker_ids,
+        start, end, unit_id, _worker, placeable = _find_earliest_slot(
+            [assigned_worker],
             op.get("machineTypeId"),
             duration,
             not_before,
@@ -690,11 +648,12 @@ def propose_schedule(
             exceptions_by_date,
             units_by_type,
             preferred_unit_id=preferred_unit,
-            preferred_worker_id=preferred_worker,
+            preferred_worker_id=assigned_worker,
         )
 
         required = float(op["estimatedHours"])
         if not start or not end:
+            worker_label = _worker_label(assigned_worker)
             if placeable <= 0 and op.get("machineTypeId") and not units_by_type.get(op["machineTypeId"]):
                 msg = (
                     f"could not schedule within {SCHEDULE_HORIZON_DAYS} days "
@@ -712,8 +671,9 @@ def propose_schedule(
                 )
             else:
                 msg = (
-                    f"could not schedule within {SCHEDULE_HORIZON_DAYS} days "
-                    f"({placeable:.1f}h placeable of {required:.1f}h required)"
+                    f"could not schedule within {SCHEDULE_HORIZON_DAYS} days: "
+                    f"{worker_label} has {placeable:.1f}h free of {required:.1f}h required. "
+                    "Assign another worker or free up their time"
                 )
             results.append(
                 _failure_result(
@@ -725,7 +685,7 @@ def propose_schedule(
             )
             continue
 
-        placed_op = {**op, "assignedWorkerId": chosen_worker_id or preferred_worker}
+        placed_op = {**op, "assignedWorkerId": assigned_worker}
         slot = _result_from_slot(
             placed_op,
             start.isoformat(),

@@ -61,9 +61,9 @@ def list_purchases(
     from sqlalchemy.orm import joinedload
 
     status_s = (status or "").strip().upper()
-    if status_s and status_s not in PURCHASE_STATUSES:
+    if status_s and status_s not in PURCHASE_STATUSES + ("OVERDUE",):
         raise AppError(
-            "status must be ORDERED, RECEIVED, or CONSUMED", "VALIDATION_ERROR", 400
+            "status must be ORDERED, RECEIVED, CONSUMED or OVERDUE", "VALIDATION_ERROR", 400
         )
 
     q = MaterialPurchase.query.options(
@@ -96,12 +96,16 @@ def list_purchases(
     for r in rows:
         _add_to_bucket(buckets[r.status], r)
 
-    items = [r for r in rows if not status_s or r.status == status_s]
+    if status_s == "OVERDUE":
+        items = [r for r in rows if r.days_overdue() > 0]
+    else:
+        items = [r for r in rows if not status_s or r.status == status_s]
     total_spend = sum((r.line_total for r in rows), Decimal("0"))
     return {
         "items": [r.to_dict() for r in items],
         "summary": {
             "purchaseCount": len(rows),
+            "overdueCount": sum(1 for r in rows if r.days_overdue() > 0),
             "totalSpend": float(total_spend),
             "awaitingDeliveryCount": buckets["ORDERED"]["count"],
             "onOrder": _bucket_out(buckets["ORDERED"]),
@@ -148,23 +152,72 @@ def outstanding_lines(job: JobOrder) -> list[MaterialPurchase]:
     return [p for p in placed_lines(job) if p.date_received is None]
 
 
-def line_expected_arrival(p: MaterialPurchase, typed_date: date | None = None) -> dict:
+def needing_planned_materials(raw_materials) -> list[dict]:
+    """Planned materials the shop has to buy: everything not marked From stock."""
+    return [
+        m
+        for m in (raw_materials or [])
+        if isinstance(m, dict) and m.get("id") and not m.get("fromStock")
+    ]
+
+
+def _planned_coverage(job: JobOrder) -> list[tuple[dict, bool, bool]]:
+    """(planned material, fully ordered, fully received) for each material to buy.
+
+    Only placed lines linked to that planned material count toward it.
+    """
+    placed = placed_lines(job)
+    rows = []
+    for m in needing_planned_materials(job.raw_materials):
+        linked = [p for p in placed if p.planned_material_id == m["id"]]
+        ordered_qty = sum((Decimal(str(p.quantity or 0)) for p in linked), Decimal("0"))
+        planned_qty = m.get("quantity")
+        ordered = bool(linked) and (
+            planned_qty is None or ordered_qty >= Decimal(str(planned_qty))
+        )
+        received = ordered and all(p.date_received is not None for p in linked)
+        rows.append((m, ordered, received))
+    return rows
+
+
+def unordered_planned_materials(job: JobOrder) -> list[str]:
+    """Names of planned materials not yet fully on a placed order."""
+    return [m.get("name") or "Material" for m, ordered, _ in _planned_coverage(job) if not ordered]
+
+
+def unreceived_planned_materials(job: JobOrder) -> list[str]:
+    """Names of planned materials ordered but not fully received."""
+    return [
+        m.get("name") or "Material"
+        for m, ordered, received in _planned_coverage(job)
+        if ordered and not received
+    ]
+
+
+def line_expected_arrival(p: MaterialPurchase, today: date | None = None) -> dict:
     """A received line arrives on its received date; a PO line on its order's
     expected delivery date; a line recorded without a PO on date ordered plus
-    the supplier's stated lead time. Without a lead time the Admin's typed
-    expected date is used, else the arrival is unknown (None)."""
+    the supplier's stated lead time. Otherwise the arrival is unknown (None).
+
+    A line still awaited after that date is overdue: it is still pending and
+    is expected tomorrow at the earliest."""
+    from app.services.schedule_calendar import shop_now
+
+    today = today or shop_now().date()
     lead = p.supplier.typical_lead_time_days if p.supplier else None
     order_expected = p.supplier_order.expected_delivery_date if p.supplier_order else None
+    days_overdue = 0
     if p.date_received is not None:
         arrival, basis = p.date_received, "RECEIVED"
     elif order_expected is not None:
         arrival, basis = order_expected, "LEAD_TIME"
     elif lead is not None and p.date_ordered is not None:
         arrival, basis = p.date_ordered + timedelta(days=lead), "LEAD_TIME"
-    elif typed_date is not None:
-        arrival, basis = typed_date, "TYPED_DATE"
     else:
         arrival, basis = None, "UNKNOWN"
+    if basis == "LEAD_TIME" and arrival < today:
+        days_overdue = (today - arrival).days
+        arrival = today + timedelta(days=1)
     return {
         "purchaseId": p.id,
         "materialName": p.material_name,
@@ -176,6 +229,8 @@ def line_expected_arrival(p: MaterialPurchase, typed_date: date | None = None) -
         "dateReceived": p.date_received.isoformat() if p.date_received else None,
         "expectedArrival": arrival.isoformat() if arrival else None,
         "basis": basis,
+        "fromOrderDeliveryDate": basis == "LEAD_TIME" and order_expected is not None,
+        "daysOverdue": days_overdue,
     }
 
 
@@ -191,7 +246,7 @@ def derived_material_expected(job: JobOrder) -> dict | None:
     lines = placed_lines(job)
     if not lines:
         return None
-    rows = [line_expected_arrival(p, job.material_expected_date) for p in lines]
+    rows = [line_expected_arrival(p) for p in lines]
     unknown = [r for r in rows if r["expectedArrival"] is None]
     missing = sorted({r["supplierName"] or "Unnamed supplier" for r in unknown})
     latest = None if unknown else max(rows, key=lambda r: r["expectedArrival"])
@@ -204,6 +259,55 @@ def derived_material_expected(job: JobOrder) -> dict | None:
     }
 
 
+def has_unordered_materials(job: JobOrder) -> bool:
+    """True while some material the job needs is not on a placed order."""
+    if job.material_status == MaterialStatus.NOT_REQUIRED:
+        return False
+    return bool(unordered_planned_materials(job)) or (
+        job.material_status == MaterialStatus.TO_ORDER and not placed_lines(job)
+    )
+
+
+def lead_time_floor(today: date | None = None) -> tuple[date | None, int | None]:
+    """(today + longest stated lead time among active suppliers, that lead time).
+
+    (None, None) when no active supplier states a lead time.
+    """
+    from app.services.schedule_calendar import shop_now
+
+    lead = (
+        db.session.query(db.func.max(Supplier.typical_lead_time_days))
+        .filter(Supplier.active.is_(True))
+        .scalar()
+    )
+    if lead is None:
+        return None, None
+    today = today or shop_now().date()
+    return today + timedelta(days=int(lead)), int(lead)
+
+
+def lead_time_floor_reason(floor: date, lead: int) -> str:
+    return (
+        f"materials not ordered yet — earliest {floor.isoformat()} "
+        f"(today + {lead} day longest supplier lead time)"
+    )
+
+
+def scheduling_material_floor(job: JobOrder) -> tuple[date | None, str | None]:
+    """Earliest date the first operation may start, as far as materials go.
+
+    The later of the placed lines' arrival and, while anything is still
+    unordered, today plus the longest active supplier lead time.
+    """
+    ready, reason = material_readiness_date(job)
+    if not has_unordered_materials(job):
+        return ready, reason
+    floor, lead = lead_time_floor()
+    if floor is None or (ready is not None and ready >= floor):
+        return ready, reason
+    return floor, lead_time_floor_reason(floor, lead)
+
+
 def assert_material_date_known(job: JobOrder) -> None:
     """Refuse to schedule while a line's arrival cannot be worked out."""
     derived = derived_material_expected(job)
@@ -211,19 +315,48 @@ def assert_material_date_known(job: JobOrder) -> None:
         names = ", ".join(derived["missingLeadTimeSuppliers"])
         raise AppError(
             f"Material arrival is unknown: {names} has no lead time. Set the "
-            "supplier's lead time, or type an expected arrival date, before "
-            "proposing a schedule.",
+            "supplier's lead time, or an expected delivery date on the supplier "
+            "order, before proposing a schedule.",
             "MATERIAL_DATE_UNKNOWN",
             400,
         )
 
 
+def job_supplier_orders(job: JobOrder) -> list[dict]:
+    """The job's supplier orders (drafts included, cancelled lines excluded),
+    plus one entry per supplier for lines recorded without a PO."""
+    groups: dict = {}
+    for p in job.material_purchases or []:
+        if p.cancelled_at is not None:
+            continue
+        order = p.supplier_order
+        key = ("order", order.id) if order else ("no_po", p.supplier_id)
+        g = groups.get(key)
+        if g is None:
+            supplier = order.supplier if order else p.supplier
+            g = groups[key] = {
+                "supplierOrderId": order.id if order else None,
+                "poNumber": order.po_number if order else None,
+                "supplierName": supplier.name if supplier else None,
+                "status": order.status.value if order else None,
+                "expectedDeliveryDate": (
+                    order.expected_delivery_date.isoformat()
+                    if order and order.expected_delivery_date
+                    else None
+                ),
+                "lineCount": 0,
+                "daysOverdue": 0,
+            }
+        g["lineCount"] += 1
+        g["daysOverdue"] = max(g["daysOverdue"], p.days_overdue())
+    return list(groups.values())
+
+
 def material_readiness_date(job: JobOrder) -> tuple[date | None, str | None]:
     """(date, reason) the scheduler should wait for, or (None, None).
 
-    Purchase lines win over the job-level expected date; the typed date only
-    applies while nothing has been ordered, or to lines whose supplier has no
-    lead time. Returns (None, reason) when a line's arrival is unknown.
+    Worked out from the placed purchase lines only. Returns (None, reason) when
+    a line's arrival is unknown.
     """
     if job.material_status == MaterialStatus.NOT_REQUIRED:
         return None, None
@@ -240,30 +373,126 @@ def material_readiness_date(job: JobOrder) -> tuple[date | None, str | None]:
         supplier = line["supplierName"] or "supplier"
         if line["basis"] == "RECEIVED":
             detail = f"{name} received {line['dateReceived']}"
-        elif line["basis"] == "LEAD_TIME":
+        elif line.get("daysOverdue"):
+            days = line["daysOverdue"]
+            source = line["poNumber"] or f"ordered {line['dateOrdered']}"
             detail = (
-                f"{name} from {supplier}, ordered {line['dateOrdered']} "
-                f"+ {line['leadTimeDays']} day lead time"
+                f"{name} from {supplier}, {source} overdue by {days} day"
+                f"{'' if days == 1 else 's'}; expected tomorrow at the earliest"
             )
+        elif line["fromOrderDeliveryDate"]:
+            detail = f"{name} from {supplier}, {line['poNumber']} expected delivery"
         else:
             detail = (
                 f"{name} from {supplier}, ordered {line['dateOrdered']} "
-                "(supplier has no lead time; using the typed expected date)"
+                f"+ {line['leadTimeDays']} day lead time"
             )
         return d, f"material expected {d.isoformat()} — {detail}"
     if job.material_received_date:
         return job.material_received_date, (
             f"material received {job.material_received_date.isoformat()}"
         )
-    if job.material_expected_date:
-        return job.material_expected_date, (
-            f"material expected {job.material_expected_date.isoformat()}"
-        )
     return None, None
 
 
 def job_has_started(job: JobOrder) -> bool:
     return any(op.actual_start for op in (job.operations or []))
+
+
+def material_start_block(job: JobOrder, *, for_worker: bool = False) -> dict | None:
+    """Why the job's first operation cannot start yet for materials, or None.
+
+    Unless material is NOT_REQUIRED, every planned material (other than From
+    stock) must be fully ordered and received, and every placed line must have
+    arrived, whatever the job-level status says. Returns {"code", "message"}.
+    """
+    if job.material_status == MaterialStatus.NOT_REQUIRED:
+        return None
+
+    unordered = unordered_planned_materials(job)
+    if unordered:
+        if for_worker:
+            message = (
+                "The materials for this job have not all been ordered yet. "
+                "Please check with the office."
+            )
+        else:
+            message = (
+                f"Not all planned materials are ordered for job {job.job_number}: "
+                f"{', '.join(unordered)}. Order them on an issued supplier order, or "
+                "mark them From stock if the shop already has them."
+            )
+        return {"code": "MATERIALS_NOT_ORDERED", "message": message}
+    unreceived = unreceived_planned_materials(job)
+    if unreceived:
+        if for_worker:
+            message = (
+                "The materials for this job have not all arrived yet. "
+                "Please wait for the office to receive them before starting."
+            )
+        else:
+            message = (
+                f"Planned materials not yet received: {', '.join(unreceived)}. "
+                "Mark them received before starting the first operation."
+            )
+        return {"code": "MATERIALS_NOT_RECEIVED", "message": message}
+
+    outstanding = outstanding_lines(job)
+    if not outstanding:
+        if placed_lines(job):
+            return None
+        if for_worker:
+            message = (
+                "The materials for this job have not been ordered yet. "
+                "Please check with the office."
+            )
+        else:
+            message = (
+                f"No material has been ordered for job {job.job_number} "
+                f"({job.title}). Order it on an issued supplier order, or set "
+                "material to Not required if the shop already has it."
+            )
+        return {"code": "MATERIALS_NOT_ORDERED", "message": message}
+    if for_worker:
+        message = (
+            "The materials for this job have not arrived yet. "
+            "Please wait for the office to receive them before starting."
+        )
+    else:
+        names = ", ".join(
+            f"{p.material_name}{f' ({p.grade_or_spec})' if p.grade_or_spec else ''}"
+            for p in outstanding
+        )
+        message = (
+            f"Materials not yet received for this job: {names}. "
+            "Mark them received before starting the first operation."
+        )
+    return {"code": "MATERIALS_NOT_RECEIVED", "message": message}
+
+
+def material_wait(job: JobOrder, *, for_worker: bool = False) -> dict | None:
+    """"Waiting for materials": a released job that has not started and whose
+    first operation the start gate would refuse. {"code", "message"} or None."""
+    from app.models.job_order import JobOrderStatus
+
+    if job.status in (
+        JobOrderStatus.DRAFT,
+        JobOrderStatus.COMPLETED,
+        JobOrderStatus.DELIVERED,
+    ):
+        return None
+    if job_has_started(job):
+        return None
+    return material_start_block(job, for_worker=for_worker)
+
+
+def material_wait_fields(job: JobOrder, *, for_worker: bool = False) -> dict:
+    wait = material_wait(job, for_worker=for_worker)
+    return {
+        "waitingForMaterials": wait is not None,
+        "materialWaitCode": wait["code"] if wait else None,
+        "materialWaitReason": wait["message"] if wait else None,
+    }
 
 
 def consume_received_lines(job: JobOrder, when) -> int:
@@ -289,18 +518,44 @@ def _consume_if_job_started(purchase: MaterialPurchase):
         purchase.consumed_at = datetime.now(timezone.utc)
 
 
+def apply_planned_materials_rule(job: JobOrder, previous_raw_materials) -> None:
+    """Re-derive material status after the planned list changed.
+
+    Materials to buy make the job To order; none make it Not required. A job
+    the Admin marked Not required while it still had materials to buy keeps
+    that choice.
+    """
+    admin_override = (
+        job.material_status == MaterialStatus.NOT_REQUIRED
+        and bool(needing_planned_materials(previous_raw_materials))
+    )
+    if admin_override:
+        return
+    if not needing_planned_materials(job.raw_materials) and not placed_lines(job):
+        job.material_status = MaterialStatus.NOT_REQUIRED
+        job.material_received_date = None
+        return
+    job.material_status = MaterialStatus.TO_ORDER
+    sync_job_material_from_purchases(job)
+
+
 def sync_job_material_from_purchases(job: JobOrder):
     """
     Derive job material_status from purchase lines.
     - Any purchases → at least ORDERED (unless already RECEIVED / NOT_REQUIRED)
     - All lines have date_received → RECEIVED + material_received_date = max(received)
     - No placed lines left (all cancelled / still on a draft PO) → back to TO_ORDER
+    - Any planned material not fully on a placed order → TO_ORDER
     Only placed lines count (see ``placed_lines``).
     """
     if job.material_status == MaterialStatus.NOT_REQUIRED:
         return
 
     lines = placed_lines(job)
+    if unordered_planned_materials(job):
+        job.material_status = MaterialStatus.TO_ORDER
+        job.material_received_date = None
+        return
     if not lines:
         if job.material_status in (MaterialStatus.ORDERED, MaterialStatus.RECEIVED):
             job.material_status = MaterialStatus.TO_ORDER
@@ -325,6 +580,13 @@ def _planned_material(job: JobOrder, planned_id):
         return None
     for item in job.raw_materials or []:
         if isinstance(item, dict) and item.get("id") == planned_id:
+            if item.get("fromStock"):
+                raise AppError(
+                    f"{item.get('name') or 'This material'} is marked From stock, "
+                    "so it is not bought for this job.",
+                    "PLANNED_MATERIAL_FROM_STOCK",
+                    400,
+                )
             return item
     raise AppError(
         "Planned material not found on this job", "VALIDATION_ERROR", 400
@@ -507,6 +769,14 @@ def receive_lines(lines: list[MaterialPurchase], received_date=None) -> list[Mat
     for job in {p.job_order for p in lines}:
         sync_job_material_from_purchases(job)
     db.session.commit()
+
+    from app.services import material_delay_service
+
+    jobs_by_order = {}
+    for p in lines:
+        jobs_by_order.setdefault(p.supplier_order, set()).add(p.job_order)
+    for order, jobs in jobs_by_order.items():
+        material_delay_service.reschedule_jobs(jobs, material_delay_service.RECEIVED, order)
     return lines
 
 

@@ -18,6 +18,7 @@ from app.models.supplier_order import (
     SupplierOrderStatus,
     format_po_number,
 )
+from app.services import material_delay_service as delay_service
 from app.services import material_purchase_service as mp_service
 from app.utils.errors import AppError
 
@@ -57,9 +58,20 @@ def _decimal(value, field, *, positive=False):
 
 
 def list_orders(*, status=None, supplier_id=None):
+    """status may also be OVERDUE: orders with a line past its expected date."""
     q = SupplierOrder.query.options(
         joinedload(SupplierOrder.supplier), joinedload(SupplierOrder.lines)
     )
+    if status == "OVERDUE":
+        q = q.filter(
+            SupplierOrder.status.in_(
+                [SupplierOrderStatus.ISSUED, SupplierOrderStatus.PARTIALLY_RECEIVED]
+            )
+        )
+        if supplier_id:
+            q = q.filter(SupplierOrder.supplier_id == supplier_id)
+        rows = q.order_by(SupplierOrder.expected_delivery_date.asc()).all()
+        return [o for o in rows if o.days_overdue() > 0]
     if status:
         try:
             q = q.filter(SupplierOrder.status == SupplierOrderStatus(status))
@@ -243,7 +255,8 @@ def _next_po_seq() -> int:
 
 
 def issue_order(order: SupplierOrder, actor_id: str, date_issued=None) -> SupplierOrder:
-    """Admin issues the PO: number, date, expected delivery; lines lock."""
+    """Office Staff issue the PO: number, date, expected delivery; lines lock.
+    The issuer is the one who prepared it; "Approved by" is signed on paper."""
     _require_draft(order)
     if not order.active_lines:
         raise AppError("Add at least one line before issuing.", "VALIDATION_ERROR", 400)
@@ -263,6 +276,7 @@ def issue_order(order: SupplierOrder, actor_id: str, date_issued=None) -> Suppli
         order.date_issued = issued
         order.expected_delivery_date = issued + timedelta(days=lead)
         order.issued_by_id = actor_id
+        order.prepared_by_id = actor_id
         order.status = SupplierOrderStatus.ISSUED
         for line in order.active_lines:
             line.date_ordered = issued
@@ -270,10 +284,11 @@ def issue_order(order: SupplierOrder, actor_id: str, date_issued=None) -> Suppli
         for job in {ln.job_order for ln in order.active_lines}:
             mp_service.sync_job_material_from_purchases(job)
         db.session.commit()
-        return order
     except Exception:
         db.session.rollback()
         raise
+    delay_service.reschedule_for_order(order, delay_service.ISSUED)
+    return order
 
 
 # After issue: cancel, split, receive
@@ -324,6 +339,7 @@ def cancel_line(order: SupplierOrder, line: MaterialPurchase, actor_id: str):
     recompute_order_status(order)
     mp_service.sync_job_material_from_purchases(line.job_order)
     db.session.commit()
+    delay_service.reschedule_jobs([line.job_order], delay_service.CANCELLED, order)
     return line
 
 
@@ -342,6 +358,7 @@ def cancel_order(order: SupplierOrder, actor_id: str) -> SupplierOrder:
     for job in {ln.job_order for ln in lines}:
         mp_service.sync_job_material_from_purchases(job)
     db.session.commit()
+    delay_service.reschedule_for_order(order, delay_service.CANCELLED)
     return order
 
 
@@ -380,6 +397,101 @@ def split_line(order: SupplierOrder, line: MaterialPurchase, quantity) -> list:
     db.session.add(rest)
     db.session.commit()
     return [line, rest]
+
+
+EXPECTED_DELIVERY_CHANGED = "EXPECTED_DELIVERY_CHANGED"
+
+
+def change_expected_delivery(order: SupplierOrder, new_date, note) -> dict:
+    """Office Staff record a new expected delivery date from the supplier.
+
+    Unreceived lines arrive on the order's expected date, so the change covers
+    all of them. The date at issue is kept the first time. A later date moves
+    affected jobs (step 8); an earlier one moves nothing.
+    """
+    from app.services.audit_service import write_audit_event
+
+    if order.status not in RECEIVABLE_STATUSES:
+        raise AppError(
+            "Only an issued supplier order that is not fully received can have "
+            "its expected delivery date changed.",
+            "ORDER_NOT_OPEN",
+            409,
+        )
+    new = _parse_date(new_date, "expectedDeliveryDate")
+    if new is None:
+        raise AppError("Choose the new expected delivery date.", "VALIDATION_ERROR", 400)
+    note = (note or "").strip()
+    if not note:
+        raise AppError(
+            "Add a note, for example \u201cSupplier confirmed delivery on 15 Oct\u201d.",
+            "VALIDATION_ERROR",
+            400,
+        )
+    if order.date_issued and new < order.date_issued:
+        raise AppError(
+            f"The expected delivery date cannot be before the issue date "
+            f"({order.date_issued.isoformat()}).",
+            "VALIDATION_ERROR",
+            400,
+        )
+    old = order.expected_delivery_date
+    if new == old:
+        raise AppError(
+            "That is already the expected delivery date.", "VALIDATION_ERROR", 400
+        )
+    try:
+        if order.original_expected_delivery_date is None:
+            order.original_expected_delivery_date = old
+        order.expected_delivery_date = new
+        order.expected_delivery_note = note
+        write_audit_event(
+            EXPECTED_DELIVERY_CHANGED,
+            "SupplierOrder",
+            order.id,
+            before={"expectedDeliveryDate": old.isoformat() if old else None},
+            after={"expectedDeliveryDate": new.isoformat(), "note": note},
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+    outcomes = []
+    if old is None or new > old:
+        outcomes = delay_service.reschedule_for_order(
+            order, delay_service.EXPECTED_DATE_CHANGED
+        )
+    return {
+        "order": order,
+        "movedJobs": [o for o in outcomes if o["outcome"] == "MOVED"],
+        "notMovedJobs": [o for o in outcomes if o["outcome"] == "NO_SLOT"],
+    }
+
+
+def expected_delivery_history(order: SupplierOrder) -> list[dict]:
+    """Every expected-date change on the order with its note, newest first."""
+    from app.models.audit_log import AuditLog
+
+    rows = (
+        AuditLog.query.options(joinedload(AuditLog.user))
+        .filter(
+            AuditLog.entity_type == "SupplierOrder",
+            AuditLog.entity_id == order.id,
+            AuditLog.action == EXPECTED_DELIVERY_CHANGED,
+        )
+        .order_by(AuditLog.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "from": (r.before_json or {}).get("expectedDeliveryDate"),
+            "to": (r.after_json or {}).get("expectedDeliveryDate"),
+            "note": (r.after_json or {}).get("note"),
+            "changedByName": r.user.full_name if r.user else None,
+            "changedAt": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
 
 
 def receive_order_lines(order: SupplierOrder, line_ids, received_date=None):

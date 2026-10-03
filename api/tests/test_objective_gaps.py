@@ -295,12 +295,14 @@ def test_planning_refuses_unqualified_worker(client, shop):
     assert res.get_json()["error"]["code"] == "WORKER_NOT_QUALIFIED"
 
 
-def test_release_refused_when_operations_have_no_window(client, shop):
+def test_confirm_refused_when_operations_have_no_window(client, shop):
     job = _job(shop, status=JobOrderStatus.DRAFT)
     _op(job, 1, "Turning", worker=shop["worker"], machine=shop["lathe"])
     _op(job, 2, "Facing", worker=shop["worker"], machine=shop["lathe"], window=False)
     _op(job, 3, "Threading", worker=shop["worker"], machine=shop["lathe"], window=False)
-    res = client.post(f"/api/v1/job-orders/{job.id}/release", headers=_headers(shop["admin"]))
+    res = client.post(
+        f"/api/v1/job-orders/{job.id}/schedule/confirm", headers=_headers(shop["admin"])
+    )
     assert res.status_code == 400
     err = res.get_json()["error"]
     assert err["code"] == "OPERATIONS_UNSCHEDULED"
@@ -310,12 +312,39 @@ def test_release_refused_when_operations_have_no_window(client, shop):
     assert db.session.get(JobOrder, job.id).status == JobOrderStatus.DRAFT
 
 
-def test_release_allowed_when_every_operation_is_scheduled(client, shop):
+def test_confirm_allowed_when_every_operation_is_scheduled(client, shop):
     job = _job(shop, status=JobOrderStatus.DRAFT)
     _op(job, 1, "Turning", worker=shop["worker"], machine=shop["lathe"])
-    res = client.post(f"/api/v1/job-orders/{job.id}/release", headers=_headers(shop["admin"]))
+    res = client.post(
+        f"/api/v1/job-orders/{job.id}/schedule/confirm", headers=_headers(shop["admin"])
+    )
     assert res.status_code == 200, res.get_json()
     assert res.get_json()["status"] == "SCHEDULED"
+    assert res.get_json()["operations"][0]["status"] == "SCHEDULED"
+
+
+def test_failed_confirm_saves_nothing(client, shop):
+    job = _job(shop, status=JobOrderStatus.DRAFT)
+    _op(job, 1, "Turning", worker=shop["worker"], machine=shop["lathe"])
+    res = client.post(
+        f"/api/v1/job-orders/{job.id}/schedule/confirm",
+        json={"operations": [{"sequenceNo": 1, "operationName": "Drilling", "estimatedHours": 1}]},
+        headers=_headers(shop["admin"]),
+    )
+    assert res.status_code == 400
+    db.session.expire_all()
+    job = db.session.get(JobOrder, job.id)
+    assert job.status == JobOrderStatus.DRAFT
+    assert [op.operation_name for op in job.operations] == ["Turning"]
+
+
+def test_office_staff_cannot_confirm_schedule(client, shop):
+    job = _job(shop, status=JobOrderStatus.DRAFT)
+    _op(job, 1, "Turning", worker=shop["worker"], machine=shop["lathe"])
+    res = client.post(
+        f"/api/v1/job-orders/{job.id}/schedule/confirm", headers=_headers(shop["office"])
+    )
+    assert res.status_code == 403
 
 
 # 4. Edit user details

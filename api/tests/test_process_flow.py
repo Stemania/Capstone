@@ -393,12 +393,14 @@ def test_admin_can_set_not_required_on_released_job(people):
     assert job.material_status == MaterialStatus.NOT_REQUIRED
 
 
-def test_office_can_still_set_not_required_on_draft(people):
+def test_office_cannot_set_not_required_on_draft(people):
     job = _job(people, material_status=MaterialStatus.TO_ORDER, status=JobOrderStatus.DRAFT)
-    update_job_order(
-        job, {"materialStatus": "NOT_REQUIRED"}, actor_role=UserRole.OFFICE_STAFF.value
-    )
-    assert job.material_status == MaterialStatus.NOT_REQUIRED
+    with pytest.raises(AppError) as exc:
+        update_job_order(
+            job, {"materialStatus": "NOT_REQUIRED"}, actor_role=UserRole.OFFICE_STAFF.value
+        )
+    assert exc.value.code == "FORBIDDEN"
+    assert job.material_status == MaterialStatus.TO_ORDER
 
 
 def test_material_received_button_receives_every_outstanding_line(people):

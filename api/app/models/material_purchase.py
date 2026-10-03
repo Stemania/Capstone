@@ -99,6 +99,41 @@ class MaterialPurchase(db.Model):
             return "RECEIVED"
         return "ORDERED"
 
+    @property
+    def current_expected_date(self):
+        """The supplier order's expected delivery date (as edited), or for a line
+        recorded without a PO, date ordered plus the supplier's lead time."""
+        from datetime import timedelta
+
+        if self.supplier_order is not None:
+            return self.supplier_order.expected_delivery_date
+        lead = self.supplier.typical_lead_time_days if self.supplier else None
+        if self.date_ordered is None or lead is None:
+            return None
+        return self.date_ordered + timedelta(days=int(lead))
+
+    @property
+    def promised_date(self):
+        """The date promised when the order was placed, never the edited one."""
+        order = self.supplier_order
+        if order is not None:
+            return order.original_expected_delivery_date or order.expected_delivery_date
+        return self.current_expected_date
+
+    def days_overdue(self, today=None) -> int:
+        """Days past the current expected date while placed, not received and
+        not cancelled; 0 otherwise."""
+        if self.date_received is not None or not self.counts_as_ordered:
+            return 0
+        expected = self.current_expected_date
+        if expected is None:
+            return 0
+        if today is None:
+            from app.services.schedule_calendar import shop_now
+
+            today = shop_now().date()
+        return max((today - expected).days, 0)
+
     def to_dict(self):
         job = self.job_order
         job_number = None
@@ -137,6 +172,10 @@ class MaterialPurchase(db.Model):
                 else None
             ),
             "status": self.status,
+            "currentExpectedDate": (
+                self.current_expected_date.isoformat() if self.current_expected_date else None
+            ),
+            "daysOverdue": self.days_overdue(),
             "createdAt": self.created_at.isoformat() if self.created_at else None,
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
         }

@@ -13,7 +13,7 @@ from app import create_app
 from app.config import Config
 from app.extensions import bcrypt, db
 from app.models.client import Client
-from app.models.job_order import JobOrder, JobOrderStatus, JobType, PartCondition
+from app.models.job_order import JobOrder, JobOrderStatus, JobType, MaterialStatus, PartCondition
 from app.models.notification import NotificationMilestone
 from app.models.operation import JobOperation, OperationStatus
 from app.models.user import User, UserRole
@@ -134,6 +134,18 @@ def test_production_cannot_fetch_draft_by_id(client, seeded):
     assert client.get(f"/api/v1/job-orders/{draft.id}", headers=headers).status_code == 403
 
 
+def test_only_office_staff_create_job_orders(client, seeded):
+    body = {"clientId": seeded["client_id"], "title": "New job", "dueDate": "2026-12-01"}
+
+    admin = _auth_header(_login(client, "plan_admin@test.local", "Admin123!").get_json()["accessToken"])
+    assert client.post("/api/v1/job-orders", json=body, headers=admin).status_code == 403
+
+    office = _auth_header(_login(client, "plan_office@test.local", "Office123!").get_json()["accessToken"])
+    created = client.post("/api/v1/job-orders", json=body, headers=office)
+    assert created.status_code == 201
+    assert created.get_json()["status"] == "DRAFT"
+
+
 def test_worker_job_payload_omits_amount(client, seeded):
     job = _make_job(
         seeded, JobOrderStatus.SCHEDULED, worker_id=seeded["worker_id"], hours=2
@@ -198,14 +210,14 @@ def test_operation_cannot_start_on_non_released_job(client, seeded):
     assert response.status_code == 403 or "released" in msg
 
 
-def test_release_blocked_when_missing_worker_or_hours(client, seeded):
+def test_confirm_blocked_when_missing_worker_or_hours(client, seeded):
     job = _make_job(seeded, JobOrderStatus.DRAFT, worker_id=None, hours=None)
 
     login = _login(client, "plan_admin@test.local", "Admin123!")
     token = login.get_json()["accessToken"]
     headers = _auth_header(token)
 
-    response = client.post(f"/api/v1/job-orders/{job.id}/release", headers=headers)
+    response = client.post(f"/api/v1/job-orders/{job.id}/schedule/confirm", headers=headers)
     assert response.status_code == 400
     msg = response.get_json()["error"]["message"].lower()
     assert "worker" in msg
@@ -232,7 +244,7 @@ def test_migration_012_maps_legacy_statuses():
             assert after == before
 
 
-def test_no_notification_on_draft_or_planning_job_received_on_release(
+def test_no_notification_on_draft_or_planning_job_received_on_confirm(
     client, seeded, monkeypatch
 ):
     sent = []
@@ -287,6 +299,7 @@ def test_no_notification_on_draft_or_planning_job_received_on_release(
     plan = client.patch(
         f"/api/v1/job-orders/{job_id}",
         json={
+            "materialStatus": "NOT_REQUIRED",
             "operations": [
                 {
                     "sequenceNo": 1,
@@ -306,7 +319,42 @@ def test_no_notification_on_draft_or_planning_job_received_on_release(
 
     # commit is patched to flush, so drop the cached pre-replacement operations.
     db.session.expire_all()
-    release = client.post(f"/api/v1/job-orders/{job_id}/release", headers=admin_headers)
-    assert release.status_code == 200, release.get_json()
-    assert release.get_json()["status"] == "SCHEDULED"
+    confirm = client.post(f"/api/v1/job-orders/{job_id}/schedule/confirm", headers=admin_headers)
+    assert confirm.status_code == 200, confirm.get_json()
+    assert confirm.get_json()["status"] == "SCHEDULED"
+    assert [op["status"] for op in confirm.get_json()["operations"]] == ["SCHEDULED"]
     assert any(m == NotificationMilestone.JOB_RECEIVED for _, m in sent)
+
+
+def test_confirm_saves_operations_sent_and_releases(client, seeded):
+    job = _make_job(seeded, JobOrderStatus.DRAFT, with_op=False)
+    job.material_status = MaterialStatus.NOT_REQUIRED
+    db.session.flush()
+    admin = _auth_header(_login(client, "plan_admin@test.local", "Admin123!").get_json()["accessToken"])
+
+    res = client.post(
+        f"/api/v1/job-orders/{job.id}/schedule/confirm",
+        json={
+            "operations": [
+                {
+                    "sequenceNo": 1,
+                    "operationName": "Turning",
+                    "assignedWorkerId": seeded["worker_id"],
+                    "estimatedHours": 3,
+                    "scheduledStart": "2031-03-10T01:00:00+00:00",
+                    "scheduledEnd": "2031-03-10T04:00:00+00:00",
+                }
+            ]
+        },
+        headers=admin,
+    )
+    assert res.status_code == 200, res.get_json()
+    body = res.get_json()
+    assert body["status"] == "SCHEDULED"
+    assert [op["operationName"] for op in body["operations"]] == ["Turning"]
+
+
+def test_release_endpoint_is_gone(client, seeded):
+    job = _make_job(seeded, JobOrderStatus.DRAFT, worker_id=seeded["worker_id"], hours=2)
+    admin = _auth_header(_login(client, "plan_admin@test.local", "Admin123!").get_json()["accessToken"])
+    assert client.post(f"/api/v1/job-orders/{job.id}/release", headers=admin).status_code in (404, 405)

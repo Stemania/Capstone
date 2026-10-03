@@ -45,6 +45,25 @@ def _working_during(workers, scheduled_start, scheduled_end):
     ]
 
 
+NOT_CLOCKED_IN = "Not clocked in today"
+
+
+def _not_clocked_in_for_today_op(worker_ids, scheduled_start, operation_id):
+    """Workers past their start time without a clock-in, when the operation
+    starts today. Its start is the proposed window, else the saved schedule."""
+    from app.models.operation import JobOperation
+    from app.services.attendance_service import not_clocked_in_today
+    from app.services.schedule_calendar import shop_now
+
+    start = _parse_dt(scheduled_start)
+    if start is None and operation_id:
+        op = JobOperation.query.get(operation_id)
+        start = op.scheduled_start if op else None
+    if start is None or utc_to_shop(start).date() != shop_now().date():
+        return set()
+    return not_clocked_in_today(worker_ids)
+
+
 def _resolve_machine_type_id(
     *,
     machine_type_id=None,
@@ -216,6 +235,12 @@ def suggest_workers(
                 "available": True,
             }
         )
+
+    missing = _not_clocked_in_for_today_op(
+        [s["workerId"] for s in suggestions], scheduled_start, exclude_operation_id
+    )
+    for s in suggestions:
+        s["attendanceWarning"] = NOT_CLOCKED_IN if s["workerId"] in missing else None
 
     suggestions.sort(
         key=lambda s: (

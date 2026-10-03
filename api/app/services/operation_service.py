@@ -43,12 +43,17 @@ def _ensure_utc(dt):
 
 
 def list_my_operations(worker_id):
-    from sqlalchemy.orm import joinedload
+    from sqlalchemy.orm import joinedload, selectinload
     from app.models.job_order import JobOrder, PRODUCTION_VISIBLE_STATUSES
+    from app.models.material_purchase import MaterialPurchase
 
     return (
         JobOperation.query.options(
             joinedload(JobOperation.job_order).joinedload(JobOrder.client),
+            joinedload(JobOperation.job_order).selectinload(JobOrder.operations),
+            joinedload(JobOperation.job_order)
+            .selectinload(JobOrder.material_purchases)
+            .joinedload(MaterialPurchase.supplier_order),
             joinedload(JobOperation.machine_type),
             joinedload(JobOperation.assigned_worker),
             joinedload(JobOperation.time_logs),
@@ -138,47 +143,30 @@ def _last_event(operation):
 
 
 def _assert_materials_arrived(job, user_role):
-    """Start gate for a job's first operation.
+    """Start gate for a job's first operation (see ``material_start_block``)."""
+    block = mp_service.material_start_block(
+        job, for_worker=user_role == UserRole.PRODUCTION_WORKER.value
+    )
+    if block:
+        raise AppError(block["message"], block["code"], 409)
 
-    Unless material is NOT_REQUIRED, blocks when the job has no purchase lines
-    or any line is still ORDERED, whatever the job-level status says.
-    """
-    from app.models.job_order import MaterialStatus
 
-    if job.material_status == MaterialStatus.NOT_REQUIRED:
-        return
-    is_worker = user_role == UserRole.PRODUCTION_WORKER.value
-    outstanding = mp_service.outstanding_lines(job)
-    if not outstanding:
-        if mp_service.placed_lines(job):
-            return
-        if is_worker:
-            message = (
-                "The materials for this job have not been ordered yet. "
-                "Please check with the office."
-            )
-        else:
-            message = (
-                f"No material has been ordered for job {job.job_number} "
-                f"({job.title}). Order it on an issued supplier order, or set "
-                "material to Not required if the shop already has it."
-            )
-        raise AppError(message, "MATERIALS_NOT_ORDERED", 409)
-    if is_worker:
-        message = (
-            "The materials for this job have not arrived yet. "
-            "Please wait for the office to receive them before starting."
-        )
-    else:
+def _assert_earlier_operations_completed(operation):
+    waiting_on = [
+        op
+        for op in sorted(operation.job_order.operations, key=lambda o: o.sequence_no or 0)
+        if (op.sequence_no or 0) < (operation.sequence_no or 0)
+        and op.status != OperationStatus.COMPLETED
+    ]
+    if waiting_on:
         names = ", ".join(
-            f"{p.material_name}{f' ({p.grade_or_spec})' if p.grade_or_spec else ''}"
-            for p in outstanding
+            f"#{op.sequence_no} {op.operation_name or 'Operation'}" for op in waiting_on
         )
-        message = (
-            f"Materials not yet received for this job: {names}. "
-            "Mark them received before starting the first operation."
+        raise AppError(
+            f"Finish the earlier operations first: {names}.",
+            "PRIOR_OPERATION_INCOMPLETE",
+            409,
         )
-    raise AppError(message, "MATERIALS_NOT_RECEIVED", 409)
 
 
 def start_operation(operation, user_id, user_role, timestamp):
@@ -206,6 +194,8 @@ def start_operation(operation, user_id, user_role, timestamp):
         raise AppError(
             "Cannot start a completed operation", "INVALID_TRANSITION", 409
         )
+
+    _assert_earlier_operations_completed(operation)
 
     assert_machine_type_available(
         operation.machine_type_id,
@@ -422,32 +412,104 @@ def create_rework_operation(operation, user_id, user_role, reason, category=None
         )
 
     job = operation.job_order
-    max_seq = max((op.sequence_no for op in job.operations), default=0)
+    if job.sales_invoice is not None or job.status == JobOrderStatus.DELIVERED or job.delivered_at:
+        raise AppError(
+            "This job has been invoiced or delivered, so it can no longer be sent for redo.",
+            "INVALID_TRANSITION",
+            409,
+        )
+
+    from app.services.worker_profile_service import is_checking_operation
+
+    redo_seq = operation.sequence_no + 1
+    later = [op for op in job.operations if op.sequence_no >= redo_seq]
+    checking_ops = [
+        op
+        for op in job.operations
+        if is_checking_operation(op.operation_type_id, op.operation_name)
+    ]
+    recheck_template = None
+    if checking_ops and not is_checking_operation(
+        operation.operation_type_id, operation.operation_name
+    ):
+        checking_follows = any(
+            op in later and op.status not in _STARTED_STATUSES and op.actual_start is None
+            for op in checking_ops
+        )
+        if not checking_follows:
+            recheck_template = max(checking_ops, key=lambda o: o.sequence_no)
 
     try:
         operation.rework_reason = note
         operation.rework_reason_category = cat
+        # Shift from the top down so (job, sequence) stays unique at every flush.
+        for op in sorted(later, key=lambda o: o.sequence_no, reverse=True):
+            op.sequence_no += 1
+            db.session.flush()
+
+        redo_worker = _default_redo_worker(operation)
         follow = JobOperation(
             job_order_id=job.id,
-            sequence_no=max_seq + 1,
+            sequence_no=redo_seq,
             operation_name=operation.operation_name,
             operation_type_id=operation.operation_type_id,
             machine_type_id=operation.machine_type_id,
             machine_unit_id=None,
-            assigned_worker_id=None,
+            assigned_worker_id=redo_worker,
             estimated_hours=operation.estimated_hours,
-            status=OperationStatus.PENDING,
+            status=OperationStatus.SCHEDULED if redo_worker else OperationStatus.PENDING,
             rework_of_operation_id=operation.id,
             rework_reason=note,
             rework_reason_category=cat,
         )
-        db.session.add(follow)
+        job.operations.append(follow)
+        db.session.flush()
+
+        if recheck_template is not None:
+            last_seq = max(op.sequence_no for op in job.operations)
+            recheck_worker = recheck_template.assigned_worker_id
+            job.operations.append(
+                JobOperation(
+                    job_order_id=job.id,
+                    sequence_no=last_seq + 1,
+                    operation_name=recheck_template.operation_name,
+                    operation_type_id=recheck_template.operation_type_id,
+                    machine_type_id=recheck_template.machine_type_id,
+                    machine_unit_id=None,
+                    assigned_worker_id=recheck_worker,
+                    estimated_hours=recheck_template.estimated_hours,
+                    status=(
+                        OperationStatus.SCHEDULED if recheck_worker else OperationStatus.PENDING
+                    ),
+                )
+            )
         job.status = derive_job_status(job)
         db.session.commit()
         return follow
     except Exception:
         db.session.rollback()
         raise
+
+
+_STARTED_STATUSES = (OperationStatus.IN_PROGRESS, OperationStatus.COMPLETED)
+
+
+def _default_redo_worker(original):
+    """The original worker redoes it if they can still take this operation."""
+    from app.services.job_order_service import _validate_worker
+
+    if not original.assigned_worker_id:
+        return None
+    try:
+        _validate_worker(
+            original.assigned_worker_id,
+            machine_type_id=original.machine_type_id,
+            operation_type_id=original.operation_type_id,
+            operation_name=original.operation_name,
+        )
+    except AppError:
+        return None
+    return original.assigned_worker_id
 
 
 def _assert_unit_not_down(machine_unit_id):
@@ -511,6 +573,28 @@ def _resolve_downtime_link(unit_id, operation_id, job_order_id, reporter_id, rep
     return op.id, op.job_order_id
 
 
+def _pause_running_operations_on_unit(machine_unit_id, reported_by_id, ts):
+    """Stop the clock on work running on a broken-down unit; workers resume it."""
+    running = JobOperation.query.filter_by(
+        machine_unit_id=machine_unit_id, status=OperationStatus.IN_PROGRESS
+    ).all()
+    for op in running:
+        last = _last_event(op)
+        if not last or last.event not in (
+            OperationTimeEvent.START,
+            OperationTimeEvent.RESUME,
+        ):
+            continue
+        pause_at = max(ts, _ensure_utc(last.event_at))
+        _append_log(
+            op,
+            op.assigned_worker_id or reported_by_id,
+            OperationTimeEvent.PAUSE,
+            pause_at,
+            reason=OperationPauseReason.MACHINE_DOWN,
+        )
+
+
 def open_machine_downtime(
     machine_unit_id,
     reported_by_id,
@@ -569,6 +653,7 @@ def open_machine_downtime(
             note=note,
         )
         db.session.add(row)
+        _pause_running_operations_on_unit(machine_unit_id, reported_by_id, ts)
         db.session.commit()
         return row
     except Exception:

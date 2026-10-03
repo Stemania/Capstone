@@ -94,22 +94,30 @@ def test_rework_creates_new_operation_leaves_original(monkeypatch):
     """Rework appends a PENDING follow-on and keeps the original COMPLETED."""
     import app.services.operation_service as svc
 
-    job = SimpleNamespace(
-        id="job-1",
-        operations=[SimpleNamespace(sequence_no=1)],
-        status=JobOrderStatus.COMPLETED,
-    )
+    import app.services.worker_profile_service as wps
+
     original = SimpleNamespace(
         id="op-1",
+        sequence_no=1,
         status=OperationStatus.COMPLETED,
+        actual_start=None,
         operation_name="Turning",
         operation_type_id="ot-1",
         machine_type_id="mt-1",
+        assigned_worker_id=None,
         estimated_hours=Decimal("4"),
         rework_reason=None,
-        job_order=job,
     )
+    job = SimpleNamespace(
+        id="job-1",
+        operations=[original],
+        status=JobOrderStatus.COMPLETED,
+        sales_invoice=None,
+        delivered_at=None,
+    )
+    original.job_order = job
 
+    monkeypatch.setattr(wps, "is_checking_operation", lambda *a, **k: False)
     monkeypatch.setattr(svc, "check_job_access", lambda *a, **k: True)
     monkeypatch.setattr(svc, "derive_job_status", lambda j: JobOrderStatus.SCHEDULED)
     monkeypatch.setattr(svc.db, "session", MagicMock())

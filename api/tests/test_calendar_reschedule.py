@@ -15,7 +15,11 @@ from app.models.client import Client
 from app.models.job_order import JobOrder, JobOrderStatus, JobType, PartCondition
 from app.models.operation import JobOperation, OperationStatus
 from app.models.user import User, UserRole
-from app.models.worker_skill import CalendarExceptionType, WorkCalendarException
+from app.models.worker_skill import (
+    CalendarExceptionType,
+    WorkCalendarException,
+    WorkerSchedule,
+)
 from app.services.schedule_calendar import shop_local_to_utc
 from app.services.worker_profile_service import calendar_exception_delete_impact
 
@@ -69,6 +73,16 @@ def shop(app):
     )
     db.session.add_all([admin, worker])
     db.session.flush()
+    for dow in range(6):
+        db.session.add(
+            WorkerSchedule(
+                worker_id=worker.id,
+                day_of_week=dow,
+                is_working=True,
+                start_time=time(8, 0),
+                end_time=time(17, 0),
+            )
+        )
     client_row = Client(name="Reschedule Client")
     db.session.add(client_row)
     db.session.flush()
@@ -170,8 +184,8 @@ def test_apply_moves_only_not_started_operations(client, shop):
                 },
                 {
                     "id": shop["waiting"].id,
-                    "scheduledStart": _iso(MONDAY, time(17, 0)),
-                    "scheduledEnd": _iso(MONDAY, time(19, 0)),
+                    "scheduledStart": _iso(MONDAY, time(14, 0)),
+                    "scheduledEnd": _iso(MONDAY, time(16, 0)),
                 },
             ]
         },
@@ -180,12 +194,30 @@ def test_apply_moves_only_not_started_operations(client, shop):
     db.session.refresh(shop["waiting"])
     db.session.refresh(shop["started"])
     assert shop["waiting"].scheduled_start.astimezone(timezone.utc) == shop_local_to_utc(
-        MONDAY, time(17, 0)
+        MONDAY, time(14, 0)
     )
     assert shop["started"].status == OperationStatus.IN_PROGRESS
     assert shop["started"].scheduled_start.astimezone(timezone.utc) == shop_local_to_utc(
         MONDAY, time(8, 0)
     )
+
+
+def test_apply_refuses_window_outside_working_hours(client, shop):
+    res = client.post(
+        f"/api/v1/job-orders/{shop['job'].id}/schedule/apply",
+        headers=_headers(shop["token"]),
+        json={
+            "operations": [
+                {
+                    "id": shop["waiting"].id,
+                    "scheduledStart": _iso(MONDAY, time(17, 0)),
+                    "scheduledEnd": _iso(MONDAY, time(19, 0)),
+                },
+            ]
+        },
+    )
+    assert res.status_code == 409, res.get_json()
+    assert res.get_json()["error"]["code"] == "SCHEDULE_INVALID"
 
 
 def test_removal_warning_ignores_overnight_work_outside_removed_hours(shop):

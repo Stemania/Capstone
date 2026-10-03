@@ -121,6 +121,8 @@ class JobOperation(db.Model):
         schedule_by_worker=None,
         calendar_exceptions=None,
         open_downtime_unit_ids=None,
+        include_material_wait=False,
+        for_worker=False,
     ):
         def _num(v):
             if v is None:
@@ -128,7 +130,13 @@ class JobOperation(db.Model):
             return float(v) if isinstance(v, Decimal) else float(v)
 
         job = self.job_order
+        extra = {}
+        if include_material_wait and job is not None:
+            from app.services.material_purchase_service import material_wait_fields
+
+            extra = material_wait_fields(job, for_worker=for_worker)
         return {
+            **extra,
             "id": self.id,
             "jobOrderId": self.job_order_id,
             "jobTitle": job.title if job else None,

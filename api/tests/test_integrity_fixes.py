@@ -173,7 +173,7 @@ def test_draft_job_can_still_replace_operations(people):
     assert names == ["Facing"]
 
 
-def test_delete_refuses_job_with_started_operations(people):
+def test_delete_refuses_released_job_with_started_operations(people):
     job = _job(people, status=JobOrderStatus.IN_PROGRESS)
     op = _add_op(job, "TURNING", people["worker"].id, status=OperationStatus.IN_PROGRESS)
     op.actual_start = T0
@@ -181,7 +181,7 @@ def test_delete_refuses_job_with_started_operations(people):
     db.session.refresh(job)
     with pytest.raises(AppError) as exc:
         delete_job_order(job)
-    assert exc.value.code == "OPERATIONS_STARTED"
+    assert exc.value.code == "JOB_RELEASED"
     assert JobOperation.query.get(op.id) is not None
 
 

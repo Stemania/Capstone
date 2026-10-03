@@ -109,7 +109,7 @@ def _issue(client, shop, order_id, user=None, when="2031-03-02"):
     return client.post(
         f"/api/v1/supplier-orders/{order_id}/issue",
         json={"dateIssued": when},
-        headers=_headers(user or shop["admin"]),
+        headers=_headers(user or shop["office"]),
     )
 
 
@@ -154,7 +154,7 @@ def test_issuing_assigns_number_and_locks_lines(client, shop):
     order = _both_jobs_draft(client, shop)
     line_id = order["lines"][0]["id"]
 
-    res = _issue(client, shop, order["id"], user=shop["office"])
+    res = _issue(client, shop, order["id"], user=shop["admin"])
     assert res.status_code == 403
 
     res = _issue(client, shop, order["id"])
@@ -164,10 +164,11 @@ def test_issuing_assigns_number_and_locks_lines(client, shop):
     assert issued["poNumber"] == "BMSC-PO-00001"
     assert issued["dateIssued"] == "2031-03-02"
     assert issued["expectedDeliveryDate"] == "2031-03-07"
-    assert issued["issuedById"] == shop["admin"].id
+    assert issued["issuedById"] == shop["office"].id
+    assert issued["preparedById"] == shop["office"].id
     assert all(ln["dateOrdered"] == "2031-03-02" for ln in issued["lines"])
 
-    headers = _headers(shop["admin"])
+    headers = _headers(shop["office"])
     res = client.patch(
         f"/api/v1/supplier-orders/{order['id']}/lines/{line_id}", json={"quantity": 1}, headers=headers
     )
@@ -368,7 +369,11 @@ def test_draft_and_cancelled_lines_do_not_count_as_ordered(client, shop):
 
     # Issue, then cancel job A's line: it leaves spend, analytics and the gate.
     _issue(client, shop, order["id"])
-    client.post(f"/api/v1/supplier-orders/{order['id']}/lines/{line_a['id']}/cancel", headers=headers)
+    res = client.post(
+        f"/api/v1/supplier-orders/{order['id']}/lines/{line_a['id']}/cancel",
+        headers=_headers(shop["office"]),
+    )
+    assert res.status_code == 200, res.get_json()
     inv = client.get(
         "/api/v1/inventory/material-purchases?from=2031-01-01&to=2031-12-31", headers=headers
     ).get_json()

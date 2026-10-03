@@ -56,7 +56,7 @@ def list_job_orders():
 
 @job_orders_bp.route("", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def create_job_order():
     data = request.get_json() or {}
     required = ["clientId", "title", "dueDate"]
@@ -64,7 +64,9 @@ def create_job_order():
         if field not in data:
             return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"{field} is required"}}), 400
 
-    job = jo_service.create_job_order(data, get_current_user_id())
+    job = jo_service.create_job_order(
+        data, get_current_user_id(), actor_role=get_current_user_role()
+    )
     return jsonify(job.to_dict(include_operations=True, viewer_role=get_current_user_role())), 201
 
 
@@ -97,23 +99,40 @@ def delete_job_order(job_id):
     return "", 204
 
 
-@job_orders_bp.route("/<job_id>/release", methods=["POST"])
+@job_orders_bp.route("/<job_id>/schedule/confirm", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN)
-def release_job_order(job_id):
+def confirm_job_schedule(job_id):
     role = get_current_user_role()
     job = jo_service.get_job_order(job_id, get_current_user_id(), role)
-    return jsonify(jo_service.release_job_order(job))
+    data = request.get_json(silent=True) or {}
+    job = jo_service.confirm_job_schedule(job, data, actor_role=role)
+    return jsonify(job.to_dict(include_operations=True, viewer_role=role))
 
 
 @job_orders_bp.route("/<job_id>/material-received", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def mark_material_received(job_id):
     role = get_current_user_role()
     job = jo_service.get_job_order(job_id, get_current_user_id(), role)
     data = request.get_json() or {}
     updated = jo_service.mark_material_received(job, data.get("receivedDate"))
+    return jsonify(updated.to_dict(include_operations=True, viewer_role=role))
+
+
+@job_orders_bp.route("/<job_id>/planned-materials/<material_id>", methods=["PATCH"])
+@jwt_required()
+@require_roles(UserRole.ADMIN)
+def set_planned_material_from_stock(job_id, material_id):
+    role = get_current_user_role()
+    job = jo_service.get_job_order(job_id, get_current_user_id(), role)
+    data = request.get_json() or {}
+    if "fromStock" not in data:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "fromStock is required"}}), 400
+    updated = jo_service.set_planned_material_from_stock(
+        job, material_id, bool(data.get("fromStock"))
+    )
     return jsonify(updated.to_dict(include_operations=True, viewer_role=role))
 
 
@@ -145,7 +164,7 @@ def list_job_breakdowns(job_id):
 
 @job_orders_bp.route("/<job_id>/material-purchases", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def create_material_purchase(job_id):
     from app.services import material_purchase_service as mp_service
 
@@ -159,7 +178,7 @@ def create_material_purchase(job_id):
 
 @job_orders_bp.route("/<job_id>/material-purchases/<purchase_id>", methods=["PATCH"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def update_material_purchase(job_id, purchase_id):
     from app.models.material_purchase import MaterialPurchase
     from app.services import material_purchase_service as mp_service
@@ -180,7 +199,7 @@ def update_material_purchase(job_id, purchase_id):
     "/<job_id>/material-purchases/<purchase_id>/received", methods=["POST"]
 )
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def mark_purchase_received(job_id, purchase_id):
     from app.models.material_purchase import MaterialPurchase
     from app.services import material_purchase_service as mp_service
@@ -199,7 +218,7 @@ def mark_purchase_received(job_id, purchase_id):
 
 @job_orders_bp.route("/<job_id>/material-purchases/<purchase_id>", methods=["DELETE"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def delete_material_purchase(job_id, purchase_id):
     from app.models.material_purchase import MaterialPurchase
     from app.services import material_purchase_service as mp_service
@@ -268,7 +287,7 @@ def propose_job_schedule(job_id):
     else:
         ops = list(job.operations)
     mp_service.assert_material_date_known(job)
-    ready_date, ready_reason = mp_service.material_readiness_date(job)
+    ready_date, ready_reason = mp_service.scheduling_material_floor(job)
     material_nb = resolve_material_not_before_utc(job.material_status, None, ready_date)
     result = propose_schedule(
         ops,
@@ -308,11 +327,15 @@ def propose_draft_schedule():
         return jsonify(
             {"error": {"code": "VALIDATION_ERROR", "message": "dueDate is required"}}
         ), 400
-    material_nb = resolve_material_not_before_utc(
-        data.get("materialStatus", "NOT_REQUIRED"),
-        jo_service._parse_date(data.get("materialReceivedDate")),
-        jo_service._parse_date(data.get("materialExpectedDate")),
-    )
+    material_status = data.get("materialStatus", "NOT_REQUIRED")
+    received = jo_service._parse_date(data.get("materialReceivedDate"))
+    reason = material_constraint_label(material_status, received)
+    floor = None
+    if material_status == "TO_ORDER":
+        floor, lead = mp_service.lead_time_floor()
+        if floor is not None:
+            reason = mp_service.lead_time_floor_reason(floor, lead)
+    material_nb = resolve_material_not_before_utc(material_status, received, floor)
     result = propose_schedule(
         data["operations"],
         due,
@@ -321,11 +344,7 @@ def propose_draft_schedule():
         lock_before_sequence=data.get("lockBeforeSequence"),
         honor_machine_pins=bool(data.get("honorMachinePins")),
         material_not_before_utc=material_nb,
-        material_constraint_reason=material_constraint_label(
-            data.get("materialStatus", "NOT_REQUIRED"),
-            jo_service._parse_date(data.get("materialReceivedDate")),
-            jo_service._parse_date(data.get("materialExpectedDate")),
-        ),
+        material_constraint_reason=reason,
     )
     return jsonify(result)
 

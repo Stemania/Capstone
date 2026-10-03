@@ -158,6 +158,19 @@ class JobOrder(db.Model):
     )
     # Supplier's own order / invoice number.
     supplier_reference = db.Column(db.String(120), nullable=True)
+    # Material delay: first operation's planned start before the first automatic
+    # move (set once, never overwritten), plus the latest move's reason and PO.
+    material_delay_original_start = db.Column(db.DateTime(timezone=True), nullable=True)
+    material_delay_reason = db.Column(db.Text, nullable=True)
+    material_delay_supplier_order_id = db.Column(
+        db.String(36),
+        db.ForeignKey("supplier_orders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    material_delayed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # DelayKind of the latest move (MATERIAL or RESCHEDULED).
+    delay_kind = db.Column(db.String(20), nullable=True)
     # Hex color (#RRGGBB) for schedule board distinction; optional.
     schedule_color = db.Column(db.String(7), nullable=True)
     created_by_id = db.Column(
@@ -188,6 +201,9 @@ class JobOrder(db.Model):
     )
     sales_invoice = db.relationship(
         "SalesInvoice", back_populates="job_order", uselist=False
+    )
+    material_delay_supplier_order = db.relationship(
+        "SupplierOrder", foreign_keys=[material_delay_supplier_order_id]
     )
     tool_events = db.relationship("ToolEvent", back_populates="job_order")
     notification_logs = db.relationship(
@@ -274,7 +290,10 @@ class JobOrder(db.Model):
             purchased = ordered.get(item["id"], Decimal("0"))
             draft = drafted.get(item["id"], Decimal("0"))
             planned = item.get("quantity")
-            if planned is None:
+            if item.get("fromStock"):
+                remaining = Decimal("0")
+                status = "FROM_STOCK"
+            elif planned is None:
                 remaining = None
                 if purchased > 0:
                     status = "PURCHASED"
@@ -301,6 +320,7 @@ class JobOrder(db.Model):
                     "purchasedQuantity": float(purchased),
                     "draftQuantity": float(draft),
                     "remainingQuantity": float(remaining) if remaining is not None else None,
+                    "fromStock": bool(item.get("fromStock")),
                     "status": status,
                 }
             )
@@ -309,7 +329,9 @@ class JobOrder(db.Model):
     def _material_readiness(self):
         from app.services.material_purchase_service import (
             derived_material_expected,
+            job_supplier_orders,
             material_readiness_date,
+            unordered_planned_materials,
         )
 
         ready, reason = material_readiness_date(self)
@@ -329,12 +351,41 @@ class JobOrder(db.Model):
                 derived["missingLeadTimeSuppliers"] if derived else []
             ),
             "lines": derived["lines"] if derived else [],
+            "supplierOrders": job_supplier_orders(self),
+            "unorderedMaterials": (
+                []
+                if self.material_status == MaterialStatus.NOT_REQUIRED
+                else unordered_planned_materials(self)
+            ),
         }
 
     @property
     def job_number(self) -> str:
         year = self.created_at.year if self.created_at else datetime.now(timezone.utc).year
         return f"JO-{year}-{(self.id or '')[:4].upper()}"
+
+    def _material_delay(self):
+        if self.material_delayed_at is None:
+            return None
+        order = self.material_delay_supplier_order
+        first = min(
+            (op for op in self.operations or [] if op.scheduled_start),
+            key=lambda op: op.sequence_no or 0,
+            default=None,
+        )
+        return {
+            "originalStart": (
+                self.material_delay_original_start.isoformat()
+                if self.material_delay_original_start
+                else None
+            ),
+            "currentStart": first.scheduled_start.isoformat() if first else None,
+            "kind": self.delay_kind or "MATERIAL",
+            "reason": self.material_delay_reason,
+            "supplierOrderId": self.material_delay_supplier_order_id,
+            "poNumber": order.po_number if order else None,
+            "delayedAt": self.material_delayed_at.isoformat(),
+        }
 
     def to_dict(self, include_operations=False, viewer_role=None):
         from app.models.operation import OperationStatus
@@ -406,6 +457,9 @@ class JobOrder(db.Model):
                 else None
             ),
         }
+        from app.services.material_purchase_service import material_wait_fields
+
+        data.update(material_wait_fields(self, for_worker=hide_commercial))
         if self.status == JobOrderStatus.DRAFT:
             data["draftStage"] = draft_stage_label(self)
         if not hide_commercial:
@@ -414,6 +468,7 @@ class JobOrder(db.Model):
             data["createdById"] = self.created_by_id
             data["createdByName"] = self.created_by.full_name if self.created_by else None
             data["amount"] = _num(self.amount)
+            data["materialDelay"] = self._material_delay()
         if include_operations:
             data["operations"] = self._serialize_operations(ops)
             if not hide_commercial:

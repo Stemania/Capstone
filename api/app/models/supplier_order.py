@@ -64,6 +64,9 @@ class SupplierOrder(db.Model):
     )
     date_issued = db.Column(db.Date, nullable=True)
     expected_delivery_date = db.Column(db.Date, nullable=True)
+    # Expected date at issue, kept the first time Office Staff change it.
+    original_expected_delivery_date = db.Column(db.Date, nullable=True)
+    expected_delivery_note = db.Column(db.Text, nullable=True)
     # Date the last line arrived (set when the order becomes RECEIVED).
     received_date = db.Column(db.Date, nullable=True)
     notes = db.Column(db.Text, nullable=True)
@@ -88,6 +91,10 @@ class SupplierOrder(db.Model):
     def active_lines(self):
         return [ln for ln in self.lines or [] if ln.cancelled_at is None]
 
+    def days_overdue(self, today=None) -> int:
+        """Most days late among lines still awaited past the expected date."""
+        return max((ln.days_overdue(today) for ln in self.lines or []), default=0)
+
     @property
     def subtotal(self) -> Decimal:
         return sum((ln.line_total for ln in self.active_lines), Decimal("0"))
@@ -107,6 +114,12 @@ class SupplierOrder(db.Model):
                 if self.expected_delivery_date
                 else None
             ),
+            "originalExpectedDeliveryDate": (
+                self.original_expected_delivery_date.isoformat()
+                if self.original_expected_delivery_date
+                else None
+            ),
+            "expectedDeliveryNote": self.expected_delivery_note,
             "receivedDate": self.received_date.isoformat() if self.received_date else None,
             "notes": self.notes,
             "vatRate": float(self.vat_rate) if self.vat_rate is not None else None,
@@ -117,6 +130,7 @@ class SupplierOrder(db.Model):
             "lineCount": len(self.active_lines),
             "jobCount": len({ln.job_order_id for ln in self.active_lines}),
             "subtotal": float(self.subtotal),
+            "daysOverdue": self.days_overdue(),
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }
         if include_lines:
