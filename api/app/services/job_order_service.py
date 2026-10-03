@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import re
 
@@ -393,16 +393,13 @@ def _build_operation(job_id, op_data, seq_fallback):
     worker_id = op_data.get("assignedWorkerId")
     start = op_data.get("scheduledStart")
     end = op_data.get("scheduledEnd")
-    exclude_id = op_data.get("id")
     machine_type_id = _resolve_machine_type_id(op_data)
     if not machine_type_id and op_type and op_type.default_machine_type_id:
         machine_type_id = op_type.default_machine_type_id
     if worker_id:
+        # Clashes are checked on working periods when the schedule is confirmed.
         _validate_worker(
             worker_id,
-            start=start,
-            end=end,
-            exclude_operation_id=exclude_id,
             machine_type_id=machine_type_id,
             operation_type_id=op_type_id,
             operation_name=name,
@@ -807,13 +804,135 @@ def mark_material_received(job, received_date=None):
         raise
 
 
-def _assert_first_operation_after_material_floor(job: JobOrder) -> None:
+def _material_floor_utc(job: JobOrder):
     from app.services.material_purchase_service import scheduling_material_floor
-    from app.services.schedule_calendar import ensure_utc
     from app.services.schedule_service import resolve_material_not_before_utc
 
     floor_date, _ = scheduling_material_floor(job)
-    floor_utc = resolve_material_not_before_utc(job.material_status, None, floor_date)
+    return floor_date, resolve_material_not_before_utc(job.material_status, None, floor_date)
+
+
+def _derive_scheduled_ends(job: JobOrder) -> None:
+    """End is never typed: it follows Start and the target hours across the
+    worker's working hours, overtime and holidays."""
+    from app.constants.scheduling import DEFAULT_ESTIMATED_HOURS
+    from app.services.schedule_service import place_from_start
+
+    for op in job.operations:
+        if op.status in _STARTED_OPERATION_STATUSES or op.actual_start is not None:
+            continue
+        if not op.scheduled_start or not op.assigned_worker_id:
+            continue
+        hours = op.estimated_hours if op.estimated_hours is not None else DEFAULT_ESTIMATED_HOURS
+        _start, end, _segments = place_from_start(op.assigned_worker_id, op.scheduled_start, hours)
+        if end is not None:
+            op.scheduled_end = end
+
+
+def _assert_schedule_has_no_problems(job: JobOrder, lead: str) -> None:
+    from app.services.schedule_service import schedule_problems
+
+    _floor_date, floor_utc = _material_floor_utc(job)
+    problems = schedule_problems(
+        sorted(job.operations, key=lambda o: o.sequence_no or 0),
+        exclude_job_id=job.id,
+        material_not_before_utc=floor_utc,
+    )
+    if problems:
+        raise AppError(
+            f"{lead} " + "; ".join(p["message"] for p in problems) + ".",
+            "SCHEDULE_INVALID",
+            409,
+        )
+
+
+def propose_for_job(job: JobOrder, data: dict) -> dict:
+    """
+    Proposal for the Schedule step or a released job's re-plan, with every
+    problem that would stop it being confirmed.
+
+    pinSequence: that operation starts at its scheduledStart; the ones after it
+      are re-placed from its end (pending jobs: earliest free time, earlier or
+      later; released jobs: never earlier than now planned).
+    restoreSaved: show the pending job's saved schedule, unless it starts in the
+      past, in which case a fresh one is proposed (replacedPastStart says so).
+    """
+    from app.services import material_purchase_service as mp_service
+    from app.services.schedule_calendar import ensure_utc
+    from app.services.schedule_service import (
+        propose_schedule,
+        resolve_material_not_before_utc,
+        schedule_problems,
+    )
+
+    mp_service.assert_material_date_known(job)
+    ready_date, ready_reason = mp_service.scheduling_material_floor(job)
+    material_nb = resolve_material_not_before_utc(job.material_status, None, ready_date)
+    is_draft = job.status == JobOrderStatus.DRAFT
+
+    ops = data.get("operations")
+    lock_before = data.get("lockBeforeSequence")
+    honor_pins = bool(data.get("honorMachinePins"))
+    restored = False
+    replaced_past_start = None
+    if ops is None:
+        ops = sorted(job.operations, key=lambda o: o.sequence_no or 0)
+        if data.get("restoreSaved") and is_draft and ops:
+            not_started = [
+                o for o in ops
+                if o.status not in _STARTED_OPERATION_STATUSES and o.actual_start is None
+            ]
+            starts = [ensure_utc(o.scheduled_start) for o in not_started if o.scheduled_start]
+            if starts and len(starts) == len(not_started):
+                honor_pins = True
+                earliest = min(starts)
+                if earliest >= datetime.now(timezone.utc):
+                    lock_before = max(o.sequence_no or 0 for o in ops) + 1
+                    restored = True
+                else:
+                    replaced_past_start = earliest.isoformat()
+
+    if data.get("anchor"):
+        anchor = _parse_datetime(data["anchor"])
+    else:
+        # Next quarter hour, so a fresh proposal isn't already in the past when confirmed.
+        now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        anchor = now + timedelta(minutes=15 - now.minute % 15)
+    result = propose_schedule(
+        ops,
+        job.due_date,
+        exclude_job_id=job.id,
+        anchor_utc=anchor,
+        lock_before_sequence=lock_before,
+        honor_machine_pins=honor_pins,
+        material_not_before_utc=material_nb,
+        material_constraint_reason=ready_reason,
+        never_earlier=not is_draft,
+        pin_sequence=data.get("pinSequence"),
+    )
+    by_id = {o.id: o for o in job.operations}
+    checked = []
+    for row in result["operations"]:
+        src = by_id.get(row.get("id"))
+        checked.append(
+            {
+                **row,
+                "status": src.status.value if src and src.status else "PENDING",
+                "actualStart": src.actual_start.isoformat() if src and src.actual_start else None,
+            }
+        )
+    result["problems"] = schedule_problems(
+        checked, exclude_job_id=job.id, material_not_before_utc=material_nb
+    )
+    result["restored"] = restored
+    result["replacedPastStart"] = replaced_past_start
+    return result
+
+
+def _assert_first_operation_after_material_floor(job: JobOrder) -> None:
+    from app.services.schedule_calendar import ensure_utc
+
+    floor_date, floor_utc = _material_floor_utc(job)
     if floor_utc is None:
         return
     first = min(job.operations, key=lambda o: o.sequence_no or 0)
@@ -859,6 +978,8 @@ def confirm_job_schedule(job, data=None, actor_role=None):
                 400,
             )
 
+        _derive_scheduled_ends(job)
+        db.session.flush()
         unscheduled = [
             f"#{op.sequence_no} {op.operation_name or f'Operation {op.sequence_no}'}"
             for op in sorted(job.operations, key=lambda o: o.sequence_no or 0)
@@ -873,6 +994,7 @@ def confirm_job_schedule(job, data=None, actor_role=None):
             )
 
         _assert_first_operation_after_material_floor(job)
+        _assert_schedule_has_no_problems(job, "Cannot confirm the schedule —")
 
         for op in job.operations:
             if op.status == OperationStatus.PENDING:
@@ -975,52 +1097,11 @@ def _same_instant(a, b) -> bool:
     return ensure_utc(a) == ensure_utc(b)
 
 
-_BLOCKING_SCHEDULE_CODES = {
-    "INVALID_WINDOW",
-    "SEQUENCE_VIOLATION",
-    "OUTSIDE_WORKING_HOURS",
-    "WORKER_CONFLICT",
-    "MACHINE_CONFLICT",
-}
-
-
-def _assert_windows_fit_calendar(job, moved_ops):
-    """Moved windows must respect the work calendar, order, and in-job bookings."""
-    from app.services.schedule_service import validate_schedule
-
-    if not moved_ops:
-        return
-    windows = [
-        {
-            "id": op.id,
-            "sequenceNo": op.sequence_no,
-            "operationName": op.operation_name,
-            "assignedWorkerId": op.assigned_worker_id,
-            "machineUnitId": op.machine_unit_id,
-            "scheduledStart": op.scheduled_start.isoformat(),
-            "scheduledEnd": op.scheduled_end.isoformat(),
-        }
-        for op in sorted(job.operations, key=lambda o: o.sequence_no or 0)
-        if op.scheduled_start and op.scheduled_end
-    ]
-    moved_seqs = {op.sequence_no for op in moved_ops}
-    problems = [
-        w["message"]
-        for w in validate_schedule(windows)["warnings"]
-        if w["code"] in _BLOCKING_SCHEDULE_CODES and w["sequenceNo"] in moved_seqs
-    ]
-    if problems:
-        raise AppError(
-            "This schedule can't be applied: " + "; ".join(problems) + ".",
-            "SCHEDULE_INVALID",
-            409,
-        )
-
-
 def apply_released_schedule(job, operations):
     """
     Admin confirms a re-proposed schedule for a released job. Only operations
-    that have not started get new windows; started or completed work never moves.
+    that have not started get new starts (ends follow from target hours);
+    started or completed work never moves. Every operation is checked.
     """
     from app.models.machine import MachineUnit
 
@@ -1034,8 +1115,6 @@ def apply_released_schedule(job, operations):
         raise AppError("operations is required", "VALIDATION_ERROR", 400)
 
     by_id = {op.id: op for op in job.operations}
-    payload_ids = [d.get("id") for d in operations if d.get("id") in by_id]
-    moved = []
     try:
         for data in operations:
             op = by_id.get(data.get("id"))
@@ -1061,9 +1140,9 @@ def apply_released_schedule(job, operations):
                         409,
                     )
                 continue
-            if not start or not end or end <= start:
+            if not start:
                 raise AppError(
-                    f"{op.operation_name or f'Operation {op.sequence_no}'} needs a valid window.",
+                    f"{op.operation_name or f'Operation {op.sequence_no}'} needs a start time.",
                     "VALIDATION_ERROR",
                     400,
                 )
@@ -1089,25 +1168,22 @@ def apply_released_schedule(job, operations):
             try:
                 _validate_worker(
                     worker_id,
-                    start=start,
-                    end=end,
                     machine_type_id=op.machine_type_id,
                     operation_type_id=op.operation_type_id,
                     operation_name=op.operation_name,
-                    exclude_operation_ids=payload_ids,
                 )
             except AppError as exc:
                 raise AppError(f"{label}: {exc.message}", exc.code, exc.status_code)
 
             op.scheduled_start = start
-            op.scheduled_end = end
             op.machine_unit_id = unit_id or op.machine_unit_id
             op.assigned_worker_id = worker_id
             if op.status == OperationStatus.PENDING and worker_id:
                 op.status = OperationStatus.SCHEDULED
-            moved.append(op)
 
-        _assert_windows_fit_calendar(job, moved)
+        _derive_scheduled_ends(job)
+        db.session.flush()
+        _assert_schedule_has_no_problems(job, "This schedule can't be applied:")
 
         job.status = derive_job_status(job)
         db.session.commit()

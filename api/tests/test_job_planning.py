@@ -4,7 +4,7 @@ Runs against the local DATABASE_URL (bmsc) inside a connection transaction that
 is always rolled back — no bmsc_test database required.
 """
 
-from datetime import date
+from datetime import date, time
 from decimal import Decimal
 
 import pytest
@@ -13,11 +13,19 @@ from app import create_app
 from app.config import Config
 from app.extensions import bcrypt, db
 from app.models.client import Client
-from app.models.job_order import JobOrder, JobOrderStatus, JobType, MaterialStatus, PartCondition
+from app.models.job_order import (
+    JobOrder,
+    JobOrderStatus,
+    JobPriority,
+    JobType,
+    MaterialStatus,
+    PartCondition,
+)
 from app.models.notification import NotificationMilestone
 from app.models.operation import JobOperation, OperationStatus
 from app.models.user import User, UserRole
 from app.models.worker_profile import WorkerProfile
+from app.models.worker_skill import WorkerSchedule
 
 
 class LocalTxnConfig(Config):
@@ -86,6 +94,16 @@ def seeded(app):
     db.session.add_all([admin, worker, office])
     db.session.flush()
     db.session.add(WorkerProfile(user_id=worker.id))
+    for dow in range(6):
+        db.session.add(
+            WorkerSchedule(
+                worker_id=worker.id,
+                day_of_week=dow,
+                is_working=True,
+                start_time=time(8, 0),
+                end_time=time(17, 0),
+            )
+        )
     client_row = Client(name="Plan Test Client")
     db.session.add(client_row)
     db.session.flush()

@@ -1,6 +1,6 @@
 import { Button, DatePicker, Select, Tag, Tooltip, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import type { MachineUnitInfo, ProposedOperation, ScheduleFlag, ScheduleWarning } from '../../types';
+import type { MachineUnitInfo, ProposedOperation, ScheduleFlag, ScheduleProblem } from '../../types';
 import {
   formatShopDateTime,
   isoToShopDayjs,
@@ -16,7 +16,7 @@ type Props = {
   machineUnits: MachineUnitInfo[];
   projectedCompletion?: string | null;
   scheduleFlag?: ScheduleFlag | null;
-  warningsBySeq: Record<number, ScheduleWarning[]>;
+  problemsBySeq: Record<number, ScheduleProblem[]>;
   onChangeOp: (sequenceNo: number, patch: Partial<ProposedOperation>) => void;
   /** Machine change should re-fit start/end on the selected unit. */
   onMachineUnitChange?: (
@@ -27,7 +27,6 @@ type Props = {
   /** Re-run earliest-fit proposal (reset manual date/time edits). */
   onRefreshProposal?: () => void;
   refreshing?: boolean;
-  onBlurValidate: () => void;
   readOnly?: boolean;
 };
 
@@ -66,12 +65,11 @@ export default function ScheduleProposalPanel({
   machineUnits,
   projectedCompletion,
   scheduleFlag,
-  warningsBySeq,
+  problemsBySeq,
   onChangeOp,
   onMachineUnitChange,
   onRefreshProposal,
   refreshing = false,
-  onBlurValidate,
   readOnly = false,
 }: Props) {
   return (
@@ -118,7 +116,7 @@ export default function ScheduleProposalPanel({
         </div>
 
         {operations.map((op) => {
-          const warnings = warningsBySeq[op.sequenceNo] || [];
+          const problems = problemsBySeq[op.sequenceNo] || [];
           const unitOptions = unitsForOp(op, machineUnits);
           const needsMachine = Boolean(op.machineTypeId);
 
@@ -143,11 +141,20 @@ export default function ScheduleProposalPanel({
                     {op.message}
                   </Text>
                 ) : null}
-                {warnings.length > 0 ? (
+                {op.scheduled && op.message ? (
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+                    {op.message}
+                  </Text>
+                ) : null}
+                {problems.length > 0 ? (
                   <div className="jo-plan__schedule-tags" style={{ marginTop: 4 }}>
-                    {warnings.map((w, i) => (
-                      <Tag key={`${w.code}-${i}`} color="warning" style={{ margin: 0, fontSize: 11 }}>
-                        {w.message}
+                    {problems.map((p, i) => (
+                      <Tag
+                        key={`${p.code}-${i}`}
+                        color="error"
+                        style={{ margin: 0, fontSize: 11, whiteSpace: 'normal' }}
+                      >
+                        {p.message}
                       </Tag>
                     ))}
                   </div>
@@ -202,30 +209,14 @@ export default function ScheduleProposalPanel({
                           scheduledStart: shopLocalToIso(v),
                         });
                       }}
-                      onOpenChange={(open) => {
-                        if (!open) onBlurValidate();
-                      }}
                     />
                   </div>
                   <div className="jo-plan__schedule-field" data-label="End">
-                    <DatePicker
-                      showTime={{ format: 'HH:mm' }}
-                      format="MMM D, YYYY HH:mm"
-                      size="small"
-                      style={{ width: '100%' }}
-                      disabled={readOnly}
-                      value={isoToShopDayjs(op.scheduledEnd)}
-                      allowClear={false}
-                      onChange={(v) => {
-                        if (!v) return;
-                        onChangeOp(op.sequenceNo, {
-                          scheduledEnd: shopLocalToIso(v),
-                        });
-                      }}
-                      onOpenChange={(open) => {
-                        if (!open) onBlurValidate();
-                      }}
-                    />
+                    <Tooltip title="Worked out from Start and the target hours, across working hours, overtime and holidays. Change the target hours in the Operations step.">
+                      <Text style={{ fontSize: 12, color: NAVY }}>
+                        {op.scheduledEnd ? isoToShopDayjs(op.scheduledEnd)?.format('MMM D, YYYY HH:mm') : '—'}
+                      </Text>
+                    </Tooltip>
                   </div>
                 </>
               ) : (

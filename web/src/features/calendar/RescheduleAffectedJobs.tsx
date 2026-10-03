@@ -158,7 +158,7 @@ export function ReproposeModal({
   }, [job]);
 
   const ops = proposal?.operations || [];
-  const unplaced = ops.filter((op) => !op.scheduled);
+  const problems = proposal?.problems || [];
   const flag = proposal?.scheduleFlag ? scheduleFlagStyle[proposal.scheduleFlag] : null;
 
   const confirm = async () => {
@@ -203,7 +203,7 @@ export function ReproposeModal({
           key="confirm"
           type="primary"
           loading={saving}
-          disabled={loading || !!error || !ops.length || unplaced.length > 0}
+          disabled={loading || !!error || !ops.length || problems.length > 0}
           onClick={confirm}
           style={{ fontWeight: 700, minWidth: 140 }}
         >
@@ -249,13 +249,19 @@ export function ReproposeModal({
               </span>
             ) : null}
           </div>
-          {unplaced.length > 0 ? (
+          {problems.length > 0 ? (
             <Alert
-              type="warning"
+              type="error"
               showIcon
               style={{ marginBottom: 10 }}
-              message="Some operations could not be placed, so this schedule can't be confirmed."
-              description={unplaced.map((op) => `#${op.sequenceNo} ${op.operationName}: ${op.message}`).join(' · ')}
+              message="This schedule can't be confirmed yet"
+              description={
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {problems.map((p, i) => (
+                    <li key={i}>{p.message}</li>
+                  ))}
+                </ul>
+              }
             />
           ) : null}
           <Table
@@ -290,6 +296,12 @@ export function ReproposeModal({
                 render: (_: unknown, op: ProposedOperation) => {
                   const cur = op.id ? currentById.get(op.id) : undefined;
                   if (cur?.status === 'COMPLETED') return 'Completed — not moved';
+                  const own = problems.filter((p) => p.sequenceNo === op.sequenceNo);
+                  if (own.length > 0) {
+                    return (
+                      <span style={{ color: '#b91c1c' }}>{own.map((p) => p.message).join(' · ')}</span>
+                    );
+                  }
                   return op.message || '';
                 },
               },

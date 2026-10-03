@@ -168,22 +168,28 @@ def _segments_for_worker_envelope(
     return derive_working_segments(start, end, schedule_by_dow, exceptions_by_date)
 
 
-def _load_external_bookings(exclude_job_id=None, exclude_operation_ids=None):
+def _external_booking_records(exclude_job_id=None, exclude_operation_ids=None):
+    """(operation, working periods) for every booking outside the given job."""
     query = JobOperation.query.filter(
         JobOperation.status.in_(ACTIVE_BOOKING_STATUSES + (OperationStatus.COMPLETED,)),
     )
     if exclude_job_id:
         query = query.filter(JobOperation.job_order_id != exclude_job_id)
-    ops = query.all()
-    worker_busy = {}
-    machine_busy = {}
     exclude_operation_ids = set(exclude_operation_ids or [])
-    for op in ops:
+    records = []
+    for op in query.all():
         if op.id in exclude_operation_ids:
             continue
         intervals = _busy_intervals_for_operation(op)
-        if not intervals:
-            continue
+        if intervals:
+            records.append((op, intervals))
+    return records
+
+
+def _load_external_bookings(exclude_job_id=None, exclude_operation_ids=None):
+    worker_busy = {}
+    machine_busy = {}
+    for op, intervals in _external_booking_records(exclude_job_id, exclude_operation_ids):
         if op.assigned_worker_id:
             worker_busy.setdefault(op.assigned_worker_id, []).extend(intervals)
             worker_busy.setdefault(str(op.assigned_worker_id), []).extend(intervals)
@@ -510,21 +516,72 @@ def _find_earliest_slot(
     return None, None, None, None, max_placeable
 
 
-def _lock_existing_window(op: dict) -> dict | None:
-    """Keep a previously proposed window when partially re-proposing."""
-    start = op.get("scheduledStart")
-    end = op.get("scheduledEnd")
-    if not start or not end:
+def _parse_iso(value) -> datetime | None:
+    if not value:
         return None
+    if isinstance(value, datetime):
+        return ensure_utc(value)
+    return ensure_utc(datetime.fromisoformat(str(value).replace("Z", "+00:00")))
+
+
+def _fmt_shop(dt: datetime) -> str:
+    return utc_to_shop(dt).strftime("%a %b %d, %H:%M")
+
+
+def place_from_start(worker_id, start, hours):
+    """
+    Working time for an operation starting at ``start``, or at the worker's next
+    working time after it, and running ``hours`` across working hours, overtime
+    and holidays. Returns (start, end, segments); (None, None, []) when the
+    worker has no such time within the horizon.
+    """
+    start = ensure_utc(start)
+    horizon = horizon_end_utc(start)
+    schedule_by_dow = load_worker_schedule_maps(worker_id) if worker_id else {}
+    exceptions = load_calendar_exceptions(utc_to_shop(start).date(), utc_to_shop(horizon).date())
+    windows = build_worker_working_windows(schedule_by_dow, exceptions, start, horizon)
+    placed_start, placed_end, _ = place_duration(
+        windows, timedelta(hours=float(hours)), start, horizon
+    )
+    if placed_start is None:
+        return None, None, []
+    return placed_start, placed_end, intersect_intervals([(placed_start, placed_end)], windows)
+
+
+def _window_from_start(op: dict, requested_start) -> dict:
+    """The operation starts at the requested time (moved to the next working time
+    when outside working hours) and ends once its target hours are worked."""
+    if not op.get("assignedWorkerId"):
+        return _failure_result(op, MISSING_WORKER_MESSAGE, required_hours=op["estimatedHours"])
+    requested = _parse_iso(requested_start)
+    start, end, _ = place_from_start(op["assignedWorkerId"], requested, op["estimatedHours"])
+    if start is None:
+        return _failure_result(
+            op,
+            f"{_worker_label(op['assignedWorkerId'])} has no working time for "
+            f"{op['estimatedHours']:.1f}h within {SCHEDULE_HORIZON_DAYS} days of the chosen start",
+            required_hours=op["estimatedHours"],
+        )
+    message = None
+    if start != requested:
+        message = f"Start moved to the next working time, {_fmt_shop(start)}"
     return _result_from_slot(
         op,
-        start,
-        end,
+        start.isoformat(),
+        end.isoformat(),
         op.get("machineUnitId"),
         scheduled=True,
-        message=None,
+        message=message,
         machine_unit_label=op.get("machineUnitLabel"),
     )
+
+
+def _lock_existing_window(op: dict) -> dict | None:
+    """Keep a previously proposed start when partially re-proposing; the end is
+    always worked out again from the target hours."""
+    if not op.get("scheduledStart"):
+        return None
+    return _window_from_start(op, op["scheduledStart"])
 
 
 def _record_in_job_busy(op_result, op, in_job_worker_busy, in_job_machine_busy):
@@ -555,15 +612,19 @@ def propose_schedule(
     material_not_before_utc=None,
     material_constraint_reason=None,
     never_earlier=False,
+    pin_sequence=None,
 ):
     """
     Earliest-fit proposal for a job's operations. Does not write to the database.
 
-    lock_before_sequence: keep scheduled windows for ops with sequenceNo < this
-      (used when re-fitting after a machine/time edit).
+    lock_before_sequence: keep scheduled starts for ops with sequenceNo < this
+      (used when re-fitting after a machine/time edit); ends are worked out again.
     honor_machine_pins: place each op on its machineUnitId when set (partial re-fit).
     material_not_before_utc: raises the first-op not_before floor (material readiness).
     never_earlier: no op is placed before its current scheduled start.
+    pin_sequence: this op starts at its scheduledStart (moved to the next working
+      time if needed) whatever else is booked; clashes are reported by
+      schedule_problems. Ops after it are re-placed from its end.
     """
     anchor_utc = ensure_utc(anchor_utc or shop_now().astimezone(timezone.utc))
     end_utc = horizon_end_utc(anchor_utc)
@@ -606,8 +667,19 @@ def propose_schedule(
             and op["sequenceNo"] < int(lock_before_sequence)
         ):
             locked = _lock_existing_window(op)
+        if (
+            not frozen
+            and not locked
+            and pin_sequence is not None
+            and op["sequenceNo"] == int(pin_sequence)
+            and op.get("scheduledStart")
+        ):
+            locked = _window_from_start(op, op["scheduledStart"])
 
         kept = frozen or locked
+        if kept and not kept.get("scheduled"):
+            results.append(kept)
+            continue
         if kept:
             results.append(kept)
             frozen_end = ensure_utc(
@@ -911,3 +983,182 @@ def validate_schedule(operations, due_date=None):
         "projectedCompletion": projected.isoformat() if projected else None,
         "scheduleFlag": compute_schedule_flag(projected, due_date) if due_date else None,
     }
+
+
+def _overlaps(segments, others) -> bool:
+    return any(s < oe and os < e for s, e in segments for os, oe in others)
+
+
+def schedule_problems(
+    operations,
+    *,
+    exclude_job_id=None,
+    material_not_before_utc=None,
+    now_utc=None,
+) -> list[dict]:
+    """
+    Everything that stops a schedule from being confirmed, one entry per problem:
+    {sequenceNo, operationId, code, message}. Operations already started or
+    completed are kept as they are and only count as bookings.
+
+    Clashes compare actual working periods, never the whole start-to-end span.
+    """
+    from app.services.operation_service import open_downtime_intervals_by_unit
+
+    now = ensure_utc(now_utc or datetime.now(timezone.utc))
+    ops = []
+    for i, raw in enumerate(operations, start=1):
+        op = _normalize_operation(raw, i)
+        if isinstance(raw, dict) and raw.get("scheduled") is False:
+            op["unplacedMessage"] = raw.get("message") or "no time found"
+        ops.append(op)
+    ops.sort(key=lambda o: o["sequenceNo"])
+
+    external = _external_booking_records(
+        exclude_job_id=exclude_job_id,
+        exclude_operation_ids=[o["id"] for o in ops if o.get("id")],
+    )
+    downtime = open_downtime_intervals_by_unit()
+    unit_labels = {u.id: u.label for u in MachineUnit.query.all()}
+
+    problems = []
+
+    def add(op, code, message):
+        problems.append(
+            {
+                "sequenceNo": op["sequenceNo"],
+                "operationId": op.get("id"),
+                "code": code,
+                "message": message,
+            }
+        )
+
+    def label(op):
+        return f"#{op['sequenceNo']} {op.get('operationName') or 'Operation'}"
+
+    placed = []
+    prev = None
+    first = True
+    for op in ops:
+        start = _parse_iso(op.get("scheduledStart"))
+        end = _parse_iso(op.get("scheduledEnd"))
+        if op.get("unplacedMessage") or not start or not end:
+            reason = op.get("unplacedMessage")
+            add(
+                op,
+                "UNSCHEDULED",
+                f"{label(op)} could not be scheduled: {reason}" if reason
+                else f"{label(op)} has no scheduled time",
+            )
+            first = False
+            continue
+
+        worker_id = op.get("assignedWorkerId")
+        schedule_by_dow = load_worker_schedule_maps(worker_id) if worker_id else {}
+        exceptions = load_calendar_exceptions(utc_to_shop(start).date(), utc_to_shop(end).date())
+
+        if _frozen_result(op):
+            work_start = _parse_iso(op.get("actualStart")) or start
+            segments = derive_working_segments(work_start, end, schedule_by_dow, exceptions)
+            placed.append((op, segments or [(work_start, end)]))
+            prev = (op, end)
+            first = False
+            continue
+
+        if first and material_not_before_utc is not None and start < ensure_utc(
+            material_not_before_utc
+        ):
+            add(
+                op,
+                "MATERIAL_NOT_READY",
+                f"{label(op)} starts before {utc_to_shop(material_not_before_utc):%b %d, %Y}, "
+                "when the materials can be in",
+            )
+        first = False
+
+        if start < now:
+            add(op, "PAST_START", f"{label(op)} starts in the past ({_fmt_shop(start)})")
+
+        if prev and start < prev[1]:
+            add(
+                op,
+                "SEQUENCE_VIOLATION",
+                f"{label(op)} starts before {label(prev[0])} ends ({_fmt_shop(prev[1])})",
+            )
+
+        segments = derive_working_segments(start, end, schedule_by_dow, exceptions)
+        if not segments or segments[0][0] != start or segments[-1][1] != end:
+            day = start if not segments or segments[0][0] != start else end
+            who = _worker_label(worker_id) if worker_id else "the worker"
+            add(
+                op,
+                "OUTSIDE_WORKING_HOURS",
+                f"{label(op)} runs outside working hours or on a holiday "
+                f"({who}, {utc_to_shop(day):%a %b %d})",
+            )
+        busy = segments or [(start, end)]
+
+        if worker_id:
+            clash = next(
+                (o for o, segs in placed if o.get("assignedWorkerId") == worker_id and _overlaps(busy, segs)),
+                None,
+            )
+            if clash:
+                add(
+                    op,
+                    "WORKER_CONFLICT",
+                    f"{_worker_label(worker_id)} is booked on {label(clash)} at the same time",
+                )
+            else:
+                other = next(
+                    (
+                        (o, segs)
+                        for o, segs in external
+                        if o.assigned_worker_id == worker_id and _overlaps(busy, segs)
+                    ),
+                    None,
+                )
+                if other:
+                    o, segs = other
+                    add(
+                        op,
+                        "WORKER_CONFLICT",
+                        f"{_worker_label(worker_id)} is already booked on "
+                        f"{o.job_order.job_number} #{o.sequence_no} {o.operation_name} "
+                        f"({_fmt_shop(segs[0][0])})",
+                    )
+
+        unit_id = op.get("machineUnitId")
+        if unit_id:
+            unit = unit_labels.get(unit_id, "The machine unit")
+            clash = next(
+                (o for o, segs in placed if o.get("machineUnitId") == unit_id and _overlaps(busy, segs)),
+                None,
+            )
+            other = None
+            if not clash:
+                other = next(
+                    (
+                        (o, segs)
+                        for o, segs in external
+                        if o.machine_unit_id == unit_id and _overlaps(busy, segs)
+                    ),
+                    None,
+                )
+            if clash:
+                add(op, "MACHINE_CONFLICT", f"{unit} is booked on {label(clash)} at the same time")
+            elif other:
+                o, segs = other
+                add(
+                    op,
+                    "MACHINE_CONFLICT",
+                    f"{unit} is already booked on {o.job_order.job_number} "
+                    f"#{o.sequence_no} {o.operation_name} ({_fmt_shop(segs[0][0])})",
+                )
+            elif _overlaps(busy, downtime.get(unit_id, [])):
+                add(op, "MACHINE_CONFLICT", f"{unit} has an open breakdown")
+
+        placed.append((op, busy))
+        prev = (op, end)
+
+    return problems

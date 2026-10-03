@@ -93,22 +93,42 @@ def assert_worker_available(
     Without a window there is nothing to clash with: a worker busy on another
     job right now can still be planned for later work.
     """
-    if not _parse_dt(start) or not _parse_dt(end):
-        return
-    busy = get_busy_workers(
-        start=start,
-        end=end,
-        exclude_operation_id=exclude_operation_id,
-        exclude_operation_ids=exclude_operation_ids,
+    from app.services.schedule_calendar import (
+        derive_working_segments,
+        load_calendar_exceptions,
+        load_worker_schedule_maps,
+        utc_to_shop,
     )
-    conflict = busy.get(worker_id)
-    if conflict:
-        label = conflict.operation_name or "another operation"
-        raise AppError(
-            f"Worker is unavailable — schedule conflicts with '{label}'",
-            "CONFLICT",
-            409,
-        )
+    from app.services.schedule_service import operation_working_segments
+
+    start = _parse_dt(start)
+    end = _parse_dt(end)
+    if not start or not end:
+        return
+    excluded = set(exclude_operation_ids or ())
+    if exclude_operation_id:
+        excluded.add(exclude_operation_id)
+    exceptions = load_calendar_exceptions(utc_to_shop(start).date(), utc_to_shop(end).date())
+    mine = derive_working_segments(
+        start, end, load_worker_schedule_maps(worker_id), exceptions
+    ) or [(start, end)]
+    others = JobOperation.query.filter(
+        JobOperation.assigned_worker_id == worker_id,
+        JobOperation.status.in_(ACTIVE_OP_STATUSES),
+        JobOperation.scheduled_start.isnot(None),
+        JobOperation.scheduled_end.isnot(None),
+    ).all()
+    for op in others:
+        if op.id in excluded:
+            continue
+        theirs = operation_working_segments(op) or [(op.scheduled_start, op.scheduled_end)]
+        if any(_windows_overlap(s, e, os, oe) for s, e in mine for os, oe in theirs):
+            label = op.operation_name or "another operation"
+            raise AppError(
+                f"Worker is unavailable — schedule conflicts with '{label}'",
+                "CONFLICT",
+                409,
+            )
 
 
 def is_worker_available(worker_id, start=None, end=None, exclude_operation_id=None):

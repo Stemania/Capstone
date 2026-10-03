@@ -280,26 +280,7 @@ def list_operations(job_id):
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def propose_job_schedule(job_id):
     job = jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
-    data = request.get_json() or {}
-    operations = data.get("operations")
-    if operations is not None:
-        ops = operations
-    else:
-        ops = list(job.operations)
-    mp_service.assert_material_date_known(job)
-    ready_date, ready_reason = mp_service.scheduling_material_floor(job)
-    material_nb = resolve_material_not_before_utc(job.material_status, None, ready_date)
-    result = propose_schedule(
-        ops,
-        job.due_date,
-        exclude_job_id=job.id,
-        anchor_utc=jo_service._parse_datetime(data.get("anchor")) if data.get("anchor") else None,
-        lock_before_sequence=data.get("lockBeforeSequence"),
-        honor_machine_pins=bool(data.get("honorMachinePins")),
-        material_not_before_utc=material_nb,
-        material_constraint_reason=ready_reason,
-    )
-    return jsonify(result)
+    return jsonify(jo_service.propose_for_job(job, request.get_json() or {}))
 
 
 @job_orders_bp.route("/<job_id>/schedule/apply", methods=["POST"])

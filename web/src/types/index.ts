@@ -614,6 +614,19 @@ export interface ScheduleProposeResult {
   materialNotBefore?: string | null;
   materialConstraintReason?: string | null;
   operations: ProposedOperation[];
+  /** Everything that blocks confirming this proposal. */
+  problems?: ScheduleProblem[];
+  /** The saved schedule was shown as it was. */
+  restored?: boolean;
+  /** The saved schedule started at this time, already past, so a fresh one was proposed. */
+  replacedPastStart?: string | null;
+}
+
+export interface ScheduleProblem {
+  sequenceNo: number;
+  operationId?: string | null;
+  code: string;
+  message: string;
 }
 
 export interface ScheduleWarning {

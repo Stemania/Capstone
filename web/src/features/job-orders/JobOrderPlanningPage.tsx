@@ -34,6 +34,7 @@ import { jobOrdersApi, workersApi } from '../../api/jobOrders.api';
 import { operationTypesApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import { MACHINE_OPTIONS } from '../../types';
+import { formatShopDateTime } from '../../utils/shopTime';
 import ScheduleProposalPanel from './ScheduleProposalPanel';
 import ScheduleWeekView from './ScheduleWeekView';
 import MaterialOrdersSummary from './MaterialOrdersSummary';
@@ -50,7 +51,8 @@ import type {
   MaterialStatus,
   OperationType,
   ProposedOperation,
-  ScheduleWarning,
+  ScheduleProblem,
+  ScheduleProposeResult,
   User,
   WorkerSuggestion,
 } from '../../types';
@@ -192,7 +194,8 @@ export default function JobOrderPlanningPage() {
       ));
   const noLeadTimeSuppliers = linesReadiness?.missingLeadTimeSuppliers || [];
   const materialDateUnknown = noLeadTimeSuppliers.length > 0;
-  const [scheduleWarnings, setScheduleWarnings] = useState<Record<number, ScheduleWarning[]>>({});
+  const [scheduleProblems, setScheduleProblems] = useState<ScheduleProblem[]>([]);
+  const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
   const [proposing, setProposing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -514,6 +517,21 @@ export default function JobOrderPlanningPage() {
           setScheduleMeta(null);
         }
 
+        if (initial === 3 && isPlanningStatus(j.status)) {
+          try {
+            const { data } = await jobOrdersApi.proposeSchedule(id, { restoreSaved: true });
+            if (cancelled) return;
+            applyProposal(data);
+            setScheduleNotice(
+              data.replacedPastStart
+                ? `The saved schedule started on ${formatShopDateTime(data.replacedPastStart)}, which has passed, so a fresh schedule was proposed.`
+                : null
+            );
+          } catch (err) {
+            if (!cancelled) setError(getErrorMessage(err));
+          }
+        }
+
         rows.forEach((row, index) => {
           void loadRowWorkers(index, row.machineTypeId, false);
           void loadSuggestions(index, row, { preserveExisting: true });
@@ -688,6 +706,17 @@ export default function JobOrderPlanningPage() {
     }
   };
 
+  const applyProposal = (data: ScheduleProposeResult) => {
+    setScheduleOps(data.operations);
+    setScheduleMeta({
+      projectedCompletion: data.projectedCompletion,
+      scheduleFlag: data.scheduleFlag,
+      materialNotBefore: data.materialNotBefore,
+      materialConstraintReason: data.materialConstraintReason,
+    });
+    setScheduleProblems(data.problems || []);
+  };
+
   const handleViewProposedSchedule = async () => {
     if (!id || !job || !canAdvanceToSchedule) return;
     setProposing(true);
@@ -703,14 +732,8 @@ export default function JobOrderPlanningPage() {
       const { data } = await jobOrdersApi.proposeSchedule(id, {
         operations: buildOperationsPayload(),
       });
-      setScheduleOps(data.operations);
-      setScheduleMeta({
-        projectedCompletion: data.projectedCompletion,
-        scheduleFlag: data.scheduleFlag,
-        materialNotBefore: data.materialNotBefore,
-        materialConstraintReason: data.materialConstraintReason,
-      });
-      setScheduleWarnings({});
+      applyProposal(data);
+      setScheduleNotice(null);
       goToStep(3);
     } catch (err) {
       setError(getErrorMessage(err));
@@ -735,61 +758,32 @@ export default function JobOrderPlanningPage() {
 
   const handleScheduleOpChange = (sequenceNo: number, patch: Partial<ProposedOperation>) => {
     if (!scheduleOps) return;
-
-    const startChanged = Object.prototype.hasOwnProperty.call(patch, 'scheduledStart');
-    const endChanged = Object.prototype.hasOwnProperty.call(patch, 'scheduledEnd');
-
-    const nextOps = scheduleOps.map((op) => {
-      if (op.sequenceNo !== sequenceNo) return op;
-      const next: ProposedOperation = { ...op, ...patch };
-
-      // Start edit → end follows target (estimated) hours
-      if (startChanged && next.scheduledStart) {
-        const hours =
-          typeof op.estimatedHours === 'number' && op.estimatedHours > 0
-            ? op.estimatedHours
-            : 1;
-        next.scheduledEnd = dayjs(next.scheduledStart).add(hours, 'hour').toISOString();
-      }
-
-      if (next.scheduledStart && next.scheduledEnd) {
-        next.segments = [{ start: next.scheduledStart, end: next.scheduledEnd }];
-        next.scheduled = true;
-      } else if (startChanged || endChanged) {
-        next.segments = [];
-      }
-      return next;
-    });
-
+    const nextOps = scheduleOps.map((op) =>
+      op.sequenceNo === sequenceNo ? { ...op, ...patch } : op
+    );
     setScheduleOps(nextOps);
+    if (!Object.prototype.hasOwnProperty.call(patch, 'scheduledStart') || !id || readOnly) return;
 
-    // Re-fit following operations after this one (keep this op's new window)
-    if ((startChanged || endChanged) && id && !readOnly) {
-      void (async () => {
-        setProposing(true);
-        setError('');
-        try {
-          const { data } = await jobOrdersApi.proposeSchedule(id, {
-            operations: scheduleOpsToPayload(nextOps),
-            lockBeforeSequence: sequenceNo + 1,
-            honorMachinePins: true,
-          });
-          setScheduleOps(data.operations);
-          setScheduleMeta({
-            projectedCompletion: data.projectedCompletion,
-            scheduleFlag: data.scheduleFlag,
-            materialNotBefore: data.materialNotBefore,
-            materialConstraintReason: data.materialConstraintReason,
-          });
-          setScheduleWarnings({});
-        } catch (err) {
-          setError(getErrorMessage(err));
-          message.error(getErrorMessage(err));
-        } finally {
-          setProposing(false);
-        }
-      })();
-    }
+    void (async () => {
+      setProposing(true);
+      setError('');
+      try {
+        const { data } = await jobOrdersApi.proposeSchedule(id, {
+          operations: scheduleOpsToPayload(nextOps),
+          pinSequence: sequenceNo,
+          lockBeforeSequence: sequenceNo,
+          honorMachinePins: true,
+        });
+        applyProposal(data);
+        const edited = data.operations.find((o) => o.sequenceNo === sequenceNo);
+        if (edited?.scheduled && edited.message) message.info(edited.message);
+      } catch (err) {
+        setError(getErrorMessage(err));
+        message.error(getErrorMessage(err));
+      } finally {
+        setProposing(false);
+      }
+    })();
   };
 
   const handleRefreshProposedSchedule = async () => {
@@ -806,14 +800,8 @@ export default function JobOrderPlanningPage() {
         })),
         honorMachinePins: true,
       });
-      setScheduleOps(data.operations);
-      setScheduleMeta({
-        projectedCompletion: data.projectedCompletion,
-        scheduleFlag: data.scheduleFlag,
-        materialNotBefore: data.materialNotBefore,
-        materialConstraintReason: data.materialConstraintReason,
-      });
-      setScheduleWarnings({});
+      applyProposal(data);
+      setScheduleNotice(null);
       message.success('Schedule reset to proposal');
     } catch (err) {
       setError(getErrorMessage(err));
@@ -843,51 +831,12 @@ export default function JobOrderPlanningPage() {
         lockBeforeSequence: sequenceNo,
         honorMachinePins: true,
       });
-      setScheduleOps(data.operations);
-      setScheduleMeta({
-        projectedCompletion: data.projectedCompletion,
-        scheduleFlag: data.scheduleFlag,
-        materialNotBefore: data.materialNotBefore,
-        materialConstraintReason: data.materialConstraintReason,
-      });
-      setScheduleWarnings({});
+      applyProposal(data);
     } catch (err) {
       setError(getErrorMessage(err));
       message.error(getErrorMessage(err));
     } finally {
       setProposing(false);
-    }
-  };
-
-  const runValidateSchedule = async (ops: ProposedOperation[]) => {
-    if (!job?.dueDate) return;
-    try {
-      const { data } = await jobOrdersApi.validateSchedule({
-        dueDate: job.dueDate,
-        operations: ops.map((op) => ({
-          sequenceNo: op.sequenceNo,
-          operationName: op.operationName,
-          assignedWorkerId: op.assignedWorkerId,
-          machineTypeId: op.machineTypeId,
-          machineUnitId: op.machineUnitId,
-          scheduledStart: op.scheduledStart,
-          scheduledEnd: op.scheduledEnd,
-        })),
-      });
-      const bySeq: Record<number, ScheduleWarning[]> = {};
-      for (const w of data.warnings || []) {
-        bySeq[w.sequenceNo] = [...(bySeq[w.sequenceNo] || []), w];
-      }
-      setScheduleWarnings(bySeq);
-      if (data.projectedCompletion) {
-        setScheduleMeta((prev) => ({
-          ...prev,
-          projectedCompletion: data.projectedCompletion,
-          scheduleFlag: data.scheduleFlag ?? prev?.scheduleFlag ?? null,
-        }));
-      }
-    } catch {
-      setScheduleWarnings({});
     }
   };
 
@@ -939,7 +888,12 @@ export default function JobOrderPlanningPage() {
       ? `${job.quantity}${job.unitOfMeasure ? ` ${job.unitOfMeasure}` : ''}`
       : '—';
   const readOnly = !isPlanningStatus(job.status);
-  const canConfirm = Boolean(scheduleOps?.some((o) => o.scheduled));
+  const problemsBySeq: Record<number, ScheduleProblem[]> = {};
+  for (const p of scheduleProblems) (problemsBySeq[p.sequenceNo] ||= []).push(p);
+  const confirmBlockers = !scheduleOps?.length
+    ? ['Propose a schedule before confirming it.']
+    : scheduleProblems.map((p) => p.message);
+  const canConfirm = confirmBlockers.length === 0;
 
   const columns: ColumnsType<OpFormRow> = [
     {
@@ -1396,6 +1350,9 @@ export default function JobOrderPlanningPage() {
 
         {scheduleOps ? (
           <>
+            {scheduleNotice && (
+              <Alert type="info" showIcon style={{ marginBottom: 12 }} message={scheduleNotice} />
+            )}
             {scheduleMeta?.materialNotBefore && (
               <Alert
                 type="info"
@@ -1411,15 +1368,14 @@ export default function JobOrderPlanningPage() {
               machineUnits={machineUnits}
               projectedCompletion={scheduleMeta?.projectedCompletion}
               scheduleFlag={scheduleMeta?.scheduleFlag}
-              warningsBySeq={scheduleWarnings}
+              problemsBySeq={problemsBySeq}
               onChangeOp={handleScheduleOpChange}
               onMachineUnitChange={readOnly ? undefined : handleMachineUnitChange}
               onRefreshProposal={readOnly ? undefined : handleRefreshProposedSchedule}
               refreshing={proposing}
-              onBlurValidate={() => scheduleOps && runValidateSchedule(scheduleOps)}
               readOnly={readOnly}
             />
-            <ScheduleExpandShell title="Week view" className="jo-plan__week-wrap" expandInBody>
+            <ScheduleExpandShell title="Schedule view" className="jo-plan__week-wrap" expandInBody>
               {({ expandButton }) => (
                 <ScheduleWeekView
                   jobId={job.id}
@@ -1458,11 +1414,26 @@ export default function JobOrderPlanningPage() {
           />
         )}
 
+        {wizardStep === 3 && !readOnly && scheduleOps && confirmBlockers.length > 0 ? (
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginTop: 12 }}
+            message="This schedule can't be confirmed yet"
+            description={
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {confirmBlockers.map((reason, i) => (
+                  <li key={i}>{reason}</li>
+                ))}
+              </ul>
+            }
+          />
+        ) : null}
         {wizardStep === 3 && !readOnly ? (
           <div className="jo-plan__footer">
             <Button onClick={goBackStep}>Back</Button>
             <Tooltip
-              title={!canConfirm ? 'Propose a schedule before confirming it.' : undefined}
+              title={!canConfirm ? confirmBlockers.join(' ') : undefined}
             >
               <span>
                 <SplitActionButton

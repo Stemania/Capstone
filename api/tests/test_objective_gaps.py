@@ -4,7 +4,7 @@ checks, editing user details, and audit rows for purchasing records.
 Uses the bmsc_test database from conftest (schema built from the models).
 """
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -20,7 +20,7 @@ from app.models.operation_time import DowntimeCategory, MachineDowntime
 from app.models.user import User, UserRole, UserStatus
 from app.models.user_security import UserDevice
 from app.models.worker_profile import WorkerProfile
-from app.models.worker_skill import WorkerSkill
+from app.models.worker_skill import WorkerSchedule, WorkerSkill
 
 T0 = datetime(2031, 3, 10, 1, 0, tzinfo=timezone.utc)
 
@@ -38,6 +38,16 @@ def _user(email, role, name=None):
     db.session.flush()
     if role == UserRole.PRODUCTION_WORKER:
         db.session.add(WorkerProfile(user_id=user.id))
+        for dow in range(6):
+            db.session.add(
+                WorkerSchedule(
+                    worker_id=user.id,
+                    day_of_week=dow,
+                    is_working=True,
+                    start_time=time(8, 0),
+                    end_time=time(17, 0),
+                )
+            )
     return user
 
 
