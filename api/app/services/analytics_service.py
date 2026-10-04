@@ -105,6 +105,37 @@ def count_excluded_null_estimate(start_utc, end_utc):
     )
 
 
+def _finished_jobs(start_utc, end_utc):
+    """(job, completed_at): machining finished in [start, end), completed or delivered."""
+    job_complete_subq = (
+        db.session.query(
+            JobOperation.job_order_id.label("jid"),
+            func.max(JobOperation.actual_end).label("completed_at"),
+        )
+        .filter(JobOperation.status == OperationStatus.COMPLETED)
+        .group_by(JobOperation.job_order_id)
+        .subquery()
+    )
+    return (
+        db.session.query(JobOrder, job_complete_subq.c.completed_at)
+        .join(job_complete_subq, JobOrder.id == job_complete_subq.c.jid)
+        .filter(
+            JobOrder.status.in_(
+                (JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED)
+            ),
+            job_complete_subq.c.completed_at >= start_utc,
+            job_complete_subq.c.completed_at < end_utc,
+        )
+        .all()
+    )
+
+
+def shop_week_start(dt) -> date:
+    """Monday of the shop-local (Manila) week containing ``dt``."""
+    local = ensure_utc(dt).astimezone(SHOP_TZ).date()
+    return local - timedelta(days=local.weekday())
+
+
 def overview(from_s=None, to_s=None):
     period_from, period_to, start_utc, end_utc = _parse_period(from_s, to_s)
     filters = _completed_in_period_filters(start_utc, end_utc)
@@ -130,29 +161,9 @@ def overview(from_s=None, to_s=None):
         or 0
     )
 
-    job_complete_subq = (
-        db.session.query(
-            JobOperation.job_order_id.label("jid"),
-            func.max(JobOperation.actual_end).label("completed_at"),
-        )
-        .filter(JobOperation.status == OperationStatus.COMPLETED)
-        .group_by(JobOperation.job_order_id)
-        .subquery()
-    )
-    # Machining finished in period (completed or already delivered).
-    finished_jobs = (
-        db.session.query(JobOrder, job_complete_subq.c.completed_at)
-        .join(job_complete_subq, JobOrder.id == job_complete_subq.c.jid)
-        .filter(
-            JobOrder.status.in_(
-                (JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED)
-            ),
-            job_complete_subq.c.completed_at >= start_utc,
-            job_complete_subq.c.completed_at < end_utc,
-        )
-        .all()
-    )
-    on_time = late = awaiting_delivery = 0
+    finished_jobs = _finished_jobs(start_utc, end_utc)
+    on_time = awaiting_delivery = 0
+    days_late = []
     for job, _completed_at in finished_jobs:
         if not job.delivered_at:
             awaiting_delivery += 1
@@ -161,7 +172,8 @@ def overview(from_s=None, to_s=None):
         if done <= job.due_date:
             on_time += 1
         else:
-            late += 1
+            days_late.append((done - job.due_date).days)
+    late = len(days_late)
 
     # Rework: follow-on rows (rework_of set). Count all follow-ons whose parent
     # completed in period; hours only from completed follow-ons in period.
@@ -190,6 +202,15 @@ def overview(from_s=None, to_s=None):
     )
     total_worked = original_worked + rework_worked
 
+    finished_ops, finished_redo_ops = (
+        db.session.query(
+            func.count(JobOperation.id),
+            func.count(JobOperation.rework_of_operation_id),
+        )
+        .filter(*filters)
+        .one()
+    )
+
     open_dt = (
         MachineDowntime.query.filter(MachineDowntime.ended_at.is_(None)).count()
     )
@@ -202,6 +223,8 @@ def overview(from_s=None, to_s=None):
                 "onTime": on_time,
                 "late": late,
                 "awaitingDelivery": awaiting_delivery,
+                "averageDaysLate": _num(sum(days_late) / late if late else None, 1),
+                "maxDaysLate": max(days_late) if days_late else None,
             },
             "efficiency": {
                 "averageVariancePct": _num(avg_var),
@@ -213,6 +236,11 @@ def overview(from_s=None, to_s=None):
                 "shareOfTotalWorkedHoursPct": _num(
                     (rework_worked / total_worked * 100) if total_worked else 0
                 ),
+                "finishedOperationCount": int(finished_ops or 0),
+                "finishedRedoOperationCount": int(finished_redo_ops or 0),
+                "redoRatePct": _num(
+                    (finished_redo_ops / finished_ops * 100) if finished_ops else None
+                ),
             },
             "downtime": {"openCount": int(open_dt)},
             "totals": {
@@ -223,6 +251,13 @@ def overview(from_s=None, to_s=None):
         }
     )
     return payload
+
+
+def labor_efficiency_pct(target_hours, worked_hours):
+    """Total target hours / total hours worked × 100; over 100 is faster than planned."""
+    if target_hours is None or not worked_hours:
+        return None
+    return float(target_hours) / float(worked_hours) * 100.0
 
 
 def _rework_hours_by(column, start_utc, end_utc):
@@ -291,6 +326,7 @@ def efficiency_by_worker(from_s=None, to_s=None, min_ops=None):
             "totalEstimatedHours": _num(est),
             "totalActualWorkedHours": _num(act),
             "averageVariancePct": _num(avg_v),
+            "laborEfficiencyPct": _num(labor_efficiency_pct(est, act)),
             "onEstimateRatePct": _num(
                 (float(on_est) / float(op_count) * 100) if op_count else None
             ),
@@ -353,6 +389,7 @@ def efficiency_by_operation_type(from_s=None, to_s=None, min_ops=None):
             "totalEstimatedHours": _num(est),
             "totalActualWorkedHours": _num(act),
             "averageVariancePct": _num(avg_v),
+            "laborEfficiencyPct": _num(labor_efficiency_pct(est, act)),
             "onEstimateRatePct": _num(
                 (float(on_est) / float(op_count) * 100) if op_count else None
             ),
@@ -363,13 +400,39 @@ def efficiency_by_operation_type(from_s=None, to_s=None, min_ops=None):
     return payload
 
 
-def _segment_hours(start, end, worker_id, exceptions_by_date):
-    """Busy hours via derive_working_segments — never wall-clock span."""
-    if not start or not end or not worker_id:
-        return 0.0
-    schedule = load_worker_schedule_maps(worker_id)
-    segments = derive_working_segments(start, end, schedule, exceptions_by_date)
-    return sum((e - s).total_seconds() for s, e in segments) / 3600.0
+def worked_intervals(logs) -> list[tuple[datetime, datetime]]:
+    """Clock intervals from each START/RESUME to the next PAUSE/COMPLETE.
+
+    Paused time (breaks, breakdowns, any pause reason) is never inside one.
+    """
+    ordered = sorted(
+        logs or [],
+        key=lambda L: (ensure_utc(L.event_at), L.created_at or ensure_utc(L.event_at)),
+    )
+    out = []
+    open_start = None
+    for log in ordered:
+        at = ensure_utc(log.event_at)
+        if log.event in (OperationTimeEvent.START, OperationTimeEvent.RESUME):
+            if open_start is None:
+                open_start = at
+        elif log.event in (OperationTimeEvent.PAUSE, OperationTimeEvent.COMPLETE):
+            if open_start is not None and at > open_start:
+                out.append((open_start, at))
+            open_start = None
+    return out
+
+
+def worked_busy_hours(logs, schedule_by_dow, exceptions_by_date, start_utc, end_utc) -> float:
+    """Worked intervals clipped to [start, end) and to the worker's working hours."""
+    total = 0.0
+    for s, e in worked_intervals(logs):
+        s, e = max(s, ensure_utc(start_utc)), min(e, ensure_utc(end_utc))
+        if e <= s:
+            continue
+        segments = derive_working_segments(s, e, schedule_by_dow, exceptions_by_date)
+        total += sum((se - ss).total_seconds() for ss, se in segments)
+    return total / 3600.0
 
 
 def _shop_available_hours(period_from: date, period_to: date) -> float:
@@ -414,26 +477,37 @@ def efficiency_by_machine(from_s=None, to_s=None, min_ops=None):
         units_by_type[u.machine_type_id].append(u)
 
     # Totals / variance sample per unit (original completed ops in period)
-    unit_stats = defaultdict(
-        lambda: {
+    def _new_stats():
+        return {
             "op_count": 0,
             "est": 0.0,
             "act": 0.0,
             "var_sum": 0.0,
             "var_n": 0,
             "on_est": 0,
+            "eff_est": 0.0,
+            "eff_act": 0.0,
         }
-    )
-    type_stats = defaultdict(
-        lambda: {
-            "op_count": 0,
-            "est": 0.0,
-            "act": 0.0,
-            "var_sum": 0.0,
-            "var_n": 0,
-            "on_est": 0,
-        }
-    )
+
+    def _add_op(st, op):
+        st["op_count"] += 1
+        if op.estimated_hours is not None:
+            st["est"] += float(op.estimated_hours)
+        if op.actual_worked_hours is not None:
+            st["act"] += float(op.actual_worked_hours)
+        if op.estimated_hours is not None and op.actual_worked_hours is not None:
+            st["eff_est"] += float(op.estimated_hours)
+            st["eff_act"] += float(op.actual_worked_hours)
+        if op.estimated_hours is not None and op.variance_pct is not None:
+            st["var_n"] += 1
+            st["var_sum"] += float(op.variance_pct)
+            if -float(ON_ESTIMATE_BAND) <= float(op.variance_pct) <= float(
+                ON_ESTIMATE_BAND
+            ):
+                st["on_est"] += 1
+
+    unit_stats = defaultdict(_new_stats)
+    type_stats = defaultdict(_new_stats)
 
     period_ops = JobOperation.query.filter(
         *_completed_in_period_filters(start_utc, end_utc),
@@ -442,52 +516,33 @@ def efficiency_by_machine(from_s=None, to_s=None, min_ops=None):
 
     for op in period_ops:
         if op.machine_unit_id:
-            st = unit_stats[op.machine_unit_id]
-            st["op_count"] += 1
-            if op.estimated_hours is not None:
-                st["est"] += float(op.estimated_hours)
-            if op.actual_worked_hours is not None:
-                st["act"] += float(op.actual_worked_hours)
-            if op.estimated_hours is not None and op.variance_pct is not None:
-                st["var_n"] += 1
-                st["var_sum"] += float(op.variance_pct)
-                if -float(ON_ESTIMATE_BAND) <= float(op.variance_pct) <= float(
-                    ON_ESTIMATE_BAND
-                ):
-                    st["on_est"] += 1
+            _add_op(unit_stats[op.machine_unit_id], op)
         if op.machine_type_id:
-            st = type_stats[op.machine_type_id]
-            st["op_count"] += 1
-            if op.estimated_hours is not None:
-                st["est"] += float(op.estimated_hours)
-            if op.actual_worked_hours is not None:
-                st["act"] += float(op.actual_worked_hours)
-            if op.estimated_hours is not None and op.variance_pct is not None:
-                st["var_n"] += 1
-                st["var_sum"] += float(op.variance_pct)
-                if -float(ON_ESTIMATE_BAND) <= float(op.variance_pct) <= float(
-                    ON_ESTIMATE_BAND
-                ):
-                    st["on_est"] += 1
+            _add_op(type_stats[op.machine_type_id], op)
 
     rework_type = _rework_hours_by(JobOperation.machine_type_id, start_utc, end_utc)
     rework_unit = _rework_hours_by(JobOperation.machine_unit_id, start_utc, end_utc)
 
-    # Utilization: segment hours from actual envelope / shop available hours
+    # Utilization: worked intervals in working hours / shop available hours
     util_ops = (
-        JobOperation.query.filter(
+        JobOperation.query.options(joinedload(JobOperation.time_logs))
+        .filter(
             *_completed_in_period_filters(start_utc, end_utc),
             JobOperation.actual_start.isnot(None),
             JobOperation.machine_unit_id.isnot(None),
             JobOperation.assigned_worker_id.isnot(None),
-        ).all()
+        )
+        .all()
     )
     busy_by_unit = defaultdict(float)
+    schedules = {}
     for op in util_ops:
-        hrs = _segment_hours(
-            op.actual_start, op.actual_end, op.assigned_worker_id, exceptions
+        wid = op.assigned_worker_id
+        if wid not in schedules:
+            schedules[wid] = load_worker_schedule_maps(wid)
+        busy_by_unit[op.machine_unit_id] += worked_busy_hours(
+            op.time_logs, schedules[wid], exceptions, start_utc, end_utc
         )
-        busy_by_unit[op.machine_unit_id] += hrs
 
     def _variance_fields(st):
         """Null variance metrics when sample below minOps; totals always returned."""
@@ -518,6 +573,9 @@ def efficiency_by_machine(from_s=None, to_s=None, min_ops=None):
             "totalEstimatedHours": _num(st["est"]),
             "totalActualWorkedHours": _num(st["act"]),
             "averageVariancePct": _num(avg_v),
+            "laborEfficiencyPct": (
+                None if below_flag else _num(labor_efficiency_pct(st["eff_est"], st["eff_act"]))
+            ),
             "onEstimateRatePct": _num(on_rate),
             "belowMinimumSample": below_flag,
             "reworkWorkedHours": _num(float(rework_unit.get(u.id, 0) or 0)),
@@ -551,6 +609,11 @@ def efficiency_by_machine(from_s=None, to_s=None, min_ops=None):
                 "totalEstimatedHours": _num(st["est"]),
                 "totalActualWorkedHours": _num(st["act"]),
                 "averageVariancePct": _num(avg_v),
+                "laborEfficiencyPct": (
+                    None
+                    if below_flag
+                    else _num(labor_efficiency_pct(st["eff_est"], st["eff_act"]))
+                ),
                 "onEstimateRatePct": _num(on_rate),
                 "belowMinimumSample": below_flag,
                 "reworkWorkedHours": _num(float(rework_type.get(mt.id, 0) or 0)),
@@ -578,38 +641,32 @@ def efficiency_trend(from_s=None, to_s=None):
     period_from, period_to, start_utc, end_utc = _parse_period(from_s, to_s)
     excluded = count_excluded_null_estimate(start_utc, end_utc)
 
-    # Postgres: date_trunc week on actual_end (UTC); report shop-local week start
-    week_bucket = func.date_trunc("week", JobOperation.actual_end)
     rows = (
-        db.session.query(
-            week_bucket.label("week_start"),
-            func.count(JobOperation.id).label("op_count"),
-            func.avg(JobOperation.variance_pct).label("avg_var"),
-        )
+        db.session.query(JobOperation.actual_end, JobOperation.variance_pct)
         .filter(
             *_completed_in_period_filters(start_utc, end_utc),
             JobOperation.estimated_hours.isnot(None),
             JobOperation.variance_pct.isnot(None),
         )
-        .group_by(week_bucket)
-        .order_by(week_bucket.asc())
         .all()
     )
+    buckets = defaultdict(lambda: {"ops": 0, "var_sum": 0.0, "jobs": 0})
+    for actual_end, variance in rows:
+        b = buckets[shop_week_start(actual_end)]
+        b["ops"] += 1
+        b["var_sum"] += float(variance)
+    for _job, completed_at in _finished_jobs(start_utc, end_utc):
+        buckets[shop_week_start(completed_at)]["jobs"] += 1
 
-    weeks = []
-    for week_start, op_count, avg_var in rows:
-        # date_trunc returns timestamp; normalize to date in shop TZ
-        if week_start.tzinfo is None:
-            ws = week_start.replace(tzinfo=SHOP_TZ).date()
-        else:
-            ws = week_start.astimezone(SHOP_TZ).date()
-        weeks.append(
-            {
-                "weekStart": ws.isoformat(),
-                "operationCount": int(op_count),
-                "averageVariancePct": _num(avg_var),
-            }
-        )
+    weeks = [
+        {
+            "weekStart": ws.isoformat(),
+            "operationCount": b["ops"],
+            "averageVariancePct": _num(b["var_sum"] / b["ops"] if b["ops"] else None),
+            "jobsFinished": b["jobs"],
+        }
+        for ws, b in sorted(buckets.items())
+    ]
 
     payload = _period_meta(period_from, period_to, excluded)
     payload["weeks"] = weeks
@@ -797,6 +854,22 @@ def delays(from_s=None, to_s=None):
     payload["machineDowntime"] = downtime_breakdown
     payload["causes"] = pareto
     payload["totalDelayHours"] = _num(total_cause_hours)
+    payload["reworkByReason"] = sorted(
+        (
+            {
+                "reason": (category.value if category else "UNCATEGORISED"),
+                "label": _REWORK_CATEGORY_LABEL.get(
+                    category.value if category else "UNCATEGORISED",
+                    category.value if category else "UNCATEGORISED",
+                ),
+                "count": int(count or 0),
+                "hours": _num(float(hrs or 0)),
+            }
+            for category, hrs, count in rework_by_category
+            if int(count or 0) > 0
+        ),
+        key=lambda r: (-r["count"], -(r["hours"] or 0), r["label"]),
+    )
     payload["materialDelays"] = [
         {**r, "hours": _num(r["hours"])} for r in material
     ]
@@ -885,6 +958,7 @@ def _expected_completion_shop_date(job: JobOrder) -> date:
 
 
 SALES_STATUSES = (JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED)
+PIPELINE_STATUSES = (JobOrderStatus.SCHEDULED, JobOrderStatus.IN_PROGRESS)
 
 
 def _completed_jobs_in_period(period_from: date, period_to: date):
@@ -985,10 +1059,10 @@ def sales_forecast(from_s=None, to_s=None):
     sample_weeks = round(working_days / 6.0, 1) if working_days else 0.0
     thin_sample = sample_weeks < THIN_SAMPLE_WEEKS
 
-    # Committed pipeline: accepted but not delivered (fact)
+    # Committed pipeline: released, not yet completed or delivered (fact)
     pipeline_jobs = (
         JobOrder.query.options(joinedload(JobOrder.operations))
-        .filter(JobOrder.status.notin_(SALES_STATUSES))
+        .filter(JobOrder.status.in_(PIPELINE_STATUSES))
         .all()
     )
     by_exp_month = defaultdict(lambda: {"amount": 0.0, "jobCount": 0})
@@ -1004,7 +1078,8 @@ def sales_forecast(from_s=None, to_s=None):
     committed = {
         "label": "committedPipeline",
         "description": (
-            "Accepted jobs not yet delivered (fact, not a forecast). "
+            "Released jobs not yet completed or delivered; pending jobs are "
+            "left out (fact, not a forecast). "
             "Grouped by expected completion from scheduled_end when present, "
             "otherwise due_date."
         ),

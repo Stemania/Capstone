@@ -70,7 +70,7 @@ def test_sales_summary_and_forecast_include_delivered_jobs(people):
     forecast = analytics_service.sales_forecast(**PERIOD)
     assert forecast["projectedRevenue"]["sampleCompletedJobs"] == 2
     open_jobs = JobOrder.query.filter(
-        JobOrder.status.notin_((JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED))
+        JobOrder.status.in_((JobOrderStatus.SCHEDULED, JobOrderStatus.IN_PROGRESS))
     ).count()
     assert forecast["committedPipeline"]["jobCount"] == open_jobs
 

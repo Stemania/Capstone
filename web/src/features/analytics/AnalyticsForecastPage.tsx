@@ -132,7 +132,8 @@ export default function AnalyticsForecastPage() {
           title="Accepted jobs and estimated income"
           description={
             <>
-              Accepted jobs not yet delivered are money already on the books. Estimated income is a
+              Released jobs not yet completed or delivered are money already on the books; pending
+              jobs that are still being planned are left out. Estimated income is a
               rough guess: average income per shop day from finished jobs in {forecast.period.from} →{' '}
               {forecast.period.to}, carried forward to {projected.horizon.from} →{' '}
               {projected.horizon.to}. Keep the two figures separate.
@@ -171,7 +172,7 @@ export default function AnalyticsForecastPage() {
             <SummaryCard
               label="Accepted, not delivered"
               value={formatMoney(pipeline.totalAmount)}
-              hint={`${formatInt(pipeline.jobCount)} open jobs`}
+              hint={`${formatInt(pipeline.jobCount)} released jobs, not yet completed`}
             />
             <SummaryCard
               label="Estimated income"

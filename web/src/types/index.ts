@@ -1062,6 +1062,8 @@ export interface AnalyticsOverview extends AnalyticsPeriodMeta {
     onTime: number;
     late: number;
     awaitingDelivery: number;
+    averageDaysLate: number | null;
+    maxDaysLate: number | null;
   };
   efficiency: {
     averageVariancePct: number | null;
@@ -1071,6 +1073,9 @@ export interface AnalyticsOverview extends AnalyticsPeriodMeta {
     count: number;
     workedHours: number | null;
     shareOfTotalWorkedHoursPct: number | null;
+    finishedOperationCount: number;
+    finishedRedoOperationCount: number;
+    redoRatePct: number | null;
   };
   downtime: { openCount: number };
   totals: {
@@ -1087,6 +1092,7 @@ export interface AnalyticsWorkerRow {
   totalEstimatedHours: number | null;
   totalActualWorkedHours: number | null;
   averageVariancePct: number | null;
+  laborEfficiencyPct: number | null;
   onEstimateRatePct: number | null;
   reworkWorkedHours: number | null;
 }
@@ -1104,6 +1110,7 @@ export interface AnalyticsOperationTypeRow {
   totalEstimatedHours: number | null;
   totalActualWorkedHours: number | null;
   averageVariancePct: number | null;
+  laborEfficiencyPct: number | null;
   onEstimateRatePct: number | null;
   reworkWorkedHours: number | null;
 }
@@ -1122,6 +1129,7 @@ export interface AnalyticsMachineUnitRow {
   totalEstimatedHours: number | null;
   totalActualWorkedHours: number | null;
   averageVariancePct: number | null;
+  laborEfficiencyPct: number | null;
   onEstimateRatePct: number | null;
   belowMinimumSample: boolean;
   reworkWorkedHours: number | null;
@@ -1139,6 +1147,7 @@ export interface AnalyticsMachineTypeRow {
   totalEstimatedHours: number | null;
   totalActualWorkedHours: number | null;
   averageVariancePct: number | null;
+  laborEfficiencyPct: number | null;
   onEstimateRatePct: number | null;
   belowMinimumSample: boolean;
   reworkWorkedHours: number | null;
@@ -1158,6 +1167,7 @@ export interface AnalyticsTrendWeek {
   weekStart: string;
   operationCount: number;
   averageVariancePct: number | null;
+  jobsFinished: number;
 }
 
 export interface AnalyticsTrend extends AnalyticsPeriodMeta {
@@ -1223,11 +1233,19 @@ export interface AnalyticsLateJobRow {
   causes: AnalyticsLateJobCause[];
 }
 
+export interface AnalyticsReworkReasonRow {
+  reason: string;
+  label: string;
+  count: number;
+  hours: number | null;
+}
+
 export interface AnalyticsDelays extends AnalyticsPeriodMeta {
   pauseReasons: AnalyticsPauseReasonRow[];
   machineDowntime: AnalyticsDowntimeRow[];
   causes: AnalyticsDelayCauseRow[];
   totalDelayHours: number | null;
+  reworkByReason?: AnalyticsReworkReasonRow[];
   materialDelays?: AnalyticsMaterialDelayRow[];
   breakdownOverlapHours?: number | null;
   lateJobs?: AnalyticsLateJobRow[];

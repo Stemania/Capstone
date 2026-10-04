@@ -71,6 +71,7 @@ export default function WorkerPerformanceReportPage() {
         totalEstimatedHours: perf?.totalEstimatedHours ?? null,
         totalActualWorkedHours: perf?.totalActualWorkedHours ?? null,
         averageVariancePct: belowMin ? null : perf?.averageVariancePct ?? null,
+        laborEfficiencyPct: belowMin ? null : perf?.laborEfficiencyPct ?? null,
         onEstimateRatePct: belowMin ? null : perf?.onEstimateRatePct ?? null,
         reworkWorkedHours: perf?.reworkWorkedHours ?? null,
         skills: u.skills || [],

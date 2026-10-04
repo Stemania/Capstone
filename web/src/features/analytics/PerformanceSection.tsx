@@ -120,6 +120,7 @@ export default function PerformanceSection({ span }: { span?: AnalyticsSpan }) {
         { key: 'est', header: 'TargetHours', value: (r) => r.totalEstimatedHours },
         { key: 'act', header: 'HoursWorked', value: (r) => r.totalActualWorkedHours },
         { key: 'var', header: 'DifferenceFromTargetPct', value: (r) => r.averageVariancePct },
+        { key: 'eff', header: 'LaborEfficiencyPct', value: (r) => r.laborEfficiencyPct },
         { key: 'onEst', header: 'FinishedCloseToTargetPct', value: (r) => r.onEstimateRatePct },
         { key: 'rework', header: 'RedoHours', value: (r) => r.reworkWorkedHours },
       ]);
@@ -134,6 +135,7 @@ export default function PerformanceSection({ span }: { span?: AnalyticsSpan }) {
           { key: 'est', header: 'TargetHours', value: (r) => r.totalEstimatedHours },
           { key: 'act', header: 'HoursWorked', value: (r) => r.totalActualWorkedHours },
           { key: 'var', header: 'DifferenceFromTargetPct', value: (r) => r.averageVariancePct },
+          { key: 'eff', header: 'LaborEfficiencyPct', value: (r) => r.laborEfficiencyPct },
           { key: 'onEst', header: 'FinishedCloseToTargetPct', value: (r) => r.onEstimateRatePct },
         ]
       );
@@ -149,6 +151,11 @@ export default function PerformanceSection({ span }: { span?: AnalyticsSpan }) {
           value: (r) => (r.belowMinimumSample ? null : r.averageVariancePct),
         },
         {
+          key: 'eff',
+          header: 'LaborEfficiencyPct',
+          value: (r) => (r.belowMinimumSample ? null : r.laborEfficiencyPct),
+        },
+        {
           key: 'below',
           header: 'NotEnoughFinishedOperations',
           value: (r) => (r.belowMinimumSample ? 'yes' : 'no'),
@@ -162,9 +169,9 @@ export default function PerformanceSection({ span }: { span?: AnalyticsSpan }) {
       span={span}
       title="Performance"
       description={
-        minOps != null
-          ? `How close finished work came to its target time. Averages need at least ${minOps} finished operations.`
-          : 'How close finished work came to its target time.'
+        `How close finished work came to its target time. Labor efficiency is total target hours divided by total hours worked; over 100% means faster than planned.${
+          minOps != null ? ` Averages need at least ${minOps} finished operations.` : ''
+        }`
       }
       controls={
         <Segmented
@@ -200,7 +207,7 @@ function VarianceBarChart({
   rows,
   nameKey,
 }: {
-  rows: { name: string; variance: number; ops: number; onEst: string }[];
+  rows: { name: string; variance: number; ops: number; onEst: string; eff: string }[];
   nameKey: string;
 }) {
   const domain = useMemo(() => {
@@ -246,7 +253,7 @@ function VarianceBarChart({
             labelFormatter={(label, payload) => {
               const row = payload?.[0]?.payload;
               if (!row) return String(label);
-              return `${row.name} · ${row.ops} finished operations · finished close to target ${row.onEst}`;
+              return `${row.name} · ${row.ops} finished operations · labor efficiency ${row.eff} · finished close to target ${row.onEst}`;
             }}
           />
           <Bar dataKey="variance" name={nameKey} barSize={16} radius={[0, 3, 3, 0]}>
@@ -279,6 +286,7 @@ function WorkerView({ rows }: { rows: AnalyticsByWorker['workers'] }) {
       variance: w.averageVariancePct as number,
       ops: w.operationCount,
       onEst: formatPct(w.onEstimateRatePct),
+      eff: formatPct(w.laborEfficiencyPct, 0),
     }));
   return (
     <>
@@ -298,6 +306,13 @@ function WorkerView({ rows }: { rows: AnalyticsByWorker['workers'] }) {
               width: 170,
               align: 'right',
               render: (v: number | null) => formatPctVsTarget(v),
+            },
+            {
+              title: 'Labor efficiency',
+              dataIndex: 'laborEfficiencyPct',
+              width: 130,
+              align: 'right',
+              render: (v: number | null) => formatPct(v, 0),
             },
             {
               title: 'Finished close to target',
@@ -328,6 +343,7 @@ function OperationTypeView({ rows }: { rows: AnalyticsByOperationType['operation
       variance: o.averageVariancePct as number,
       ops: o.operationCount,
       onEst: formatPct(o.onEstimateRatePct),
+      eff: formatPct(o.laborEfficiencyPct, 0),
     }));
   return (
     <>
@@ -348,6 +364,13 @@ function OperationTypeView({ rows }: { rows: AnalyticsByOperationType['operation
               width: 170,
               align: 'right',
               render: (v: number | null) => formatPctVsTarget(v),
+            },
+            {
+              title: 'Labor efficiency',
+              dataIndex: 'laborEfficiencyPct',
+              width: 130,
+              align: 'right',
+              render: (v: number | null) => formatPct(v, 0),
             },
             {
               title: 'Finished close to target',
@@ -384,7 +407,7 @@ function MachineView({
           ops: u.operationCount,
           varianceLabel: u.belowMinimumSample
             ? 'Not enough finished operations yet'
-            : formatPctVsTarget(u.averageVariancePct),
+            : `${formatPctVsTarget(u.averageVariancePct)} · labor efficiency ${formatPct(u.laborEfficiencyPct, 0)}`,
         })),
     [rows]
   );
@@ -392,8 +415,9 @@ function MachineView({
   return (
     <>
       <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
-        Machine usage is based on time the machine was actually working during shop hours — not
-        calendar time alone. By type:{' '}
+        Machine usage counts only the time an operation was actually being worked on during shop
+        hours, from each start or resume to the next pause or completion. Breaks, breakdowns and
+        other pauses are not counted. By type:{' '}
         {data.machineTypes.map((t) => `${t.machineTypeCode} ${formatPct(t.utilizationPct)}`).join(' · ')}
         .
       </Text>
@@ -466,6 +490,13 @@ function MachineView({
                 ) : (
                   formatPctVsTarget(v)
                 ),
+            },
+            {
+              title: 'Labor efficiency',
+              dataIndex: 'laborEfficiencyPct',
+              width: 130,
+              align: 'right',
+              render: (v: number | null, row) => (row.belowMinimumSample ? '—' : formatPct(v, 0)),
             },
           ]}
         />

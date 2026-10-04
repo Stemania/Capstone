@@ -77,6 +77,7 @@ export default function AnalyticsOverviewPage() {
     weekFull: w.weekStart,
     variance: w.averageVariancePct,
     operations: w.operationCount,
+    jobs: w.jobsFinished,
   }));
 
   return (
@@ -106,6 +107,19 @@ export default function AnalyticsOverviewPage() {
           hint="Share of delivered jobs that met the date required (excludes awaiting delivery)"
         />
         <SummaryCard
+          label="Average days late"
+          value={
+            overview.jobs.averageDaysLate == null
+              ? '—'
+              : `${overview.jobs.averageDaysLate.toFixed(1)} days`
+          }
+          hint={
+            overview.jobs.late > 0
+              ? `Longest ${formatInt(overview.jobs.maxDaysLate)} days · ${formatInt(overview.jobs.late)} late delivered jobs`
+              : 'No late deliveries in this period'
+          }
+        />
+        <SummaryCard
           label="Average difference from target"
           value={formatDifferenceFromTarget(null, overview.efficiency.averageVariancePct)}
           hint={`${overview.efficiency.completedOperationsWithVariance} finished operations that had a target time`}
@@ -114,6 +128,11 @@ export default function AnalyticsOverviewPage() {
           label="Redo share of hours"
           value={formatPct(overview.rework.shareOfTotalWorkedHoursPct)}
           hint={`${formatInt(overview.rework.count)} redo jobs · ${formatNumHours(overview.rework.workedHours)} h`}
+        />
+        <SummaryCard
+          label="Redo rate"
+          value={formatPct(overview.rework.redoRatePct)}
+          hint={`${formatInt(overview.rework.finishedRedoOperationCount)} redo of ${formatInt(overview.rework.finishedOperationCount)} finished operations`}
         />
         <SummaryCard
           label="Machines broken down now"
@@ -126,7 +145,7 @@ export default function AnalyticsOverviewPage() {
         <AnalyticsSection
           span={7}
           title="Weekly difference from target"
-          description="Bars show how many operations finished that week. The line shows how far those operations ran from their target time. Weeks with no target times are left blank on the line."
+          description="Bars show how many operations and job orders finished that week (weeks start Monday, Manila time). The line shows how far those operations ran from their target time. Weeks with no target times are left blank on the line."
           onExport={() =>
             exportCsv(
               `weekly-difference-from-target-${overview.period.from}_${overview.period.to}.csv`,
@@ -134,6 +153,7 @@ export default function AnalyticsOverviewPage() {
               [
                 { key: 'week', header: 'WeekStarting', value: (r) => r.weekStart },
                 { key: 'ops', header: 'FinishedOperations', value: (r) => r.operationCount },
+                { key: 'jobs', header: 'JobsFinished', value: (r) => r.jobsFinished },
                 { key: 'var', header: 'DifferenceFromTargetPct', value: (r) => r.averageVariancePct },
               ]
             )
@@ -161,7 +181,8 @@ export default function AnalyticsOverviewPage() {
                   yAxisId="ops"
                   orientation="right"
                   tick={AXIS}
-                  label={{ value: 'Finished operations', angle: 90, position: 'insideRight', style: AXIS }}
+                  allowDecimals={false}
+                  label={{ value: 'Finished count', angle: 90, position: 'insideRight', style: AXIS }}
                   width={56}
                 />
                 <Tooltip
@@ -170,6 +191,7 @@ export default function AnalyticsOverviewPage() {
                     if (name === 'variance')
                       return [formatDifferenceFromTarget(null, value), 'Average difference from target'];
                     if (name === 'operations') return [value, 'Finished operations'];
+                    if (name === 'jobs') return [value, 'Jobs finished'];
                     return [value, name];
                   }}
                   labelFormatter={(_, payload) =>
@@ -184,7 +206,9 @@ export default function AnalyticsOverviewPage() {
                       ? 'Average difference from target'
                       : value === 'operations'
                         ? 'Finished operations'
-                        : value
+                        : value === 'jobs'
+                          ? 'Jobs finished'
+                          : value
                   }
                 />
                 <Bar
@@ -192,7 +216,15 @@ export default function AnalyticsOverviewPage() {
                   dataKey="operations"
                   name="operations"
                   fill="#94a3b8"
-                  barSize={28}
+                  barSize={18}
+                  radius={[3, 3, 0, 0]}
+                />
+                <Bar
+                  yAxisId="ops"
+                  dataKey="jobs"
+                  name="jobs"
+                  fill="#c9a227"
+                  barSize={18}
                   radius={[3, 3, 0, 0]}
                 />
                 <Line

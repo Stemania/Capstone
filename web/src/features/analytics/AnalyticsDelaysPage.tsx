@@ -125,6 +125,7 @@ export default function AnalyticsDelaysPage() {
     type: d.machineTypeCode,
   }));
 
+  const reworkRows = data.reworkByReason ?? [];
   const materialDelays = data.materialDelays ?? [];
   const lateJobs = data.lateJobs ?? [];
   const excluded = data.excludedNonWorkingPauses;
@@ -369,6 +370,75 @@ export default function AnalyticsDelaysPage() {
                 />
               </ShowDetails>
             </>
+          )}
+        </AnalyticsSection>
+      </AnalyticsGrid>
+
+      <AnalyticsGrid>
+        <AnalyticsSection
+          span={6}
+          title="Redo by reason"
+          description="Redo operations finished in this period, by the reason recorded when the work was sent back, with the hours spent redoing it."
+          onExport={() =>
+            exportCsv(`redo-by-reason-${data.period.from}_${data.period.to}.csv`, reworkRows, [
+              { key: 'reason', header: 'Reason', value: (r) => r.label },
+              { key: 'count', header: 'RedoOperations', value: (r) => r.count },
+              { key: 'hours', header: 'RedoHours', value: (r) => r.hours },
+            ])
+          }
+          exportDisabled={!reworkRows.length}
+        >
+          {reworkRows.length === 0 ? (
+            <Text type="secondary">No redo work finished in this period.</Text>
+          ) : (
+            <div style={{ ...CHART_BOX, padding: 12, height: Math.max(180, reworkRows.length * 40 + 70) }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  layout="vertical"
+                  data={reworkRows}
+                  margin={{ top: 8, right: 96, left: 8, bottom: 8 }}
+                >
+                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" horizontal={false} />
+                  <XAxis
+                    type="number"
+                    allowDecimals={false}
+                    tick={AXIS}
+                    label={{ value: 'Redo operations', position: 'insideBottom', offset: -2, style: AXIS }}
+                    height={40}
+                  />
+                  <YAxis type="category" dataKey="label" width={170} tick={AXIS} />
+                  <Tooltip
+                    contentStyle={{ fontSize: 13 }}
+                    formatter={(value: number, _name, item) => [
+                      `${value} · ${(item?.payload?.hours ?? 0).toFixed(1)} h`,
+                      'Redo operations · hours',
+                    ]}
+                  />
+                  <Bar dataKey="count" fill={HOURS} barSize={16} radius={[0, 3, 3, 0]}>
+                    <LabelList
+                      dataKey="count"
+                      position="right"
+                      content={(props) => {
+                        const { x, y, width, height, index } = props;
+                        const row = reworkRows[index as number];
+                        if (!row || x == null || y == null || width == null || height == null) return null;
+                        return (
+                          <text
+                            x={Number(x) + Number(width) + 8}
+                            y={Number(y) + Number(height) / 2}
+                            dy={4}
+                            fill="#334155"
+                            fontSize={11}
+                          >
+                            {`${row.count} · ${(row.hours ?? 0).toFixed(1)} h`}
+                          </text>
+                        );
+                      }}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           )}
         </AnalyticsSection>
       </AnalyticsGrid>
