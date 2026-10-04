@@ -161,6 +161,37 @@ def place_duration(
     return None, None, placeable_hours
 
 
+def place_unbroken(
+    windows: list[tuple[datetime, datetime]],
+    busy: list[tuple[datetime, datetime]],
+    duration: timedelta,
+    not_before: datetime,
+    end_utc: datetime,
+) -> tuple[datetime | None, datetime | None, float]:
+    """
+    Earliest placement of `duration` across working `windows` that never touches
+    `busy`. Work may stop outside the windows (nights, days off), never for a
+    booking: only the start and end are stored, and every working moment between
+    them counts as booked. Returns (start_utc, end_utc, free_hours_within_horizon).
+    """
+    windows = merge_intervals(windows)
+    busy = merge_intervals(busy)
+    placeable = total_placeable_hours(subtract_intervals(windows, busy), not_before, end_utc)
+    cursor = ensure_utc(not_before)
+    while True:
+        start, end, _ = place_duration(windows, duration, cursor, end_utc)
+        if start is None:
+            return None, None, placeable
+        worked = intersect_intervals([(start, end)], windows)
+        hit = next(
+            (b for b in busy if any(b[0] < we and ws < b[1] for ws, we in worked)),
+            None,
+        )
+        if hit is None:
+            return start, end, placeable
+        cursor = hit[1]
+
+
 def derive_working_segments(
     start_utc: datetime,
     end_utc: datetime,

@@ -13,17 +13,16 @@ from app.services.schedule_calendar import (
     derive_working_segments,
     effective_hours_for_date,
     ensure_utc,
-    full_horizon_interval,
     horizon_end_utc,
     intersect_intervals,
     load_calendar_exceptions,
     load_worker_schedule_maps,
     merge_intervals,
     place_duration,
+    place_unbroken,
     serialize_segments,
     shop_local_to_utc,
     shop_now,
-    subtract_intervals,
     utc_to_shop,
 )
 
@@ -353,7 +352,7 @@ def _failure_result(op, message, *, placeable_hours=None, required_hours=None):
     }
 
 
-def _worker_free_intervals(
+def _worker_windows_and_busy(
     worker_id,
     anchor_utc,
     end_utc,
@@ -361,6 +360,7 @@ def _worker_free_intervals(
     in_job_busy,
     exceptions_by_date,
 ):
+    """(working windows, booked periods) for one worker within the horizon."""
     schedule_by_dow = load_worker_schedule_maps(worker_id)
     working = build_worker_working_windows(
         schedule_by_dow, exceptions_by_date, anchor_utc, end_utc
@@ -371,7 +371,7 @@ def _worker_free_intervals(
         + in_job_busy.get(worker_id, [])
         + in_job_busy.get(str(worker_id), [])
     )
-    return subtract_intervals(working, busy)
+    return working, busy
 
 
 def _busy_seconds_in_horizon(intervals, anchor_utc, end_utc) -> float:
@@ -426,7 +426,7 @@ def _find_earliest_slot(
         best = None
         max_placeable = 0.0
         for wid in worker_ids:
-            worker_free = _worker_free_intervals(
+            working, busy = _worker_windows_and_busy(
                 wid,
                 anchor_utc,
                 end_utc,
@@ -434,8 +434,8 @@ def _find_earliest_slot(
                 in_job_worker_busy,
                 exceptions_by_date,
             )
-            start, end, placeable = place_duration(
-                worker_free, duration, not_before, end_utc
+            start, end, placeable = place_unbroken(
+                working, busy, duration, not_before, end_utc
             )
             max_placeable = max(max_placeable, placeable)
             if not start or not end:
@@ -464,7 +464,7 @@ def _find_earliest_slot(
     pref_wid = str(preferred_worker_id) if preferred_worker_id else None
 
     for wid in worker_ids:
-        worker_free = _worker_free_intervals(
+        working, worker_booked = _worker_windows_and_busy(
             wid,
             anchor_utc,
             end_utc,
@@ -479,12 +479,9 @@ def _find_earliest_slot(
                 + in_job_machine_busy.get(unit.id, [])
                 + in_job_machine_busy.get(str(unit.id), [])
             )
-            machine_free = subtract_intervals(
-                full_horizon_interval(anchor_utc, end_utc),
-                unit_busy,
+            start, end, placeable = place_unbroken(
+                working, worker_booked + unit_busy, duration, not_before, end_utc
             )
-            combined = intersect_intervals(worker_free, machine_free)
-            start, end, placeable = place_duration(combined, duration, not_before, end_utc)
             max_placeable = max(max_placeable, placeable)
             if not start or not end:
                 continue

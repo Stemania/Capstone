@@ -13,7 +13,9 @@ from app.services.schedule_calendar import (
     SHOP_TZ,
     build_worker_working_windows,
     place_duration,
+    place_unbroken,
     shop_local_to_utc,
+    subtract_intervals,
 )
 from app.services.schedule_service import (
     MISSING_WORKER_MESSAGE,
@@ -467,6 +469,63 @@ def test_sunday_special_working_day():
     assert start is not None
     assert finish is not None
     assert start.astimezone(SHOP).date() == sunday
+
+
+def _mon(hh):
+    return shop_local_to_utc(date(2026, 8, 10), time(hh, 0))
+
+
+def test_place_unbroken_moves_past_a_booking_instead_of_splitting_around_it():
+    schedule_by_dow = _mon_sat_schedule_by_dow()
+    anchor = _anchor(hour=8)
+    end = anchor + timedelta(days=7)
+    windows = build_worker_working_windows(schedule_by_dow, {}, anchor, end)
+    busy = [(_mon(10), _mon(11))]
+
+    start, finish, _ = place_unbroken(windows, busy, timedelta(hours=3), anchor, end)
+
+    assert (start, finish) == (_mon(11), _mon(14))
+    # Two hours fit before the booking, so place_duration alone would straddle it.
+    split_start, split_end, _ = place_duration(
+        subtract_intervals(windows, busy), timedelta(hours=3), anchor, end
+    )
+    assert (split_start, split_end) == (_mon(8), _mon(12))
+
+
+def test_place_unbroken_still_pauses_overnight():
+    schedule_by_dow = _mon_sat_schedule_by_dow()
+    anchor = _anchor(hour=15)
+    end = anchor + timedelta(days=7)
+    windows = build_worker_working_windows(schedule_by_dow, {}, anchor, end)
+
+    start, finish, _ = place_unbroken(windows, [], timedelta(hours=4), anchor, end)
+
+    assert start == _mon(15)
+    assert finish == shop_local_to_utc(date(2026, 8, 11), time(10, 0))
+
+
+def test_proposal_never_straddles_another_jobs_machine_booking(schedule_patches, monkeypatch):
+    booked = [(_mon(10), _mon(11))]
+    monkeypatch.setattr(
+        "app.services.schedule_service._load_external_bookings",
+        lambda exclude_job_id=None, exclude_operation_ids=None: ({}, {"u1": booked, "u2": booked}),
+    )
+    result = propose_schedule(
+        [
+            {
+                "sequenceNo": 1,
+                "operationName": "Turning",
+                "assignedWorkerId": "worker-1",
+                "machineTypeId": schedule_patches["lathe_id"],
+                "estimatedHours": 3,
+            }
+        ],
+        date(2026, 8, 20),
+        anchor_utc=_anchor(hour=8),
+    )
+    op = result["operations"][0]
+    assert datetime.fromisoformat(op["scheduledStart"]) == _mon(11)
+    assert datetime.fromisoformat(op["scheduledEnd"]) == _mon(14)
 
 
 def test_sequential_operations_chain(schedule_patches):
