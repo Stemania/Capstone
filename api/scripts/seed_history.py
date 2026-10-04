@@ -74,6 +74,7 @@ from app.models.worker_skill import (
     WorkCalendarException,
     WorkerSkill,
 )
+from app.services.delay_analysis_service import ran_over_target
 from app.services.job_order_service import _parse_datetime
 from app.services.material_purchase_service import sync_job_material_from_purchases
 from app.services.operation_service import recompute_variance
@@ -133,9 +134,18 @@ def _client_seed_name(display: str) -> str:
 # plus a couple in the current month. Client "jobs" above are relative weights.
 HISTORY_MONTHS = 12
 JOBS_PER_MONTH = (4, 8)
-# Jobs started within this many days are still open; the newest are not started.
-OPEN_IN_PROGRESS_DAYS = 12
-OPEN_SCHEDULED_DAYS = 4
+# Open backlog: jobs received in the last BACKLOG_DAYS are still open, due two
+# to four weeks out; those started within BACKLOG_SCHEDULED_DAYS have not begun.
+BACKLOG_JOBS = (8, 10)
+BACKLOG_DAYS = 21
+# The month the backlog starts in still finishes a few jobs received before it.
+MIN_JOBS_BEFORE_BACKLOG = 3
+# As the backlog builds, jobs received in the weeks before it wait longer to start
+# (the full SLOWDOWN_WAIT from halfway through), so completions slip a month.
+SLOWDOWN_DAYS = 42
+SLOWDOWN_WAIT = (10, 16)
+BACKLOG_SCHEDULED_DAYS = 5
+BACKLOG_DUE_DAYS = (14, 28)
 REWORK_RATE = 0.15
 
 # Consumable counts every one to two weeks; deliveries when stock runs low.
@@ -727,31 +737,51 @@ def _monthly_job_counts(n: int, rng: random.Random) -> list[int]:
 
 
 def _job_dates(today: date, rng: random.Random):
-    """[(po_date, job_day)] sorted by job_day, and the planned count per month.
+    """[(po_date, job_day, open)] sorted by job_day, and the planned count per month.
 
-    The first month starts mid-month: material orders can pull a fabrication
-    job's PO date up to two weeks earlier, and that must stay in the same month.
+    The last BACKLOG_DAYS hold the open backlog; a month that overlaps it counts
+    those jobs toward its planned total, and jobs received in the SLOWDOWN_DAYS
+    before it start progressively later. The first month starts mid-month:
+    material orders can pull a fabrication job's PO date up to two weeks
+    earlier, and that must stay in the same month.
     """
     months = _history_months(today)
     counts = _monthly_job_counts(len(months), rng)
-    po_dates = []
-    for i, (m, n) in enumerate(zip(months, counts)):
-        start = m.replace(day=16) if i == 0 else m
-        days = _working_days_between(start, _next_month(m) - timedelta(days=1))
-        po_dates.extend(rng.sample(days, min(n, len(days))))
-    current = _working_days_between(today.replace(day=1), today - timedelta(days=1))
-    if current:
-        po_dates.extend(rng.sample(current, min(len(current), rng.choice([1, 2]))))
+    backlog_start = today - timedelta(days=BACKLOG_DAYS)
+    backlog_days = _working_days_between(backlog_start, today - timedelta(days=1))
+    backlog = rng.sample(backlog_days, min(len(backlog_days), rng.randint(*BACKLOG_JOBS)))
+    in_month = defaultdict(int)
+    for po in backlog:
+        in_month[f"{po:%Y-%m}"] += 1
 
-    pairs = []
-    for po in po_dates:
-        job_day = po + timedelta(days=rng.randint(1, 3))
+    dated = [(po, True) for po in backlog]
+    planned = {}
+    for i, (m, n) in enumerate(zip(months, counts)):
+        key = f"{m:%Y-%m}"
+        start = m.replace(day=16) if i == 0 else m
+        end = min(_next_month(m), backlog_start) - timedelta(days=1)
+        days = _working_days_between(start, end) if end >= start else []
+        floor = MIN_JOBS_BEFORE_BACKLOG if in_month[key] else 0
+        k = min(max(floor, n - in_month[key]), len(days))
+        dated.extend((po, False) for po in rng.sample(days, k))
+        planned[key] = max(n, k + in_month[key])
+    if today.day > 1:
+        planned[f"{today:%Y-%m}"] = in_month[f"{today:%Y-%m}"]
+
+    rows = []
+    for po, is_open in dated:
+        # Backlog jobs start once material can arrive, so orders follow the PO.
+        job_day = po + timedelta(days=rng.randint(*((6, 9) if is_open else (1, 3))))
+        if not is_open:
+            ramp = min(1.0, 2 * (1 - (backlog_start - po).days / SLOWDOWN_DAYS))
+            if ramp > 0:
+                job_day += timedelta(days=round(ramp * rng.uniform(*SLOWDOWN_WAIT)))
+            job_day = min(job_day, today - timedelta(days=7))
         if job_day.weekday() == 6:
             job_day += timedelta(days=1)
-        pairs.append((po, min(job_day, today)))
-    pairs.sort(key=lambda p: (p[1], p[0]))
-    planned = {f"{m:%Y-%m}": n for m, n in zip(months, counts)}
-    return pairs, planned
+        rows.append((po, min(job_day, today), is_open))
+    rows.sort(key=lambda r: (r[1], r[0]))
+    return rows, planned
 
 
 def _job_type_mix_for_profile(profile_kind: str, rng: random.Random):
@@ -1089,15 +1119,14 @@ def _settle_purchases(fab_jobs, first_start_by_job, suppliers, today, rng) -> di
     return late_material
 
 
-def _add_stoppage(job, breakdown: bool, reported_by_id, rng) -> str | None:
-    """Pause one completed operation inside its longest worked stretch: a machine
-    breakdown (with a downtime record linked to the job) or another stoppage.
-    Returns the cause added, or None when no stretch is long enough."""
+def _longest_stretch(job, needs_unit: bool):
+    """(op, start, end, worker id) of the longest worked stretch on the job's
+    completed operations, or None."""
     best = None
     for op in job.operations:
         if op.status != OperationStatus.COMPLETED:
             continue
-        if breakdown and not op.machine_unit_id:
+        if needs_unit and not op.machine_unit_id:
             continue
         logs = (
             OperationTimeLog.query.filter_by(operation_id=op.id)
@@ -1112,6 +1141,27 @@ def _add_stoppage(job, breakdown: bool, reported_by_id, rng) -> str | None:
                 if best is None or log.event_at - open_at > best[2] - best[1]:
                     best = (op, open_at, log.event_at, logs[0].worker_id)
                 open_at = None
+    return best
+
+
+def _can_explain_late(job, late_material) -> bool:
+    """A late delivery on this job would have a cause: late material, redo,
+    time over target, or a stretch long enough to place a stoppage."""
+    if job.id in late_material:
+        return True
+    if any(o.rework_of_operation_id and o.status == OperationStatus.COMPLETED for o in job.operations):
+        return True
+    if ran_over_target(job.operations)[0] > 0:
+        return True
+    best = _longest_stretch(job, needs_unit=False)
+    return best is not None and best[2] - best[1] >= timedelta(hours=1)
+
+
+def _add_stoppage(job, breakdown: bool, reported_by_id, rng) -> str | None:
+    """Pause one completed operation inside its longest worked stretch: a machine
+    breakdown (with a downtime record linked to the job) or another stoppage.
+    Returns the cause added, or None when no stretch is long enough."""
+    best = _longest_stretch(job, needs_unit=breakdown)
     if best is None or best[2] - best[1] < timedelta(hours=1):
         return _add_stoppage(job, False, reported_by_id, rng) if breakdown else None
 
@@ -1252,7 +1302,14 @@ def _schedule_open_jobs(created_jobs, catalog, machines, rng: random.Random) -> 
         for j in created_jobs
         if j.status in (JobOrderStatus.SCHEDULED, JobOrderStatus.IN_PROGRESS)
     ]
-    open_jobs.sort(key=lambda j: (j.due_date, j.id))
+    # Work already under way is booked first, so later plans see its end.
+    open_jobs.sort(
+        key=lambda j: (
+            not any(o.status == OperationStatus.IN_PROGRESS for o in j.operations),
+            j.due_date,
+            j.id,
+        )
+    )
     _scale_open_pipeline_hours(open_jobs, machines, rng)
     db.session.flush()
 
@@ -1302,14 +1359,13 @@ def _schedule_open_jobs(created_jobs, catalog, machines, rng: random.Random) -> 
     }
 
 
-def _status_for_day(job_day: date, today: date) -> JobOrderStatus:
-    """Recent jobs are still open; everything older has finished."""
-    age = (today - job_day).days
-    if age <= OPEN_SCHEDULED_DAYS:
+def _status_for_day(job_day: date, today: date, is_open: bool) -> JobOrderStatus:
+    """Backlog jobs are still open (the newest not started); the rest have finished."""
+    if not is_open:
+        return JobOrderStatus.COMPLETED
+    if (today - job_day).days <= BACKLOG_SCHEDULED_DAYS:
         return JobOrderStatus.SCHEDULED
-    if age <= OPEN_IN_PROGRESS_DAYS:
-        return JobOrderStatus.IN_PROGRESS
-    return JobOrderStatus.COMPLETED
+    return JobOrderStatus.IN_PROGRESS
 
 
 def _round_to(value: float, step: float) -> float:
@@ -1535,13 +1591,11 @@ def seed_history():
     first_start_by_job = {}
     rework_count = 0
     variance_ops = 0
-    pending_rework_budget = 2
-
     unit_rr = defaultdict(int)
 
-    for idx, (po_date, job_day) in enumerate(job_dates):
+    for idx, (po_date, job_day, is_open) in enumerate(job_dates):
         client, client_profile = client_slots[idx]
-        status = _status_for_day(job_day, today)
+        status = _status_for_day(job_day, today, is_open)
         if status == JobOrderStatus.COMPLETED:
             route = rng.choice(ROUTINGS)
             n_ops = rng.randint(2, min(5, len(route)))
@@ -1564,7 +1618,11 @@ def seed_history():
                 f"{TAG} synthetic history for analytics. "
                 f"Client={client_profile['display']}. Routing: {' -> '.join(route)}"
             ),
-            due_date=job_day + timedelta(days=rng.randint(3, 14)),
+            due_date=(
+                today + timedelta(days=rng.randint(*BACKLOG_DUE_DAYS))
+                if is_open
+                else job_day + timedelta(days=rng.randint(3, 14))
+            ),
             client_po_number=po,
             po_date=po_date,
             status=status,
@@ -1688,8 +1746,8 @@ def seed_history():
                     complete=False,
                 )
 
-        # ~8% of completed jobs: rework one completed op (original stays COMPLETED).
-        # Most follow-ons are remachined (COMPLETED, shorter); leave a couple PENDING.
+        # Some completed jobs: rework one completed op (original stays COMPLETED);
+        # the follow-on is remachined (COMPLETED, shorter) before the job finishes.
         if status == JobOrderStatus.COMPLETED and rng.random() < REWORK_RATE:
             candidates = [
                 o for o in ops_for_job if o.status == OperationStatus.COMPLETED
@@ -1698,14 +1756,6 @@ def seed_history():
                 original = rng.choice(candidates)
                 reason = rng.choice(REWORK_REASONS)
                 original.rework_reason = reason
-
-                leave_pending = (
-                    pending_rework_budget > 0
-                    and rework_count >= 2
-                    and rng.random() < 0.55
-                )
-                if leave_pending:
-                    pending_rework_budget -= 1
 
                 mt_code = None
                 if original.machine_type_id:
@@ -1728,14 +1778,10 @@ def seed_history():
                     operation_name=original.operation_name,
                     operation_type_id=original.operation_type_id,
                     machine_type_id=original.machine_type_id,
-                    machine_unit_id=unit.id if unit and not leave_pending else None,
-                    assigned_worker_id=worker_id if not leave_pending else None,
+                    machine_unit_id=unit.id if unit else None,
+                    assigned_worker_id=worker_id,
                     estimated_hours=original.estimated_hours,
-                    status=(
-                        OperationStatus.PENDING
-                        if leave_pending
-                        else OperationStatus.COMPLETED
-                    ),
+                    status=OperationStatus.COMPLETED,
                     rework_of_operation_id=original.id,
                     rework_reason=reason,
                     notes=f"{TAG} rework",
@@ -1746,32 +1792,28 @@ def seed_history():
                 ops_for_job.append(follow)
                 rework_count += 1
 
-                if leave_pending:
-                    job.status = JobOrderStatus.IN_PROGRESS
-                else:
-                    # Remachine: typically shorter than the original estimate
-                    est_h = float(original.estimated_hours or 2)
-                    rework_hours = max(0.5, est_h * rng.uniform(0.25, 0.55))
-                    rework_day = cursor_day
-                    if original.actual_end:
-                        end_shop = original.actual_end.astimezone(ZoneInfo("Asia/Manila"))
-                        rework_day = end_shop.date() + timedelta(days=rng.randint(0, 2))
-                    start_t = time(rng.choice([8, 9, 10]), rng.choice([0, 15, 30]))
-                    _build_time_chain(
-                        follow,
-                        worker_id,
-                        rework_day,
-                        start_t,
-                        rework_hours,
-                        rng,
-                        complete=True,
-                    )
-                    db.session.flush()
-                    db.session.refresh(follow)
-                    recompute_variance(follow)
-                    if follow.variance_pct is not None:
-                        variance_ops += 1
-                    job.status = JobOrderStatus.COMPLETED
+                # Remachine: typically shorter than the original estimate
+                est_h = float(original.estimated_hours or 2)
+                rework_hours = max(0.5, est_h * rng.uniform(0.25, 0.55))
+                rework_day = cursor_day
+                if original.actual_end:
+                    end_shop = original.actual_end.astimezone(ZoneInfo("Asia/Manila"))
+                    rework_day = end_shop.date() + timedelta(days=rng.randint(0, 2))
+                start_t = time(rng.choice([8, 9, 10]), rng.choice([0, 15, 30]))
+                _build_time_chain(
+                    follow,
+                    worker_id,
+                    rework_day,
+                    start_t,
+                    rework_hours,
+                    rng,
+                    complete=True,
+                )
+                db.session.flush()
+                db.session.refresh(follow)
+                recompute_variance(follow)
+                if follow.variance_pct is not None:
+                    variance_ops += 1
 
         if job_type == JobType.FABRICATION:
             primary = PRIMARY_SUPPLIER_ROTATION[
@@ -1792,7 +1834,8 @@ def seed_history():
     ]
     if completed_for_due:
         n_late = max(1, int(round(len(completed_for_due) * 0.22)))
-        late_jobs = set(rng.sample(completed_for_due, min(n_late, len(completed_for_due))))
+        explainable = [j for j in completed_for_due if _can_explain_late(j, late_material)]
+        late_jobs = set(rng.sample(explainable, min(n_late, len(explainable))))
         slight_n = max(1, len(late_jobs) // 2)
         slight_jobs = set(rng.sample(list(late_jobs), min(slight_n, len(late_jobs))))
         for job in completed_for_due:
@@ -1830,8 +1873,9 @@ def seed_history():
             job.delivered_at = shop_local_to_utc(min(delivered, today), time(15, 0))
             job.status = JobOrderStatus.DELIVERED
 
-        # Every job delivered late has a recorded cause: late material, redo, or
-        # else a breakdown or other stoppage during one of its operations.
+        # Every job delivered late has a recorded cause: late material, redo, a
+        # breakdown or other stoppage during one of its operations, or else hours
+        # worked beyond target.
         stoppage_rng = random.Random(RNG_SEED + 4)
         added = 0
         for job in completed_for_due:
@@ -1846,9 +1890,8 @@ def seed_history():
                 continue
             if _add_stoppage(job, added % 2 == 0, creator.id, stoppage_rng):
                 added += 1
-            else:
-                # No stretch long enough to place a stoppage: deliver it on time instead.
-                job.due_date = _shop_day(job.delivered_at)
+            elif ran_over_target(job.operations)[0] <= 0:
+                print(f"WARNING: no cause recorded for late job {job.client_po_number}")
 
     # Schedule open pipeline via live propose_schedule (capacity forecast demo)
     schedule_stats = _schedule_open_jobs(created_jobs, catalog, machines, rng)
