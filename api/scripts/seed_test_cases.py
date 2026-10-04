@@ -1,19 +1,24 @@
 """
-Replace the local database with data for the test cases in
+Load, or remove, data for the test cases in
 "Production Scheduling Test Cases and Test Case Log" (TC-01 to TC-30).
 
     cd api
-    .\\.venv\\Scripts\\python.exe scripts\\seed_test_cases.py --yes
+    .\\.venv\\Scripts\\python.exe scripts\\seed_test_cases.py          # load
+    .\\.venv\\Scripts\\python.exe scripts\\seed_test_cases.py --wipe   # remove
+    .\\.venv\\Scripts\\python.exe scripts\\seed_test_cases.py --force  # remove, then load
 
-LOCAL ONLY (same DATABASE_URL guard as seed_history.py). Empties every table,
-user accounts included, then builds:
-  1. The base data from `flask seed`: accounts, machines, operation types,
-     suppliers, consumables and QR-tagged tools (its three demo jobs removed).
-  2. seed_history's 12 months of delivered jobs and stock counts for the analytics cases
-     (TC-16, 17, 18, 30), without its open jobs, with invoices and without
-     the HIST-SEED labels.
-  3. One job per test case that needs a starting state, titled "TC-xx ...",
-     created through the same services the screens use.
+LOCAL ONLY (same DATABASE_URL guard as seed_history.py). Adds to what is
+already there and needs the base data from `flask seed` (accounts, machines,
+operation types, suppliers, consumables, tools). Builds one job per test case
+that needs a starting state, titled "TC-xx ...", through the same services the
+screens use. TC-16, 17, 18 and 30 use the history from seed_history.py, which
+this script never touches.
+
+Everything it creates is labelled TC-SEED, separate from HIST-SEED: job PO
+numbers start TC-SEED- and its clients' names start "TC-SEED". --wipe removes
+those jobs (with their operations, time logs, alerts, notifications, schedule
+moves and invoices), the supplier orders that only carry their materials, and
+the TC-SEED clients that have no other jobs.
 """
 
 from __future__ import annotations
@@ -23,12 +28,11 @@ from datetime import date, datetime, time, timedelta
 
 import seed_history as hist  # sets sys.path, cwd and .env for the api package
 
-from sqlalchemy import text
-
 from app import create_app
 from app.extensions import db
 from app.models.client import Client
-from app.models.job_order import JobOrder, JobOrderStatus
+from app.models.job_order import JobOrder
+from app.models.material_purchase import MaterialPurchase
 from app.models.notification import NotificationLog
 from app.models.operation import JobOperation
 from app.models.operation_time import MachineDowntime, OperationTimeLog
@@ -36,13 +40,11 @@ from app.models.sales_invoice import SalesInvoice
 from app.models.schedule_move import ScheduleMove
 from app.models.staff_alert import StaffAlert
 from app.models.supplier import Supplier
+from app.models.supplier_order import SupplierOrder
 from app.models.tool_event import ToolEvent
-from app.models.tool_type import ToolUnit, ToolUnitStatus
 from app.models.user import User, UserRole
-from app.models.worker_skill import OperationType
-from app.seed.seed_data import seed_database
+from app.models.worker_skill import OperationType, WorkerSkill
 from app.services import operation_service
-from app.services import sales_invoice_service as si_service
 from app.services import supplier_order_service as so_service
 from app.services.job_order_service import (
     _parse_datetime,
@@ -53,8 +55,32 @@ from app.services.job_order_service import (
 from app.services.schedule_calendar import shop_local_to_utc, shop_now, utc_to_shop
 from app.services.schedule_service import place_from_start
 
-BASE_DEMO_POS = ("PO-ABC-1042", "PO-MSC-778", "PO-PE-331")
-BASE_DEMO_CLIENTS = ("ABC Manufacturing", "Metro Steel Corp", "Pacific Engineering")
+TAG = "TC-SEED"
+PO_PREFIX = f"{TAG}-"
+CLIENT_NAMES = (
+    "Tosoh Polyvin Corporation",
+    "SIDC",
+    "Sanitary Care",
+    "Revery Construction",
+    "MMV Builders",
+    "Aboitiz",
+)
+REQUIRED_USERS = (
+    "admin@bmsc.local",
+    "office@bmsc.local",
+    "worker1@bmsc.local",
+    "worker2@bmsc.local",
+    "worker3@bmsc.local",
+    "worker4@bmsc.local",
+    "worker10@bmsc.local",
+)
+# Machine skills the fixtures assign each worker (all part of the base seed).
+REQUIRED_SKILLS = {
+    "worker1@bmsc.local": ("LATHE", "MILLING", "DRILLING"),
+    "worker2@bmsc.local": ("MILLING",),
+    "worker4@bmsc.local": ("LATHE",),
+    "worker10@bmsc.local": ("DRILLING",),
+}
 # Unit cost (PHP) of each fixture material when it is ordered.
 PRICES = {
     "AISI 1045 round bar": 95,
@@ -68,21 +94,11 @@ WORKER = UserRole.PRODUCTION_WORKER.value
 ADMIN = UserRole.ADMIN.value
 
 
-# --- Reset -------------------------------------------------------------------
+# --- Wipe --------------------------------------------------------------------
 
 
-def truncate_all():
-    tables = db.session.execute(
-        text(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'public' AND table_type = 'BASE TABLE' "
-            "AND table_name <> 'alembic_version'"
-        )
-    ).scalars().all()
-    quoted = ", ".join('"' + t + '"' for t in tables)
-    db.session.execute(text(f"TRUNCATE {quoted} RESTART IDENTITY CASCADE"))
-    db.session.commit()
-    print(f"Emptied {len(tables)} tables.")
+def _tc_jobs_query():
+    return JobOrder.query.filter(JobOrder.client_po_number.like(f"{PO_PREFIX}%"))
 
 
 def _delete_jobs(jobs):
@@ -113,79 +129,85 @@ def _delete_jobs(jobs):
     db.session.flush()
 
 
-def drop_base_demo_jobs():
-    """flask seed's three sample jobs have no schedule windows; the test cases
-    bring their own jobs, so remove them, their clients and the sample borrow."""
-    _delete_jobs(JobOrder.query.filter(JobOrder.client_po_number.in_(BASE_DEMO_POS)).all())
-    Client.query.filter(Client.name.in_(BASE_DEMO_CLIENTS)).delete(synchronize_session=False)
-    ToolEvent.query.delete(synchronize_session=False)
-    for unit in ToolUnit.query.filter(ToolUnit.status == ToolUnitStatus.OUT).all():
-        unit.status = ToolUnitStatus.AVAILABLE
-        unit.current_holder_id = None
-        unit.held_since = None
-    db.session.commit()
-
-
-def drop_open_history_jobs():
-    """Keep only finished history; the test cases supply the open work."""
-    open_jobs = hist._hist_jobs_query().filter(
-        JobOrder.status.notin_((JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED))
-    ).all()
-    _delete_jobs(open_jobs)
-    db.session.commit()
-    print(f"Removed {len(open_jobs)} open history jobs.")
-
-
-def clean_history_labels():
-    """Strip the HIST-SEED tag from everything a tester can see."""
-    tag = hist.TAG
-    statements = [
-        f"UPDATE job_orders SET client_po_number = 'PO-' || substr(client_po_number, "
-        f"{len(hist.PO_PREFIX) + 1}) WHERE client_po_number LIKE '{hist.PO_PREFIX}%'",
-        f"UPDATE job_orders SET description = NULL WHERE description LIKE '{tag}%'",
-        f"UPDATE clients SET contact = NULL WHERE contact LIKE '%@hist-seed.local'",
-        f"UPDATE operations SET notes = 'Rework' WHERE notes = '{tag} rework'",
-        f"UPDATE machine_downtimes SET note = NULL WHERE note LIKE '{tag} %downtime%'",
-        f"UPDATE work_calendar_exceptions SET note = 'Overtime' WHERE note LIKE '{tag}%'",
-    ]
-    for table, column in (
-        ("job_orders", "title"),
-        ("job_orders", "material_delay_reason"),
-        ("clients", "name"),
-        ("operations", "notes"),
-        ("operation_time_logs", "note"),
-        ("machine_downtimes", "note"),
-        ("schedule_moves", "reason"),
-        ("stocktakes", "notes"),
-        ("tool_events", "reason"),
-    ):
-        statements.append(
-            f"UPDATE {table} SET {column} = NULLIF(btrim(regexp_replace("
-            f"{column}, '\\s*\\[?{tag}\\]?\\s*', ' ', 'g')), '') "
-            f"WHERE {column} LIKE '%{tag}%'"
+def wipe_test_cases():
+    """Remove only TC-SEED data. History and everything else stay."""
+    jobs = _tc_jobs_query().all()
+    job_ids = {j.id for j in jobs}
+    order_ids = {
+        sid
+        for (sid,) in db.session.query(MaterialPurchase.supplier_order_id).filter(
+            MaterialPurchase.job_order_id.in_(job_ids),
+            MaterialPurchase.supplier_order_id.isnot(None),
         )
-    for sql in statements:
-        db.session.execute(text(sql))
-    db.session.commit()
-
-
-def invoice_delivered_history(office):
-    """Delivery needs an issued invoice, so every delivered job gets one dated
-    the day it was delivered."""
-    jobs = (
-        JobOrder.query.filter(
-            JobOrder.status == JobOrderStatus.DELIVERED, JobOrder.delivered_at.isnot(None)
+    } if job_ids else set()
+    shared = {
+        sid
+        for (sid,) in db.session.query(MaterialPurchase.supplier_order_id).filter(
+            MaterialPurchase.supplier_order_id.in_(order_ids),
+            MaterialPurchase.job_order_id.notin_(job_ids),
         )
-        .order_by(JobOrder.delivered_at)
-        .all()
+    } if order_ids else set()
+    order_ids -= shared
+
+    _delete_jobs(jobs)
+    if order_ids:
+        JobOrder.query.filter(JobOrder.material_delay_supplier_order_id.in_(order_ids)).update(
+            {"material_delay_supplier_order_id": None}, synchronize_session=False
+        )
+        for model in (StaffAlert, ScheduleMove):
+            model.query.filter(model.supplier_order_id.in_(order_ids)).delete(
+                synchronize_session=False
+            )
+        for order in SupplierOrder.query.filter(SupplierOrder.id.in_(order_ids)).all():
+            db.session.delete(order)
+
+    kept_clients = 0
+    removed_clients = 0
+    for client in Client.query.filter(Client.name.like(f"{TAG}%")).all():
+        if JobOrder.query.filter_by(client_id=client.id).first():
+            kept_clients += 1
+            continue
+        NotificationLog.query.filter_by(client_id=client.id).delete(synchronize_session=False)
+        db.session.delete(client)
+        removed_clients += 1
+    db.session.commit()
+    print(
+        f"Wiped {TAG}: {len(jobs)} jobs, {len(order_ids)} supplier orders, "
+        f"{removed_clients} clients."
     )
-    for job in jobs:
-        si_service.issue_invoice(
-            job,
-            {"invoiceDate": utc_to_shop(job.delivered_at).date().isoformat()},
-            office.id,
-        )
-    print(f"Issued {len(jobs)} invoices for delivered history jobs.")
+    if kept_clients:
+        print(f"Kept {kept_clients} {TAG} clients that have jobs created during testing.")
+
+
+def _ensure_clients() -> dict:
+    """The six test clients, labelled TC-SEED, keyed by their plain name."""
+    out = {}
+    for name in CLIENT_NAMES:
+        label = f"{TAG} {name}"
+        client = Client.query.filter_by(name=label).first()
+        if not client:
+            client = Client(name=label)
+            db.session.add(client)
+        out[name] = client
+    db.session.commit()
+    return out
+
+
+def _missing_skills() -> list[str]:
+    """Base-seed skills the fixtures rely on that a worker no longer has."""
+    users = {u.email: u for u in User.query.filter(User.email.in_(list(REQUIRED_SKILLS))).all()}
+    out = []
+    for email, codes in REQUIRED_SKILLS.items():
+        user = users.get(email)
+        have = {
+            s.machine_type.code
+            for s in WorkerSkill.query.filter_by(worker_id=user.id).all()
+            if s.machine_type
+        } if user else set()
+        lack = [c for c in codes if c not in have]
+        if lack:
+            out.append(f"{user.full_name if user else email} needs {', '.join(lack)}")
+    return out
 
 
 # --- Fixture helpers ---------------------------------------------------------
@@ -203,7 +225,7 @@ class Ctx:
         self.driller = by_email["worker10@bmsc.local"]
         self.ops = {ot.code: ot for ot in OperationType.query.all()}
         self.suppliers = {s.name: s for s in Supplier.query.all()}
-        self.clients = {c.name: c for c in Client.query.all()}
+        self.clients = _ensure_clients()
         self.today = shop_now().date()
         self.d1 = prev_workday(self.today)
         self.d2 = prev_workday(self.d1)
@@ -212,7 +234,7 @@ class Ctx:
 
     def next_po(self):
         self.po_count += 1
-        return f"PO-{self.today:%Y%m%d}-T{self.po_count:02d}"
+        return f"{PO_PREFIX}{self.today:%Y%m%d}-T{self.po_count:02d}"
 
     def note(self, tc, job, how):
         self.rows.append((tc, job.job_number if job else "-", job.title if job else "", how))
@@ -512,7 +534,7 @@ def build_fixtures(ctx):
 
     # TC-29: client with notifications on; run the job from Received to Delivered.
     client29 = Client(
-        name="TC-29 Notification Client",
+        name=f"{TAG} Notification Client (TC-29)",
         contact="Replace with a real contact before TC-29",
         email="tc29.client@example.com",
         notify_by_email=True,
@@ -537,8 +559,10 @@ def print_summary(ctx):
         print(f"{'':<23} {how}")
     print(
         "\nNo fixture needed: TC-03, 04, 05, 06, 07, 10, 15, 20, 21, 25 use the base "
-        "accounts, clients, consumables and tools; TC-16, 17, 18, 30 use the history."
+        "accounts, clients, consumables and tools; TC-16, 17, 18, 30 use the history "
+        "from seed_history.py."
     )
+    print("Remove after testing: scripts\\seed_test_cases.py --wipe (history is left alone).")
     print(
         "Logins: admin@bmsc.local / Admin123!, office@bmsc.local / Office123!, "
         "worker1@bmsc.local (Juan Dela Cruz) / Worker123!"
@@ -546,24 +570,35 @@ def print_summary(ctx):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Replace local data with test-case data.")
-    parser.add_argument("--yes", action="store_true", help="Confirm emptying every table.")
+    parser = argparse.ArgumentParser(description=f"Load or remove {TAG} test-case data (local only).")
+    parser.add_argument("--wipe", action="store_true", help=f"Remove {TAG} data and exit.")
+    parser.add_argument("--force", action="store_true", help=f"Remove {TAG} data, then load it again.")
     args = parser.parse_args()
-    if not args.yes:
-        raise SystemExit("This empties every table, users included. Re-run with --yes.")
 
     hist._assert_local_db()
     app = create_app()
     with app.app_context():
-        truncate_all()
-        seed_database()
-        drop_base_demo_jobs()
-        hist.seed_history()
-        drop_open_history_jobs()
-        clean_history_labels()
-        db.session.expire_all()
+        if args.wipe:
+            wipe_test_cases()
+            return
+        existing = _tc_jobs_query().count()
+        if existing and not args.force:
+            raise SystemExit(
+                f"Already loaded ({existing} {TAG} jobs). Use --wipe to remove, or --force to reload."
+            )
+        if existing:
+            wipe_test_cases()
+        emails = {u.email for u in User.query.filter(User.email.in_(REQUIRED_USERS)).all()}
+        missing = sorted(set(REQUIRED_USERS) - emails)
+        if missing:
+            raise SystemExit(f"Base data missing ({', '.join(missing)}). Run `flask seed` first.")
+        lacking = _missing_skills()
+        if lacking:
+            raise SystemExit(
+                "Fixture workers are missing base skills: " + "; ".join(lacking)
+                + ". Add them under Worker setup, or run `flask seed` on a fresh database."
+            )
         ctx = Ctx()
-        invoice_delivered_history(ctx.office)
         build_fixtures(ctx)
         print_summary(ctx)
 
