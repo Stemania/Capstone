@@ -1302,27 +1302,86 @@ export interface AnalyticsCommittedPipeline {
   byExpectedCompletionMonth: AnalyticsPipelineMonthRow[];
 }
 
-export interface AnalyticsProjectedRevenue {
+export interface MovingAverageMonthRow {
+  month: string;
+  actual: number | null;
+  forecast: number | null;
+  absoluteError: number | null;
+}
+
+/** Monthly moving-average forecast with back-tested error. */
+export interface MovingAverageForecast {
+  method: string;
+  window: number;
+  monthsAvailable: number;
+  monthsNeeded: number;
+  enoughHistory: boolean;
+  notEnoughHistoryNote: string | null;
+  forecastMonth: string;
+  forecast: number | null;
+  mae: number | null;
+  mapePct: number | null;
+  backtestedMonths: number;
+  months: MovingAverageMonthRow[];
+}
+
+export interface AnalyticsSalesMovingAverage extends MovingAverageForecast {
   label: string;
   description: string;
-  sampleCompletedJobs: number;
-  sampleWorkingDays: number;
-  sampleWeeks: number;
-  revenuePerWorkingDay: number | null;
-  horizonWeeks: number;
-  horizon: { from: string; to: string };
-  horizonWorkingDays: number;
-  projectedAmount: number | null;
-  thinSampleNote?: string;
 }
 
 export interface AnalyticsSalesForecast {
-  period: { from: string; to: string };
-  workingDaysInSample: number;
-  sampleWeeks: number;
-  thinSample: boolean;
   committedPipeline: AnalyticsCommittedPipeline;
-  projectedRevenue: AnalyticsProjectedRevenue;
+  salesForecast: AnalyticsSalesMovingAverage;
+}
+
+export interface AnalyticsDemandJobTypeForecast extends MovingAverageForecast {
+  jobType: JobType;
+}
+
+export interface AnalyticsDemandForecast extends MovingAverageForecast {
+  label: string;
+  description: string;
+  byJobType: AnalyticsDemandJobTypeForecast[];
+}
+
+export interface ConsumableRunOutPeriod {
+  from: string;
+  to: string;
+  workingDays: number;
+  used: number | null;
+}
+
+export interface ConsumableRunOutRow {
+  toolId: string;
+  name: string;
+  code: string;
+  sizeSpec: string | null;
+  unit: string;
+  quantityOnHand: number | null;
+  minimumStock: number | null;
+  lowStock: boolean;
+  lastCountedOn: string | null;
+  periodsUsed: number;
+  periods: ConsumableRunOutPeriod[];
+  enoughData: boolean;
+  notEnoughDataNote: string | null;
+  dailyUsage: number | null;
+  lastCountQuantity: number | null;
+  deliveriesSinceCount: number | null;
+  shopDaysSinceCount: number | null;
+  estimatedOnHand: number | null;
+  daysLeft: number | null;
+  runOutDate: string | null;
+  likelyOut: boolean;
+}
+
+export interface ConsumableRunOut {
+  label: string;
+  method: string;
+  description: string;
+  today: string;
+  items: ConsumableRunOutRow[];
 }
 
 export interface AnalyticsCapacityTypeRow {

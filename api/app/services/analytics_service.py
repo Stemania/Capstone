@@ -28,6 +28,7 @@ from app.services.delay_analysis_service import (
     material_delays,
     pause_intervals,
 )
+from app.services import forecast_service
 from app.services.schedule_calendar import (
     SHOP_TZ,
     derive_working_segments,
@@ -902,7 +903,6 @@ _REWORK_CATEGORY_LABEL = {
 # --- Sales / demand forecasting (read-only) ---
 
 FORECAST_HORIZON_WEEKS = 4
-THIN_SAMPLE_WEEKS = 8
 CAPACITY_LOAD_FLAG_PCT = 80.0
 
 
@@ -1054,10 +1054,12 @@ def sales_summary(from_s=None, to_s=None):
 
 
 def sales_forecast(from_s=None, to_s=None):
-    period_from, period_to, _start_utc, _end_utc = _parse_period(from_s, to_s)
-    working_days = _working_days_inclusive(period_from, period_to)
-    sample_weeks = round(working_days / 6.0, 1) if working_days else 0.0
-    thin_sample = sample_weeks < THIN_SAMPLE_WEEKS
+    """Committed pipeline (fact) plus the monthly moving-average sales estimate.
+
+    Both use all history, not the analytics period; from/to are accepted for
+    API symmetry.
+    """
+    _ = from_s, to_s
 
     # Committed pipeline: released, not yet completed or delivered (fact)
     pipeline_jobs = (
@@ -1095,52 +1097,18 @@ def sales_forecast(from_s=None, to_s=None):
         ],
     }
 
-    completed = _completed_jobs_in_period(period_from, period_to)
-    completed_revenue = sum(float(j.amount or 0) for j, _ in completed)
-    revenue_per_day = (
-        completed_revenue / working_days if working_days > 0 else None
-    )
-    today = shop_now().date()
-    horizon_from = today
-    horizon_to = today + timedelta(days=FORECAST_HORIZON_WEEKS * 7 - 1)
-    horizon_wd = _working_days_inclusive(horizon_from, horizon_to)
-    projected_amount = (
-        revenue_per_day * horizon_wd if revenue_per_day is not None else None
-    )
-
-    projected = {
-        "label": "projectedRevenue",
-        "description": (
-            "Rough guess from recent finished jobs: average income per shop day, "
-            f"carried forward for the next {FORECAST_HORIZON_WEEKS} weeks. "
-            "Not the same as accepted jobs still open."
-        ),
-        "sampleCompletedJobs": len(completed),
-        "sampleWorkingDays": working_days,
-        "sampleWeeks": sample_weeks,
-        "revenuePerWorkingDay": _num(revenue_per_day, 2),
-        "horizonWeeks": FORECAST_HORIZON_WEEKS,
-        "horizon": {
-            "from": horizon_from.isoformat(),
-            "to": horizon_to.isoformat(),
-        },
-        "horizonWorkingDays": horizon_wd,
-        "projectedAmount": _num(projected_amount, 2),
-    }
-    if thin_sample:
-        projected["thinSampleNote"] = (
-            f"Only {sample_weeks} weeks of shop days so far "
-            f"(we like at least {THIN_SAMPLE_WEEKS}). This guess is rough."
-        )
-
     return {
-        "period": {"from": period_from.isoformat(), "to": period_to.isoformat()},
-        "workingDaysInSample": working_days,
-        "sampleWeeks": sample_weeks,
-        "thinSample": thin_sample,
         "committedPipeline": committed,
-        "projectedRevenue": projected,
+        "salesForecast": forecast_service.sales_forecast(),
     }
+
+
+def demand_forecast():
+    return forecast_service.demand_forecast()
+
+
+def consumable_run_out():
+    return forecast_service.consumable_run_out()
 
 
 def capacity_type_rows(active_types, units_by_type, load_by_type, available_per_unit):

@@ -139,6 +139,7 @@ def test_committed_pipeline_excludes_completed_jobs():
         client=None,
     )
 
+    _ = completed
     mock_job = MagicMock()
     mock_job.query.options.return_value.filter.return_value.all.return_value = [open_job]
 
@@ -146,17 +147,7 @@ def test_committed_pipeline_excludes_completed_jobs():
         patch.object(svc, "JobOrder", mock_job),
         patch.object(svc, "joinedload", return_value=MagicMock()),
         patch.object(
-            svc,
-            "_completed_jobs_in_period",
-            return_value=[(completed, date(2026, 7, 1))],
-        ),
-        patch.object(
-            svc,
-            "_parse_period",
-            return_value=(date(2026, 6, 16), date(2026, 8, 11), None, None),
-        ),
-        patch.object(
-            svc, "shop_now", return_value=SimpleNamespace(date=lambda: date(2026, 8, 11))
+            svc.forecast_service, "sales_forecast", return_value={"label": "salesForecast"}
         ),
     ):
         result = svc.sales_forecast()
@@ -165,14 +156,10 @@ def test_committed_pipeline_excludes_completed_jobs():
     assert result["committedPipeline"]["totalAmount"] == 1000.0
     assert result["committedPipeline"]["label"] == "committedPipeline"
     assert "fact" in result["committedPipeline"]["description"].lower()
-    # Projection states sample size separately from pipeline
-    assert result["projectedRevenue"]["sampleCompletedJobs"] == 1
-    assert result["projectedRevenue"]["sampleWorkingDays"] == result["workingDaysInSample"]
-    assert result["projectedRevenue"]["label"] == "projectedRevenue"
-    assert "guess" in result["projectedRevenue"]["description"].lower()
+    assert result["salesForecast"]["label"] == "salesForecast"
 
 
-def test_projection_states_sample_size_and_thin_flag():
+def test_flat_average_projection_is_gone():
     from app.services import analytics_service as svc
 
     mock_job = MagicMock()
@@ -181,22 +168,12 @@ def test_projection_states_sample_size_and_thin_flag():
     with (
         patch.object(svc, "JobOrder", mock_job),
         patch.object(svc, "joinedload", return_value=MagicMock()),
-        patch.object(svc, "_completed_jobs_in_period", return_value=[]),
-        patch.object(
-            svc,
-            "_parse_period",
-            return_value=(date(2026, 8, 1), date(2026, 8, 7), None, None),
-        ),
-        patch.object(
-            svc, "shop_now", return_value=SimpleNamespace(date=lambda: date(2026, 8, 11))
-        ),
+        patch.object(svc.forecast_service, "sales_forecast", return_value={}),
     ):
         result = svc.sales_forecast()
 
-    assert result["thinSample"] is True
-    assert result["sampleWeeks"] < 8
-    assert "thinSampleNote" in result["projectedRevenue"]
-    assert result["projectedRevenue"]["sampleWorkingDays"] == result["workingDaysInSample"]
+    assert set(result) == {"committedPipeline", "salesForecast"}
+    assert not hasattr(svc, "THIN_SAMPLE_WEEKS")
 
 
 def test_capacity_load_uses_unit_count_adjusted_available_hours():

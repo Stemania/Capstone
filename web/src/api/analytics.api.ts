@@ -5,11 +5,13 @@ import type {
   AnalyticsByWorker,
   AnalyticsDelays,
   AnalyticsDemandCapacity,
+  AnalyticsDemandForecast,
   AnalyticsOverview,
   AnalyticsPurchasing,
   AnalyticsSalesForecast,
   AnalyticsSalesSummary,
   AnalyticsTrend,
+  ConsumableRunOut,
 } from '../types';
 
 export type AnalyticsDateParams = {
@@ -37,6 +39,8 @@ export const analyticsApi = {
     apiClient.get<AnalyticsSalesSummary>('/analytics/sales/summary', { params }),
   salesForecast: (params?: AnalyticsDateParams) =>
     apiClient.get<AnalyticsSalesForecast>('/analytics/sales/forecast', { params }),
+  demandForecast: () => apiClient.get<AnalyticsDemandForecast>('/analytics/demand/forecast'),
+  consumableRunOut: () => apiClient.get<ConsumableRunOut>('/analytics/consumables/run-out'),
   demandCapacity: (params?: AnalyticsDateParams) =>
     apiClient.get<AnalyticsDemandCapacity>('/analytics/demand/capacity', { params }),
   purchasing: (params?: AnalyticsDateParams) =>

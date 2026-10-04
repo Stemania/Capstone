@@ -5,7 +5,7 @@ Runs in the rolled-back local session from test_process_flow. Analytics cases us
 far-future period (March 2031) so existing local data doesn't interfere.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -24,7 +24,7 @@ from app.models.operation_time import (
     OperationTimeLog,
 )
 from app.models.user import UserRole
-from app.services import analytics_service
+from app.services import analytics_service, forecast_service
 from app.services.job_order_service import delete_job_order, update_job_order
 from app.services.scoring_service import _pairs_from_ops, score_efficiency
 from app.utils.errors import AppError
@@ -67,8 +67,11 @@ def test_sales_summary_and_forecast_include_delivered_jobs(people):
     assert summary["completedJobCount"] == 2
     assert summary["totalAmount"] == pytest.approx(8000.0)
 
+    monthly = forecast_service.sales_forecast(today=date(2031, 4, 15))
+    march = next(m for m in monthly["months"] if m["month"] == "2031-03")
+    assert march["actual"] == pytest.approx(8000.0)
+
     forecast = analytics_service.sales_forecast(**PERIOD)
-    assert forecast["projectedRevenue"]["sampleCompletedJobs"] == 2
     open_jobs = JobOrder.query.filter(
         JobOrder.status.in_((JobOrderStatus.SCHEDULED, JobOrderStatus.IN_PROGRESS))
     ).count()

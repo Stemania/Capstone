@@ -119,6 +119,20 @@ def sales_forecast():
     )
 
 
+@analytics_bp.route("/demand/forecast", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def demand_forecast():
+    return jsonify(analytics.demand_forecast())
+
+
+@analytics_bp.route("/consumables/run-out", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def consumable_run_out():
+    return jsonify(analytics.consumable_run_out())
+
+
 @analytics_bp.route("/demand/capacity", methods=["GET"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
