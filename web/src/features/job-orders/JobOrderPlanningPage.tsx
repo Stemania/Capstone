@@ -12,8 +12,6 @@ import {
   Space,
   message,
   Input,
-  Row,
-  Col,
 } from 'antd';
 import SplitActionButton from '../../components/SplitActionButton';
 import InfoTip from '../../components/InfoTip';
@@ -37,7 +35,6 @@ import { MACHINE_OPTIONS } from '../../types';
 import { formatShopDateTime } from '../../utils/shopTime';
 import ScheduleProposalPanel from './ScheduleProposalPanel';
 import ScheduleWeekView from './ScheduleWeekView';
-import MaterialOrdersSummary from './MaterialOrdersSummary';
 import ScheduleExpandShell from '../schedule/ScheduleExpandShell';
 import JobOrderFlowSteps, {
   resolveJobFlowStep,
@@ -48,7 +45,6 @@ import type {
   JobOrder,
   MachineInfo,
   MachineUnitInfo,
-  MaterialStatus,
   OperationType,
   ProposedOperation,
   ScheduleProblem,
@@ -58,16 +54,6 @@ import type {
 } from '../../types';
 
 const { Title, Text } = Typography;
-
-const MATERIAL_STATUS_OPTIONS: { value: MaterialStatus; label: string }[] = [
-  { value: 'TO_ORDER', label: 'To order' },
-  { value: 'NOT_REQUIRED', label: 'Not required' },
-];
-
-/** Ordered / Received come from purchase lines and are never set here. */
-function isDerivedMaterialStatus(s: MaterialStatus) {
-  return s === 'ORDERED' || s === 'RECEIVED';
-}
 
 function isPlanningStatus(status: string) {
   return status === 'DRAFT';
@@ -176,22 +162,11 @@ export default function JobOrderPlanningPage() {
     materialNotBefore?: string | null;
     materialConstraintReason?: string | null;
   } | null>(null);
-  const [materialStatus, setMaterialStatus] = useState<MaterialStatus>('TO_ORDER');
-  const materialsNeeded = materialStatus !== 'NOT_REQUIRED';
-  const hasMaterialsToBuy = (job?.rawMaterials || []).some((m) => !m.fromStock);
+  const materialsNeeded = job?.materialStatus !== 'NOT_REQUIRED';
   const linesReadiness =
     materialsNeeded && job?.materialReadiness?.source === 'PURCHASE_LINES'
       ? job.materialReadiness
       : null;
-  const unorderedMaterials = materialsNeeded
-    ? job?.materialReadiness?.unorderedMaterials || []
-    : [];
-  const materialsNotOrdered =
-    materialsNeeded &&
-    (unorderedMaterials.length > 0 ||
-      !(job?.materialReadiness?.supplierOrders || []).some(
-        (o) => o.status !== 'DRAFT' && o.status !== 'CANCELLED'
-      ));
   const noLeadTimeSuppliers = linesReadiness?.missingLeadTimeSuppliers || [];
   const materialDateUnknown = noLeadTimeSuppliers.length > 0;
   const [scheduleProblems, setScheduleProblems] = useState<ScheduleProblem[]>([]);
@@ -431,7 +406,6 @@ export default function JobOrderPlanningPage() {
         }
 
         setJob(j);
-        setMaterialStatus(j.materialStatus || 'TO_ORDER');
         setWizardStep(initial);
         if (String(searchParams.get('step')) !== String(initial)) {
           setSearchParams({ step: String(initial) }, { replace: true });
@@ -663,9 +637,6 @@ export default function JobOrderPlanningPage() {
       status: op.status === 'SCHEDULED' ? 'PENDING' : op.status || 'PENDING',
     }));
 
-  const materialPayload = () =>
-    isDerivedMaterialStatus(materialStatus) ? {} : { materialStatus };
-
   const savePlanning = async (exit = false) => {
     if (!id) return;
     setSaving(true);
@@ -677,10 +648,8 @@ export default function JobOrderPlanningPage() {
           : buildOperationsPayload();
       const { data } = await jobOrdersApi.update(id, {
         operations: operationsPayload,
-        ...materialPayload(),
       });
       setJob(data);
-      setMaterialStatus(data.materialStatus || materialStatus);
       // Keep form rows in sync with persisted schedule so reopen lands on step 3.
       if (wizardStep === 3 && scheduleOps?.some((o) => o.scheduled)) {
         setOperations((prev) =>
@@ -725,10 +694,8 @@ export default function JobOrderPlanningPage() {
       const { data: saved } = await jobOrdersApi.update(id, {
         operations: buildOperationsPayload(),
         advanceToPlanning: true,
-        ...materialPayload(),
       });
       setJob(saved);
-      setMaterialStatus(saved.materialStatus || materialStatus);
       const { data } = await jobOrdersApi.proposeSchedule(id, {
         operations: buildOperationsPayload(),
       });
@@ -847,7 +814,6 @@ export default function JobOrderPlanningPage() {
     try {
       const { data } = await jobOrdersApi.confirmSchedule(id, {
         operations: buildConfirmPayload(),
-        ...materialPayload(),
       });
       setJob(data);
       message.success('Schedule confirmed. The job is now scheduled.');
@@ -1112,64 +1078,6 @@ export default function JobOrderPlanningPage() {
 
       {wizardStep === 2 ? (
       <div className="jo-plan__panel">
-        <div className="jo-plan__section-title">Material readiness</div>
-        <Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 13 }}>
-          The first operation cannot start before material arrives. The arrival date comes from
-          the job&apos;s supplier orders.
-        </Text>
-        <Row gutter={[16, 12]} style={{ marginBottom: 24 }}>
-          <Col xs={24} md={8}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-              Materials needed?
-            </div>
-            <Select<MaterialStatus>
-              style={{ width: '100%' }}
-              value={materialsNeeded ? 'TO_ORDER' : 'NOT_REQUIRED'}
-              disabled={readOnly}
-              options={MATERIAL_STATUS_OPTIONS.map((o) =>
-                o.value === 'TO_ORDER' ? { ...o, disabled: !hasMaterialsToBuy } : o
-              )}
-              onChange={(v) => {
-                // Ordered / Received are kept: they follow the purchase lines.
-                if (v === 'NOT_REQUIRED' || !isDerivedMaterialStatus(materialStatus)) {
-                  setMaterialStatus(v);
-                }
-              }}
-            />
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>
-              {materialsNeeded
-                ? 'Set by the planned materials. Scheduling waits until they arrive.'
-                : hasMaterialsToBuy
-                  ? 'Marked Not required: the shop already has the material. Scheduling does not wait.'
-                  : 'No planned materials to buy. Add them in the job details if this job needs material.'}
-            </div>
-          </Col>
-          {materialsNeeded ? (
-            <Col xs={24} md={16}>
-              {materialsNotOrdered ? (
-                <Alert
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: 10 }}
-                  message="Materials not ordered yet. The first operation is placed after the longest supplier lead time."
-                  description={
-                    <>
-                      {unorderedMaterials.length ? `${unorderedMaterials.join(', ')}. ` : ''}
-                      <Link to={`/job-orders/${job.id}#supplier-orders`}>
-                        View the job&apos;s supplier orders
-                      </Link>
-                    </>
-                  }
-                />
-              ) : null}
-              <MaterialOrdersSummary
-                planned={job.plannedMaterials}
-                readiness={job.materialReadiness}
-              />
-            </Col>
-          ) : null}
-        </Row>
-
         <div className="jo-plan__section-title">Operations</div>
         <Table
           size="middle"
