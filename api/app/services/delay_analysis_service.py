@@ -212,6 +212,21 @@ def _shop_date(dt) -> date | None:
     return ensure_utc(dt).astimezone(SHOP_TZ).date() if dt else None
 
 
+def ran_over_target(operations) -> tuple[float, int]:
+    """(hours, operations): worked hours beyond target hours on the job's own
+    operations. Redo operations are left out; they count under Redo."""
+    hours = 0.0
+    count = 0
+    for o in operations:
+        if o.rework_of_operation_id is not None or o.estimated_hours is None:
+            continue
+        over = float(o.actual_worked_hours or 0) - float(o.estimated_hours)
+        if over > 0:
+            hours += over
+            count += 1
+    return hours, count
+
+
 def late_jobs(period_from: date, period_to: date) -> list[dict]:
     """Job orders delivered in the period after their required date, with the
     delay causes recorded against each (whole job, not clipped to the period)."""
@@ -286,6 +301,17 @@ def late_jobs(period_from: date, period_to: date) -> list[dict]:
                     "label": "Redo",
                     "hours": float(sum(float(o.actual_worked_hours or 0) for o in redo)),
                     "detail": f"{len(redo)} redo operation{'s' if len(redo) != 1 else ''}",
+                }
+            )
+
+        over_hours, over_ops = ran_over_target(job.operations)
+        if over_hours > 0:
+            causes.append(
+                {
+                    "cause": "RAN_OVER_TARGET",
+                    "label": "Ran over target",
+                    "hours": over_hours,
+                    "detail": f"{over_ops} operation{'s' if over_ops != 1 else ''} over target hours",
                 }
             )
 

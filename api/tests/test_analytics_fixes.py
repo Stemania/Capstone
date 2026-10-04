@@ -1,5 +1,6 @@
 """Analytics fixes: open pipeline excludes pending jobs, machine utilization
-counts only worked intervals, and weekly trends cut weeks in Manila time.
+counts only worked intervals, weekly trends cut weeks in Manila time, and late
+job orders list time run over target as a cause.
 
 Uses the bmsc_test database from conftest (schema built from the models).
 """
@@ -20,6 +21,7 @@ from app.models.user import User, UserRole, UserStatus
 from app.models.worker_profile import WorkerProfile
 from app.models.worker_skill import WorkerSchedule
 from app.services import analytics_service as svc
+from app.services.delay_analysis_service import late_jobs, ran_over_target
 from app.services.schedule_calendar import SHOP_TZ
 
 
@@ -234,5 +236,49 @@ def test_weekly_trend_groups_by_manila_week_with_jobs_finished(shop):
             "operationCount": 1,
             "averageVariancePct": 0.0,
             "jobsFinished": 1,
+        }
+    ]
+
+
+# ---- Late job orders: ran over target ---------------------------------------------
+
+
+def test_ran_over_target_counts_hours_beyond_target_and_skips_redo():
+    ops = [
+        SimpleNamespace(rework_of_operation_id=None, estimated_hours=4, actual_worked_hours=6.5),
+        SimpleNamespace(rework_of_operation_id=None, estimated_hours=3, actual_worked_hours=2),
+        SimpleNamespace(rework_of_operation_id=None, estimated_hours=None, actual_worked_hours=9),
+        SimpleNamespace(rework_of_operation_id="orig", estimated_hours=1, actual_worked_hours=5),
+    ]
+    assert ran_over_target(ops) == (pytest.approx(2.5), 1)
+
+
+def test_late_job_lists_ran_over_target_as_a_cause(shop):
+    day = date(2026, 10, 5)
+    job = _job(shop, JobOrderStatus.DELIVERED)
+    job.due_date = date(2026, 10, 6)
+    job.delivered_at = _local(date(2026, 10, 8), 15)
+    op = _finished_op(
+        shop,
+        job,
+        _local(day, 8),
+        _local(day, 15),
+        [
+            (OperationTimeEvent.START, _local(day, 8), None),
+            (OperationTimeEvent.COMPLETE, _local(day, 15), None),
+        ],
+    )
+    op.actual_worked_hours = Decimal("7")
+    db.session.commit()
+
+    rows = [r for r in late_jobs(date(2026, 10, 1), date(2026, 10, 31)) if r["jobOrderId"] == job.id]
+
+    assert rows and rows[0]["daysLate"] == 2
+    assert rows[0]["causes"] == [
+        {
+            "cause": "RAN_OVER_TARGET",
+            "label": "Ran over target",
+            "hours": 3.0,
+            "detail": "1 operation over target hours",
         }
     ]
