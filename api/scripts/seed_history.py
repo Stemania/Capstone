@@ -1,5 +1,6 @@
 """
-Seed realistic 8-week production history for analytics demos.
+Seed realistic 12-month production and consumable stock history for analytics
+and forecast demos.
 
 Standalone — NOT part of `flask seed`. Explicitly invoke:
 
@@ -16,6 +17,7 @@ records this script created. Never mutates pre-existing jobs/ops/users.
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import random
 import sys
@@ -33,6 +35,7 @@ if str(API_ROOT) not in sys.path:
 os.chdir(API_ROOT)
 
 from dotenv import load_dotenv
+from sqlalchemy import or_
 
 load_dotenv(API_ROOT / ".env")
 
@@ -60,8 +63,10 @@ from app.models.operation_time import (
 from app.models.notification import NotificationLog
 from app.models.sales_invoice import SalesInvoice
 from app.models.schedule_move import DelayKind, MaterialCause, ScheduleMove
+from app.models.stocktake import Stocktake, StocktakeLine
 from app.models.supplier import Supplier
-from app.models.tool_event import ToolEvent
+from app.models.tool import Tool, ToolCategory
+from app.models.tool_event import ToolEvent, ToolEventType
 from app.models.user import User, UserRole
 from app.models.worker_skill import (
     CalendarExceptionType,
@@ -124,10 +129,20 @@ CLIENT_PROFILES = [
 def _client_seed_name(display: str) -> str:
     return f"{TAG} {display}"
 
-# ~50 jobs / 8 weeks ≈ 6.25/week
-TARGET_JOBS = 50
-HISTORY_WEEKS = 8
+# 12 complete months before the current one, 4-8 job orders each (by PO date),
+# plus a couple in the current month. Client "jobs" above are relative weights.
+HISTORY_MONTHS = 12
+JOBS_PER_MONTH = (4, 8)
+# Jobs started within this many days are still open; the newest are not started.
+OPEN_IN_PROGRESS_DAYS = 12
+OPEN_SCHEDULED_DAYS = 4
 REWORK_RATE = 0.15
+
+# Consumable counts every one to two weeks; deliveries when stock runs low.
+STOCK_COUNT_GAPS = [7, 7, 7, 8, 10, 12, 14, 14]
+STOCK_NOTE = f"{TAG} stock count"
+DELIVERY_NOTE = f"{TAG} delivery"
+CONSUMABLE_SUPPLIER = "Hardware supplier"
 RNG_SEED = 20260810
 
 
@@ -323,11 +338,13 @@ def wipe_history():
         db.session.delete(job)
     db.session.flush()
 
+    counts_n, deliveries_n = _wipe_stock_history()
     dts_n, cal_n, clients_n = _wipe_hist_artifacts(commit=True)
     print(
         f"Wiped: {len(jobs)} jobs, {op_count} operations, {log_count} time logs, "
         f"{purchase_count} purchase lines, "
-        f"{dts_n} downtimes, {cal_n} calendar exceptions, {clients_n} clients."
+        f"{dts_n} downtimes, {cal_n} calendar exceptions, {clients_n} clients, "
+        f"{counts_n} stock counts, {deliveries_n} consumable deliveries."
     )
 
 
@@ -670,15 +687,71 @@ def _ensure_clients():
     return clients
 
 
-def _job_slots_for_clients(clients, rng: random.Random):
-    """Build a shuffled list of (client, profile_meta) length TARGET_JOBS."""
-    assert sum(p["jobs"] for p in CLIENT_PROFILES) == TARGET_JOBS
+def _job_slots_for_clients(clients, rng: random.Random, total: int):
+    """Shuffled list of (client, profile_meta) of length ``total``, split by the
+    CLIENT_PROFILES weights."""
+    weight_sum = sum(p["jobs"] for p in CLIENT_PROFILES)
+    quotas = _quotas(total, {p["key"]: p["jobs"] / weight_sum for p in CLIENT_PROFILES})
     slots = []
     for client, profile in zip(clients, CLIENT_PROFILES):
-        for _ in range(profile["jobs"]):
+        for _ in range(quotas[profile["key"]]):
             slots.append((client, profile))
     rng.shuffle(slots)
     return slots
+
+
+def _next_month(d: date) -> date:
+    return (d.replace(day=28) + timedelta(days=4)).replace(day=1)
+
+
+def _history_months(today: date) -> list[date]:
+    """First days of the HISTORY_MONTHS complete months before today's month."""
+    m = today.replace(day=1)
+    out = []
+    for _ in range(HISTORY_MONTHS):
+        m = (m - timedelta(days=1)).replace(day=1)
+        out.append(m)
+    return sorted(out)
+
+
+def _monthly_job_counts(n: int, rng: random.Random) -> list[int]:
+    """A seasonal swing plus noise, kept within JOBS_PER_MONTH."""
+    lo, hi = JOBS_PER_MONTH
+    phase = rng.uniform(0, 2 * math.pi)
+    counts = []
+    for i in range(n):
+        level = (lo + hi) / 2 + 1.6 * math.sin(2 * math.pi * i / 12 + phase)
+        level += rng.choice([-1, -1, 0, 0, 0, 1, 1, 2])
+        counts.append(max(lo, min(hi, round(level))))
+    return counts
+
+
+def _job_dates(today: date, rng: random.Random):
+    """[(po_date, job_day)] sorted by job_day, and the planned count per month.
+
+    The first month starts mid-month: material orders can pull a fabrication
+    job's PO date up to two weeks earlier, and that must stay in the same month.
+    """
+    months = _history_months(today)
+    counts = _monthly_job_counts(len(months), rng)
+    po_dates = []
+    for i, (m, n) in enumerate(zip(months, counts)):
+        start = m.replace(day=16) if i == 0 else m
+        days = _working_days_between(start, _next_month(m) - timedelta(days=1))
+        po_dates.extend(rng.sample(days, min(n, len(days))))
+    current = _working_days_between(today.replace(day=1), today - timedelta(days=1))
+    if current:
+        po_dates.extend(rng.sample(current, min(len(current), rng.choice([1, 2]))))
+
+    pairs = []
+    for po in po_dates:
+        job_day = po + timedelta(days=rng.randint(1, 3))
+        if job_day.weekday() == 6:
+            job_day += timedelta(days=1)
+        pairs.append((po, min(job_day, today)))
+    pairs.sort(key=lambda p: (p[1], p[0]))
+    planned = {f"{m:%Y-%m}": n for m, n in zip(months, counts)}
+    return pairs, planned
 
 
 def _job_type_mix_for_profile(profile_kind: str, rng: random.Random):
@@ -1229,14 +1302,190 @@ def _schedule_open_jobs(created_jobs, catalog, machines, rng: random.Random) -> 
     }
 
 
-def _status_for_index(i: int, total: int) -> JobOrderStatus:
-    # Larger open pipeline so Lathe/Milling absolute hours are visible in the
-    # 4-week capacity window (~10 ASSIGNED + ~14 IN_PROGRESS).
-    if i >= total - 10:
+def _status_for_day(job_day: date, today: date) -> JobOrderStatus:
+    """Recent jobs are still open; everything older has finished."""
+    age = (today - job_day).days
+    if age <= OPEN_SCHEDULED_DAYS:
         return JobOrderStatus.SCHEDULED
-    if i >= total - 24:
+    if age <= OPEN_IN_PROGRESS_DAYS:
         return JobOrderStatus.IN_PROGRESS
     return JobOrderStatus.COMPLETED
+
+
+def _round_to(value: float, step: float) -> float:
+    return round(round(value / step) * step, 2)
+
+
+def _stock_count_dates(window_start: date, today: date, rng: random.Random) -> list[date]:
+    """Count days every one to two weeks back from a few days ago, skipping
+    Sundays and days that already have a stocktake (one per day)."""
+    taken = {s.counted_on for s in Stocktake.query.all()}
+    dates = []
+    d = today - timedelta(days=rng.randint(4, 9))
+    while d >= window_start:
+        if d.weekday() == 6:
+            d -= timedelta(days=1)
+        if d not in taken:
+            dates.append(d)
+        d -= timedelta(days=rng.choice(STOCK_COUNT_GAPS))
+    return sorted(dates)
+
+
+def _delivery_day(a: date, b: date, fraction: float) -> date | None:
+    """A working day strictly between two count days, about ``fraction`` of the way."""
+    days = _working_days_between(a + timedelta(days=1), b - timedelta(days=1))
+    if not days:
+        return None
+    return days[min(len(days) - 1, max(0, int(fraction * len(days))))]
+
+
+def _seed_stock_history(creator, window_start: date, today: date, rng: random.Random) -> dict:
+    """
+    Stock counts and deliveries for every consumable, worked backwards from its
+    current quantity so the newest count equals what is on hand now:
+    earlier count = later count + used - delivered. A delivery lands whenever
+    the earlier count would sit above the item's usual ceiling. A few items get
+    a delivery after the newest count, which raises quantity on hand as a real
+    delivery does (--wipe takes it back off).
+    """
+    tools = Tool.query.filter_by(category=ToolCategory.CONSUMABLE).order_by(Tool.code).all()
+    dates = _stock_count_dates(window_start, today, rng)
+    if len(dates) < 2 or not tools:
+        return {"counts": 0, "deliveries": 0, "afterLastCount": 0, "items": 0}
+
+    counts = {}
+    deliveries = defaultdict(list)  # tool id -> [(date, qty)]
+    for tool in tools:
+        final = float(tool.quantity_on_hand or 0)
+        minimum = float(tool.minimum_stock or max(2.0, final / 4))
+        step = 0.5 if (tool.unit or "").lower() in ("litre", "liter", "l", "kg") else 1.0
+        daily = minimum * rng.uniform(0.05, 0.12)
+        lot = max(step, _round_to(minimum * rng.uniform(3.5, 5.0), step))
+        ceiling = max(final * 1.1, minimum + lot * rng.uniform(1.0, 1.2))
+        row = [0.0] * len(dates)
+        row[-1] = final
+        for k in range(len(dates) - 1, 0, -1):
+            a, b = dates[k - 1], dates[k]
+            shop_days = len(_working_days_between(a + timedelta(days=1), b))
+            season = 1 + 0.2 * math.sin(2 * math.pi * b.month / 12)
+            used = max(0.0, _round_to(daily * shop_days * season * rng.uniform(0.6, 1.4), step))
+            earlier = row[k] + used
+            n = 0
+            while earlier > ceiling:
+                earlier -= lot
+                n += 1
+            for j in range(n):
+                fraction = (earlier - 0.5 * minimum) / used if used else 0.5
+                on = _delivery_day(a, b, min(0.85, max(0.1, fraction)) + j * 0.1)
+                if on:
+                    deliveries[tool.id].append((on, lot))
+                else:
+                    earlier += lot
+            row[k - 1] = _round_to(earlier, step)
+        counts[tool.id] = row
+
+    after_last = 0
+    last = dates[-1]
+    for tool in tools:
+        minimum = float(tool.minimum_stock or 2)
+        row = counts[tool.id]
+        if len(row) < 2:
+            continue
+        daily = max(0.0, (row[-2] - row[-1])) / max(
+            1, len(_working_days_between(dates[-2] + timedelta(days=1), last))
+        )
+        days_since = len(_working_days_between(last + timedelta(days=1), today))
+        low = row[-1] - daily * days_since < minimum * 1.5
+        if rng.random() < (0.7 if low else 0.15):
+            on = _delivery_day(last, today + timedelta(days=1), 0.5)
+            if on:
+                lot = max(1.0, _round_to(minimum * 4, 1.0))
+                deliveries[tool.id].append((on, lot))
+                tool.quantity_on_hand = Decimal(str(float(tool.quantity_on_hand or 0) + lot))
+                after_last += 1
+
+    for k, on in enumerate(dates):
+        st = Stocktake(
+            counted_on=on,
+            counted_by_id=creator.id,
+            notes=STOCK_NOTE,
+            created_at=shop_local_to_utc(on, time(16, 30)),
+        )
+        db.session.add(st)
+        db.session.flush()
+        for tool in tools:
+            row = counts[tool.id]
+            if k == 0:
+                system_qty = row[0]
+            else:
+                system_qty = row[k - 1] + sum(
+                    q for d, q in deliveries[tool.id] if dates[k - 1] < d < on
+                )
+            db.session.add(
+                StocktakeLine(
+                    stocktake_id=st.id,
+                    tool_id=tool.id,
+                    previous_quantity=Decimal(str(round(system_qty, 2))),
+                    counted_quantity=Decimal(str(row[k])),
+                )
+            )
+
+    n_deliveries = 0
+    for tool in tools:
+        for on, qty in deliveries[tool.id]:
+            db.session.add(
+                ToolEvent(
+                    tool_id=tool.id,
+                    worker_id=creator.id,
+                    type=ToolEventType.RECEIVE,
+                    quantity=Decimal(str(qty)),
+                    reason=DELIVERY_NOTE,
+                    supplier=CONSUMABLE_SUPPLIER,
+                    received_on=on,
+                    created_at=shop_local_to_utc(on, time(10, 0)),
+                )
+            )
+            n_deliveries += 1
+    db.session.flush()
+    return {
+        "counts": len(dates),
+        "first": dates[0],
+        "last": last,
+        "deliveries": n_deliveries,
+        "afterLastCount": after_last,
+        "items": len(tools),
+    }
+
+
+def _wipe_stock_history() -> tuple[int, int]:
+    """Remove HIST-SEED counts and deliveries, taking deliveries made after the
+    newest seeded count back off quantity on hand (unless a real count since
+    has already reset it)."""
+    seeded = Stocktake.query.filter(Stocktake.notes.like(f"{TAG}%")).all()
+    events = ToolEvent.query.filter(
+        ToolEvent.type == ToolEventType.RECEIVE,
+        ToolEvent.reason.like(f"{TAG}%"),
+    ).all()
+    if seeded:
+        last = max(s.counted_on for s in seeded)
+        later_real = {
+            ln.tool_id
+            for st in Stocktake.query.filter(
+                Stocktake.counted_on > last,
+                or_(Stocktake.notes.is_(None), ~Stocktake.notes.like(f"{TAG}%")),
+            ).all()
+            for ln in st.lines
+        }
+        for ev in events:
+            if ev.received_on and ev.received_on > last and ev.tool and ev.tool_id not in later_real:
+                remaining = Decimal(str(ev.tool.quantity_on_hand or 0)) - Decimal(str(ev.quantity))
+                ev.tool.quantity_on_hand = max(remaining, Decimal("0"))
+    for ev in events:
+        db.session.delete(ev)
+    for st in seeded:
+        db.session.delete(st)
+    db.session.flush()
+    return len(seeded), len(events)
 
 
 def seed_history():
@@ -1245,29 +1494,21 @@ def seed_history():
     _assert_skill_coverage(catalog)
     tendencies = _build_worker_tendencies(catalog, rng)
     clients = _ensure_clients()
-    client_slots = _job_slots_for_clients(clients, rng)
     creator = catalog["creator"]
     op_types = catalog["op_types"]
     machines = catalog["machines"]
 
     today = shop_now().date()
-    window_start = today - timedelta(weeks=HISTORY_WEEKS)
+    window_start = _history_months(today)[0]
     workdays = _working_days_between(window_start, today)
     if not workdays:
         raise SystemExit("No working days in history window.")
 
-    # ~6 jobs/week: allow multiple jobs on the same day (shop volume).
-    job_days = []
-    for i in range(TARGET_JOBS):
-        # Spread evenly across the window with light jitter
-        idx = int(i * (len(workdays) - 1) / max(TARGET_JOBS - 1, 1))
-        jitter = rng.randint(-1, 1) if len(workdays) > 3 else 0
-        idx = max(0, min(len(workdays) - 1, idx + jitter))
-        job_days.append(workdays[idx])
-    job_days.sort()
+    job_dates, planned_by_month = _job_dates(today, rng)
+    client_slots = _job_slots_for_clients(clients, rng, len(job_dates))
 
     # A few OT calendar exceptions (tagged) so late finishes are "legitimate"
-    ot_days = rng.sample(workdays, k=min(5, len(workdays)))
+    ot_days = rng.sample(workdays, k=min(12, len(workdays)))
     for d in ot_days:
         existing = WorkCalendarException.query.filter_by(
             date=d, type=CalendarExceptionType.OVERTIME
@@ -1298,9 +1539,9 @@ def seed_history():
 
     unit_rr = defaultdict(int)
 
-    for idx, job_day in enumerate(job_days):
+    for idx, (po_date, job_day) in enumerate(job_dates):
         client, client_profile = client_slots[idx]
-        status = _status_for_index(idx, TARGET_JOBS)
+        status = _status_for_day(job_day, today)
         if status == JobOrderStatus.COMPLETED:
             route = rng.choice(ROUTINGS)
             n_ops = rng.randint(2, min(5, len(route)))
@@ -1325,7 +1566,7 @@ def seed_history():
             ),
             due_date=job_day + timedelta(days=rng.randint(3, 14)),
             client_po_number=po,
-            po_date=job_day - timedelta(days=rng.randint(1, 5)),
+            po_date=po_date,
             status=status,
             priority=rng.choice(
                 [JobPriority.HIGH, JobPriority.MODERATE, JobPriority.MODERATE, JobPriority.LOW]
@@ -1606,7 +1847,8 @@ def seed_history():
             if _add_stoppage(job, added % 2 == 0, creator.id, stoppage_rng):
                 added += 1
             else:
-                print(f"WARNING: no cause recorded for late job {job.client_po_number}")
+                # No stretch long enough to place a stoppage: deliver it on time instead.
+                job.due_date = _shop_day(job.delivered_at)
 
     # Schedule open pipeline via live propose_schedule (capacity forecast demo)
     schedule_stats = _schedule_open_jobs(created_jobs, catalog, machines, rng)
@@ -1658,6 +1900,8 @@ def seed_history():
             )
             open_count += 1
 
+    stock_stats = _seed_stock_history(creator, window_start, today, random.Random(RNG_SEED + 5))
+
     db.session.commit()
 
     # Summary stats
@@ -1680,6 +1924,20 @@ def seed_history():
     print("\n=== HIST-SEED summary ===")
     print(f"Date range:          {window_start.isoformat()} -> {today.isoformat()}")
     print(f"Jobs created:        {len(created_jobs)}")
+    received = defaultdict(int)
+    for j in created_jobs:
+        received[f"{j.po_date:%Y-%m}"] += 1
+    print(
+        "Jobs by PO month:    "
+        + ", ".join(f"{k} {received[k]} (planned {planned_by_month.get(k, '-')})" for k in sorted(received))
+    )
+    if stock_stats["counts"]:
+        print(
+            f"Stock counts:        {stock_stats['counts']} ({stock_stats['first']} -> "
+            f"{stock_stats['last']}) for {stock_stats['items']} consumables, "
+            f"{stock_stats['deliveries']} deliveries "
+            f"({stock_stats['afterLastCount']} after the last count)"
+        )
     print(f"Operations created:  {len(created_ops)}")
     print(f"With variance data:  {len(with_var)}")
     print(f"Rework follow-ons:   {reworks}")

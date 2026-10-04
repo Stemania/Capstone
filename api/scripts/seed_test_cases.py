@@ -9,7 +9,7 @@ LOCAL ONLY (same DATABASE_URL guard as seed_history.py). Empties every table,
 user accounts included, then builds:
   1. The base data from `flask seed`: accounts, machines, operation types,
      suppliers, consumables and QR-tagged tools (its three demo jobs removed).
-  2. seed_history's 8 weeks of delivered jobs for the analytics cases
+  2. seed_history's 12 months of delivered jobs and stock counts for the analytics cases
      (TC-16, 17, 18, 30), without its open jobs, with invoices and without
      the HIST-SEED labels.
   3. One job per test case that needs a starting state, titled "TC-xx ...",
@@ -156,6 +156,8 @@ def clean_history_labels():
         ("operation_time_logs", "note"),
         ("machine_downtimes", "note"),
         ("schedule_moves", "reason"),
+        ("stocktakes", "notes"),
+        ("tool_events", "reason"),
     ):
         statements.append(
             f"UPDATE {table} SET {column} = NULLIF(btrim(regexp_replace("
