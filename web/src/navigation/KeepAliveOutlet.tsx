@@ -1,20 +1,31 @@
-import { useOutlet, useLocation } from 'react-router-dom';
-import { useRef, type ReactNode } from 'react';
+import { useOutlet, useLocation, UNSAFE_LocationContext } from 'react-router-dom';
+import { useContext, useRef, type ContextType, type ReactNode } from 'react';
 import { getNavSection, useNavMemory } from './navMemory';
+
+type LocationContextValue = ContextType<typeof UNSAFE_LocationContext>;
 
 type CacheEntry = {
   path: string;
   generation: number;
   element: ReactNode;
+  locationContext: LocationContextValue;
 };
 
 /**
  * Keeps one mounted page per nav section when you leave via the sidebar.
  * Re-clicking the active section bumps generation and drops that cache.
+ *
+ * Hidden pages see the location they last showed, not the live one, so
+ * navigating elsewhere does not re-render them (useNavigate, useLocation and
+ * useSearchParams all read this context). UNSAFE_LocationContext is outside
+ * React Router's public API; react-router-dom is pinned to exactly 7.18.1 in
+ * package.json so an upgrade can't change it unnoticed. Re-check this file
+ * before bumping that version.
  */
 export default function KeepAliveOutlet() {
   const outlet = useOutlet();
   const location = useLocation();
+  const liveLocationContext = useContext(UNSAFE_LocationContext);
   const { generationBySection } = useNavMemory();
   const cacheRef = useRef<Map<string, CacheEntry>>(new Map());
 
@@ -36,11 +47,14 @@ export default function KeepAliveOutlet() {
       cached.generation === generation &&
       cached.path === fullPath;
 
-    if (!sameFrozenPage) {
+    if (sameFrozenPage) {
+      cached.locationContext = liveLocationContext;
+    } else {
       cacheRef.current.set(section, {
         path: fullPath,
         generation,
         element: outlet,
+        locationContext: liveLocationContext,
       });
     }
   }
@@ -62,7 +76,9 @@ export default function KeepAliveOutlet() {
             style={{ display: active ? 'block' : 'none', minHeight: active ? '100%' : undefined }}
             aria-hidden={!active}
           >
-            {entry.element}
+            <UNSAFE_LocationContext.Provider value={entry.locationContext}>
+              {entry.element}
+            </UNSAFE_LocationContext.Provider>
           </div>
         );
       })}
