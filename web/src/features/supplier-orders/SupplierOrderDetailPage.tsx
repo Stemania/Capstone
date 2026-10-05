@@ -1,3 +1,4 @@
+import { formatShop, shopToday } from '../../utils/shopTime';
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
@@ -36,7 +37,7 @@ import OrderMaterialsModal from './OrderMaterialsModal';
 import { LINE_STATUS_PILL, ORDER_STATUS_PILL, fmtDay, fmtMoney, fmtQty } from './supplierOrderUi';
 
 function askDate(title: string, intro: string, okText: string, onOk: (d: string) => Promise<void>) {
-  let picked: Dayjs = dayjs();
+  let picked: Dayjs = shopToday();
   Modal.confirm({
     title,
     content: (
@@ -44,7 +45,7 @@ function askDate(title: string, intro: string, okText: string, onOk: (d: string)
         <div style={{ marginBottom: 8, fontSize: 13, color: '#475569' }}>{intro}</div>
         <DatePicker
           style={{ width: '100%' }}
-          defaultValue={dayjs()}
+          defaultValue={shopToday()}
           format="YYYY-MM-DD"
           allowClear={false}
           onChange={(d) => {
@@ -570,7 +571,7 @@ export default function SupplierOrderDetailPage() {
               </div>
               <div style={{ fontSize: 12, color: '#94a3b8' }}>
                 {c.changedByName || 'Unknown'}
-                {c.changedAt ? `, ${dayjs(c.changedAt).format('D MMM YYYY, h:mm A')}` : ''}
+                {c.changedAt ? `, ${formatShop(c.changedAt, 'D MMM YYYY, h:mm A')}` : ''}
               </div>
             </div>
           ))}

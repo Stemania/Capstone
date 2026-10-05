@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Spin, Table, Tag, Typography, message } from 'antd';
 import dayjs from 'dayjs';
 import { Link } from 'react-router-dom';
-import { SHOP_TZ } from '../../utils/shopTime';
+import { SHOP_TZ, formatShop } from '../../utils/shopTime';
 import {
   Bar,
   CartesianGrid,
@@ -46,7 +46,7 @@ const CAUSE_TYPE_LABEL: Record<string, string> = {
 };
 
 const fmtShop = (iso: string) => dayjs(iso).tz(SHOP_TZ).format('MMM D, HH:mm');
-const fmtDay = (iso: string) => dayjs(iso).format('MMM D, YYYY');
+const fmtDay = (iso: string) => formatShop(iso, 'MMM D, YYYY');
 
 function reasonLabel(reason: string) {
   const map: Record<string, string> = {

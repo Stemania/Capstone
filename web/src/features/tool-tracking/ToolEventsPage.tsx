@@ -1,6 +1,6 @@
+import { formatShop } from '../../utils/shopTime';
 import { useEffect, useState } from 'react';
 import { Table } from 'antd';
-import dayjs from 'dayjs';
 import { toolsApi } from '../../api/tools.api';
 import StatusPill from '../../components/StatusPill';
 import type { ToolEvent, ToolEventType } from '../../types';
@@ -76,7 +76,7 @@ export default function ToolEventsPage({ category }: Props) {
         {
           title: 'Date',
           dataIndex: 'createdAt',
-          render: (d: string) => dayjs(d).format('MMM D, YYYY h:mm A'),
+          render: (d: string) => formatShop(d, 'MMM D, YYYY h:mm A'),
         },
         {
           title: 'Item',

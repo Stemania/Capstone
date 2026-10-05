@@ -1,3 +1,4 @@
+import { formatShop } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Input,
@@ -61,7 +62,7 @@ function cardStatus(unit: MachineUnitStatus): CardStatus {
 
 function formatWhen(iso?: string | null): string {
   if (!iso) return '';
-  return dayjs(iso).format('MMM D, h:mm A');
+  return formatShop(iso, 'MMM D, h:mm A');
 }
 
 function unitSearchText(unit: MachineUnitStatus): string {

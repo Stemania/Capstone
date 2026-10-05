@@ -1,8 +1,8 @@
+import { formatShop } from '../utils/shopTime';
 import { useCallback, useEffect, useState } from 'react';
 import { Badge, Button, Empty, Popover, Spin } from 'antd';
 import { BellOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import dayjs from 'dayjs';
 import { alertsApi } from '../api/alerts.api';
 import type { StaffAlert } from '../types';
 
@@ -102,7 +102,7 @@ export default function NotificationBell({ className }: { className?: string }) 
                 <div className="notif-item__title">{a.title}</div>
                 {a.message && <div className="notif-item__msg">{a.message}</div>}
                 <div className="notif-item__meta">
-                  {a.createdAt ? dayjs(a.createdAt).format('D MMM YYYY, h:mm A') : ''}
+                  {a.createdAt ? formatShop(a.createdAt, 'D MMM YYYY, h:mm A') : ''}
                   {a.jobOrderId && a.supplierOrderId && a.poNumber && (
                     <>
                       {' · '}

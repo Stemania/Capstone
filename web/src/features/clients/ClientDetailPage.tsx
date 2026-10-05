@@ -1,8 +1,8 @@
+import { formatShop } from '../../utils/shopTime';
 import { useEffect, useState } from 'react';
 import { Button, Spin, Table, Tag, Typography, message } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
-import dayjs from 'dayjs';
 import { clientsApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import type { ClientDetail } from '../../types';
@@ -152,7 +152,7 @@ export default function ClientDetailPage() {
             title: 'Date',
             dataIndex: 'createdAt',
             width: 120,
-            render: (v: string | null) => (v ? dayjs(v).format('MMM D, YYYY') : '—'),
+            render: (v: string | null) => (v ? formatShop(v, 'MMM D, YYYY') : '—'),
           },
           {
             title: 'Value',

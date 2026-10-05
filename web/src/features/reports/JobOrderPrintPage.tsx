@@ -1,8 +1,8 @@
+import { formatShop } from '../../utils/shopTime';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Button, Spin, message } from 'antd';
 import { PrinterOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
-import dayjs from 'dayjs';
 import { clientsApi, jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import { SHOP_LETTERHEAD } from '../../constants/shopLetterhead';
@@ -11,13 +11,13 @@ import { ReportStamp, displayOrDash } from './ReportChrome';
 
 function fmtDate(v?: string | null) {
   if (!v) return '—';
-  return dayjs(v).format('MMM D, YYYY');
+  return formatShop(v, 'MMM D, YYYY');
 }
 
 function fmtWindow(start?: string | null, end?: string | null) {
   if (!start && !end) return '—';
-  const a = start ? dayjs(start).format('MMM D HH:mm') : '—';
-  const b = end ? dayjs(end).format('MMM D HH:mm') : '—';
+  const a = start ? formatShop(start, 'MMM D HH:mm') : '—';
+  const b = end ? formatShop(end, 'MMM D HH:mm') : '—';
   return `${a} – ${b}`;
 }
 

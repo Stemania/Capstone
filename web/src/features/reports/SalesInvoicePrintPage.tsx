@@ -1,8 +1,8 @@
+import { formatShop } from '../../utils/shopTime';
 import { useEffect, useState } from 'react';
 import { Button, Spin, message } from 'antd';
 import { PrinterOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
-import dayjs from 'dayjs';
 import { clientsApi, jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import { SHOP_LETTERHEAD } from '../../constants/shopLetterhead';
@@ -11,7 +11,7 @@ import { ReportStamp, displayOrDash } from './ReportChrome';
 
 function fmtDate(v?: string | null) {
   if (!v) return '—';
-  return dayjs(v).format('MMM D, YYYY');
+  return formatShop(v, 'MMM D, YYYY');
 }
 
 function money(v?: number | null) {

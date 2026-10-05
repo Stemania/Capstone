@@ -1,6 +1,7 @@
+import { formatShop } from '../../utils/shopTime';
 import { useEffect, useState } from 'react';
 import { DatePicker, Empty, Spin, Table, Typography, message } from 'antd';
-import dayjs, { type Dayjs } from 'dayjs';
+import { type Dayjs } from 'dayjs';
 import { workerProfileApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import type { WorkerHistoryOperation, WorkerWorkHistory } from '../../types';
@@ -120,7 +121,7 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
             title: 'Date',
             dataIndex: 'completedAt',
             width: 110,
-            render: (v: string | null) => (v ? dayjs(v).format('MMM D, YYYY') : '—'),
+            render: (v: string | null) => (v ? formatShop(v, 'MMM D, YYYY') : '—'),
           },
           { title: 'Job', dataIndex: 'jobNumber', width: 120, render: (v) => v || '—' },
           {
@@ -183,7 +184,7 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
           {data.toolsHeld.map((u) => (
             <li key={u.id} style={{ marginBottom: 4, fontSize: 13 }}>
               <strong>{u.toolTypeName || 'Tool'}</strong> · {u.assetCode}
-              {u.heldSince ? ` · since ${dayjs(u.heldSince).format('MMM D')}` : ''}
+              {u.heldSince ? ` · since ${formatShop(u.heldSince, 'MMM D')}` : ''}
             </li>
           ))}
         </ul>
@@ -207,7 +208,7 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
               title: 'When',
               dataIndex: 'createdAt',
               width: 140,
-              render: (v: string) => dayjs(v).format('MMM D, h:mm A'),
+              render: (v: string) => formatShop(v, 'MMM D, h:mm A'),
             },
             {
               title: 'Event',

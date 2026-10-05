@@ -1,3 +1,4 @@
+import { formatShop, shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Button,
@@ -9,7 +10,7 @@ import {
   Typography,
   message,
 } from 'antd';
-import dayjs, { type Dayjs } from 'dayjs';
+import { type Dayjs } from 'dayjs';
 import { inventoryApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
 import InfoTip from '../../components/InfoTip';
@@ -28,7 +29,7 @@ export default function StocktakePanel({ onSaved, hideTitle, readOnly }: Props) 
   const [previousOn, setPreviousOn] = useState<string | null>(null);
   const [previousBy, setPreviousBy] = useState<string | null>(null);
   const [counts, setCounts] = useState<Record<string, number | null>>({});
-  const [countedOn, setCountedOn] = useState<Dayjs>(dayjs());
+  const [countedOn, setCountedOn] = useState<Dayjs>(shopToday());
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -102,7 +103,7 @@ export default function StocktakePanel({ onSaved, hideTitle, readOnly }: Props) 
       label="About stocktake"
       content={
         previousOn
-          ? `Last count: ${dayjs(previousOn).format('MMM D, YYYY')}${
+          ? `Last count: ${formatShop(previousOn, 'MMM D, YYYY')}${
               previousBy ? ` by ${previousBy}` : ''
             }. Enter what is on the shelf now. Log deliveries with Receive delivery so they are not treated as consumption.`
           : 'No stocktake yet. Count the shelf to start tracking consumable consumption between counts.'
@@ -139,7 +140,7 @@ export default function StocktakePanel({ onSaved, hideTitle, readOnly }: Props) 
           value={countedOn}
           allowClear={false}
           onChange={(d) => d && setCountedOn(d)}
-          disabledDate={(d) => d.isAfter(dayjs(), 'day')}
+          disabledDate={(d) => d.isAfter(shopToday(), 'day')}
         />
         <Input
           placeholder="Notes (optional)"
@@ -191,7 +192,7 @@ export default function StocktakePanel({ onSaved, hideTitle, readOnly }: Props) 
             title: 'Last count',
             render: (_: unknown, r: StocktakeFormItem) =>
               r.lastCountedOn
-                ? `${dayjs(r.lastCountedOn).format('MMM D')} · ${r.lastCountedQuantity ?? '—'} ${r.unit}`
+                ? `${formatShop(r.lastCountedOn, 'MMM D')} · ${r.lastCountedQuantity ?? '—'} ${r.unit}`
                 : 'Never counted',
           },
           ...(readOnly
@@ -232,7 +233,7 @@ export default function StocktakePanel({ onSaved, hideTitle, readOnly }: Props) 
               {
                 title: 'Date',
                 dataIndex: 'countedOn',
-                render: (d: string) => dayjs(d).format('MMM D, YYYY'),
+                render: (d: string) => formatShop(d, 'MMM D, YYYY'),
               },
               { title: 'Counted by', dataIndex: 'countedByName' },
               { title: 'Lines', dataIndex: 'lineCount', align: 'right' },

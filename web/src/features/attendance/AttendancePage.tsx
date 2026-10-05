@@ -1,3 +1,4 @@
+import { formatShop, isoToShopDayjs, shopLocalToIso, shopToday } from '../../utils/shopTime';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Button,
@@ -49,7 +50,7 @@ const STATUS: Record<AttendanceStatus, { label: string; color: PillColor }> = {
 type ModalMode = 'in' | 'out' | 'edit';
 
 function fmtTime(iso: string | null | undefined) {
-  return iso ? dayjs(iso).format('h:mm A') : '—';
+  return iso ? formatShop(iso, 'h:mm A') : '—';
 }
 
 function fmtHours(h: number | null | undefined) {
@@ -69,8 +70,12 @@ function atTime(day: string, t: Dayjs) {
   return dayjs(day).hour(t.hour()).minute(t.minute()).second(0).millisecond(0);
 }
 
+function shopWallNow(): Dayjs {
+  return isoToShopDayjs(new Date().toISOString()) ?? shopToday();
+}
+
 function defaultTime(day: string, scheduled: string | null, fallback: string) {
-  if (dayjs(day).isSame(dayjs(), 'day')) return dayjs().second(0);
+  if (dayjs(day).isSame(shopToday(), 'day')) return shopWallNow().second(0);
   return dayjs(`2000-01-01T${scheduled || fallback}`);
 }
 
@@ -109,12 +114,12 @@ function SummaryTile({ label, value, color }: { label: string; value: string | n
 
 export default function AttendancePage() {
   const [view, setView] = useState<'day' | 'history'>('day');
-  const [day, setDay] = useState<Dayjs>(dayjs());
+  const [day, setDay] = useState<Dayjs>(shopToday());
   const [sheet, setSheet] = useState<AttendanceDaySheet | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [historyWorker, setHistoryWorker] = useState<string | undefined>();
-  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().startOf('month'), dayjs()]);
+  const [range, setRange] = useState<[Dayjs, Dayjs]>([shopToday().startOf('month'), shopToday()]);
   const [history, setHistory] = useState<AttendanceHistory | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -178,9 +183,9 @@ export default function AttendancePage() {
     const rec = row.record;
     form.resetFields();
     form.setFieldsValue({
-      clockIn: rec ? dayjs(rec.clockIn) : defaultTime(row.date, row.scheduledStart, '08:00'),
+      clockIn: rec ? isoToShopDayjs(rec.clockIn) : defaultTime(row.date, row.scheduledStart, '08:00'),
       clockOut: rec?.clockOut
-        ? dayjs(rec.clockOut)
+        ? isoToShopDayjs(rec.clockOut)
         : mode === 'out'
           ? defaultTime(row.date, row.scheduledEnd, '17:00')
           : null,
@@ -198,9 +203,9 @@ export default function AttendancePage() {
     if (!modal) return;
     const { mode, row } = modal;
     const rec = row.record;
-    const inAt = values.clockIn ? atTime(row.date, values.clockIn) : rec ? dayjs(rec.clockIn) : null;
+    const inAt = values.clockIn ? atTime(row.date, values.clockIn) : rec ? isoToShopDayjs(rec.clockIn) : null;
     let outAt = values.clockOut ? atTime(row.date, values.clockOut) : null;
-    if (inAt && outAt && outAt.isBefore(inAt) && !outAt.add(1, 'day').isAfter(dayjs())) {
+    if (inAt && outAt && outAt.isBefore(inAt) && !outAt.add(1, 'day').isAfter(shopWallNow())) {
       outAt = outAt.add(1, 'day');
     }
     try {
@@ -208,17 +213,17 @@ export default function AttendancePage() {
       if (mode === 'in' && inAt) {
         await attendanceApi.clockIn({
           workerId: row.workerId,
-          clockIn: inAt.format(),
+          clockIn: shopLocalToIso(inAt)!,
           note: values.note || undefined,
         });
         message.success(`${row.workerName} clocked in at ${inAt.format('h:mm A')}`);
       } else if (mode === 'out' && rec && outAt) {
-        await attendanceApi.clockOut(rec.id, { clockOut: outAt.format() });
+        await attendanceApi.clockOut(rec.id, { clockOut: shopLocalToIso(outAt)! });
         message.success(`${row.workerName} clocked out at ${outAt.format('h:mm A')}`);
       } else if (mode === 'edit' && rec && inAt) {
         await attendanceApi.update(rec.id, {
-          clockIn: inAt.format(),
-          clockOut: outAt ? outAt.format() : null,
+          clockIn: shopLocalToIso(inAt)!,
+          clockOut: outAt ? shopLocalToIso(outAt) : null,
           note: values.note || null,
         });
         message.success('Attendance updated');
@@ -236,7 +241,7 @@ export default function AttendancePage() {
     if (!row.record) return;
     const id = row.record.id;
     Modal.confirm({
-      title: `Delete ${row.workerName}'s attendance for ${dayjs(row.date).format('MMM D, YYYY')}?`,
+      title: `Delete ${row.workerName}'s attendance for ${formatShop(row.date, 'MMM D, YYYY')}?`,
       content: 'Use this only for a record entered by mistake.',
       okText: 'Delete',
       okButtonProps: { danger: true },
@@ -273,7 +278,7 @@ export default function AttendancePage() {
     }
   };
 
-  const isFuture = (d: string) => dayjs(d).isAfter(dayjs(), 'day');
+  const isFuture = (d: string) => dayjs(d).isAfter(shopToday(), 'day');
 
   const actionsCell = (row: AttendanceRow) => {
     const rec = row.record;
@@ -342,13 +347,13 @@ export default function AttendancePage() {
       title: 'Date',
       dataIndex: 'date',
       width: 150,
-      render: (v: string) => dayjs(v).format('ddd, MMM D, YYYY'),
+      render: (v: string) => formatShop(v, 'ddd, MMM D, YYYY'),
     },
     ...dayColumns.slice(1),
   ];
 
   const counts = sheet?.counts || {};
-  const isToday = day.isSame(dayjs(), 'day');
+  const isToday = day.isSame(shopToday(), 'day');
 
   return (
     <div>
@@ -377,7 +382,7 @@ export default function AttendancePage() {
               value={day}
               allowClear={false}
               format="ddd, MMM D, YYYY"
-              disabledDate={(d) => d.isAfter(dayjs(), 'day')}
+              disabledDate={(d) => d.isAfter(shopToday(), 'day')}
               onChange={(d) => d && setDay(d)}
             />
             <Button
@@ -386,7 +391,7 @@ export default function AttendancePage() {
               onClick={() => setDay(day.add(1, 'day'))}
               aria-label="Next day"
             />
-            {!isToday && <Button onClick={() => setDay(dayjs())}>Today</Button>}
+            {!isToday && <Button onClick={() => setDay(shopToday())}>Today</Button>}
             <Button
               icon={<DownloadOutlined />}
               loading={exporting}
@@ -410,7 +415,7 @@ export default function AttendancePage() {
             <DatePicker.RangePicker
               value={range}
               allowClear={false}
-              disabledDate={(d) => d.isAfter(dayjs(), 'day')}
+              disabledDate={(d) => d.isAfter(shopToday(), 'day')}
               onChange={(v) => v?.[0] && v?.[1] && setRange([v[0], v[1]])}
             />
             <Button
@@ -503,7 +508,7 @@ export default function AttendancePage() {
               {modal?.mode === 'in' ? 'Clock in' : modal?.mode === 'out' ? 'Clock out' : 'Edit attendance'}
             </div>
             <div className="app-form-modal__sub">
-              {modal?.row.workerName} · {modal ? dayjs(modal.row.date).format('ddd, MMM D, YYYY') : ''}
+              {modal?.row.workerName} · {modal ? formatShop(modal.row.date, 'ddd, MMM D, YYYY') : ''}
               {modal && modal.row.isWorkingDay ? ` · Scheduled ${fmtShift(modal.row)}` : ''}
             </div>
           </div>

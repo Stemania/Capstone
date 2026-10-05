@@ -1,4 +1,4 @@
-import dayjs from 'dayjs';
+import { shopNow } from '../../utils/shopTime';
 import { Button, Space, Typography } from 'antd';
 import { ArrowLeftOutlined, PrinterOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -20,7 +20,7 @@ export function ReportToolbar({
   extra?: ReactNode;
 }) {
   const navigate = useNavigate();
-  const generatedAt = dayjs().format('YYYY-MM-DD HH:mm');
+  const generatedAt = shopNow().format('YYYY-MM-DD HH:mm');
   return (
     <div className="report-toolbar no-print">
       <div className="report-header">
@@ -62,7 +62,7 @@ export function ReportStamp({
 }) {
   return (
     <div className="report-stamp">
-      Generated {dayjs().format('YYYY-MM-DD HH:mm')}
+      Generated {shopNow().format('YYYY-MM-DD HH:mm')}
       {periodFrom && periodTo ? ` · Period covered: ${periodFrom} → ${periodTo}` : ''}
     </div>
   );

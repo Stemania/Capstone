@@ -1,7 +1,7 @@
+import { shopToday } from '../../utils/shopTime';
 import { Suspense, useMemo, useState } from 'react';
 import { DatePicker, Segmented, Spin } from 'antd';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import dayjs from 'dayjs';
 import { useAuth } from '../../hooks/useAuth';
 import {
   AnalyticsPeriodProvider,
@@ -64,7 +64,7 @@ export default function AnalyticsLayout() {
                 setRange([vals[0].startOf('day'), vals[1].endOf('day')]);
               }
             }}
-            disabledDate={(d) => d.isAfter(dayjs(), 'day')}
+            disabledDate={(d) => d.isAfter(shopToday(), 'day')}
             size="large"
           />
         </div>

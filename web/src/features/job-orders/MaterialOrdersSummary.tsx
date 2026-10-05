@@ -1,7 +1,7 @@
+import { formatShop } from '../../utils/shopTime';
 import type { ReactNode } from 'react';
 import { WarningOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
-import dayjs from 'dayjs';
 import OverdueTag from '../../components/OverdueTag';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import { ORDER_STATUS_PILL } from '../supplier-orders/supplierOrderUi';
@@ -11,7 +11,7 @@ const MUTED = '#64748b';
 const NAVY = '#0f172a';
 const BORDER = '#e2e8f0';
 
-const fmt = (iso?: string | null) => (iso ? dayjs(iso).format('MMM D, YYYY') : '—');
+const fmt = (iso?: string | null) => (iso ? formatShop(iso, 'MMM D, YYYY') : '—');
 
 export const PLANNED_STATUS_PILL: Record<string, { label: string; color: PillColor }> = {
   TO_ORDER: { label: 'To order', color: 'red' },

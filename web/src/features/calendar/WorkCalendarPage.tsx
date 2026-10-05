@@ -1,3 +1,4 @@
+import { formatShop, shopNow, shopToday } from '../../utils/shopTime';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
@@ -154,7 +155,7 @@ function useFitToScrollArea(deps: unknown[]) {
 
 export default function WorkCalendarPage() {
   const { isAdmin } = useAuth();
-  const [anchor, setAnchor] = useState(() => dayjs());
+  const [anchor, setAnchor] = useState(() => shopToday());
   const [exceptions, setExceptions] = useState<WorkCalendarException[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
@@ -317,7 +318,7 @@ export default function WorkCalendarPage() {
     }
 
     Modal.confirm({
-      title: `Remove exception on ${dayjs(exc.date).format('MMM D, YYYY')}?`,
+      title: `Remove exception on ${formatShop(exc.date, 'MMM D, YYYY')}?`,
       icon: <WarningOutlined />,
       content: (
         <div>
@@ -361,7 +362,7 @@ export default function WorkCalendarPage() {
   const { ref: shellRef, height: shellHeight } = useFitToScrollArea([]);
   const cells = monthCells(anchor);
   const weeks = cells.length / 7;
-  const todayKey = dayjs().format('YYYY-MM-DD');
+  const todayKey = shopNow().format('YYYY-MM-DD');
   const monthExceptions = [...exceptions]
     .filter((x) => dayjs(x.date).isSame(anchor, 'month'))
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -388,7 +389,7 @@ export default function WorkCalendarPage() {
               onClick={() => setAnchor((a) => a.add(1, 'month'))}
               aria-label="Next month"
             />
-            <Button size="small" onClick={() => setAnchor(dayjs())}>
+            <Button size="small" onClick={() => setAnchor(shopToday())}>
               Today
             </Button>
           </div>
@@ -481,7 +482,7 @@ export default function WorkCalendarPage() {
                       onClick={() => openDay(dayjs(x.date))}
                     >
                       <span className="work-calendar__aside-date">
-                        {dayjs(x.date).format('ddd, MMM D')}
+                        {formatShop(x.date, 'ddd, MMM D')}
                       </span>
                       <span className="work-calendar__aside-what">
                         {excTitle(x)} · {excDetail(x)}

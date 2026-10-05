@@ -1,6 +1,6 @@
+import { shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
 import { DatePicker, Spin, Table, message } from 'antd';
-import dayjs from 'dayjs';
 import { analyticsApi } from '../../api/analytics.api';
 import { workersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
@@ -110,7 +110,7 @@ export default function WorkerPerformanceReportPage() {
                 setRange([vals[0].startOf('day'), vals[1].endOf('day')]);
               }
             }}
-            disabledDate={(d) => d.isAfter(dayjs(), 'day')}
+            disabledDate={(d) => d.isAfter(shopToday(), 'day')}
           />
         }
       />

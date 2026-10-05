@@ -1,5 +1,5 @@
 import dayjs, { type Dayjs } from 'dayjs';
-import { SHOP_TZ } from '../../utils/shopTime';
+import { SHOP_TZ, formatShop } from '../../utils/shopTime';
 import { adminPx } from '../../theme/adminTheme';
 
 export const TIMELINE_NAVY = '#0f1c2e';
@@ -399,7 +399,7 @@ export function dayColumnsForView(
       key: day.date,
       left: day.left,
       width: day.width,
-      label: dayjs(day.date).format('ddd D'),
+      label: formatShop(day.date, 'ddd D'),
     }));
   }
   const hoursPerDay = HOUR_END - HOUR_START;

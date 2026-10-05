@@ -18,7 +18,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { formatShopDate, scheduleFlagStyle } from '../../utils/shopTime';
+import { formatShopDate, scheduleFlagStyle, formatShop, shopToday } from '../../utils/shopTime';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
@@ -55,7 +55,7 @@ function isJobOverdue(job: JobOrder) {
   return (
     job.status !== 'COMPLETED' &&
     job.status !== 'DELIVERED' &&
-    dayjs(job.dueDate).isBefore(dayjs(), 'day')
+    dayjs(job.dueDate).isBefore(shopToday(), 'day')
   );
 }
 
@@ -95,7 +95,7 @@ function DuePill({ job }: { job: JobOrder }) {
         border: st ? `1px solid ${st.border}` : '1px solid #e2e8f0',
       }}
     >
-      {dayjs(job.dueDate).format('MMM D, YYYY')}
+      {formatShop(job.dueDate, 'MMM D, YYYY')}
     </span>
   );
   if (!st || job.scheduleFlag === 'GREEN') return pill;
@@ -211,7 +211,7 @@ function JobCard({ job, isDraftTab, selected, actions, onClick }: JobCardProps) 
       )}
       <div className="jo-card__foot">
         {modified && dayjs(modified).isValid()
-          ? `Modified ${dayjs(modified).format('MMM D, YYYY')}`
+          ? `Modified ${formatShop(modified, 'MMM D, YYYY')}`
           : '—'}
         {isDraftTab && job.createdByName ? ` · ${job.createdByName}` : ''}
       </div>
@@ -555,7 +555,7 @@ export default function JobOrderListPage() {
         const d = record.updatedAt || record.createdAt;
         return (
           <span style={{ fontSize: 13, whiteSpace: 'nowrap', color: '#0f172a' }}>
-            {d && dayjs(d).isValid() ? dayjs(d).format('MMM D, YYYY') : '—'}
+            {d && dayjs(d).isValid() ? formatShop(d, 'MMM D, YYYY') : '—'}
           </span>
         );
       },
@@ -680,7 +680,7 @@ export default function JobOrderListPage() {
         const d = record.updatedAt || record.createdAt;
         return (
           <span style={{ fontSize: 13, whiteSpace: 'nowrap', color: '#0f172a' }}>
-            {d && dayjs(d).isValid() ? dayjs(d).format('MMM D, YYYY') : '—'}
+            {d && dayjs(d).isValid() ? formatShop(d, 'MMM D, YYYY') : '—'}
           </span>
         );
       },
@@ -996,7 +996,7 @@ export default function JobOrderListPage() {
                       <div className="admin-card__meta">
                         {job.clientName || 'No client'}
                         {' · '}
-                        Due {dayjs(job.dueDate).format('MMM D')}
+                        Due {formatShop(job.dueDate, 'MMM D')}
                         {job.opsTotal ? ` · ${job.opsCompleted || 0}/${job.opsTotal} ops` : ''}
                       </div>
                     </div>
@@ -1015,7 +1015,7 @@ export default function JobOrderListPage() {
                       {(() => {
                         const d = job.updatedAt || job.createdAt;
                         return d && dayjs(d).isValid()
-                          ? `Modified ${dayjs(d).format('MMM D, YYYY')}`
+                          ? `Modified ${formatShop(d, 'MMM D, YYYY')}`
                           : '—';
                       })()}
                     </span>

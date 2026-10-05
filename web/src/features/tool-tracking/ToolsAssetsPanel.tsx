@@ -1,3 +1,4 @@
+import { formatShop, shopToday } from '../../utils/shopTime';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Button,
@@ -27,7 +28,7 @@ import {
   SearchOutlined,
   SwapOutlined,
 } from '@ant-design/icons';
-import dayjs, { type Dayjs } from 'dayjs';
+import { type Dayjs } from 'dayjs';
 import { inventoryApi, toolsApi } from '../../api/tools.api';
 import InfoTip from '../../components/InfoTip';
 import apiClient, { getErrorMessage } from '../../api/client';
@@ -77,8 +78,8 @@ export default function ToolsAssetsPanel() {
   const [creatingUnit, setCreatingUnit] = useState(false);
   const [receiving, setReceiving] = useState(false);
   const [usageRange, setUsageRange] = useState<[Dayjs, Dayjs]>([
-    dayjs().subtract(29, 'day').startOf('day'),
-    dayjs().endOf('day'),
+    shopToday().subtract(29, 'day').startOf('day'),
+    shopToday().endOf('day'),
   ]);
   const [usage, setUsage] = useState<InventoryUsageByWorker | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
@@ -257,7 +258,7 @@ export default function ToolsAssetsPanel() {
             label: 'Receive delivery',
             onClick: () => {
               setReceiveType(r);
-              receiveForm.setFieldsValue({ receivedOn: dayjs(), quantity: 1 });
+              receiveForm.setFieldsValue({ receivedOn: shopToday(), quantity: 1 });
             },
           },
           {
@@ -304,7 +305,7 @@ export default function ToolsAssetsPanel() {
             render: (_: unknown, u: ToolUnit) =>
               u.status === 'OUT'
                 ? `${u.currentHolderName || 'Worker'}${
-                    u.heldSince ? ` · since ${dayjs(u.heldSince).format('MMM D')}` : ''
+                    u.heldSince ? ` · since ${formatShop(u.heldSince, 'MMM D')}` : ''
                   }`
                 : '—',
           },
@@ -678,7 +679,7 @@ export default function ToolsAssetsPanel() {
           layout="vertical"
           onFinish={onReceiveUnits}
           style={{ padding: '20px 24px 8px' }}
-          initialValues={{ receivedOn: dayjs(), quantity: 1 }}
+          initialValues={{ receivedOn: shopToday(), quantity: 1 }}
         >
           {sectionLabel('Delivery')}
           <Form.Item

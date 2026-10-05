@@ -1,6 +1,6 @@
+import { shopToday } from '../../utils/shopTime';
 import { useEffect, useState } from 'react';
 import { DatePicker, Spin, Table, message } from 'antd';
-import dayjs from 'dayjs';
 import { analyticsApi } from '../../api/analytics.api';
 import { getErrorMessage } from '../../api/client';
 import type {
@@ -88,7 +88,7 @@ export default function EfficiencyReportPage() {
                 setRange([vals[0].startOf('day'), vals[1].endOf('day')]);
               }
             }}
-            disabledDate={(d) => d.isAfter(dayjs(), 'day')}
+            disabledDate={(d) => d.isAfter(shopToday(), 'day')}
           />
         }
       />

@@ -1,7 +1,7 @@
+import { formatShop } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
 import { Button, Spin, Empty, Input, Segmented, message } from 'antd';
 import { DownOutlined, RightOutlined, SearchOutlined, ToolOutlined } from '@ant-design/icons';
-import dayjs from 'dayjs';
 import { toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
@@ -179,7 +179,7 @@ export default function MyToolsPage() {
                     <div style={{ fontSize: 12, color: colors.textSecondary }}>{unit.assetCode}</div>
                     <div style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>
                       {unit.heldSince
-                        ? `Since ${dayjs(unit.heldSince).format('MMM D, h:mm A')}`
+                        ? `Since ${formatShop(unit.heldSince, 'MMM D, h:mm A')}`
                         : 'Out'}
                     </div>
                   </div>

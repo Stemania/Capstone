@@ -1,3 +1,4 @@
+import { formatShop, shopToday } from '../../utils/shopTime';
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
@@ -13,7 +14,7 @@ import {
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { DownloadOutlined, LinkOutlined } from '@ant-design/icons';
-import dayjs, { type Dayjs } from 'dayjs';
+import { type Dayjs } from 'dayjs';
 import { Link, useNavigate } from 'react-router-dom';
 import { inventoryApi } from '../../api/tools.api';
 import { jobOrdersApi } from '../../api/jobOrders.api';
@@ -117,7 +118,7 @@ export default function RawMaterialsPanel() {
   }, []);
 
   const markReceived = (row: MaterialPurchase) => {
-    let receivedDate = dayjs();
+    let receivedDate = shopToday();
     Modal.confirm({
       title: `Mark “${row.materialName}” received?`,
       content: (
@@ -125,7 +126,7 @@ export default function RawMaterialsPanel() {
           <div style={{ marginBottom: 8, fontSize: 13, color: '#475569' }}>Date received</div>
           <DatePicker
             style={{ width: '100%' }}
-            defaultValue={dayjs()}
+            defaultValue={shopToday()}
             format="YYYY-MM-DD"
             allowClear={false}
             onChange={(d) => {
@@ -238,13 +239,13 @@ export default function RawMaterialsPanel() {
       title: 'Ordered',
       dataIndex: 'dateOrdered',
       width: 110,
-      render: (v: string | null) => (v ? dayjs(v).format('MMM D, YYYY') : '—'),
+      render: (v: string | null) => (v ? formatShop(v, 'MMM D, YYYY') : '—'),
     },
     {
       title: 'Received',
       dataIndex: 'dateReceived',
       width: 110,
-      render: (v: string | null) => (v ? dayjs(v).format('MMM D, YYYY') : '—'),
+      render: (v: string | null) => (v ? formatShop(v, 'MMM D, YYYY') : '—'),
     },
     {
       title: 'Status',
@@ -261,7 +262,7 @@ export default function RawMaterialsPanel() {
               days={r.daysOverdue}
               tooltip={
                 r.currentExpectedDate
-                  ? `Expected ${dayjs(r.currentExpectedDate).format('MMM D, YYYY')} and not received yet.`
+                  ? `Expected ${formatShop(r.currentExpectedDate, 'MMM D, YYYY')} and not received yet.`
                   : undefined
               }
             />

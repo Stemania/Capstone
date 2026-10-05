@@ -32,6 +32,7 @@ import {
 } from '@ant-design/icons';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
+import { formatShop, shopToday } from '../../utils/shopTime';
 import { jobOrdersApi, workersApi } from '../../api/jobOrders.api';
 import { operationsApi } from '../../api/operations.api';
 import { notificationsApi } from '../../api/notifications.api';
@@ -175,13 +176,11 @@ function dash(v: string | number | null | undefined): string {
 }
 
 function fmtDate(v?: string | null) {
-  if (!v) return '—';
-  return dayjs(v).format('MMM D, YYYY');
+  return formatShop(v, 'MMM D, YYYY');
 }
 
 function fmtDateTime(v?: string | null) {
-  if (!v) return '—';
-  return dayjs(v).format('MMM D, YYYY h:mm A');
+  return formatShop(v, 'MMM D, YYYY h:mm A');
 }
 
 function fmtHours(v?: number | null) {
@@ -541,7 +540,7 @@ export default function JobOrderDetailPage() {
   };
 
   const openMaterialReceived = () => {
-    let receivedDate = dayjs();
+    let receivedDate = shopToday();
     Modal.confirm({
       title: 'Mark material received?',
       content: (
@@ -552,7 +551,7 @@ export default function JobOrderDetailPage() {
           <div style={{ marginBottom: 8, fontSize: 13, color: '#475569' }}>Date received</div>
           <DatePicker
             style={{ width: '100%' }}
-            defaultValue={dayjs()}
+            defaultValue={shopToday()}
             format="YYYY-MM-DD"
             allowClear={false}
             onChange={(d) => {
@@ -567,14 +566,14 @@ export default function JobOrderDetailPage() {
   };
 
   const markLineReceived = (p: MaterialPurchase) => {
-    let receivedDate = dayjs();
+    let receivedDate = shopToday();
     Modal.confirm({
       title: `Mark “${p.materialName}” received?`,
       content: (
         <div style={{ marginTop: 8 }}>
           <DatePicker
             style={{ width: '100%' }}
-            defaultValue={dayjs()}
+            defaultValue={shopToday()}
             format="YYYY-MM-DD"
             allowClear={false}
             onChange={(d) => {
@@ -643,7 +642,7 @@ export default function JobOrderDetailPage() {
   const openIssueInvoice = () => {
     if (!job) return;
     invoiceForm.setFieldsValue({
-      invoiceDate: dayjs(),
+      invoiceDate: shopToday(),
       description: job.description?.trim() || job.title,
       subtotal: job.amount ?? null,
       applyVat: false,
@@ -770,7 +769,7 @@ export default function JobOrderDetailPage() {
     job.status !== 'COMPLETED' &&
     job.status !== 'DELIVERED' &&
     job.status !== 'DRAFT' &&
-    dayjs(job.dueDate).isBefore(dayjs(), 'day');
+    dayjs(job.dueDate).isBefore(shopToday(), 'day');
   const isDraft = job.status === 'DRAFT';
   const isInvoicedOrDelivered = Boolean(job.salesInvoice) || job.status === 'DELIVERED';
   const isNotStarted = (op: Operation) =>
@@ -1640,9 +1639,9 @@ export default function JobOrderDetailPage() {
                             </div>
                             <div>
                               {n.sentAt
-                                ? `Sent ${dayjs(n.sentAt).format('MMM D, HH:mm')}`
+                                ? `Sent ${formatShop(n.sentAt, 'MMM D, HH:mm')}`
                                 : n.createdAt
-                                  ? `Queued ${dayjs(n.createdAt).format('MMM D, HH:mm')}`
+                                  ? `${n.status === 'PENDING' ? 'Queued' : 'Logged'} ${formatShop(n.createdAt, 'MMM D, HH:mm')}`
                                   : '—'}
                             </div>
                             {(n.status === 'FAILED' || n.status === 'NOT_SENT') && n.errorMessage ? (

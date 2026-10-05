@@ -9,22 +9,50 @@ dayjs.extend(customParseFormat);
 
 export const SHOP_TZ = 'Asia/Manila';
 
+dayjs.tz.setDefault(SHOP_TZ);
+
 const WALL = 'YYYY-MM-DD HH:mm:ss';
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+type DateInput = string | number | Date | dayjs.Dayjs | null | undefined;
+
+/**
+ * Any timestamp → dayjs in shop time. Plain calendar dates ("2026-10-05")
+ * have no time zone and are kept as-is so they never shift a day.
+ */
+export function toShopDayjs(value: DateInput): dayjs.Dayjs {
+  if (typeof value === 'string' && DATE_ONLY.test(value)) return dayjs(value);
+  return dayjs(value ?? undefined).tz(SHOP_TZ);
+}
+
+/** Current moment in shop time. */
+export function shopNow(): dayjs.Dayjs {
+  return dayjs().tz(SHOP_TZ);
+}
+
+/** Today's shop calendar date as a plain (zone-less) dayjs, for date pickers. */
+export function shopToday(): dayjs.Dayjs {
+  return dayjs(shopNow().format('YYYY-MM-DD'));
+}
+
+/** Format any timestamp in shop time with a dayjs format string. */
+export function formatShop(value: DateInput, format: string, empty = '—'): string {
+  if (value == null || value === '') return empty;
+  const d = toShopDayjs(value);
+  return d.isValid() ? d.format(format) : empty;
+}
 
 /** Format an ISO UTC timestamp for display in shop local time. */
 export function formatShopDateTime(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  return dayjs(iso).tz(SHOP_TZ).format('MMM D, YYYY HH:mm');
+  return formatShop(iso, 'MMM D, YYYY HH:mm');
 }
 
 export function formatShopDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  return dayjs(iso).tz(SHOP_TZ).format('MMM D, YYYY');
+  return formatShop(iso, 'MMM D, YYYY');
 }
 
 export function formatShopTime(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  return dayjs(iso).tz(SHOP_TZ).format('HH:mm');
+  return formatShop(iso, 'HH:mm');
 }
 
 /**

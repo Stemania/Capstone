@@ -1,10 +1,11 @@
+import { shopToday } from '../../utils/shopTime';
 import { createContext, useContext, type ReactNode } from 'react';
-import dayjs, { type Dayjs } from 'dayjs';
+import { type Dayjs } from 'dayjs';
 
 export type AnalyticsRange = [Dayjs, Dayjs];
 
 export function defaultAnalyticsRange(): AnalyticsRange {
-  const to = dayjs();
+  const to = shopToday();
   const from = to.subtract(8, 'week');
   return [from.startOf('day'), to.endOf('day')];
 }

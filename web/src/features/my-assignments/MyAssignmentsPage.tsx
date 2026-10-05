@@ -1,3 +1,4 @@
+import { formatShop, shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
 import { Spin, Empty, Input, Segmented } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
@@ -17,7 +18,7 @@ function opStatusBadge(
     return { text: 'Waiting for materials', bg: 'rgba(217,119,6,0.12)', color: '#d97706' };
   }
   const overdue =
-    op.status !== 'COMPLETED' && op.dueDate && dayjs(op.dueDate).isBefore(dayjs(), 'day');
+    op.status !== 'COMPLETED' && op.dueDate && dayjs(op.dueDate).isBefore(shopToday(), 'day');
   if (overdue) {
     return { text: 'Overdue', bg: 'rgba(122,21,40,0.12)', color: colors.red };
   }
@@ -254,7 +255,7 @@ export default function MyAssignmentsPage() {
                         Due Date
                       </div>
                       <div style={{ fontSize: 13, fontWeight: 700 }}>
-                        {op.dueDate ? dayjs(op.dueDate).format('MMM D') : '—'}
+                        {op.dueDate ? formatShop(op.dueDate, 'MMM D') : '—'}
                       </div>
                     </div>
                     <div>

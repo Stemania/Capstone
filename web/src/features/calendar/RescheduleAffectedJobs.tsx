@@ -7,7 +7,7 @@ import type { CalendarAffectedJob } from '../../api/calendar.api';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import type { JobOrder, MachineUnitInfo, ProposedOperation, ScheduleProposeResult } from '../../types';
-import { SHOP_TZ, scheduleFlagStyle } from '../../utils/shopTime';
+import { SHOP_TZ, scheduleFlagStyle, formatShop } from '../../utils/shopTime';
 import ScheduleWeekView from '../job-orders/ScheduleWeekView';
 
 function fmtWindow(start?: string | null, end?: string | null): string {
@@ -73,7 +73,7 @@ export default function RescheduleAffectedJobs({ changeLabel, jobs, onClose }: P
                   </div>
                   <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>
                     {job.clientName || '—'}
-                    {job.dueDate ? ` · Due ${dayjs(job.dueDate).format('MMM D, YYYY')}` : ''}
+                    {job.dueDate ? ` · Due ${formatShop(job.dueDate, 'MMM D, YYYY')}` : ''}
                   </div>
                   {job.operations.map((op) => (
                     <div key={op.id} style={{ fontSize: 12, color: '#334155' }}>
@@ -231,7 +231,7 @@ export function ReproposeModal({
             {job?.dueDate ? (
               <span>
                 <span style={{ color: '#64748b' }}>Due </span>
-                <strong>{dayjs(job.dueDate).format('MMM D, YYYY')}</strong>
+                <strong>{formatShop(job.dueDate, 'MMM D, YYYY')}</strong>
               </span>
             ) : null}
             {flag ? (

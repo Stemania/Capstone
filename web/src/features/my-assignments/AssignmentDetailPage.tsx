@@ -9,7 +9,7 @@ import { getErrorCode, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
 import { DOWNTIME_REASONS, type DowntimeCategory } from '../../constants/downtimeReasons';
-import { SHOP_TZ } from '../../utils/shopTime';
+import { SHOP_TZ, formatShop, shopToday } from '../../utils/shopTime';
 import type { JobOrder, Operation, OperationPauseReason, PartCondition } from '../../types';
 
 const PAUSE_REASONS: { value: OperationPauseReason; label: string }[] = [
@@ -199,7 +199,7 @@ export default function AssignmentDetailPage() {
     );
   }
 
-  const overdue = job.status !== 'COMPLETED' && dayjs(job.dueDate).isBefore(dayjs(), 'day');
+  const overdue = job.status !== 'COMPLETED' && dayjs(job.dueDate).isBefore(shopToday(), 'day');
   const statusLabel =
     job.status === 'COMPLETED'
       ? 'Completed'
@@ -290,7 +290,7 @@ export default function AssignmentDetailPage() {
                 </span>
               )}
               <span style={{ fontSize: 12, color: overdue ? colors.red : colors.textSecondary }}>
-                Due {dayjs(job.dueDate).format('MMM D, YYYY')}
+                Due {formatShop(job.dueDate, 'MMM D, YYYY')}
               </span>
             </div>
             {job.quantity != null && (
@@ -510,8 +510,8 @@ export default function AssignmentDetailPage() {
                     ) : null}
                     {(started || completed) && (
                       <div>
-                        {started && `Started ${dayjs(started).format('MMM D, h:mm A')}`}
-                        {completed && ` · Done ${dayjs(completed).format('MMM D, h:mm A')}`}
+                        {started && `Started ${formatShop(started, 'MMM D, h:mm A')}`}
+                        {completed && ` · Done ${formatShop(completed, 'MMM D, h:mm A')}`}
                       </div>
                     )}
                     {isMine && active && (

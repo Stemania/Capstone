@@ -1,3 +1,4 @@
+import { shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Table,
@@ -30,7 +31,7 @@ import {
   EditOutlined,
   AuditOutlined,
 } from '@ant-design/icons';
-import dayjs, { type Dayjs } from 'dayjs';
+import { type Dayjs } from 'dayjs';
 import { inventoryApi, toolsApi } from '../../api/tools.api';
 import StatusPill from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
@@ -81,8 +82,8 @@ export default function ToolsPage() {
     null
   );
   const [usageRange, setUsageRange] = useState<[Dayjs, Dayjs]>([
-    dayjs().subtract(29, 'day').startOf('day'),
-    dayjs().endOf('day'),
+    shopToday().subtract(29, 'day').startOf('day'),
+    shopToday().endOf('day'),
   ]);
   const [usageLoading, setUsageLoading] = useState(false);
 
@@ -242,7 +243,7 @@ export default function ToolsPage() {
       label: 'Receive delivery',
       onClick: () => {
         setReceiveTool(record);
-        receiveForm.setFieldsValue({ receivedOn: dayjs(), quantity: 1 });
+        receiveForm.setFieldsValue({ receivedOn: shopToday(), quantity: 1 });
       },
     },
     { key: 'adjust', label: 'Adjust stock', onClick: () => setAdjustTool(record) },
@@ -874,7 +875,7 @@ export default function ToolsPage() {
               layout="vertical"
               onFinish={onReceive}
               style={{ padding: '20px 24px 8px' }}
-              initialValues={{ receivedOn: dayjs(), quantity: 1 }}
+              initialValues={{ receivedOn: shopToday(), quantity: 1 }}
             >
               {sectionLabel('Delivery')}
               <Form.Item

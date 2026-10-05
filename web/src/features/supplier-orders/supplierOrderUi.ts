@@ -1,5 +1,6 @@
 import type { PillColor } from '../../components/StatusPill';
 import type { SupplierOrderStatus } from '../../types';
+import { formatShop } from '../../utils/shopTime';
 
 export const ORDER_STATUS_PILL: Record<SupplierOrderStatus, { label: string; color: PillColor }> = {
   DRAFT: { label: 'Draft', color: 'gray' },
@@ -32,7 +33,5 @@ export function fmtQty(n: number | null | undefined, unit?: string | null) {
 }
 
 export function fmtDay(iso?: string | null) {
-  if (!iso) return '—';
-  const d = new Date(`${iso.slice(0, 10)}T00:00:00`);
-  return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+  return formatShop(iso, 'MMM D, YYYY');
 }

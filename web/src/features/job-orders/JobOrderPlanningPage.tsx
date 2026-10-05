@@ -32,7 +32,7 @@ import { jobOrdersApi, workersApi } from '../../api/jobOrders.api';
 import { operationTypesApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import { MACHINE_OPTIONS } from '../../types';
-import { formatShopDateTime } from '../../utils/shopTime';
+import { formatShopDateTime, formatShop } from '../../utils/shopTime';
 import ScheduleProposalPanel from './ScheduleProposalPanel';
 import ScheduleWeekView from './ScheduleWeekView';
 import ScheduleExpandShell from '../schedule/ScheduleExpandShell';
@@ -1042,7 +1042,7 @@ export default function JobOrderPlanningPage() {
         {[
           ['Client', job.clientName || '—'],
           ['Title', job.title],
-          ['Date required', job.dueDate ? dayjs(job.dueDate).format('MMM D, YYYY') : '—'],
+          ['Date required', job.dueDate ? formatShop(job.dueDate, 'MMM D, YYYY') : '—'],
           ['Quantity', qtyLabel],
           ['Job type', job.jobType?.replace(/_/g, ' ') || '—'],
         ].map(([label, value]) => (
@@ -1266,7 +1266,7 @@ export default function JobOrderPlanningPage() {
                 type="info"
                 showIcon
                 style={{ marginBottom: 12 }}
-                message={`Earliest start ${dayjs(scheduleMeta.materialNotBefore).format('MMM D, YYYY')} — ${
+                message={`Earliest start ${formatShop(scheduleMeta.materialNotBefore, 'MMM D, YYYY')} — ${
                   scheduleMeta.materialConstraintReason || 'waiting for material'
                 }`}
               />

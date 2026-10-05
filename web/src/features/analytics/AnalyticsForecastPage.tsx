@@ -1,3 +1,4 @@
+import { formatShop } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Spin, Table, Typography, message } from 'antd';
 import {
@@ -12,7 +13,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import dayjs from 'dayjs';
 import { analyticsApi } from '../../api/analytics.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
@@ -49,7 +49,7 @@ const JOB_TYPE_LABEL: Record<string, string> = {
 
 type Fmt = (v: number | null | undefined) => string;
 
-const monthLabel = (m: string) => dayjs(`${m}-01`).format('MMM YYYY');
+const monthLabel = (m: string) => formatShop(`${m}-01`, 'MMM YYYY');
 const formatPct = (v: number | null | undefined) => (v == null ? '—' : `${v.toFixed(1)}%`);
 const formatCount: Fmt = (v) => formatNum(v, 1);
 
@@ -538,7 +538,7 @@ export default function AnalyticsForecastPage() {
                     <span
                       title={`${r.periodsUsed} stocktake period${r.periodsUsed === 1 ? '' : 's'} averaged`}
                     >
-                      {dayjs(v).format('D MMM YYYY')}
+                      {formatShop(v, 'D MMM YYYY')}
                     </span>
                   );
                 },
