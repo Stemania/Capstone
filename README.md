@@ -58,7 +58,8 @@ Web app runs at `http://localhost:5173`.
 
 ## Demo Accounts
 
-`flask seed` creates one account per role:
+`flask seed` creates one account per role. It runs only with `FLASK_ENV=development` (as in
+`.env.example`) and refuses in production; use `flask create-admin` there.
 
 | Role | Email |
 |------|-------|

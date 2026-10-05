@@ -4,12 +4,18 @@ services:
     runtime: python
     rootDir: api
     buildCommand: pip install -r requirements.txt && flask db upgrade
-    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    # One worker so the in-memory sign-in rate limit is counted in one place;
+    # threads keep requests concurrent.
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.0"
       - key: FLASK_APP
         value: wsgi.py
+      - key: FLASK_ENV
+        value: production
+      - key: TRUSTED_PROXY_COUNT
+        value: "1"
       - key: SECRET_KEY
         generateValue: true
       - key: JWT_SECRET_KEY

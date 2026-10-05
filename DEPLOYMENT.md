@@ -48,7 +48,9 @@ Keep this for Render in Part 3.
 | Root Directory | `api` |
 | Runtime | Python 3 |
 | Build Command | `pip install -r requirements.txt && flask db upgrade` |
-| Start Command | `gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120` |
+| Start Command | `gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120` |
+
+Keep **one** gunicorn worker: the sign-in limit (10 attempts per minute) is counted in the worker's memory, so a second worker would double it. Threads keep requests concurrent. If the service was created by hand rather than from the Blueprint, set this start command in the Render dashboard too.
 
 5. **Environment variables** on Render:
 
@@ -59,18 +61,26 @@ Keep this for Render in Part 3.
 | `JWT_SECRET_KEY` | Another random long string |
 | `CORS_ORIGINS` | `https://YOUR-APP.vercel.app` (set after Part 4) |
 | `FLASK_APP` | `wsgi.py` |
+| `FLASK_ENV` | `production` |
+| `TRUSTED_PROXY_COUNT` | `1` (Render's proxy; lets the API see the client's real address) |
 
 6. Deploy. Copy your API URL, e.g. `https://bmsc-api.onrender.com`
 
-7. **Seed the database** (one time) — Render Shell or local:
+7. **Create the first Admin** (one time) — Render Shell, or locally pointing at Neon:
 
 ```powershell
-# Locally, pointing at Neon:
-$env:DATABASE_URL="your-neon-connection-string"
 cd api
 .venv\Scripts\activate
-flask seed
+flask create-admin
 ```
+
+It asks for email, password (hidden, asked twice), full name and mobile number. Sign in as that Admin and invite everyone else from **Users**.
+
+`flask seed` **refuses to run** when `FLASK_ENV` is `production` (or unset): it creates demo accounts whose passwords are published in this repository. Use it only on a local development database (`FLASK_ENV=development`).
+
+The seed is currently the only thing that creates machine types and operation types. A brand-new live database therefore has none until they are added; the existing live database already has them.
+
+**Disabling demo accounts on a database that was seeded earlier:** run `api/scripts/disable_demo_accounts.py` (see the docstring at the top of that file). It disables every `@bmsc.local` demo account except one Admin and sets that Admin's password from a hidden prompt.
 
 ---
 
@@ -141,7 +151,8 @@ Open `http://localhost:4173` — Chrome DevTools → Application → Manifest to
 | CORS error | Set `CORS_ORIGINS` on Render to exact Vercel URL (no trailing slash) |
 | API sleeps (slow first load) | Render free tier spins down after inactivity — wait ~30s |
 | Camera won't scan | Must use HTTPS (Vercel URL), not http:// |
-| Empty database | Run `flask seed` against Neon `DATABASE_URL` |
+| Empty database | Run `flask create-admin` against Neon `DATABASE_URL` (`flask seed` is refused in production) |
+| Sign-in limit seems doubled | Start command must use `--workers 1` |
 
 ---
 

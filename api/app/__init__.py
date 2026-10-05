@@ -1,11 +1,14 @@
 import os
 import time
+
+import click
 import uuid
 from datetime import datetime, timezone
 
 from flask import Flask, g, request
 from flask_cors import CORS
 from flask_migrate import Migrate
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.extensions import bcrypt, db, jwt, limiter, resolve_ratelimit_storage_uri
 from app.utils.errors import register_error_handlers
@@ -22,6 +25,12 @@ def create_app(config_object=None):
         app.config.from_object(Config)
 
     _assert_production_secrets(app)
+
+    proxies = int(app.config.get("TRUSTED_PROXY_COUNT", 1) or 0)
+    if proxies > 0:
+        # Render's proxy appends the client address to X-Forwarded-For; trust
+        # exactly that many hops so rate limits key on the real client.
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=proxies, x_proto=proxies)
 
     app.config["RATELIMIT_STORAGE_URI"] = resolve_ratelimit_storage_uri(app)
     app.config.setdefault("RATELIMIT_SWALLOW_ERRORS", True)
@@ -62,6 +71,10 @@ def create_app(config_object=None):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        if app.config.get("ENV") == "production":
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+            )
         return response
 
     register_error_handlers(app)
@@ -142,7 +155,13 @@ def _register_blueprints(app):
 def _register_cli(app):
     @app.cli.command("seed")
     def seed_command():
-        """Seed the database with demo data."""
+        """Seed the database with demo data (refused in production)."""
+        if app.config.get("ENV") == "production":
+            raise click.ClickException(
+                "Refusing to seed: FLASK_ENV is production (or unset). The seed creates "
+                "demo accounts with published passwords. To create the first account on "
+                "a live database, run `flask create-admin` instead."
+            )
         from app.seed.seed_data import seed_database
 
         seed_database()
@@ -151,15 +170,25 @@ def _register_cli(app):
     @app.cli.command("create-admin")
     def create_admin_command():
         """Create an admin user interactively."""
+        from getpass import getpass
+
         from app.models.user import User, UserRole, UserStatus
         from app.extensions import bcrypt
+        from app.utils.errors import AppError
+        from app.utils.passwords import validate_password
 
         email = input("Admin email: ")
-        password = input("Admin password: ")
+        password = getpass("Admin password (hidden): ")
+        if getpass("Repeat password: ") != password:
+            raise click.ClickException("Passwords do not match.")
+        try:
+            validate_password(password)
+        except AppError as exc:
+            raise click.ClickException(exc.message)
         full_name = input("Full name: ")
         mobile = input("Mobile number: ")
 
-        if User.query.filter_by(email=email).first():
+        if User.query.filter_by(email=email.strip().lower()).first():
             print("User already exists.")
             return
 

@@ -45,6 +45,8 @@ class Config:
     # point production at a Redis that does not exist in the container.
     REDIS_URL = os.getenv("REDIS_URL") or None
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173")
+    # Reverse proxies in front of the API (Render: 1). 0 turns ProxyFix off.
+    TRUSTED_PROXY_COUNT = int(os.getenv("TRUSTED_PROXY_COUNT", "1"))
 
     # Auth rate limits (per client IP). Only applied to selected auth routes.
     # Storage defaults to in-process memory. Redis only when RATELIMIT_STORAGE_URI

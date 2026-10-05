@@ -8,13 +8,6 @@ import { getErrorCode, getErrorMessage } from '../../api/client';
 import PinKeypad from './PinKeypad';
 import './LoginPage.css';
 
-const DEMO_ACCOUNTS = [
-  { key: 'admin', label: 'Admin', identifier: 'admin@bmsc.local', password: 'Admin123!' },
-  { key: 'office', label: 'Office Staff', identifier: 'office@bmsc.local', password: 'Office123!' },
-  { key: 'worker1', label: 'Juan Dela Cruz', identifier: 'worker1@bmsc.local', password: 'Worker123!' },
-  { key: 'worker2', label: 'Maria Santos', identifier: 'worker2@bmsc.local', password: 'Worker123!' },
-] as const;
-
 export default function LoginPage() {
   const { login, user, loading, applySession } = useAuth();
   const [form] = Form.useForm();
@@ -45,13 +38,6 @@ export default function LoginPage() {
     const dest = user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/schedule';
     return <Navigate to={dest} replace />;
   }
-
-  const fillDemo = (identifier: string, password: string) => {
-    setError('');
-    setPinError('');
-    setPinMode(false);
-    form.setFieldsValue({ identifier, password });
-  };
 
   const onPasswordLogin = async (values: { identifier: string; password: string }) => {
     setSubmitting(true);
@@ -198,22 +184,6 @@ export default function LoginPage() {
               )}
             </Form>
           )}
-        </div>
-      </div>
-
-      <div className="login-demo">
-        <div className="login-demo__label">Quick fill (test)</div>
-        <div className="login-demo__buttons">
-          {DEMO_ACCOUNTS.map((account) => (
-            <Button
-              key={account.key}
-              type="default"
-              className="login-demo__btn"
-              onClick={() => fillDemo(account.identifier, account.password)}
-            >
-              {account.label}
-            </Button>
-          ))}
         </div>
       </div>
     </div>
