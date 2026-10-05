@@ -3948,12 +3948,6 @@ button.admin-card {
   min-width: 0;
 }
 
-.analytics-card--soon {
-  background: #f8fafc;
-  border-style: dashed;
-  border-color: #cbd5e1;
-}
-
 .analytics-capacity-constraint > td {
   background: #fffbeb;
 }

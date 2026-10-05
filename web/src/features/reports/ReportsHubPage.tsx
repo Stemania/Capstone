@@ -1,12 +1,17 @@
-import { Card, Col, Row, Typography } from 'antd';
+import { useState } from 'react';
+import { Button, Card, Col, Row, Select, Typography, message } from 'antd';
 import {
   FileTextOutlined,
   BarChartOutlined,
+  PrinterOutlined,
   ToolOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { jobOrdersApi } from '../../api/jobOrders.api';
+import { getErrorMessage } from '../../api/client';
+import type { JobOrder } from '../../types';
 
 const REPORTS = [
   {
@@ -32,31 +37,81 @@ const REPORTS = [
   },
 ];
 
+function JobOrderPrintoutCard() {
+  const navigate = useNavigate();
+  const [jobs, setJobs] = useState<JobOrder[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [jobId, setJobId] = useState<string>();
+
+  const loadJobs = async () => {
+    if (jobs || loading) return;
+    setLoading(true);
+    try {
+      const { data } = await jobOrdersApi.list({ scope: 'all' });
+      setJobs(data);
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card size="small" style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <FileTextOutlined style={{ fontSize: 22, marginTop: 2 }} />
+        <div style={{ flex: '1 1 260px' }}>
+          <Typography.Title level={5} style={{ margin: 0 }}>
+            Job order printout
+          </Typography.Title>
+          <Typography.Text type="secondary">
+            Letterhead layout with operations and signature blocks. Pick a job order to open its
+            printout.
+          </Typography.Text>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flex: '1 1 360px', flexWrap: 'wrap' }}>
+          <Select
+            showSearch
+            allowClear
+            placeholder="Search job number, title, or client"
+            style={{ flex: '1 1 240px', minWidth: 0 }}
+            loading={loading}
+            onFocus={loadJobs}
+            onOpenChange={(open) => open && loadJobs()}
+            value={jobId}
+            onChange={setJobId}
+            optionFilterProp="label"
+            notFoundContent={loading ? 'Loading…' : 'No job orders found'}
+            options={(jobs || []).map((j) => ({
+              value: j.id,
+              label: [j.jobNumber, j.title, j.clientName].filter(Boolean).join(' · '),
+            }))}
+          />
+          <Button
+            type="primary"
+            icon={<PrinterOutlined />}
+            disabled={!jobId}
+            onClick={() => jobId && navigate(`/job-orders/${jobId}/print`)}
+          >
+            Open printout
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export default function ReportsHubPage() {
   const isAdmin = useAuth().user?.role === 'ADMIN';
   const reports = REPORTS.filter((r) => isAdmin || !r.adminOnly);
   return (
     <div>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 20 }}>
-        Read-only reports for Admin and Office. Job order printouts are available from each job
-        order (Production may print those as well).
+        Read-only reports for Admin and Office. Job order printouts are also available from each
+        job order (Production may print those as well).
       </Typography.Paragraph>
 
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-          <FileTextOutlined style={{ fontSize: 22, marginTop: 2 }} />
-          <div>
-            <Typography.Title level={5} style={{ margin: 0 }}>
-              Job order printout
-            </Typography.Title>
-            <Typography.Text type="secondary">
-              Open a job order and use <strong>Print</strong>, or go to{' '}
-              <code>/job-orders/&lt;id&gt;/print</code>. Letterhead layout with operations and
-              signature blocks.
-            </Typography.Text>
-          </div>
-        </div>
-      </Card>
+      <JobOrderPrintoutCard />
 
       <Row gutter={[16, 16]}>
         {reports.map((r) => (

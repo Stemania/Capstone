@@ -89,44 +89,6 @@ export function ShowDetails({ children, label = 'Show details' }: { children: Re
   );
 }
 
-/** Placeholder for an analysis that is planned but not built yet. */
-export function ComingSoon({
-  title,
-  description,
-  span = 12,
-}: {
-  title: string;
-  description: string;
-  span?: AnalyticsSpan;
-}) {
-  return (
-    <section className={`analytics-card analytics-card--soon analytics-span-${span}`}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-        <Title level={5} style={{ margin: 0, color: '#0f1c2e', fontSize: 15 }}>
-          {title}
-        </Title>
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: 0.5,
-            color: '#64748b',
-            background: '#e2e8f0',
-            borderRadius: 999,
-            padding: '2px 8px',
-          }}
-        >
-          Coming soon
-        </span>
-      </div>
-      <Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
-        {description}
-      </Paragraph>
-    </section>
-  );
-}
-
 /** Drops rows whose listed values are all zero or empty. */
 export function withoutAllZero<T>(rows: T[], values: (row: T) => (number | null | undefined)[]): T[] {
   return rows.filter((r) => values(r).some((v) => v != null && !Number.isNaN(v) && v !== 0));
