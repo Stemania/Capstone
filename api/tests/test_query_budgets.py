@@ -172,7 +172,8 @@ def test_job_order_detail_query_budget(app):
         payload, n = _count_queries(load)
         assert len(payload["operations"]) == 5
         assert sum(len(o["timeLogs"]) for o in payload["operations"]) == 10
-        assert n < 5, f"expected under 5 queries, got {n}"
+        # includes one grouped query for the completion-estimate ratios
+        assert n < 6, f"expected under 6 queries, got {n}"
 
 
 def test_sales_summary_query_budget(app):

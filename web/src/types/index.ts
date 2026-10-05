@@ -641,6 +641,30 @@ export interface ScheduleValidateResult {
   scheduleFlag?: ScheduleFlag | null;
 }
 
+export interface CompletionEstimateOperation {
+  operationId: string;
+  sequenceNo: number;
+  operationName: string;
+  operationTypeName: string | null;
+  ratio: number;
+  samples: number;
+  enoughHistory: boolean;
+  targetHours: number;
+  hoursWorked: number;
+  predictedHoursLeft: number;
+  predictedStart: string;
+  predictedEnd: string;
+}
+
+/** Finish estimate from past hours-worked-to-target ratios per operation type. */
+export interface CompletionEstimate {
+  label: string;
+  predictedFinish: string;
+  minSamples: number;
+  operations: CompletionEstimateOperation[];
+  notEnoughHistoryNote: string | null;
+}
+
 export interface JobOrder extends MaterialWait {
   id: string;
   jobNumber?: string;
@@ -682,7 +706,13 @@ export interface JobOrder extends MaterialWait {
   operations?: Operation[];
   salesInvoice?: SalesInvoice | null;
   projectedCompletion?: string | null;
+  /** Estimated finish from past performance (released jobs only). */
+  predictedCompletion?: string | null;
+  /** Uses the later of the scheduled and estimated finish. */
   scheduleFlag?: ScheduleFlag | null;
+  scheduleFlagBasis?: 'SCHEDULE' | 'ESTIMATE' | null;
+  /** Detail view only. */
+  completionEstimate?: CompletionEstimate | null;
   scheduleColor?: string | null;
 }
 

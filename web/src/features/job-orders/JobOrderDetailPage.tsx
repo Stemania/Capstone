@@ -1497,6 +1497,7 @@ export default function JobOrderDetailPage() {
         </Col>
 
         <Col xs={24} lg={8}>
+          {job.projectedCompletion || job.predictedCompletion ? <FinishCard job={job} /> : null}
           <div style={cardStyle({ marginBottom: 16 })}>
             <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 12 }}>
               Details
@@ -1770,6 +1771,82 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       <div style={{ color: MUTED }}>{label}</div>
       <div style={{ color: NAVY, fontWeight: 600, textAlign: 'right' }}>{value}</div>
     </>
+  );
+}
+
+function FinishCard({ job }: { job: JobOrder }) {
+  const est = job.completionEstimate;
+  const late = job.scheduleFlag === 'AMBER' || job.scheduleFlag === 'RED';
+  const lateStyle: CSSProperties = { color: '#7A1528' };
+  return (
+    <div style={cardStyle({ marginBottom: 16 })}>
+      <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 12 }}>Finish</div>
+      <div style={DETAIL_GRID}>
+        <div style={{ color: MUTED }}>Scheduled finish</div>
+        <div
+          style={{
+            color: NAVY,
+            fontWeight: 600,
+            textAlign: 'right',
+            ...(late && job.scheduleFlagBasis === 'SCHEDULE' ? lateStyle : {}),
+          }}
+        >
+          {fmtDateTime(job.projectedCompletion)}
+        </div>
+        <div style={{ color: MUTED }}>Estimated finish</div>
+        <div
+          style={{
+            color: NAVY,
+            fontWeight: 600,
+            textAlign: 'right',
+            ...(late && job.scheduleFlagBasis === 'ESTIMATE' ? lateStyle : {}),
+          }}
+        >
+          {fmtDateTime(job.predictedCompletion)}
+        </div>
+        <div style={{ color: MUTED }}>Date required</div>
+        <div style={{ color: NAVY, fontWeight: 600, textAlign: 'right' }}>{fmtDate(job.dueDate)}</div>
+      </div>
+      {est ? (
+        <div style={{ marginTop: 12, fontSize: 12, color: MUTED }}>
+          {est.label}: each remaining operation's target hours times how long that operation
+          type has taken before, placed in order from now across working hours.
+          {late ? ' The at-risk flag uses the later of the two finishes.' : ''}
+          {est.notEnoughHistoryNote ? <div style={{ marginTop: 6 }}>{est.notEnoughHistoryNote}</div> : null}
+          <Collapse
+            size="small"
+            ghost
+            style={{ marginTop: 6 }}
+            items={[
+              {
+                key: 'ops',
+                label: <span style={{ fontSize: 12, color: NAVY }}>By operation</span>,
+                children: (
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    {est.operations.map((o) => (
+                      <div key={o.operationId} style={{ fontSize: 12 }}>
+                        <div style={{ color: NAVY, fontWeight: 600 }}>
+                          #{o.sequenceNo} {o.operationName}
+                        </div>
+                        <div>
+                          {fmtHours(o.targetHours)} target ×{' '}
+                          {o.enoughHistory
+                            ? `${o.ratio.toFixed(2)} (${o.samples} past operations)`
+                            : `1.00 (only ${o.samples} past)`}
+                          {o.hoursWorked > 0 ? `, ${fmtHours(o.hoursWorked)} worked` : ''}
+                          {' → '}
+                          {fmtHours(o.predictedHoursLeft)} left, ends {fmtDateTime(o.predictedEnd)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ),
+              },
+            ]}
+          />
+        </div>
+      ) : null}
+    </div>
   );
 }
 

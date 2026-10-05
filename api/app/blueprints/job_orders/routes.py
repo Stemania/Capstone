@@ -3,6 +3,7 @@ from flask_jwt_extended import jwt_required
 
 from app.middleware.rbac import get_current_user_id, get_current_user_role, require_roles
 from app.models.user import UserRole
+from app.services import completion_estimate_service as estimate_service
 from app.services import job_order_service as jo_service
 from app.services import material_purchase_service as mp_service
 from app.services.schedule_service import (
@@ -86,6 +87,7 @@ def update_job_order(job_id):
     job = jo_service.get_job_order(job_id, get_current_user_id(), role)
     data = request.get_json() or {}
     job = jo_service.update_job_order(job, data, actor_role=role)
+    estimate_service.sync_jobs([job])
     return jsonify(job.to_dict(include_operations=True, viewer_role=role))
 
 
@@ -107,6 +109,7 @@ def confirm_job_schedule(job_id):
     job = jo_service.get_job_order(job_id, get_current_user_id(), role)
     data = request.get_json(silent=True) or {}
     job = jo_service.confirm_job_schedule(job, data, actor_role=role)
+    estimate_service.sync_jobs([job])
     return jsonify(job.to_dict(include_operations=True, viewer_role=role))
 
 

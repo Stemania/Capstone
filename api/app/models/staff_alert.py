@@ -18,6 +18,7 @@ def _uuid():
 class StaffAlertKind:
     MATERIAL_DELAY = "MATERIAL_DELAY"
     DELIVERY_OVERDUE = "DELIVERY_OVERDUE"
+    JOB_AT_RISK = "JOB_AT_RISK"
 
 
 class StaffAlert(db.Model):

@@ -173,6 +173,9 @@ class JobOrder(db.Model):
     delay_kind = db.Column(db.String(20), nullable=True)
     # Hex color (#RRGGBB) for schedule board distinction; optional.
     schedule_color = db.Column(db.String(7), nullable=True)
+    # Staff were told the job is at risk of missing its required date; cleared
+    # once it is back on time, so the next change raises a new alert.
+    at_risk_alerted = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
     created_by_id = db.Column(
         db.String(36), db.ForeignKey("users.id"), nullable=False
     )
@@ -476,14 +479,14 @@ class JobOrder(db.Model):
                 data["salesInvoice"] = inv.to_dict() if inv else None
                 data["materialReadiness"] = self._material_readiness()
                 data["plannedMaterials"] = self.planned_materials_summary()
-        scheduled_ends = [op.scheduled_end for op in ops if op.scheduled_end]
-        if scheduled_ends:
-            from app.services.schedule_service import compute_schedule_flag
+        from app.services.completion_estimate_service import risk_state
 
-            projected = max(scheduled_ends)
-            data["projectedCompletion"] = projected.isoformat()
-            data["scheduleFlag"] = compute_schedule_flag(projected, self.due_date)
-        else:
-            data["projectedCompletion"] = None
-            data["scheduleFlag"] = None
+        state = risk_state(self)
+        estimate = state["estimate"]
+        data["projectedCompletion"] = state["scheduled"].isoformat() if state["scheduled"] else None
+        data["predictedCompletion"] = estimate["predictedFinish"] if estimate else None
+        data["scheduleFlag"] = state["flag"]
+        data["scheduleFlagBasis"] = state["basis"] if state["flag"] else None
+        if include_operations:
+            data["completionEstimate"] = estimate
         return data

@@ -7,6 +7,7 @@ from app.middleware.rbac import get_current_user_id, get_current_user_role, requ
 from app.models.operation import JobOperation
 from app.models.operation_time import MachineDowntime
 from app.models.user import UserRole
+from app.services import completion_estimate_service as estimate_service
 from app.services import job_order_service as jo_service
 from app.services import operation_service as op_service
 from app.utils.errors import AppError
@@ -53,6 +54,7 @@ def start_operation(operation_id):
     operation = op_service.start_operation(
         operation, get_current_user_id(), get_current_user_role(), timestamp
     )
+    estimate_service.after_operation_change(operation)
     return jsonify(operation.to_dict())
 
 
@@ -77,6 +79,7 @@ def pause_operation(operation_id):
         note=data.get("note"),
         timestamp=data.get("timestamp"),
     )
+    estimate_service.after_operation_change(operation)
     return jsonify(operation.to_dict())
 
 
@@ -95,6 +98,7 @@ def resume_operation(operation_id):
         get_current_user_role(),
         timestamp=data.get("timestamp"),
     )
+    estimate_service.after_operation_change(operation)
     return jsonify(operation.to_dict())
 
 
@@ -112,6 +116,7 @@ def complete_operation(operation_id):
     operation = op_service.complete_operation(
         operation, get_current_user_id(), get_current_user_role(), timestamp
     )
+    estimate_service.after_operation_change(operation)
     return jsonify(operation.to_dict())
 
 

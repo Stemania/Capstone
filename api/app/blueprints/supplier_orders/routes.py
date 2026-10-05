@@ -25,9 +25,12 @@ def list_orders():
 @jwt_required()
 @require_roles(*_STAFF)
 def overdue_check():
+    from app.services.completion_estimate_service import check_released_jobs
     from app.services.overdue_delivery_service import check_overdue_deliveries
 
-    return jsonify(check_overdue_deliveries())
+    result = check_overdue_deliveries()
+    result["atRiskAlerts"] = check_released_jobs()
+    return jsonify(result)
 
 
 @supplier_orders_bp.route("/outstanding", methods=["GET"])

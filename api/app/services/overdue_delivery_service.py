@@ -9,7 +9,8 @@ recorded as a MATERIAL move.
 ``check_overdue_deliveries`` runs when the API starts, once a day, and when the
 job orders, supplier orders or schedule pages are opened. It is safe to run
 repeatedly: jobs already placed after the material date do not move, and each
-overdue order raises one Office Staff alert per expected date.
+overdue order raises one Office Staff alert per expected date. The same runs
+also sweep released jobs for at-risk alerts (``completion_estimate_service``).
 """
 
 from __future__ import annotations
@@ -125,6 +126,13 @@ def start_background_checks(app) -> None:
                     )
             except Exception:
                 app.logger.exception("Overdue delivery check failed")
+            try:
+                with app.app_context():
+                    from app.services.completion_estimate_service import check_released_jobs
+
+                    app.logger.info("at_risk_check alerts=%s", check_released_jobs())
+            except Exception:
+                app.logger.exception("At-risk check failed")
             time.sleep(_seconds_until_next_run())
 
     threading.Thread(target=_loop, name="overdue-delivery-check", daemon=True).start()

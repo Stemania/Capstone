@@ -18,7 +18,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { scheduleFlagStyle } from '../../utils/shopTime';
+import { formatShopDate, scheduleFlagStyle } from '../../utils/shopTime';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
@@ -80,7 +80,7 @@ function JobStatusBadge({ job }: { job: JobOrder }) {
 
 function DuePill({ job }: { job: JobOrder }) {
   const st = job.scheduleFlag ? scheduleFlagStyle[job.scheduleFlag] : null;
-  return (
+  const pill = (
     <span
       style={{
         display: 'inline-block',
@@ -97,6 +97,42 @@ function DuePill({ job }: { job: JobOrder }) {
     >
       {dayjs(job.dueDate).format('MMM D, YYYY')}
     </span>
+  );
+  if (!st || job.scheduleFlag === 'GREEN') return pill;
+  const basis = job.scheduleFlagBasis === 'ESTIMATE' ? 'estimated finish (past performance)' : 'scheduled finish';
+  return <Tooltip title={`${st.label}: based on the ${basis}`}>{pill}</Tooltip>;
+}
+
+const ESTIMATE_HINT = 'Estimate based on past performance: target hours scaled by how long each operation type has taken before.';
+
+function FinishCell({ job }: { job: JobOrder }) {
+  if (!job.projectedCompletion && !job.predictedCompletion) {
+    return <span style={{ fontSize: 13, color: '#94a3b8' }}>—</span>;
+  }
+  const flagged = job.scheduleFlag && job.scheduleFlag !== 'GREEN';
+  const line = (label: string, iso: string | null | undefined, emphasize: boolean) =>
+    iso ? (
+      <div
+        style={{
+          fontSize: 12,
+          whiteSpace: 'nowrap',
+          lineHeight: 1.35,
+          color: emphasize ? '#7A1528' : '#0f172a',
+          fontWeight: emphasize ? 600 : 400,
+        }}
+      >
+        <span style={{ color: '#64748b' }}>{label}</span> {formatShopDate(iso)}
+      </div>
+    ) : null;
+  return (
+    <div>
+      {line('Sched.', job.projectedCompletion, !!flagged && job.scheduleFlagBasis === 'SCHEDULE')}
+      {job.predictedCompletion ? (
+        <Tooltip title={ESTIMATE_HINT}>
+          <span>{line('Est.', job.predictedCompletion, !!flagged && job.scheduleFlagBasis === 'ESTIMATE')}</span>
+        </Tooltip>
+      ) : null}
+    </div>
   );
 }
 
@@ -159,6 +195,7 @@ function JobCard({ job, isDraftTab, selected, actions, onClick }: JobCardProps) 
       <div className="jo-card__client">{job.clientName || 'No client'}</div>
       <div className="jo-card__pills">
         <DuePill job={job} />
+        {!isDraftTab ? <FinishCell job={job} /> : null}
       </div>
       {isDraftTab ? (
         <div className="jo-card__stage">{job.draftStage || '—'}</div>
@@ -531,6 +568,16 @@ export default function JobOrderListPage() {
       defaultSortOrder: 'ascend',
       sorter: (a, b) => dayjs(a.dueDate).valueOf() - dayjs(b.dueDate).valueOf(),
       render: (_d: string, record) => <DuePill job={record} />,
+    },
+    {
+      title: (
+        <Tooltip title={`Scheduled finish, and the estimated finish. ${ESTIMATE_HINT}`}>
+          <span>Finish</span>
+        </Tooltip>
+      ),
+      key: 'finish',
+      width: 124,
+      render: (_: unknown, record) => <FinishCell job={record} />,
     },
     {
       title: 'Progress',
