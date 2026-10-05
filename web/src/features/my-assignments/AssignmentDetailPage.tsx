@@ -569,7 +569,7 @@ export default function AssignmentDetailPage() {
 
                   {canStart && job.waitingForMaterials && (
                     <>
-                      <Button block size="large" disabled style={{ height: 46, fontWeight: 700 }}>
+                      <Button block size="large" disabled style={{ height: 48, fontWeight: 700 }}>
                         Start Operation
                       </Button>
                       <div
@@ -594,7 +594,7 @@ export default function AssignmentDetailPage() {
                       loading={actionLoading === op.id}
                       onClick={() => runAction(op, 'start')}
                       style={{
-                        height: 46,
+                        height: 48,
                         fontWeight: 700,
                         background: colors.accent,
                         borderColor: colors.accent,
@@ -611,7 +611,7 @@ export default function AssignmentDetailPage() {
                         size="large"
                         loading={actionLoading === op.id}
                         onClick={() => setPauseForOp(op)}
-                        style={{ height: 44, fontWeight: 700 }}
+                        style={{ height: 48, fontWeight: 700 }}
                       >
                         Pause
                       </Button>
@@ -622,7 +622,7 @@ export default function AssignmentDetailPage() {
                         loading={actionLoading === op.id}
                         onClick={() => runAction(op, 'complete')}
                         style={{
-                          height: 46,
+                          height: 48,
                           fontWeight: 700,
                           background: colors.accent,
                           borderColor: colors.accent,
@@ -640,7 +640,7 @@ export default function AssignmentDetailPage() {
                       loading={actionLoading === op.id}
                       onClick={() => runAction(op, 'resume')}
                       style={{
-                        height: 46,
+                        height: 48,
                         fontWeight: 700,
                         background: colors.accent,
                         borderColor: colors.accent,
@@ -709,12 +709,12 @@ export default function AssignmentDetailPage() {
                     size="large"
                     loading={actionLoading === pauseForOp.id}
                     onClick={() => confirmPause(r.value)}
-                    style={{ height: 44, fontWeight: 700, textAlign: 'left' }}
+                    style={{ height: 48, fontWeight: 700, textAlign: 'left' }}
                   >
                     {r.label}
                   </Button>
                 ))}
-                <Button block size="large" onClick={() => setPauseForOp(null)} style={{ height: 44 }}>
+                <Button block size="large" onClick={() => setPauseForOp(null)} style={{ height: 48 }}>
                   Cancel
                 </Button>
               </div>
@@ -778,12 +778,12 @@ export default function AssignmentDetailPage() {
                     size="large"
                     loading={actionLoading === reportForOp.id}
                     onClick={() => confirmBreakdown(r.value)}
-                    style={{ height: 44, fontWeight: 700, textAlign: 'left' }}
+                    style={{ height: 48, fontWeight: 700, textAlign: 'left' }}
                   >
                     {r.label}
                   </Button>
                 ))}
-                <Button block size="large" onClick={() => setReportForOp(null)} style={{ height: 44 }}>
+                <Button block size="large" onClick={() => setReportForOp(null)} style={{ height: 48 }}>
                   Cancel
                 </Button>
               </div>
