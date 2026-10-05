@@ -337,6 +337,7 @@ export interface MaterialPurchaseList {
   };
 }
 
+/** Reference to the shop's BIR-registered sales invoice; the system does not issue invoices. */
 export interface SalesInvoice {
   id: string;
   invoiceNumber: string;
@@ -344,11 +345,7 @@ export interface SalesInvoice {
   jobOrderId: string;
   clientId: string;
   clientName?: string | null;
-  description: string;
-  subtotal: number;
-  vatRate?: number | null;
-  vatAmount: number;
-  total: number;
+  amount: number;
   preparedById: string;
   preparedByName?: string | null;
   createdAt?: string | null;

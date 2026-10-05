@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
-  Checkbox,
   Collapse,
   Col,
   DatePicker,
@@ -15,7 +14,6 @@ import {
   Select,
   Space,
   Spin,
-  Table,
   Tooltip,
   Typography,
   message,
@@ -58,8 +56,7 @@ import { WorkerPageHeader } from '../../layouts/WorkerLayout';
 import { jobOrdersListPath } from './jobOrderListPaths';
 import JobScheduleColorPicker from './JobScheduleColorPicker';
 import OrderMaterialsModal from '../supplier-orders/OrderMaterialsModal';
-import { MaterialArrivalNote, PlannedMaterialsTable } from './MaterialOrdersSummary';
-import { ORDER_STATUS_PILL } from '../supplier-orders/supplierOrderUi';
+import { JobMaterialsTable, materialArrivalText } from './MaterialOrdersSummary';
 import { ReproposeModal } from '../calendar/RescheduleAffectedJobs';
 
 const { Title, Text } = Typography;
@@ -192,16 +189,6 @@ function fmtVariance(hours?: number | null, pct?: number | null) {
   return formatDifferenceFromTarget(hours, pct);
 }
 
-const VAT_RATE_PCT = 12;
-
-const PURCHASE_STATUS_PILL: Record<string, { label: string; color: PillColor }> = {
-  DRAFT: { label: 'On draft PO', color: 'gray' },
-  ORDERED: { label: 'Ordered', color: 'amber' },
-  RECEIVED: { label: 'Received', color: 'green' },
-  CONSUMED: { label: 'Consumed', color: 'gray' },
-  CANCELLED: { label: 'Cancelled', color: 'red' },
-};
-
 function fmtMoney(n?: number | null) {
   if (n == null) return '—';
   return `₱${Number(n).toLocaleString('en-PH', {
@@ -333,11 +320,9 @@ export default function JobOrderDetailPage() {
   const [purchaseOpen, setPurchaseOpen] = useState(false);
   const [reproposeOpen, setReproposeOpen] = useState(false);
   const [stockSavingId, setStockSavingId] = useState<string | null>(null);
-  const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [invoiceMode, setInvoiceMode] = useState<'record' | 'view' | 'correct' | null>(null);
   const [invoiceSaving, setInvoiceSaving] = useState(false);
   const [invoiceForm] = Form.useForm();
-  const invoiceSubtotal = Form.useWatch('subtotal', invoiceForm) as number | null | undefined;
-  const invoiceApplyVat = Form.useWatch('applyVat', invoiceForm) as boolean | undefined;
   const fetchJob = useCallback(async () => {
     if (!id) return;
     const { data } = await jobOrdersApi.get(id);
@@ -639,34 +624,52 @@ export default function JobOrderDetailPage() {
     }
   };
 
-  const openIssueInvoice = () => {
+  const openRecordInvoice = () => {
     if (!job) return;
+    invoiceForm.resetFields();
     invoiceForm.setFieldsValue({
+      invoiceNumber: '',
       invoiceDate: shopToday(),
-      description: job.description?.trim() || job.title,
-      subtotal: job.amount ?? null,
-      applyVat: false,
+      amount: job.amount ?? null,
     });
-    setInvoiceOpen(true);
+    setInvoiceMode('record');
   };
 
-  const onIssueInvoice = async (values: {
+  const openCorrectInvoice = () => {
+    if (!job?.salesInvoice) return;
+    const inv = job.salesInvoice;
+    invoiceForm.resetFields();
+    invoiceForm.setFieldsValue({
+      invoiceNumber: inv.invoiceNumber,
+      invoiceDate: dayjs(inv.invoiceDate),
+      amount: inv.amount,
+      reason: '',
+    });
+    setInvoiceMode('correct');
+  };
+
+  const onSaveInvoice = async (values: {
+    invoiceNumber: string;
     invoiceDate: Dayjs;
-    description: string;
-    subtotal: number;
-    applyVat?: boolean;
+    amount: number;
+    reason?: string;
   }) => {
     if (!job) return;
     setInvoiceSaving(true);
+    const payload = {
+      invoiceNumber: values.invoiceNumber.trim(),
+      invoiceDate: values.invoiceDate.format('YYYY-MM-DD'),
+      amount: values.amount,
+    };
     try {
-      const { data } = await jobOrdersApi.issueInvoice(job.id, {
-        invoiceDate: values.invoiceDate.format('YYYY-MM-DD'),
-        description: values.description,
-        subtotal: values.subtotal,
-        vatRate: values.applyVat ? VAT_RATE_PCT : null,
-      });
-      message.success(`Invoice ${data.invoiceNumber} issued`);
-      setInvoiceOpen(false);
+      if (invoiceMode === 'correct') {
+        await jobOrdersApi.correctInvoice(job.id, { ...payload, reason: (values.reason || '').trim() });
+        message.success('Sales invoice corrected');
+      } else {
+        const { data } = await jobOrdersApi.recordInvoice(job.id, payload);
+        message.success(`Sales invoice ${data.invoiceNumber} recorded`);
+      }
+      setInvoiceMode(null);
       await fetchJob();
     } catch (err) {
       message.error(getErrorMessage(err));
@@ -772,6 +775,16 @@ export default function JobOrderDetailPage() {
     dayjs(job.dueDate).isBefore(shopToday(), 'day');
   const isDraft = job.status === 'DRAFT';
   const isInvoicedOrDelivered = Boolean(job.salesInvoice) || job.status === 'DELIVERED';
+  const plannedList = job.plannedMaterials || [];
+  const orderBlockedReason = !plannedList.length
+    ? 'Add the material to the job\u2019s planned materials first'
+    : plannedList.some((m) => m.status === 'TO_ORDER' || m.status === 'PARTLY_ORDERED')
+      ? undefined
+      : plannedList.every((m) => m.fromStock)
+        ? 'Every planned material is taken from stock'
+        : 'All planned materials are on a supplier order';
+  const canCorrectInvoice =
+    isOfficeStaff && Boolean(job.salesInvoice) && job.status !== 'DELIVERED' && !job.deliveredAt;
   const isNotStarted = (op: Operation) =>
     op.status !== 'IN_PROGRESS' && op.status !== 'COMPLETED' && !op.actualStart;
   const canRepropose =
@@ -876,21 +889,18 @@ export default function JobOrderDetailPage() {
               </Tooltip>
             )}
           {canManage && job.salesInvoice && (
-            <Button
-              icon={<FileTextOutlined />}
-              onClick={() => navigate(`/job-orders/${job.id}/invoice/print`)}
-            >
-              Invoice {job.salesInvoice.invoiceNumber}
+            <Button icon={<FileTextOutlined />} onClick={() => setInvoiceMode('view')}>
+              Sales invoice {job.salesInvoice.invoiceNumber}
             </Button>
           )}
-          {canManage && job.status === 'COMPLETED' && !job.salesInvoice && (
-            <Button type="primary" icon={<FileTextOutlined />} onClick={openIssueInvoice}>
-              Issue invoice
+          {isOfficeStaff && job.status === 'COMPLETED' && !job.salesInvoice && (
+            <Button type="primary" icon={<FileTextOutlined />} onClick={openRecordInvoice}>
+              Record sales invoice
             </Button>
           )}
           {canManage && job.status === 'COMPLETED' && (
             <Tooltip
-              title={job.salesInvoice ? undefined : 'Issue a sales invoice before delivery'}
+              title={job.salesInvoice ? undefined : 'Record the sales invoice before delivery'}
             >
               <Button
                 type={job.salesInvoice ? 'primary' : 'default'}
@@ -1001,45 +1011,46 @@ export default function JobOrderDetailPage() {
         />
       ) : null}
 
-      {canManage && job.materialStatus !== 'NOT_REQUIRED' && outstandingLines.length > 0 && !jobStarted ? (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="The first operation cannot start until all materials are received"
-          description={
-            <>
-              Still on order:{' '}
-              {outstandingLines
-                .map((p) => (p.gradeOrSpec ? `${p.materialName} (${p.gradeOrSpec})` : p.materialName))
-                .join(', ')}
-              .
-            </>
-          }
-        />
-      ) : null}
-
       {canManage &&
       job.materialStatus !== 'NOT_REQUIRED' &&
-      placedLines.length === 0 &&
-      !jobStarted ? (
+      !jobStarted &&
+      (placedLines.length === 0 || outstandingLines.length > 0) ? (
         <Alert
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
-          message="The first operation cannot start: no materials have been ordered"
+          message={
+            placedLines.length === 0
+              ? 'The first operation cannot start: no materials have been ordered'
+              : 'The first operation cannot start until all materials are received'
+          }
           description={
-            (purchases.some((p) => p.status === 'DRAFT')
-              ? 'This job\u2019s materials are on a draft supplier order that has not been issued yet. '
-              : isOfficeStaff
-                ? 'Nothing has been ordered for this job. Use Order materials below. '
-                : 'Nothing has been ordered for this job. Office Staff order it from the Materials section. ') +
-            (isAdmin
-              ? 'If the shop already has a material, mark it From stock under Materials, or set the whole job to Not required.'
-              : 'If the shop already has a material, ask the Admin to mark it From stock.')
+            placedLines.length === 0 ? (
+              (purchases.some((p) => p.status === 'DRAFT')
+                ? 'This job\u2019s materials are on a draft supplier order that has not been issued yet. '
+                : isOfficeStaff
+                  ? 'Nothing has been ordered for this job. Use Order materials below. '
+                  : 'Nothing has been ordered for this job. Office Staff order it from the Materials section. ') +
+              (isAdmin
+                ? 'If the shop already has a material, mark it From stock under Materials, or set the whole job to Not required.'
+                : 'If the shop already has a material, ask the Admin to mark it From stock.')
+            ) : (
+              <>
+                <div>
+                  Still on order:{' '}
+                  {outstandingLines
+                    .map((p) => (p.gradeOrSpec ? `${p.materialName} (${p.gradeOrSpec})` : p.materialName))
+                    .join(', ')}
+                  .
+                </div>
+                {materialArrivalText(job.materialReadiness) ? (
+                  <div>{materialArrivalText(job.materialReadiness)}</div>
+                ) : null}
+              </>
+            )
           }
           action={
-            isAdmin ? (
+            placedLines.length === 0 && isAdmin ? (
               <Button size="small" onClick={handleSetMaterialNotRequired}>
                 Set not required
               </Button>
@@ -1063,19 +1074,24 @@ export default function JobOrderDetailPage() {
             >
               <div style={{ fontWeight: 800, fontSize: 14, color: NAVY }}>Materials</div>
               {isOfficeStaff && job.materialStatus !== 'NOT_REQUIRED' ? (
-                <Button type="primary" onClick={() => setPurchaseOpen(true)}>
-                  Order materials
-                </Button>
+                <Tooltip title={orderBlockedReason}>
+                  <Button
+                    type="primary"
+                    disabled={Boolean(orderBlockedReason)}
+                    onClick={() => setPurchaseOpen(true)}
+                  >
+                    Order materials
+                  </Button>
+                </Tooltip>
               ) : null}
             </div>
-            <div style={SUBHEAD}>Planned</div>
-            {!job.rawMaterials?.length ? (
-              <Text type="secondary">—</Text>
-            ) : job.plannedMaterials?.length ? (
-              <PlannedMaterialsTable
-                materials={job.plannedMaterials}
+            {job.plannedMaterials?.length || (canManage && purchases.length) ? (
+              <JobMaterialsTable
+                planned={job.plannedMaterials || []}
+                purchases={purchases}
                 showStatus={job.materialStatus !== 'NOT_REQUIRED'}
-                renderAction={(m) =>
+                showOrders={canManage && job.materialStatus !== 'NOT_REQUIRED'}
+                renderRowAction={(m) =>
                   isAdmin &&
                   (m.fromStock || (m.purchasedQuantity === 0 && m.draftQuantity === 0)) ? (
                     <div>
@@ -1091,8 +1107,18 @@ export default function JobOrderDetailPage() {
                     </div>
                   ) : null
                 }
+                renderLineAction={(ln) =>
+                  isOfficeStaff &&
+                  !ln.dateReceived &&
+                  ln.status !== 'DRAFT' &&
+                  ln.status !== 'CANCELLED' ? (
+                    <Button size="small" onClick={() => markLineReceived(ln)}>
+                      Received
+                    </Button>
+                  ) : null
+                }
               />
-            ) : (
+            ) : job.rawMaterials?.length ? (
               job.rawMaterials.map((m, i) => (
                 <div
                   key={`${m.name}-${i}`}
@@ -1107,113 +1133,9 @@ export default function JobOrderDetailPage() {
                   )}
                 </div>
               ))
+            ) : (
+              <Text type="secondary">No planned materials.</Text>
             )}
-            {canManage && job.materialStatus !== 'NOT_REQUIRED' ? (
-              <div style={{ marginTop: 18 }}>
-                <div style={SUBHEAD}>On supplier orders</div>
-                {purchases.length === 0 ? (
-                  <Text type="secondary" style={{ fontSize: 13 }}>
-                    Nothing ordered yet.
-                  </Text>
-                ) : (
-                  <Table
-                    size="small"
-                    rowKey="id"
-                    pagination={false}
-                    dataSource={purchases}
-                    columns={[
-                      {
-                        title: 'Material',
-                        key: 'material',
-                        render: (_: unknown, r: MaterialPurchase) => (
-                          <>
-                            <div style={{ color: NAVY, fontWeight: 600 }}>{r.materialName}</div>
-                            <div style={{ fontSize: 11, color: MUTED }}>
-                              {[r.gradeOrSpec, `${r.quantity} ${r.unit}`, `${fmtMoney(r.unitCost)} each`]
-                                .filter(Boolean)
-                                .join(' · ')}
-                            </div>
-                            {!r.plannedMaterialId && job.rawMaterials?.length ? (
-                              <div style={{ fontSize: 11, color: MUTED }}>Not on the planned list</div>
-                            ) : null}
-                          </>
-                        ),
-                      },
-                      {
-                        title: 'Supplier order',
-                        key: 'po',
-                        render: (_: unknown, r: MaterialPurchase) => (
-                          <>
-                            <div>{r.supplierName || '—'}</div>
-                            {r.supplierOrderId ? (
-                              <Space size={6} wrap>
-                                <a onClick={() => navigate(`/supplier-orders/${r.supplierOrderId}`)}>
-                                  {r.poNumber || 'Draft (not issued)'}
-                                </a>
-                                {r.orderStatus ? (
-                                  <StatusPill color={ORDER_STATUS_PILL[r.orderStatus].color} compact>
-                                    {ORDER_STATUS_PILL[r.orderStatus].label}
-                                  </StatusPill>
-                                ) : null}
-                              </Space>
-                            ) : (
-                              <div style={{ fontSize: 11, color: MUTED }}>Recorded without a PO</div>
-                            )}
-                          </>
-                        ),
-                      },
-                      {
-                        title: 'Dates',
-                        key: 'dates',
-                        width: 150,
-                        render: (_: unknown, r: MaterialPurchase) => (
-                          <div style={{ fontSize: 12, color: MUTED }}>
-                            <div>Ordered {r.dateOrdered ? fmtDate(r.dateOrdered) : '—'}</div>
-                            {r.dateReceived ? (
-                              <div>Received {fmtDate(r.dateReceived)}</div>
-                            ) : r.expectedDeliveryDate ? (
-                              <div>Expected {fmtDate(r.expectedDeliveryDate)}</div>
-                            ) : null}
-                          </div>
-                        ),
-                      },
-                      {
-                        title: 'Status',
-                        key: 'status',
-                        width: 120,
-                        render: (_: unknown, r: MaterialPurchase) => {
-                          const pill =
-                            PURCHASE_STATUS_PILL[r.status || (r.dateReceived ? 'RECEIVED' : 'ORDERED')] ||
-                            PURCHASE_STATUS_PILL.ORDERED;
-                          const canReceive =
-                            isOfficeStaff &&
-                            !r.dateReceived &&
-                            r.status !== 'DRAFT' &&
-                            r.status !== 'CANCELLED';
-                          return (
-                            <>
-                              <StatusPill color={pill.color} compact>
-                                {pill.label}
-                              </StatusPill>
-                              {canReceive ? (
-                                <div style={{ marginTop: 4 }}>
-                                  <Button size="small" onClick={() => markLineReceived(r)}>
-                                    Received
-                                  </Button>
-                                </div>
-                              ) : null}
-                            </>
-                          );
-                        },
-                      },
-                    ]}
-                  />
-                )}
-                <div style={{ marginTop: 10 }}>
-                  <MaterialArrivalNote readiness={job.materialReadiness} />
-                </div>
-              </div>
-            ) : null}
           </div>
 
           <div style={cardStyle({ marginBottom: 16 })}>
@@ -1673,49 +1595,104 @@ export default function JobOrderDetailPage() {
       </Row>
 
       <Modal
-        open={invoiceOpen}
-        onCancel={() => setInvoiceOpen(false)}
+        open={invoiceMode !== null}
+        onCancel={() => setInvoiceMode(null)}
         footer={null}
-        title="Issue sales invoice"
+        title={
+          invoiceMode === 'record'
+            ? 'Record sales invoice'
+            : invoiceMode === 'correct'
+              ? 'Correct sales invoice'
+              : 'Sales invoice'
+        }
         destroyOnHidden
       >
-        <Form form={invoiceForm} layout="vertical" onFinish={onIssueInvoice}>
-          <Form.Item name="invoiceDate" label="Invoice date" rules={[{ required: true }]}>
-            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" allowClear={false} />
-          </Form.Item>
-          <Form.Item name="description" label="Description" rules={[{ required: true }]}>
-            <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} />
-          </Form.Item>
-          <Form.Item
-            name="subtotal"
-            label="Amount (subtotal)"
-            extra="Defaults to the job order amount. Adjust before issuing if needed."
-            rules={[{ required: true, message: 'Enter the invoice amount' }]}
-          >
-            <InputNumber min={0} precision={2} prefix="₱" style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="applyVat" valuePropName="checked">
-            <Checkbox>Add VAT ({VAT_RATE_PCT}%)</Checkbox>
-          </Form.Item>
-          {(() => {
-            const sub = Number(invoiceSubtotal || 0);
-            const vat = invoiceApplyVat ? Math.round(sub * VAT_RATE_PCT) / 100 : 0;
-            return (
-              <div style={{ fontSize: 13, color: MUTED, marginBottom: 16 }}>
-                {invoiceApplyVat ? <div>VAT: {fmtMoney(vat)}</div> : null}
-                <div style={{ fontWeight: 700, color: NAVY, fontSize: 15 }}>
-                  Total: {fmtMoney(sub + vat)}
-                </div>
+        {invoiceMode === 'view' && job.salesInvoice ? (
+          <>
+            <div style={{ ...DETAIL_GRID, marginBottom: 16 }}>
+              <div>
+                <div style={SUBHEAD}>Invoice number</div>
+                <div style={{ fontWeight: 700, color: NAVY }}>{job.salesInvoice.invoiceNumber}</div>
               </div>
-            );
-          })()}
-          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-            <Button onClick={() => setInvoiceOpen(false)}>Cancel</Button>
-            <Button type="primary" htmlType="submit" loading={invoiceSaving}>
-              Issue invoice
-            </Button>
-          </Space>
-        </Form>
+              <div>
+                <div style={SUBHEAD}>Invoice date</div>
+                <div>{fmtDate(job.salesInvoice.invoiceDate)}</div>
+              </div>
+              <div>
+                <div style={SUBHEAD}>Amount</div>
+                <div>{fmtMoney(job.salesInvoice.amount)}</div>
+              </div>
+              <div>
+                <div style={SUBHEAD}>Recorded by</div>
+                <div>{dash(job.salesInvoice.preparedByName)}</div>
+              </div>
+            </div>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 16 }}>
+              Reference to the shop&apos;s BIR-registered sales invoice.{' '}
+              {canCorrectInvoice
+                ? 'It can be corrected until the job is marked delivered.'
+                : 'It is locked once the job is delivered.'}
+            </Text>
+            <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+              <Button onClick={() => setInvoiceMode(null)}>Close</Button>
+              {canCorrectInvoice ? (
+                <Button type="primary" onClick={openCorrectInvoice}>
+                  Correct
+                </Button>
+              ) : null}
+            </Space>
+          </>
+        ) : (
+          <Form form={invoiceForm} layout="vertical" onFinish={onSaveInvoice}>
+            {invoiceMode === 'record' ? (
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+                Enter the details from the shop&apos;s official BIR-registered sales invoice. The
+                system does not issue invoices.
+              </Text>
+            ) : null}
+            <Form.Item
+              name="invoiceNumber"
+              label="Invoice number"
+              rules={[
+                { required: true, whitespace: true, message: 'Enter the invoice number' },
+                { max: 64, message: 'Use at most 64 characters' },
+              ]}
+            >
+              <Input placeholder="As printed on the BIR-registered invoice" />
+            </Form.Item>
+            <Form.Item name="invoiceDate" label="Invoice date" rules={[{ required: true }]}>
+              <DatePicker
+                style={{ width: '100%' }}
+                format="YYYY-MM-DD"
+                allowClear={false}
+                disabledDate={(d) => d.isAfter(shopToday(), 'day')}
+              />
+            </Form.Item>
+            <Form.Item
+              name="amount"
+              label="Amount"
+              extra={invoiceMode === 'record' ? 'Defaults to the job order amount.' : undefined}
+              rules={[{ required: true, message: 'Enter the invoice amount' }]}
+            >
+              <InputNumber min={0} precision={2} prefix="₱" style={{ width: '100%' }} />
+            </Form.Item>
+            {invoiceMode === 'correct' ? (
+              <Form.Item
+                name="reason"
+                label="Reason for the correction"
+                rules={[{ required: true, whitespace: true, message: 'Enter why it is being corrected' }]}
+              >
+                <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} />
+              </Form.Item>
+            ) : null}
+            <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+              <Button onClick={() => setInvoiceMode(null)}>Cancel</Button>
+              <Button type="primary" htmlType="submit" loading={invoiceSaving}>
+                {invoiceMode === 'correct' ? 'Save correction' : 'Record invoice'}
+              </Button>
+            </Space>
+          </Form>
+        )}
       </Modal>
 
       <OrderMaterialsModal
@@ -1731,7 +1708,7 @@ export default function JobOrderDetailPage() {
             title: 'Added to the draft supplier order',
             content: `The lines are on the ${order.supplierName} draft order (${order.lineCount} line${
               order.lineCount === 1 ? '' : 's'
-            }, ${order.jobCount} job${order.jobCount === 1 ? '' : 's'}). The material counts as ordered once the Admin issues it.`,
+            }, ${order.jobCount} job${order.jobCount === 1 ? '' : 's'}). The material counts as ordered once the order is issued.`,
             okText: 'Open supplier order',
             onOk: () => navigate(`/supplier-orders/${order.id}`),
             closable: true,

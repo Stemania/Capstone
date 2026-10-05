@@ -36,8 +36,6 @@ import EfficiencyReportPage from '../features/reports/EfficiencyReportPage';
 import InventoryReportPage from '../features/reports/InventoryReportPage';
 import WorkerPerformanceReportPage from '../features/reports/WorkerPerformanceReportPage';
 import JobOrderPrintPage from '../features/reports/JobOrderPrintPage';
-import SalesInvoicePrintPage from '../features/reports/SalesInvoicePrintPage';
-
 const AnalyticsLayout = lazy(() => import('../features/analytics/AnalyticsLayout'));
 const AnalyticsOverviewPage = lazy(() => import('../features/analytics/AnalyticsOverviewPage'));
 const AnalyticsDelaysPage = lazy(() => import('../features/analytics/AnalyticsDelaysPage'));
@@ -90,10 +88,6 @@ export default function AppRoutes() {
                 <Route path="/job-orders/:id/print" element={<JobOrderPrintPage />} />
               </Route>
               <Route element={<ProtectedRoute roles={['ADMIN', 'OFFICE_STAFF']} />}>
-                <Route
-                  path="/job-orders/:id/invoice/print"
-                  element={<SalesInvoicePrintPage />}
-                />
                 <Route
                   path="/supplier-orders/:id/print"
                   element={<SupplierOrderPrintPage />}

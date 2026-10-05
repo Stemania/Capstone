@@ -108,17 +108,14 @@ export const jobOrdersApi = {
     ),
   deleteMaterialPurchase: (jobId: string, purchaseId: string) =>
     apiClient.delete(`/job-orders/${jobId}/material-purchases/${purchaseId}`),
-  getInvoice: (jobId: string) =>
-    apiClient.get<SalesInvoice>(`/job-orders/${jobId}/invoice`),
-  issueInvoice: (
+  recordInvoice: (
     jobId: string,
-    data: {
-      invoiceDate?: string;
-      description?: string;
-      subtotal?: number;
-      vatRate?: number | null;
-    }
+    data: { invoiceNumber: string; invoiceDate: string; amount?: number | null }
   ) => apiClient.post<SalesInvoice>(`/job-orders/${jobId}/invoice`, data),
+  correctInvoice: (
+    jobId: string,
+    data: { invoiceNumber?: string; invoiceDate?: string; amount?: number | null; reason: string }
+  ) => apiClient.patch<SalesInvoice>(`/job-orders/${jobId}/invoice`, data),
 };
 
 export const operationsApi = {
