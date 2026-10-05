@@ -551,7 +551,7 @@ def mark_job_delivered(job):
 
     if job.sales_invoice is None:
         raise AppError(
-            "Issue a sales invoice for this job before marking it delivered.",
+            "Record the sales invoice for this job before marking it delivered.",
             "INVOICE_REQUIRED",
             409,
         )
@@ -1043,7 +1043,7 @@ def delete_job_order(job):
         )
     if job.sales_invoice is not None:
         raise AppError(
-            "This job has an issued sales invoice and cannot be deleted.",
+            "This job has a recorded sales invoice and cannot be deleted.",
             "INVOICE_EXISTS",
             409,
         )

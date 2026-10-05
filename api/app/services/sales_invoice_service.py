@@ -1,4 +1,11 @@
-"""Sales invoice issued once per job order after it is COMPLETED."""
+"""Sales invoice references.
+
+The shop issues its official BIR-registered sales invoice outside the system.
+Office Staff record that invoice's number, date and amount against the job;
+marking the job delivered requires one. A recorded invoice can be corrected
+until the job is delivered, with a reason, and each correction is written to
+the audit log with the old and new values.
+"""
 
 from __future__ import annotations
 
@@ -9,99 +16,162 @@ from sqlalchemy import func
 
 from app.extensions import db
 from app.models.job_order import JobOrder, JobOrderStatus
-from app.models.sales_invoice import SalesInvoice, format_invoice_number
+from app.models.sales_invoice import SalesInvoice
+from app.services.audit_service import write_audit_event
+from app.services.schedule_calendar import shop_now
 from app.utils.errors import AppError
 
 CENT = Decimal("0.01")
-DEFAULT_VAT_RATE = Decimal("12")
+MAX_NUMBER_LENGTH = 64
 
-INVOICEABLE_STATUSES = (JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED)
+RECORDABLE_STATUSES = (JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED)
 
 
-def _money(value, field) -> Decimal:
+def _invoice_number(value) -> str:
+    number = str(value or "").strip()
+    if not number:
+        raise AppError("invoiceNumber is required", "VALIDATION_ERROR", 400)
+    if len(number) > MAX_NUMBER_LENGTH:
+        raise AppError(
+            f"invoiceNumber must be at most {MAX_NUMBER_LENGTH} characters",
+            "VALIDATION_ERROR",
+            400,
+        )
+    return number
+
+
+def _assert_number_unused(number: str, exclude_id: str | None = None):
+    q = SalesInvoice.query.filter(func.lower(SalesInvoice.invoice_number) == number.lower())
+    if exclude_id:
+        q = q.filter(SalesInvoice.id != exclude_id)
+    other = q.first()
+    if other is not None:
+        raise AppError(
+            f"Invoice number {number} is already recorded for another job.",
+            "DUPLICATE_INVOICE_NUMBER",
+            409,
+        )
+
+
+def _invoice_date(value) -> date:
+    if not value:
+        raise AppError("invoiceDate is required", "VALIDATION_ERROR", 400)
+    try:
+        d = date.fromisoformat(str(value)[:10])
+    except ValueError as exc:
+        raise AppError("Invalid invoiceDate (YYYY-MM-DD)", "VALIDATION_ERROR", 400) from exc
+    if d > shop_now().date():
+        raise AppError("invoiceDate cannot be in the future", "VALIDATION_ERROR", 400)
+    return d
+
+
+def _amount(value) -> Decimal:
     if value is None or value == "":
-        raise AppError(f"{field} is required", "VALIDATION_ERROR", 400)
+        raise AppError("amount is required", "VALIDATION_ERROR", 400)
     try:
         d = Decimal(str(value))
     except Exception as exc:
-        raise AppError(f"{field} must be a number", "VALIDATION_ERROR", 400) from exc
+        raise AppError("amount must be a number", "VALIDATION_ERROR", 400) from exc
     if d < 0:
-        raise AppError(f"{field} cannot be negative", "VALIDATION_ERROR", 400)
+        raise AppError("amount cannot be negative", "VALIDATION_ERROR", 400)
     return d.quantize(CENT, rounding=ROUND_HALF_UP)
 
 
-def _parse_date(value) -> date:
-    if not value:
-        return date.today()
-    try:
-        return date.fromisoformat(str(value)[:10])
-    except ValueError as exc:
-        raise AppError("Invalid invoiceDate (YYYY-MM-DD)", "VALIDATION_ERROR", 400) from exc
+def _snapshot(invoice: SalesInvoice) -> dict:
+    return {
+        "invoiceNumber": invoice.invoice_number,
+        "invoiceDate": invoice.invoice_date.isoformat() if invoice.invoice_date else None,
+        "amount": float(invoice.total) if invoice.total is not None else None,
+    }
 
 
-def default_description(job: JobOrder) -> str:
-    return (job.description or "").strip() or job.title
-
-
-def _next_seq() -> int:
-    current = db.session.query(func.max(SalesInvoice.invoice_seq)).scalar()
-    return int(current or 0) + 1
-
-
-def issue_invoice(job: JobOrder, data: dict, prepared_by_id: str) -> SalesInvoice:
-    """Issue the job's invoice. Amount defaults from job.amount; staff may override."""
+def record_invoice(job: JobOrder, data: dict, recorded_by_id: str) -> SalesInvoice:
+    """Record the job's BIR-registered sales invoice. Amount defaults to the job amount."""
     if job.sales_invoice is not None:
         raise AppError(
-            f"Invoice {job.sales_invoice.invoice_number} was already issued for this job.",
+            f"Sales invoice {job.sales_invoice.invoice_number} is already recorded for this job.",
             "INVOICE_EXISTS",
             409,
         )
-    if job.status not in INVOICEABLE_STATUSES:
+    if job.status not in RECORDABLE_STATUSES:
         raise AppError(
-            "A sales invoice can only be issued once the job is completed.",
+            "A sales invoice can only be recorded once the job is completed.",
             "INVALID_TRANSITION",
             409,
         )
 
-    raw_subtotal = data.get("subtotal")
-    if raw_subtotal is None or raw_subtotal == "":
-        raw_subtotal = job.amount
-    if raw_subtotal is None:
+    number = _invoice_number(data.get("invoiceNumber"))
+    invoice_date = _invoice_date(data.get("invoiceDate"))
+    raw_amount = data.get("amount")
+    if raw_amount is None or raw_amount == "":
+        raw_amount = job.amount
+    if raw_amount is None:
         raise AppError(
-            "This job has no amount. Enter the invoice subtotal.",
-            "VALIDATION_ERROR",
-            400,
+            "This job has no amount. Enter the invoice amount.", "VALIDATION_ERROR", 400
         )
-    subtotal = _money(raw_subtotal, "subtotal")
-
-    vat_rate = None
-    vat_amount = Decimal("0.00")
-    if data.get("vatRate") not in (None, "", 0, "0"):
-        vat_rate = Decimal(str(data.get("vatRate")))
-        if vat_rate < 0 or vat_rate > 100:
-            raise AppError("vatRate must be between 0 and 100", "VALIDATION_ERROR", 400)
-        vat_amount = (subtotal * vat_rate / Decimal("100")).quantize(
-            CENT, rounding=ROUND_HALF_UP
-        )
-
-    description = (data.get("description") or "").strip() or default_description(job)
+    amount = _amount(raw_amount)
+    _assert_number_unused(number)
 
     try:
-        seq = _next_seq()
         invoice = SalesInvoice(
-            invoice_seq=seq,
-            invoice_number=format_invoice_number(seq),
-            invoice_date=_parse_date(data.get("invoiceDate")),
+            invoice_number=number,
+            invoice_date=invoice_date,
             job_order=job,
             client_id=job.client_id,
-            description=description,
-            subtotal=subtotal,
-            vat_rate=vat_rate,
-            vat_amount=vat_amount,
-            total=subtotal + vat_amount,
-            prepared_by_id=prepared_by_id,
+            subtotal=amount,
+            vat_amount=Decimal("0.00"),
+            total=amount,
+            prepared_by_id=recorded_by_id,
         )
         db.session.add(invoice)
+        db.session.commit()
+        return invoice
+    except Exception:
+        db.session.rollback()
+        raise
+
+
+def correct_invoice(job: JobOrder, data: dict) -> SalesInvoice:
+    """Correct the recorded invoice before delivery. A reason is required."""
+    invoice = job.sales_invoice
+    if invoice is None:
+        raise AppError("No sales invoice has been recorded for this job", "NOT_FOUND", 404)
+    if job.status == JobOrderStatus.DELIVERED or job.delivered_at:
+        raise AppError(
+            "The job has been delivered, so its sales invoice is locked.",
+            "INVOICE_LOCKED",
+            409,
+        )
+    reason = str(data.get("reason") or "").strip()
+    if not reason:
+        raise AppError("Enter the reason for the correction", "VALIDATION_ERROR", 400)
+
+    before = _snapshot(invoice)
+    if "invoiceNumber" in data:
+        number = _invoice_number(data.get("invoiceNumber"))
+        if number != invoice.invoice_number:
+            _assert_number_unused(number, exclude_id=invoice.id)
+        invoice.invoice_number = number
+    if "invoiceDate" in data:
+        invoice.invoice_date = _invoice_date(data.get("invoiceDate"))
+    if "amount" in data and _amount(data.get("amount")) != invoice.total:
+        amount = _amount(data.get("amount"))
+        invoice.subtotal = amount
+        invoice.vat_rate = None
+        invoice.vat_amount = Decimal("0.00")
+        invoice.total = amount
+    after = _snapshot(invoice)
+    if after == before:
+        raise AppError("Nothing was changed", "VALIDATION_ERROR", 400)
+
+    try:
+        write_audit_event(
+            "SALES_INVOICE_CORRECTED",
+            "SalesInvoice",
+            invoice.id,
+            before=before,
+            after={**after, "reason": reason},
+        )
         db.session.commit()
         return invoice
     except Exception:

@@ -448,7 +448,7 @@ def build_fixtures(ctx):
     turning, checking = schedule(tc28)
     work_in_past(turning, at(ctx.d2, 8))
     work_in_past(checking, at(ctx.d2, 13))
-    ctx.note("TC-28", tc28, "Office: Deliver is refused until the invoice is issued.")
+    ctx.note("TC-28", tc28, "Office: Deliver is refused until the sales invoice is recorded.")
 
     # TC-23 / TC-24: scheduled behind an issued PO; push its expected date later.
     tc23 = new_job(

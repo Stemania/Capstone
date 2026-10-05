@@ -255,20 +255,32 @@ def get_sales_invoice(job_id):
 
     job = jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
     if job.sales_invoice is None:
-        raise AppError("No sales invoice has been issued for this job", "NOT_FOUND", 404)
+        raise AppError("No sales invoice has been recorded for this job", "NOT_FOUND", 404)
     return jsonify(job.sales_invoice.to_dict())
 
 
 @job_orders_bp.route("/<job_id>/invoice", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
-def issue_sales_invoice(job_id):
+@require_roles(UserRole.OFFICE_STAFF)
+def record_sales_invoice(job_id):
     from app.services import sales_invoice_service as si_service
 
     user_id = get_current_user_id()
     job = jo_service.get_job_order(job_id, user_id, get_current_user_role())
-    invoice = si_service.issue_invoice(job, request.get_json() or {}, user_id)
+    invoice = si_service.record_invoice(job, request.get_json() or {}, user_id)
     return jsonify(invoice.to_dict()), 201
+
+
+@job_orders_bp.route("/<job_id>/invoice", methods=["PATCH"])
+@jwt_required()
+@require_roles(UserRole.OFFICE_STAFF)
+def correct_sales_invoice(job_id):
+    from app.services import sales_invoice_service as si_service
+
+    user_id = get_current_user_id()
+    job = jo_service.get_job_order(job_id, user_id, get_current_user_role())
+    invoice = si_service.correct_invoice(job, request.get_json() or {})
+    return jsonify(invoice.to_dict())
 
 
 @job_orders_bp.route("/<job_id>/operations", methods=["GET"])

@@ -27,6 +27,7 @@ from app.models.worker_skill import OperationType
 from app.services import material_purchase_service as mp_service
 from app.services import operation_service
 from app.services import sales_invoice_service as si_service
+from app.services.schedule_calendar import shop_now
 from app.services.job_order_service import (
     _PART_CONDITION_RANK,
     advance_part_condition,
@@ -544,14 +545,23 @@ def _completed_job(people, **kw):
     return job
 
 
-def test_delivery_blocked_until_invoice_issued(people):
+def _invoice_data(job, **kw):
+    """The office copies the number from the shop's BIR-registered invoice."""
+    return {
+        "invoiceNumber": f"PF-TEST-{job.id}",
+        "invoiceDate": shop_now().date().isoformat(),
+        **kw,
+    }
+
+
+def test_delivery_blocked_until_invoice_recorded(people):
     job = _completed_job(people)
     with pytest.raises(AppError) as exc:
         mark_job_delivered(job)
     assert exc.value.code == "INVOICE_REQUIRED"
     assert job.status == JobOrderStatus.COMPLETED
 
-    si_service.issue_invoice(job, {}, people["office"].id)
+    si_service.record_invoice(job, _invoice_data(job), people["office"].id)
     mark_job_delivered(job)
     assert job.status == JobOrderStatus.DELIVERED
 
@@ -559,32 +569,27 @@ def test_delivery_blocked_until_invoice_issued(people):
 def test_invoice_requires_completed_job(people):
     job = _job(people, status=JobOrderStatus.IN_PROGRESS)
     with pytest.raises(AppError) as exc:
-        si_service.issue_invoice(job, {}, people["office"].id)
+        si_service.record_invoice(job, _invoice_data(job), people["office"].id)
     assert exc.value.code == "INVALID_TRANSITION"
 
 
-def test_invoice_defaults_from_job_and_allows_override_with_vat(people):
+def test_invoice_amount_defaults_from_job_and_can_be_entered(people):
     job = _completed_job(people)
-    inv = si_service.issue_invoice(job, {}, people["office"].id)
-    assert inv.subtotal == Decimal("15000.00")
+    inv = si_service.record_invoice(job, _invoice_data(job), people["office"].id)
     assert inv.total == Decimal("15000.00")
-    assert inv.description == "Fabricate 10 pcs shaft"
     assert inv.client_id == job.client_id
-    assert inv.invoice_number.startswith("BMSC-INV-")
+    assert inv.invoice_number == f"PF-TEST-{job.id}"
+    assert inv.invoice_seq is None
 
     job2 = _completed_job(people)
-    inv2 = si_service.issue_invoice(
-        job2, {"subtotal": "10000", "vatRate": 12}, people["office"].id
-    )
-    assert inv2.vat_amount == Decimal("1200.00")
+    inv2 = si_service.record_invoice(job2, _invoice_data(job2, amount="11200"), people["office"].id)
     assert inv2.total == Decimal("11200.00")
-    assert inv2.invoice_seq == inv.invoice_seq + 1
     assert job.amount == Decimal("15000.00")
 
 
-def test_invoice_issued_only_once(people):
+def test_invoice_recorded_only_once(people):
     job = _completed_job(people)
-    si_service.issue_invoice(job, {}, people["office"].id)
+    si_service.record_invoice(job, _invoice_data(job), people["office"].id)
     with pytest.raises(AppError) as exc:
-        si_service.issue_invoice(job, {}, people["office"].id)
+        si_service.record_invoice(job, _invoice_data(job, invoiceNumber="PF-OTHER"), people["office"].id)
     assert exc.value.code == "INVOICE_EXISTS"

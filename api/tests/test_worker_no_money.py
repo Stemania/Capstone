@@ -15,7 +15,7 @@ from app.models.client import Client
 from app.models.job_order import JobOrder, JobOrderStatus, JobType, MaterialStatus, PartCondition
 from app.models.material_purchase import MaterialPurchase
 from app.models.operation import JobOperation, OperationStatus
-from app.models.sales_invoice import SalesInvoice, format_invoice_number
+from app.models.sales_invoice import SalesInvoice
 from app.models.supplier import Supplier
 from app.models.user import User, UserRole, UserStatus
 from app.models.worker_profile import WorkerProfile
@@ -112,7 +112,7 @@ def seeded(app):
         db.session.add(
             SalesInvoice(
                 invoice_seq=1,
-                invoice_number=format_invoice_number(1),
+                invoice_number="BMSC-INV-00001",
                 invoice_date=date.today(),
                 job_order_id=job.id,
                 client_id=cust.id,
@@ -196,7 +196,7 @@ def test_office_staff_do_see_the_money(client, seeded):
     office = _headers(client, "office@money.test")
     body = client.get(f"/api/v1/job-orders/{seeded['job']}", headers=office).get_json()
     assert body["amount"] == JOB_AMOUNT
-    assert body["salesInvoice"]["total"] == INVOICE_TOTAL
+    assert body["salesInvoice"]["amount"] == INVOICE_TOTAL
     assert _leaks(body)
 
 
