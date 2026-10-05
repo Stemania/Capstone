@@ -1,6 +1,8 @@
 import { shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
-import { DatePicker, Spin, Table, message } from 'antd';
+import { Button, DatePicker, Spin, Table, message } from 'antd';
+import { DownloadOutlined } from '@ant-design/icons';
+import { downloadCsv, rowsToCsv } from '../../utils/csvExport';
 import { inventoryApi, toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
 import type {
@@ -67,6 +69,52 @@ export default function InventoryReportPage() {
 
   const outstanding = usageWorker?.outstandingUnreturned || [];
 
+  const exportReport = () => {
+    const sections = [
+      `Inventory Status Report,Period ${params.from} to ${params.to}`,
+      'Current stock',
+      rowsToCsv(stockRows, [
+        { key: 'name', header: 'Item', value: (r) => r.name },
+        { key: 'code', header: 'Code', value: (r) => r.code },
+        {
+          key: 'category',
+          header: 'Category',
+          value: (r) => (r.category === 'CONSUMABLE' ? 'Consumable' : 'Returnable'),
+        },
+        { key: 'unit', header: 'Unit', value: (r) => r.unit },
+        { key: 'onHand', header: 'In stock', value: (r) => r.quantityOnHand },
+        { key: 'min', header: 'Reorder level', value: (r) => r.minimumStock },
+        { key: 'low', header: 'Low stock', value: (r) => (r.lowStock ? 'Yes' : 'No') },
+      ]),
+      'Outstanding borrowed tools by worker',
+      rowsToCsv(outstanding, [
+        { key: 'worker', header: 'Worker', value: (r) => r.workerName },
+        { key: 'qty', header: 'Total qty', value: (r) => r.totalOutstandingQuantity },
+        {
+          key: 'items',
+          header: 'Items',
+          value: (r) =>
+            (r.items || []).map((i) => `${i.toolName} (${i.quantity ?? '—'})`).join('; '),
+        },
+      ]),
+      'Returnable tools borrowed over period',
+      rowsToCsv(usageItem?.items || [], [
+        { key: 'name', header: 'Tool', value: (r) => r.name },
+        { key: 'code', header: 'Code', value: (r) => r.code },
+        { key: 'borrowed', header: 'Borrowed', value: (r) => r.borrowQuantity },
+        { key: 'perDay', header: 'Per working day', value: (r) => r.consumptionPerWorkingDay },
+      ]),
+      'Consumable use between stocktakes',
+      rowsToCsv(usageConsumables?.items || [], [
+        { key: 'name', header: 'Item', value: (r) => r.name },
+        { key: 'code', header: 'Code', value: (r) => r.code },
+        { key: 'consumed', header: 'Consumed', value: (r) => r.consumptionQuantity },
+        { key: 'perDay', header: 'Per working day', value: (r) => r.consumptionPerWorkingDay },
+      ]),
+    ];
+    downloadCsv(`inventory-status-${params.from}-to-${params.to}`, sections.join('\r\n\r\n'));
+  };
+
   return (
     <div className="report-page">
       <ReportToolbar
@@ -74,17 +122,22 @@ export default function InventoryReportPage() {
         periodFrom={params.from}
         periodTo={params.to}
         extra={
-          <DatePicker.RangePicker
-            value={range}
-            allowClear={false}
-            format="YYYY-MM-DD"
-            onChange={(vals) => {
-              if (vals?.[0] && vals?.[1]) {
-                setRange([vals[0].startOf('day'), vals[1].endOf('day')]);
-              }
-            }}
-            disabledDate={(d) => d.isAfter(shopToday(), 'day')}
-          />
+          <>
+            <Button icon={<DownloadOutlined />} onClick={exportReport} disabled={loading}>
+              Export CSV
+            </Button>
+            <DatePicker.RangePicker
+              value={range}
+              allowClear={false}
+              format="YYYY-MM-DD"
+              onChange={(vals) => {
+                if (vals?.[0] && vals?.[1]) {
+                  setRange([vals[0].startOf('day'), vals[1].endOf('day')]);
+                }
+              }}
+              disabledDate={(d) => d.isAfter(shopToday(), 'day')}
+            />
+          </>
         }
       />
       <ReportStamp periodFrom={params.from} periodTo={params.to} />
