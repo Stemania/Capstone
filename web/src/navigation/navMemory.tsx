@@ -4,10 +4,12 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
 
 /** Top-level sidebar / tab sections (longest prefixes first for matching). */
 export const NAV_SECTIONS = [
@@ -74,6 +76,13 @@ type NavMemoryValue = {
     reset: boolean;
   };
   clearSectionCache: (sectionKey: string) => void;
+  /**
+   * Called during render by a route guard that redirects away. A denied path is
+   * never remembered or kept alive: its cached <Navigate> only fires on mount,
+   * so restoring it would leave an empty page.
+   */
+  markDenied: (fullPath: string) => void;
+  isDenied: (fullPath: string) => boolean;
 };
 
 const NavMemoryContext = createContext<NavMemoryValue | null>(null);
@@ -86,6 +95,17 @@ export function NavMemoryProvider({ children }: { children: ReactNode }) {
   const [generationBySection, setGenerationBySection] = useState<
     Record<string, number>
   >({});
+  const deniedRef = useRef<Set<string>>(new Set());
+  const { user } = useAuth();
+
+  useEffect(() => {
+    deniedRef.current = new Set();
+  }, [user?.id]);
+
+  const markDenied = useCallback((fullPath: string) => {
+    deniedRef.current.add(fullPath);
+  }, []);
+  const isDenied = useCallback((fullPath: string) => deniedRef.current.has(fullPath), []);
 
   // Track wherever the user goes so sidebar return restores that URL.
   useEffect(() => {
@@ -94,7 +114,14 @@ export function NavMemoryProvider({ children }: { children: ReactNode }) {
     // Don't remember login or bare redirects.
     if (location.pathname === '/' || location.pathname === '/login') return;
     const full = `${location.pathname}${location.search}`;
+    const denied = deniedRef.current.has(full);
     setLastBySection((prev) => {
+      if (denied) {
+        if (prev[section] !== full) return prev;
+        const next = { ...prev, [section]: section };
+        saveStored(next);
+        return next;
+      }
       if (prev[section] === full) return prev;
       const next = { ...prev, [section]: full };
       saveStored(next);
@@ -122,8 +149,10 @@ export function NavMemoryProvider({ children }: { children: ReactNode }) {
         return { to: sectionKey, reset: true };
       }
       const remembered = lastBySection[sectionKey];
+      const usable =
+        remembered && remembered.startsWith(sectionKey) && !deniedRef.current.has(remembered);
       return {
-        to: remembered && remembered.startsWith(sectionKey) ? remembered : sectionKey,
+        to: usable ? remembered : sectionKey,
         reset: false,
       };
     },
@@ -136,8 +165,10 @@ export function NavMemoryProvider({ children }: { children: ReactNode }) {
       generationBySection,
       resolveSectionNav,
       clearSectionCache,
+      markDenied,
+      isDenied,
     }),
-    [lastBySection, generationBySection, resolveSectionNav, clearSectionCache]
+    [lastBySection, generationBySection, resolveSectionNav, clearSectionCache, markDenied, isDenied]
   );
 
   return (

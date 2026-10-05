@@ -26,12 +26,16 @@ export default function KeepAliveOutlet() {
   const outlet = useOutlet();
   const location = useLocation();
   const liveLocationContext = useContext(UNSAFE_LocationContext);
-  const { generationBySection } = useNavMemory();
+  const { generationBySection, isDenied } = useNavMemory();
   const cacheRef = useRef<Map<string, CacheEntry>>(new Map());
 
   const section = getNavSection(location.pathname);
   const fullPath = `${location.pathname}${location.search}`;
   const generation = section ? generationBySection[section] || 0 : 0;
+
+  for (const [key, entry] of cacheRef.current) {
+    if (isDenied(entry.path)) cacheRef.current.delete(key);
+  }
 
   if (section) {
     const existing = cacheRef.current.get(section);
