@@ -308,7 +308,7 @@ export default function WorkerPersonalSchedule() {
                     left: dayFill ? 0 : 3,
                     right: dayFill ? 0 : 3,
                     top: b.top,
-                    height: b.height,
+                    height: Math.max(b.height, 48),
                     margin: 0,
                     padding: wide ? '4px 6px' : '3px 4px',
                     border: 'none',
@@ -420,15 +420,15 @@ export default function WorkerPersonalSchedule() {
               style={{
                 border: 'none',
                 borderRadius: 8,
-                width: 28,
-                height: 30,
+                width: 48,
+                height: 48,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
                 background: 'transparent',
                 color: colors.text,
-                fontSize: 12,
+                fontSize: 16,
                 padding: 0,
               }}
             >
@@ -440,8 +440,8 @@ export default function WorkerPersonalSchedule() {
               style={{
                 border: 'none',
                 borderRadius: 8,
-                height: 30,
-                padding: '0 10px',
+                height: 48,
+                padding: '0 14px',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -464,15 +464,15 @@ export default function WorkerPersonalSchedule() {
               style={{
                 border: 'none',
                 borderRadius: 8,
-                width: 28,
-                height: 30,
+                width: 48,
+                height: 48,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
                 background: 'transparent',
                 color: colors.text,
-                fontSize: 12,
+                fontSize: 16,
                 padding: 0,
               }}
             >

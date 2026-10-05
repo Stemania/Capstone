@@ -232,8 +232,8 @@ export default function ScanToolPage() {
               background: 'rgba(255,255,255,0.12)',
               border: 'none',
               color: '#fff',
-              width: 36,
-              height: 36,
+              width: 48,
+              height: 48,
               borderRadius: 10,
               cursor: 'pointer',
               display: 'flex',
@@ -251,8 +251,8 @@ export default function ScanToolPage() {
               background: 'rgba(255,255,255,0.12)',
               border: 'none',
               color: '#fff',
-              width: 36,
-              height: 36,
+              width: 48,
+              height: 48,
               borderRadius: 10,
               cursor: 'pointer',
             }}
@@ -406,7 +406,7 @@ export default function ScanToolPage() {
           </div>
         )}
 
-        <Button block onClick={() => setManualOpen(true)} style={{ fontWeight: 600 }}>
+        <Button block size="large" onClick={() => setManualOpen(true)} style={{ height: 48, fontWeight: 600 }}>
           Enter asset code manually
         </Button>
       </div>

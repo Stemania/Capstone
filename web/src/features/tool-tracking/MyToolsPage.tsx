@@ -187,7 +187,7 @@ export default function MyToolsPage() {
                     type="primary"
                     loading={returning === unit.id}
                     onClick={() => handleReturn(unit)}
-                    style={{ fontWeight: 700, background: '#2563eb' }}
+                    style={{ height: 48, minWidth: 88, fontWeight: 700, background: '#2563eb' }}
                   >
                     Return
                   </Button>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button, Modal, Spin, message } from 'antd';
-import { CheckCircleFilled, FileTextOutlined } from '@ant-design/icons';
+import { CheckCircleFilled, FileTextOutlined, WarningOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
@@ -651,32 +651,20 @@ export default function AssignmentDetailPage() {
                   )}
 
                   {isMine && op.machineUnitId && !op.machineDown && !done && (
-                    <button
-                      type="button"
+                    <Button
+                      block
+                      size="large"
+                      danger
+                      icon={<WarningOutlined />}
                       disabled={actionLoading === op.id}
                       onClick={() => {
                         setReportNote('');
                         setReportForOp(op);
                       }}
-                      style={{
-                        display: 'block',
-                        width: '100%',
-                        marginTop: 10,
-                        padding: 0,
-                        border: 'none',
-                        background: 'transparent',
-                        color: colors.textSecondary,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        textAlign: 'center',
-                        textDecoration: 'underline',
-                        textUnderlineOffset: 2,
-                        cursor: actionLoading === op.id ? 'wait' : 'pointer',
-                        opacity: actionLoading === op.id ? 0.6 : 1,
-                      }}
+                      style={{ height: 48, marginTop: 10, fontWeight: 700 }}
                     >
                       Report breakdown
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>

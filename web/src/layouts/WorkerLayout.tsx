@@ -182,9 +182,15 @@ export function WorkerPageHeader({
               border: 'none',
               color: colors.headerText,
               fontSize: 18,
-              padding: '4px 4px 0 0',
+              width: 48,
+              height: 48,
+              margin: '-8px 0 -8px -12px',
+              padding: 0,
               cursor: 'pointer',
               flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
             <LeftOutlined />
@@ -210,8 +216,8 @@ export function WorkerPageHeader({
               background: 'transparent',
               border: 'none',
               color: colors.headerText,
-              width: 44,
-              height: 44,
+              width: 48,
+              height: 48,
               padding: 0,
               cursor: 'pointer',
               fontSize: 24,
@@ -244,6 +250,7 @@ export function WorkerPageHeader({
               type="button"
               style={{
                 maxWidth: 168,
+                minHeight: 48,
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
@@ -355,6 +362,10 @@ export default function WorkerLayout() {
             // Keep shop-floor tap targets and type at full Ant Design size
             // (root ConfigProvider uses denser admin tokens).
             ...WORKER_SEED_TOKENS,
+            // Gloved shop-floor taps: every Ant control is at least 48px tall.
+            controlHeight: 48,
+            controlHeightLG: 52,
+            controlHeightSM: 48,
           },
         }}
       >
