@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { Spin } from 'antd';
-import { AuthProvider } from '../hooks/useAuth';
+import { AuthProvider, useAuth } from '../hooks/useAuth';
 import { ProtectedRoute } from './ProtectedRoute';
 import RoleAwareLayout from './RoleAwareLayout';
 import { NavMemoryProvider } from '../navigation/navMemory';
@@ -43,6 +43,12 @@ const AnalyticsOverviewPage = lazy(() => import('../features/analytics/Analytics
 const AnalyticsDelaysPage = lazy(() => import('../features/analytics/AnalyticsDelaysPage'));
 const AnalyticsForecastPage = lazy(() => import('../features/analytics/AnalyticsForecastPage'));
 const AnalyticsSuppliersPage = lazy(() => import('../features/analytics/AnalyticsSuppliersPage'));
+const AnalyticsJobOrdersPage = lazy(() => import('../features/analytics/AnalyticsJobOrdersPage'));
+
+function AnalyticsIndex() {
+  const { user } = useAuth();
+  return user?.role === 'ADMIN' ? <AnalyticsOverviewPage /> : <Navigate to="/analytics/sales" replace />;
+}
 
 function WorkerSetupFromUser() {
   const { id } = useParams();
@@ -120,12 +126,14 @@ export default function AppRoutes() {
                         </AnalyticsSuspense>
                       }
                     >
-                      <Route index element={<AnalyticsOverviewPage />} />
-                      <Route path="delays" element={<AnalyticsDelaysPage />} />
+                      <Route index element={<AnalyticsIndex />} />
+                      <Route element={<ProtectedRoute roles={['ADMIN']} />}>
+                        <Route path="delays" element={<AnalyticsDelaysPage />} />
+                      </Route>
+                      <Route path="sales" element={<AnalyticsJobOrdersPage />} />
                       <Route path="forecast" element={<AnalyticsForecastPage />} />
                       <Route path="suppliers" element={<AnalyticsSuppliersPage />} />
                       <Route path="efficiency" element={<Navigate to="/analytics" replace />} />
-                      <Route path="sales" element={<Navigate to="/analytics" replace />} />
                       <Route path="capacity" element={<Navigate to="/analytics/forecast" replace />} />
                       <Route path="purchasing" element={<Navigate to="/analytics/suppliers" replace />} />
                     </Route>
@@ -138,8 +146,11 @@ export default function AppRoutes() {
                     <Route path="/machines" element={<MachinesPage />} />
                     <Route path="/work-calendar" element={<WorkCalendarPage />} />
                     <Route path="/reports" element={<ReportsHubPage />} />
-                    <Route path="/reports/efficiency" element={<EfficiencyReportPage />} />
                     <Route path="/reports/inventory" element={<InventoryReportPage />} />
+                  </Route>
+
+                  <Route element={<ProtectedRoute roles={['ADMIN']} />}>
+                    <Route path="/reports/efficiency" element={<EfficiencyReportPage />} />
                     <Route
                       path="/reports/worker-performance"
                       element={<WorkerPerformanceReportPage />}

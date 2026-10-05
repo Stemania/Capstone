@@ -2,29 +2,38 @@ import { Suspense, useMemo, useState } from 'react';
 import { DatePicker, Segmented, Spin } from 'antd';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
+import { useAuth } from '../../hooks/useAuth';
 import {
   AnalyticsPeriodProvider,
   defaultAnalyticsRange,
   type AnalyticsRange,
 } from './analyticsPeriod';
 
-const TABS = [
-  { label: 'Overview', value: '/analytics' },
+const ADMIN_TABS = [
+  { label: 'Production', value: '/analytics' },
   { label: 'Delays', value: '/analytics/delays' },
+  { label: 'Job orders & sales', value: '/analytics/sales' },
   { label: 'Forecast', value: '/analytics/forecast' },
   { label: 'Suppliers', value: '/analytics/suppliers' },
+];
+
+const OFFICE_TABS = [
+  { label: 'Job orders & sales', value: '/analytics/sales' },
+  { label: 'Forecast', value: '/analytics/forecast' },
+  { label: 'Suppliers & purchasing', value: '/analytics/suppliers' },
 ];
 
 export default function AnalyticsLayout() {
   const [range, setRange] = useState<AnalyticsRange>(defaultAnalyticsRange);
   const navigate = useNavigate();
   const location = useLocation();
+  const tabs = useAuth().user?.role === 'ADMIN' ? ADMIN_TABS : OFFICE_TABS;
 
   const active = useMemo(
     () =>
-      TABS.find((t) => t.value !== '/analytics' && location.pathname.startsWith(t.value))?.value ??
-      '/analytics',
-    [location.pathname]
+      tabs.find((t) => t.value !== '/analytics' && location.pathname.startsWith(t.value))?.value ??
+      tabs[0].value,
+    [location.pathname, tabs]
   );
 
   return (
@@ -41,7 +50,7 @@ export default function AnalyticsLayout() {
           }}
         >
           <Segmented
-            options={TABS.map((t) => ({ label: t.label, value: t.value }))}
+            options={tabs.map((t) => ({ label: t.label, value: t.value }))}
             value={active}
             onChange={(v) => navigate(String(v))}
             size="large"

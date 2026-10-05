@@ -6,9 +6,11 @@ import {
   TeamOutlined,
 } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
 
 const REPORTS = [
   {
+    adminOnly: true,
     to: '/reports/efficiency',
     title: 'Production Performance',
     blurb:
@@ -22,6 +24,7 @@ const REPORTS = [
     icon: <ToolOutlined style={{ fontSize: 22 }} />,
   },
   {
+    adminOnly: true,
     to: '/reports/worker-performance',
     title: 'Worker Performance',
     blurb: 'Finished operations, target vs hours worked, difference from target, and machines each worker can run.',
@@ -30,6 +33,8 @@ const REPORTS = [
 ];
 
 export default function ReportsHubPage() {
+  const isAdmin = useAuth().user?.role === 'ADMIN';
+  const reports = REPORTS.filter((r) => isAdmin || !r.adminOnly);
   return (
     <div>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 20 }}>
@@ -54,7 +59,7 @@ export default function ReportsHubPage() {
       </Card>
 
       <Row gutter={[16, 16]}>
-        {REPORTS.map((r) => (
+        {reports.map((r) => (
           <Col xs={24} md={8} key={r.to}>
             <Link to={r.to} style={{ color: 'inherit', display: 'block', height: '100%' }}>
               <Card hoverable style={{ height: '100%' }} styles={{ body: { minHeight: 132 } }}>

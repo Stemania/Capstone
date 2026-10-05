@@ -15,6 +15,7 @@ import {
 import dayjs from 'dayjs';
 import { analyticsApi } from '../../api/analytics.api';
 import { getErrorMessage } from '../../api/client';
+import { useAuth } from '../../hooks/useAuth';
 import type {
   AnalyticsDemandCapacity,
   AnalyticsDemandForecast,
@@ -93,6 +94,7 @@ function BacktestTable({ forecast, fmt }: { forecast: MovingAverageForecast; fmt
 
 export default function AnalyticsForecastPage() {
   const { params } = useAnalyticsPeriod();
+  const isAdmin = useAuth().user?.role === 'ADMIN';
   const [capacity, setCapacity] = useState<AnalyticsDemandCapacity | null>(null);
   const [forecast, setForecast] = useState<AnalyticsSalesForecast | null>(null);
   const [demand, setDemand] = useState<AnalyticsDemandForecast | null>(null);
@@ -105,11 +107,11 @@ export default function AnalyticsForecastPage() {
       setLoading(true);
       try {
         const [c, f] = await Promise.all([
-          analyticsApi.demandCapacity(params),
+          isAdmin ? analyticsApi.demandCapacity(params) : Promise.resolve(null),
           analyticsApi.salesForecast(params),
         ]);
         if (!cancelled) {
-          setCapacity(c.data);
+          setCapacity(c?.data ?? null);
           setForecast(f.data);
         }
       } catch (err) {
@@ -121,7 +123,7 @@ export default function AnalyticsForecastPage() {
     return () => {
       cancelled = true;
     };
-  }, [params.from, params.to]);
+  }, [params.from, params.to, isAdmin]);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,14 +162,14 @@ export default function AnalyticsForecastPage() {
       }));
   }, [capacity]);
 
-  if (loading && !capacity) {
+  if (loading && !forecast) {
     return (
       <div style={{ padding: 48, textAlign: 'center' }}>
         <Spin size="large" />
       </div>
     );
   }
-  if (!capacity || !forecast) return null;
+  if (!forecast) return null;
 
   const constraints = rows.filter((r) => r.above);
   const pipeline = forecast.committedPipeline;
@@ -182,7 +184,7 @@ export default function AnalyticsForecastPage() {
     <div>
       <AnalyticsGrid>
         <AnalyticsSection
-          span={5}
+          span={capacity ? 5 : 12}
           title="Accepted jobs and sales forecast"
           description={
             <>
@@ -272,6 +274,7 @@ export default function AnalyticsForecastPage() {
             ]}
           />
         </AnalyticsSection>
+        {capacity ? (
         <AnalyticsSection
           span={7}
           title="Expected workload by machine type"
@@ -431,6 +434,7 @@ export default function AnalyticsForecastPage() {
             </>
           )}
         </AnalyticsSection>
+        ) : null}
       </AnalyticsGrid>
 
       <AnalyticsGrid>

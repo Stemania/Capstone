@@ -18,7 +18,6 @@ import { exportCsv } from '../../utils/csvExport';
 import { AnalyticsPeriodNote, SummaryCard } from './AnalyticsChrome';
 import { AnalyticsGrid, AnalyticsSection, CHART_BOX } from './AnalyticsSection';
 import PerformanceSection from './PerformanceSection';
-import SalesSection from './SalesSection';
 import {
   formatDifferenceFromTarget,
   formatInt,
@@ -143,7 +142,7 @@ export default function AnalyticsOverviewPage() {
 
       <AnalyticsGrid>
         <AnalyticsSection
-          span={7}
+          span={12}
           title="Weekly difference from target"
           description="Bars show how many operations and job orders finished that week (weeks start Monday, Manila time). The line shows how far those operations ran from their target time. Weeks with no target times are left blank on the line."
           onExport={() =>
@@ -241,7 +240,6 @@ export default function AnalyticsOverviewPage() {
             </ResponsiveContainer>
           </div>
         </AnalyticsSection>
-        <SalesSection span={5} />
       </AnalyticsGrid>
 
       <AnalyticsGrid>

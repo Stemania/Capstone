@@ -1115,6 +1115,35 @@ export interface AnalyticsOverview extends AnalyticsPeriodMeta {
   };
 }
 
+export interface AnalyticsJobOrders extends AnalyticsPeriodMeta {
+  received: {
+    count: number;
+    amount: number | null;
+    byJobType: { jobType: string; count: number; amount: number | null }[];
+  };
+  finished: AnalyticsOverview['jobs'];
+  delivered: { count: number; onTime: number; late: number; amount: number | null };
+  openNow: {
+    byStatus: Record<'DRAFT' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED', number>;
+    pastDateRequired: number;
+  };
+}
+
+export interface MyWorkFigures {
+  from: string;
+  to: string;
+  finishedOperations: number;
+  redoOperations: number;
+  hoursWorked: number | null;
+  targetHours: number | null;
+  laborEfficiencyPct: number | null;
+}
+
+export interface MyWorkSummary {
+  thisWeek: MyWorkFigures;
+  thisMonth: MyWorkFigures;
+}
+
 export interface AnalyticsWorkerRow {
   workerId: string;
   workerName: string;

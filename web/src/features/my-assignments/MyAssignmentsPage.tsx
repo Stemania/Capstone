@@ -3,10 +3,11 @@ import { Spin, Empty, Input, Segmented } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
+import { analyticsApi } from '../../api/analytics.api';
 import { operationsApi } from '../../api/operations.api';
 import { getErrorMessage } from '../../api/client';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
-import type { Operation } from '../../types';
+import type { MyWorkSummary, Operation } from '../../types';
 
 function opStatusBadge(
   op: Operation,
@@ -33,6 +34,74 @@ function opStatusBadge(
     return { text: 'Redo', bg: 'rgba(217,119,6,0.12)', color: '#d97706' };
   }
   return { text: 'Pending', bg: 'rgba(37,99,235,0.12)', color: colors.accent };
+}
+
+function MyWorkSummaryCard() {
+  const { colors } = useWorkerTheme();
+  const [summary, setSummary] = useState<MyWorkSummary | null>(null);
+  const [period, setPeriod] = useState<'thisWeek' | 'thisMonth'>('thisWeek');
+
+  useEffect(() => {
+    analyticsApi
+      .mySummary()
+      .then(({ data }) => setSummary(data))
+      .catch(() => setSummary(null));
+  }, []);
+
+  if (!summary) return null;
+  const f = summary[period];
+  const stats = [
+    {
+      label: 'Finished operations',
+      value: String(f.finishedOperations),
+      hint: f.redoOperations ? `${f.redoOperations} redo` : undefined,
+    },
+    { label: 'Hours worked', value: f.hoursWorked == null ? '—' : `${f.hoursWorked.toFixed(1)}h` },
+    {
+      label: 'Labor efficiency',
+      value: f.laborEfficiencyPct == null ? '—' : `${Math.round(f.laborEfficiencyPct)}%`,
+      hint: f.targetHours ? `${f.targetHours.toFixed(1)}h target` : 'No target times yet',
+    },
+  ];
+
+  return (
+    <div
+      style={{
+        background: colors.card,
+        border: `1px solid ${colors.cardBorder}`,
+        borderRadius: 14,
+        padding: 14,
+        marginBottom: 14,
+        boxShadow: colors.shadow,
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <div style={{ fontWeight: 700, color: colors.text }}>My work</div>
+        <Segmented
+          size="small"
+          value={period}
+          onChange={(v) => setPeriod(v as 'thisWeek' | 'thisMonth')}
+          options={[
+            { label: 'This week', value: 'thisWeek' },
+            { label: 'This month', value: 'thisMonth' },
+          ]}
+        />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 12 }}>
+        {stats.map((s) => (
+          <div key={s.label} style={{ background: colors.chipBg, borderRadius: 10, padding: '10px 8px' }}>
+            <div style={{ fontSize: 11, color: colors.textSecondary }}>{s.label}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: colors.text, lineHeight: 1.3 }}>{s.value}</div>
+            {s.hint ? <div style={{ fontSize: 11, color: colors.textSecondary }}>{s.hint}</div> : null}
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: colors.textSecondary, marginTop: 8 }}>
+        Your own finished operations only. Labor efficiency is target hours divided by hours worked
+        on operations that had a target; over 100% means faster than planned.
+      </div>
+    </div>
+  );
 }
 
 export default function MyAssignmentsPage() {
@@ -77,6 +146,7 @@ export default function MyAssignmentsPage() {
       />
 
       <div style={{ padding: 16 }}>
+        <MyWorkSummaryCard />
         <Segmented
           block
           className="worker-seg"

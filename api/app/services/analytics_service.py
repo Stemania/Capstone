@@ -137,6 +137,143 @@ def shop_week_start(dt) -> date:
     return local - timedelta(days=local.weekday())
 
 
+def _finished_jobs_section(start_utc, end_utc) -> dict:
+    """Jobs whose machining finished in the period, and how their delivery went."""
+    finished_jobs = _finished_jobs(start_utc, end_utc)
+    on_time = awaiting_delivery = 0
+    days_late = []
+    for job, _completed_at in finished_jobs:
+        if not job.delivered_at:
+            awaiting_delivery += 1
+            continue
+        done = job.delivered_at.astimezone(SHOP_TZ).date()
+        if done <= job.due_date:
+            on_time += 1
+        else:
+            days_late.append((done - job.due_date).days)
+    late = len(days_late)
+    return {
+        "completed": len(finished_jobs),
+        "onTime": on_time,
+        "late": late,
+        "awaitingDelivery": awaiting_delivery,
+        "averageDaysLate": _num(sum(days_late) / late if late else None, 1),
+        "maxDaysLate": max(days_late) if days_late else None,
+    }
+
+
+def job_orders_summary(from_s=None, to_s=None):
+    """Office view of job orders and deliveries: received, finished, delivered, open now."""
+    period_from, period_to, start_utc, end_utc = _parse_period(from_s, to_s)
+    today = shop_now().date()
+
+    received = defaultdict(lambda: {"count": 0, "amount": 0.0})
+    for job in JobOrder.query.all():
+        on = forecast_service._job_received_date(job)
+        if period_from <= on <= period_to:
+            for key in (job.job_type.value if job.job_type else "OTHER", "ALL"):
+                received[key]["count"] += 1
+                received[key]["amount"] += float(job.amount or 0)
+
+    delivered = JobOrder.query.filter(
+        JobOrder.delivered_at.isnot(None),
+        JobOrder.delivered_at >= start_utc,
+        JobOrder.delivered_at < end_utc,
+    ).all()
+    delivered_on_time = sum(
+        1 for j in delivered if j.delivered_at.astimezone(SHOP_TZ).date() <= j.due_date
+    )
+
+    open_statuses = (
+        JobOrderStatus.DRAFT,
+        JobOrderStatus.SCHEDULED,
+        JobOrderStatus.IN_PROGRESS,
+        JobOrderStatus.COMPLETED,
+    )
+    open_jobs = JobOrder.query.filter(JobOrder.status.in_(open_statuses)).all()
+    open_by_status = {s.value: 0 for s in open_statuses}
+    for j in open_jobs:
+        open_by_status[j.status.value] += 1
+
+    payload = _period_meta(period_from, period_to, 0)
+    payload.update(
+        {
+            "received": {
+                "count": received["ALL"]["count"],
+                "amount": _num(received["ALL"]["amount"], 2),
+                "byJobType": [
+                    {"jobType": t, "count": v["count"], "amount": _num(v["amount"], 2)}
+                    for t, v in sorted(received.items())
+                    if t != "ALL"
+                ],
+            },
+            "finished": _finished_jobs_section(start_utc, end_utc),
+            "delivered": {
+                "count": len(delivered),
+                "onTime": delivered_on_time,
+                "late": len(delivered) - delivered_on_time,
+                "amount": _num(sum(float(j.amount or 0) for j in delivered), 2),
+            },
+            "openNow": {
+                "byStatus": open_by_status,
+                "pastDateRequired": sum(
+                    1 for j in open_jobs if j.due_date and j.due_date < today
+                ),
+            },
+        }
+    )
+    return payload
+
+
+def _worker_period_figures(worker_id, period_from: date, period_to: date) -> dict:
+    start_utc = shop_local_to_utc(period_from, time(0, 0))
+    end_utc = shop_local_to_utc(period_to + timedelta(days=1), time(0, 0))
+    filters = [
+        *_completed_in_period_filters(start_utc, end_utc),
+        JobOperation.assigned_worker_id == worker_id,
+    ]
+    finished, redo, worked = (
+        db.session.query(
+            func.count(JobOperation.id),
+            func.count(JobOperation.rework_of_operation_id),
+            func.coalesce(func.sum(JobOperation.actual_worked_hours), 0),
+        )
+        .filter(*filters)
+        .one()
+    )
+    target, worked_on_target = (
+        db.session.query(
+            func.sum(JobOperation.estimated_hours),
+            func.sum(JobOperation.actual_worked_hours),
+        )
+        .filter(
+            *filters,
+            JobOperation.rework_of_operation_id.is_(None),
+            JobOperation.estimated_hours.isnot(None),
+            JobOperation.actual_worked_hours.isnot(None),
+        )
+        .one()
+    )
+    return {
+        "from": period_from.isoformat(),
+        "to": period_to.isoformat(),
+        "finishedOperations": int(finished or 0),
+        "redoOperations": int(redo or 0),
+        "hoursWorked": _num(worked, 2),
+        "targetHours": _num(target, 2),
+        "laborEfficiencyPct": _num(labor_efficiency_pct(target, worked_on_target), 1),
+    }
+
+
+def my_summary(worker_id):
+    """A production worker's own figures for this week (from Monday) and this month."""
+    today = shop_now().date()
+    return {
+        "thisWeek": _worker_period_figures(worker_id, today - timedelta(days=today.weekday()), today),
+        "thisMonth": _worker_period_figures(worker_id, today.replace(day=1), today),
+    }
+
+
 def overview(from_s=None, to_s=None):
     period_from, period_to, start_utc, end_utc = _parse_period(from_s, to_s)
     filters = _completed_in_period_filters(start_utc, end_utc)
@@ -161,20 +298,6 @@ def overview(from_s=None, to_s=None):
         .scalar()
         or 0
     )
-
-    finished_jobs = _finished_jobs(start_utc, end_utc)
-    on_time = awaiting_delivery = 0
-    days_late = []
-    for job, _completed_at in finished_jobs:
-        if not job.delivered_at:
-            awaiting_delivery += 1
-            continue
-        done = job.delivered_at.astimezone(SHOP_TZ).date()
-        if done <= job.due_date:
-            on_time += 1
-        else:
-            days_late.append((done - job.due_date).days)
-    late = len(days_late)
 
     # Rework: follow-on rows (rework_of set). Count all follow-ons whose parent
     # completed in period; hours only from completed follow-ons in period.
@@ -219,14 +342,7 @@ def overview(from_s=None, to_s=None):
     payload = _period_meta(period_from, period_to, excluded)
     payload.update(
         {
-            "jobs": {
-                "completed": len(finished_jobs),
-                "onTime": on_time,
-                "late": late,
-                "awaitingDelivery": awaiting_delivery,
-                "averageDaysLate": _num(sum(days_late) / late if late else None, 1),
-                "maxDaysLate": max(days_late) if days_late else None,
-            },
+            "jobs": _finished_jobs_section(start_utc, end_utc),
             "efficiency": {
                 "averageVariancePct": _num(avg_var),
                 "completedOperationsWithVariance": int(with_variance),
