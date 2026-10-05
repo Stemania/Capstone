@@ -779,7 +779,7 @@ export type NotificationMilestone =
 
 export type NotificationChannel = 'EMAIL' | 'SMS';
 
-export type NotificationStatus = 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED';
+export type NotificationStatus = 'PENDING' | 'SENT' | 'NOT_SENT' | 'FAILED' | 'SKIPPED';
 
 export interface NotificationLog {
   id: string;

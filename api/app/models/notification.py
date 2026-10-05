@@ -30,6 +30,7 @@ class NotificationStatus(enum.Enum):
     SENT = "SENT"
     FAILED = "FAILED"
     SKIPPED = "SKIPPED"
+    NOT_SENT = "NOT_SENT"
 
 
 class NotificationLog(db.Model):

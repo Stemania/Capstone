@@ -128,6 +128,7 @@ const NOTIF_UPDATE_LABEL: Record<string, string> = {
 const NOTIF_STATUS_LABEL: Record<string, string> = {
   PENDING: 'Pending',
   SENT: 'Sent',
+  NOT_SENT: 'Not sent',
   FAILED: 'Failed',
   SKIPPED: 'Skipped',
 };
@@ -1605,7 +1606,9 @@ export default function JobOrderDetailPage() {
                         title="Client notifications"
                         count={notifications?.length ?? 0}
                         alert={
-                          notifications?.some((n) => n.status === 'FAILED') ? 'failed' : undefined
+                          notifications?.some((n) => n.status === 'FAILED' || n.status === 'NOT_SENT')
+                            ? 'failed'
+                            : undefined
                         }
                       />
                     ),
@@ -1619,7 +1622,16 @@ export default function JobOrderDetailPage() {
                               <span style={{ fontWeight: 700, color: NAVY }}>
                                 {friendlyEnum(n.milestone, NOTIF_UPDATE_LABEL)}
                               </span>
-                              <span style={{ color: n.status === 'FAILED' ? '#b91c1c' : MUTED }}>
+                              <span
+                                style={{
+                                  color:
+                                    n.status === 'FAILED'
+                                      ? '#b91c1c'
+                                      : n.status === 'NOT_SENT'
+                                        ? '#b45309'
+                                        : MUTED,
+                                }}
+                              >
                                 {friendlyEnum(n.status, NOTIF_STATUS_LABEL)}
                               </span>
                             </div>
@@ -1633,7 +1645,10 @@ export default function JobOrderDetailPage() {
                                   ? `Queued ${dayjs(n.createdAt).format('MMM D, HH:mm')}`
                                   : '—'}
                             </div>
-                            {n.status === 'FAILED' ? (
+                            {(n.status === 'FAILED' || n.status === 'NOT_SENT') && n.errorMessage ? (
+                              <div style={{ color: MUTED, fontSize: 12 }}>{n.errorMessage}</div>
+                            ) : null}
+                            {n.status === 'FAILED' || n.status === 'NOT_SENT' ? (
                               <Button
                                 size="small"
                                 style={{ marginTop: 4 }}

@@ -48,11 +48,13 @@ def _job(client):
 
 
 class RecordingProvider:
-    name = "console"
+    name = "smtp"
 
-    def __init__(self, sends, fail=False):
+    def __init__(self, sends, fail=False, name=None):
         self.sends = sends
         self.fail = fail
+        if name:
+            self.name = name
 
     def send(self, recipient, body):
         if self.fail:
@@ -60,7 +62,7 @@ class RecordingProvider:
         self.sends.append({"recipient": recipient, "body": body})
 
 
-def _patch_notify(monkeypatch, sends, *, fail=False, existing=None):
+def _patch_notify(monkeypatch, sends, *, fail=False, existing=None, provider_name=None):
     import app.services.notification_service as svc
 
     logs_store = []
@@ -102,12 +104,12 @@ def _patch_notify(monkeypatch, sends, *, fail=False, existing=None):
     monkeypatch.setattr(
         svc,
         "build_email_provider",
-        lambda cfg: (RecordingProvider(sends, fail=fail), False),
+        lambda cfg: (RecordingProvider(sends, fail=fail, name=provider_name), False),
     )
     monkeypatch.setattr(
         svc,
         "build_sms_provider",
-        lambda cfg: (RecordingProvider(sends, fail=fail), False),
+        lambda cfg: (RecordingProvider(sends, fail=fail, name=provider_name), False),
     )
 
     def set_job(job):
@@ -236,3 +238,19 @@ def test_failed_send_does_not_roll_back_trigger(monkeypatch, flask_app):
     assert len(logs) == 2
     assert all(log.status == NotificationStatus.FAILED for log in logs)
     assert all("provider down" in (log.error_message or "") for log in logs)
+
+
+@pytest.mark.parametrize("provider_name", ["console", "sms_stub"])
+def test_unconfigured_provider_records_not_sent(monkeypatch, flask_app, provider_name):
+    sends = []
+    set_job, _, _ = _patch_notify(monkeypatch, sends, provider_name=provider_name)
+    job = _job(_client())
+
+    with flask_app.app_context():
+        set_job(job)
+        logs = notify_job_milestone(job.id, NotificationMilestone.JOB_STARTED)
+
+    assert len(logs) == 2
+    assert all(log.status == NotificationStatus.NOT_SENT for log in logs)
+    assert all(log.error_message == "No email/SMS provider configured" for log in logs)
+    assert all(getattr(log, "sent_at", None) is None for log in logs)

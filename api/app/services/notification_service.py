@@ -46,6 +46,23 @@ def _cfg():
     return current_app.config
 
 
+NO_PROVIDER_REASON = "No email/SMS provider configured"
+_UNCONFIGURED_PROVIDERS = ("console", "sms_stub")
+
+
+def _deliver(log: NotificationLog, provider, console_fallback: bool, recipient: str, body: str):
+    """Send through ``provider`` and record the outcome on ``log``. Raises on provider error."""
+    provider.send(recipient, body)
+    if console_fallback or provider.name in _UNCONFIGURED_PROVIDERS:
+        log.status = NotificationStatus.NOT_SENT
+        log.error_message = NO_PROVIDER_REASON
+        log.sent_at = None
+    else:
+        log.status = NotificationStatus.SENT
+        log.sent_at = _utcnow()
+        log.error_message = None
+
+
 def notify_job_milestone(job_id: str, milestone: NotificationMilestone) -> list[NotificationLog]:
     """
     Send (or skip) notifications for a milestone. Commits its own log rows.
@@ -93,14 +110,7 @@ def notify_job_milestone(job_id: str, milestone: NotificationMilestone) -> list[
                         provider, console_fallback = build_email_provider(_cfg())
                     else:
                         provider, console_fallback = build_sms_provider(_cfg())
-                    provider.send(recipient, body)
-                    log.status = NotificationStatus.SENT
-                    log.sent_at = _utcnow()
-                    if console_fallback or provider.name in ("console", "sms_stub"):
-                        note = f"Sent via {provider.name}"
-                        if console_fallback:
-                            note += " (credentials missing; console fallback)"
-                        log.error_message = note
+                    _deliver(log, provider, console_fallback, recipient, body)
                 except Exception as exc:  # noqa: BLE001 — must not break job flow
                     logger.exception(
                         "Notification send failed job=%s milestone=%s channel=%s",
@@ -152,14 +162,16 @@ def list_notification_logs(job_order_id=None, client_id=None, status=None, limit
 
 
 def resend_notification(log_id: str) -> NotificationLog:
-    """Manual resend for FAILED entries. Creates a new attempt row."""
+    """Manual resend for FAILED or NOT_SENT entries. Creates a new attempt row."""
     from app.utils.errors import AppError
 
     original = NotificationLog.query.get(log_id)
     if not original:
         raise AppError("Notification not found", "NOT_FOUND", 404)
-    if original.status != NotificationStatus.FAILED:
-        raise AppError("Only FAILED notifications can be resent", "VALIDATION_ERROR", 400)
+    if original.status not in (NotificationStatus.FAILED, NotificationStatus.NOT_SENT):
+        raise AppError(
+            "Only failed or not-sent notifications can be resent", "VALIDATION_ERROR", 400
+        )
 
     job = original.job_order
     client = original.client
@@ -196,14 +208,7 @@ def resend_notification(log_id: str) -> NotificationLog:
         log.error_message = "No contact detail for this channel"
     else:
         try:
-            provider.send(recipient, body)
-            log.status = NotificationStatus.SENT
-            log.sent_at = _utcnow()
-            if console_fallback or provider.name in ("console", "sms_stub"):
-                note = f"Sent via {provider.name}"
-                if console_fallback:
-                    note += " (credentials missing; console fallback)"
-                log.error_message = note
+            _deliver(log, provider, console_fallback, recipient, body)
         except Exception as exc:  # noqa: BLE001
             log.status = NotificationStatus.FAILED
             log.error_message = str(exc)[:2000]
