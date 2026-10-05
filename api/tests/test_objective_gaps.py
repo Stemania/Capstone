@@ -459,6 +459,8 @@ def _audit_rows(entity_type, entity_id):
 
 
 def test_supplier_purchase_and_invoice_write_audit_rows_with_actor(client, shop):
+    from app.services.schedule_calendar import shop_now
+
     office = shop["office"]
     headers = _headers(office)
 
@@ -467,11 +469,12 @@ def test_supplier_purchase_and_invoice_write_audit_rows_with_actor(client, shop)
     supplier_id = res.get_json()["id"]
 
     job = _job(shop, status=JobOrderStatus.SCHEDULED, amount=Decimal("1500"))
+    job.raw_materials = [{"name": "AISI 1045 round bar", "quantity": 2, "unit": "pcs"}]
     db.session.commit()
     res = client.post(
         f"/api/v1/job-orders/{job.id}/material-purchases",
         json={
-            "materialName": "AISI 1045 round bar",
+            "plannedMaterialId": job.raw_materials[0]["id"],
             "supplierId": supplier_id,
             "quantity": 2,
             "unit": "pcs",
@@ -487,7 +490,7 @@ def test_supplier_purchase_and_invoice_write_audit_rows_with_actor(client, shop)
 
     res = client.post(
         f"/api/v1/job-orders/{job.id}/invoice",
-        json={"invoiceDate": "2031-03-20"},
+        json={"invoiceNumber": "OR-2031-0001", "invoiceDate": shop_now().date().isoformat()},
         headers=headers,
     )
     assert res.status_code == 201, res.get_json()

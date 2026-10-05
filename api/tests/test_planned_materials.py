@@ -183,23 +183,20 @@ def test_partial_purchase_leaves_rest_still_to_order(client, shop):
     assert after["status"] == "PARTLY_ORDERED"
 
 
-def test_unplanned_purchase_is_allowed(client, shop):
+def test_unplanned_purchase_is_refused(client, shop):
     job = _create_job(client, shop, [{"name": "Round bar 50mm", "quantity": 10, "unit": "pcs"}])
 
     res = _purchase(
         client, shop, job["id"], materialName="Cutting disc", quantity=3, unit="pcs"
     )
-    assert res.status_code == 201, res.get_json()
-    assert res.get_json()["plannedMaterialId"] is None
-    _issue(client, shop, res.get_json()["supplierOrderId"])
+    assert res.status_code == 400, res.get_json()
+    assert res.get_json()["error"]["code"] == "PLANNED_MATERIAL_REQUIRED"
 
     after = _get(client, shop, job["id"])
     planned = _planned(after, "Round bar 50mm")
     assert planned["purchasedQuantity"] == 0
     assert planned["status"] == "TO_ORDER"
-    # The planned bar is still not ordered, so the job stays To order.
     assert after["materialStatus"] == "TO_ORDER"
-    assert after["materialReadiness"]["unorderedMaterials"] == ["Round bar 50mm"]
 
 
 def test_linked_purchase_must_match_plan_and_job(client, shop):

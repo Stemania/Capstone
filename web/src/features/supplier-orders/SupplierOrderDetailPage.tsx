@@ -432,9 +432,15 @@ export default function SupplierOrderDetailPage() {
               Receive selected
             </Button>
           ) : null}
-          <Button icon={<PrinterOutlined />} onClick={() => navigate(`/supplier-orders/${order.id}/print`)}>
-            Print PO
-          </Button>
+          <Tooltip title={isDraft ? 'Issue the order before printing' : undefined}>
+            <Button
+              icon={<PrinterOutlined />}
+              disabled={isDraft}
+              onClick={() => navigate(`/supplier-orders/${order.id}/print`)}
+            >
+              Print PO
+            </Button>
+          </Tooltip>
           {isOfficeStaff && (order.status === 'DRAFT' || order.status === 'ISSUED') ? (
             <Button danger icon={<StopOutlined />} disabled={busy} onClick={cancelOrder}>
               Cancel order

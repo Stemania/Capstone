@@ -218,7 +218,7 @@ def test_office_staff_can_still_run_supplier_orders_and_job_materials(client, sh
 
     res = client.post(
         f"/api/v1/job-orders/{job.id}/material-purchases",
-        json={"supplierId": shop["quick"].id, "materialName": "Bolts", "quantity": 4, "unitCost": 5},
+        json={"supplierId": shop["quick"].id, "plannedMaterialId": "pm-plate", "quantity": 4, "unitCost": 5},
         headers=h,
     )
     assert res.status_code == 201, res.get_json()

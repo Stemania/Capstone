@@ -515,7 +515,10 @@ def _money(v: Decimal) -> Decimal:
 
 def print_data(order: SupplierOrder) -> dict:
     """The printed PO. Lines with the same material, grade and unit print as one
-    row; the system keeps them separate per job."""
+    row; the system keeps them separate per job. A draft has no PO number yet,
+    so it cannot be printed."""
+    if order.status == SupplierOrderStatus.DRAFT:
+        raise AppError("Issue the order before printing.", "ORDER_NOT_ISSUED", 409)
     groups: "OrderedDict[tuple, dict]" = OrderedDict()
     for ln in order.active_lines:
         key = (

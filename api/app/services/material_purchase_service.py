@@ -603,15 +603,20 @@ def _check_planned_unit(planned, unit):
 
 
 def build_draft_line(job: JobOrder, supplier: Supplier, data: dict) -> MaterialPurchase:
-    """Validate one line for a draft supplier order (not added to the session)."""
-    planned = _planned_material(
-        job, data.get("plannedMaterialId") or data.get("planned_material_id")
-    )
-    name = (data.get("materialName") or data.get("material_name") or "").strip()
-    if not name and planned:
-        name = planned["name"]
-    if not name:
-        raise AppError("materialName is required", "VALIDATION_ERROR", 400)
+    """Validate one line for a draft supplier order (not added to the session).
+
+    Only the job's planned materials can be ordered; anything extra is added to
+    the job's planned materials first."""
+    planned_id = data.get("plannedMaterialId") or data.get("planned_material_id")
+    if not planned_id:
+        raise AppError(
+            "Only the job's planned materials can be ordered. "
+            "Add the material to the job's planned materials first.",
+            "PLANNED_MATERIAL_REQUIRED",
+            400,
+        )
+    planned = _planned_material(job, planned_id)
+    name = planned["name"]
 
     qty = _parse_decimal(data.get("quantity"), "quantity")
     if qty <= 0:

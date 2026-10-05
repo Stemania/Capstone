@@ -72,6 +72,13 @@ def _planned_id(job):
     return job.raw_materials[0]["id"]
 
 
+def _plan(job, name, quantity, unit="pcs"):
+    """Add a planned material to the job; only planned materials can be ordered."""
+    job.raw_materials = [*(job.raw_materials or []), {"name": name, "quantity": quantity, "unit": unit}]
+    db.session.commit()
+    return job.raw_materials[-1]["id"]
+
+
 def _add_lines(client, shop, lines, supplier=None, user=None):
     return client.post(
         "/api/v1/supplier-orders/draft-lines",
@@ -127,17 +134,23 @@ def test_lines_from_two_jobs_on_one_order(client, shop):
     # "Order materials" from a job's page lands on the same open draft.
     res = client.post(
         f"/api/v1/job-orders/{shop['job_a'].id}/material-purchases",
-        json={"supplierId": shop["steel"].id, "materialName": "Cutting disc", "quantity": 2, "unitCost": 40},
+        json={
+            "supplierId": shop["steel"].id,
+            "plannedMaterialId": _plan(shop["job_a"], "Cutting disc", 2),
+            "quantity": 2,
+            "unitCost": 40,
+        },
         headers=_headers(shop["office"]),
     )
     assert res.status_code == 201, res.get_json()
     assert res.get_json()["supplierOrderId"] == order["id"]
 
     # A different supplier gets its own draft.
+    bolts = _plan(shop["job_a"], "Bolts", 1)
     other = _add_lines(
         client,
         shop,
-        [{"jobOrderId": shop["job_a"].id, "materialName": "Bolts", "quantity": 1, "unitCost": 5}],
+        [{"jobOrderId": shop["job_a"].id, "plannedMaterialId": bolts, "quantity": 1, "unitCost": 5}],
         supplier=shop["other"],
     ).get_json()
     assert other["id"] != order["id"]
@@ -189,10 +202,11 @@ def test_issuing_assigns_number_and_locks_lines(client, shop):
     assert body["materialReadiness"]["expectedDate"] == "2031-03-07"
 
     # Next PO takes the next number.
+    bolts = _plan(shop["job_a"], "Bolts", 1)
     nxt = _add_lines(
         client,
         shop,
-        [{"jobOrderId": shop["job_a"].id, "materialName": "Bolts", "quantity": 1, "unitCost": 5}],
+        [{"jobOrderId": shop["job_a"].id, "plannedMaterialId": bolts, "quantity": 1, "unitCost": 5}],
     ).get_json()
     assert nxt["id"] != order["id"]
     assert _issue(client, shop, nxt["id"]).get_json()["poNumber"] == "BMSC-PO-00002"
@@ -287,7 +301,14 @@ def test_printout_combines_same_material_lines(client, shop):
     _add_lines(
         client,
         shop,
-        [{"jobOrderId": shop["job_b"].id, "materialName": "Plate 10mm", "quantity": 1, "unitCost": 900}],
+        [
+            {
+                "jobOrderId": shop["job_b"].id,
+                "plannedMaterialId": _plan(shop["job_b"], "Plate 10mm", 1),
+                "quantity": 1,
+                "unitCost": 900,
+            }
+        ],
     )
     client.patch(
         f"/api/v1/supplier-orders/{order['id']}",

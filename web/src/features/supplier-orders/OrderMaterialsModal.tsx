@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Button, Input, InputNumber, Modal, Select, Table, Typography, message } from 'antd';
-import { DeleteOutlined, PlusOutlined, ShoppingCartOutlined } from '@ant-design/icons';
+import { ShoppingCartOutlined } from '@ant-design/icons';
 import { supplierOrdersApi } from '../../api/supplierOrders.api';
 import { suppliersApi } from '../../api/suppliers.api';
 import { getErrorMessage } from '../../api/client';
@@ -42,22 +42,13 @@ function ReliabilityText({ row }: { row?: SupplierReliability }) {
 
 type PlannedEdit = { quantity: number | null; unitCost: number | null; gradeOrSpec: string };
 
-type ExtraLine = {
-  key: number;
-  jobOrderId?: string;
-  materialName: string;
-  gradeOrSpec: string;
-  quantity: number | null;
-  unit: string;
-  unitCost: number | null;
-};
-
 const rowKey = (m: OutstandingPlannedMaterial) => `${m.jobOrderId}:${m.plannedMaterialId}`;
 
 /**
  * The one path for ordering materials: lines go onto the chosen supplier's
- * open draft order (a new draft is started if there is none). With ``jobId``
- * only that job's materials are offered.
+ * open draft order (a new draft is started if there is none). Only planned
+ * materials can be ordered; anything extra is added to the job's planned
+ * materials first. With ``jobId`` only that job's materials are offered.
  */
 export default function OrderMaterialsModal({
   open,
@@ -80,14 +71,12 @@ export default function OrderMaterialsModal({
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [edits, setEdits] = useState<Record<string, PlannedEdit>>({});
-  const [extras, setExtras] = useState<ExtraLine[]>([]);
 
   useEffect(() => {
     if (!open) return;
     setSupplierId(defaultSupplierId || undefined);
     setSelected([]);
     setEdits({});
-    setExtras([]);
     setLoading(true);
     suppliersApi
       .reliability()
@@ -112,31 +101,8 @@ export default function OrderMaterialsModal({
   }, [open, jobId, defaultSupplierId]);
 
   const supplier = suppliers.find((s) => s.id === supplierId);
-  const jobOptions = useMemo(
-    () =>
-      (data?.jobs || []).map((j) => ({ value: j.id, label: `${j.jobNumber} — ${j.title}` })),
-    [data]
-  );
-
   const setEdit = (key: string, patch: Partial<PlannedEdit>) =>
     setEdits((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
-  const setExtra = (key: number, patch: Partial<ExtraLine>) =>
-    setExtras((prev) => prev.map((x) => (x.key === key ? { ...x, ...patch } : x)));
-
-  const addExtra = () =>
-    setExtras((prev) => [
-      ...prev,
-      {
-        key: Date.now() + prev.length,
-        jobOrderId: jobId,
-        materialName: '',
-        gradeOrSpec: '',
-        quantity: 1,
-        unit: 'pcs',
-        unitCost: null,
-      },
-    ]);
-
   const onSubmit = async () => {
     if (!supplierId) {
       message.error('Choose a supplier');
@@ -163,22 +129,8 @@ export default function OrderMaterialsModal({
         gradeOrSpec: e.gradeOrSpec.trim() || null,
       });
     }
-    for (const x of extras) {
-      if (!x.jobOrderId || !x.materialName.trim() || !x.quantity || x.unitCost == null) {
-        message.error('Each unplanned line needs a job, material, quantity and unit cost');
-        return;
-      }
-      lines.push({
-        jobOrderId: x.jobOrderId,
-        materialName: x.materialName.trim(),
-        gradeOrSpec: x.gradeOrSpec.trim() || null,
-        quantity: x.quantity,
-        unit: x.unit.trim() || 'pcs',
-        unitCost: x.unitCost,
-      });
-    }
     if (!lines.length) {
-      message.error('Tick at least one material or add a line');
+      message.error('Tick at least one material');
       return;
     }
     try {
@@ -217,7 +169,7 @@ export default function OrderMaterialsModal({
             {jobId ? 'Order materials for this job' : 'New supplier order'}
           </div>
           <div className="app-form-modal__sub">
-            Pick a supplier, then the materials to add to its draft order.
+            Pick a supplier, then the planned materials to add to its draft order.
           </div>
         </div>
         <button type="button" className="app-form-modal__close" onClick={onClose} aria-label="Close">
@@ -346,130 +298,10 @@ export default function OrderMaterialsModal({
             ]}
           />
 
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              margin: '16px 0 8px',
-            }}
-          >
-            <div style={{ fontWeight: 700, fontSize: 13 }}>Unplanned lines</div>
-            <Button size="small" icon={<PlusOutlined />} onClick={addExtra}>
-              Add line
-            </Button>
-          </div>
-          {extras.length ? (
-            <Table<ExtraLine>
-              size="small"
-              rowKey="key"
-              pagination={false}
-              dataSource={extras}
-              columns={[
-                ...(jobId
-                  ? []
-                  : [
-                      {
-                        title: 'Job',
-                        key: 'job',
-                        width: 200,
-                        render: (_: unknown, x: ExtraLine) => (
-                          <Select
-                            size="small"
-                            showSearch
-                            optionFilterProp="label"
-                            placeholder="Job order"
-                            style={{ width: '100%' }}
-                            value={x.jobOrderId}
-                            onChange={(v) => setExtra(x.key, { jobOrderId: v })}
-                            options={jobOptions}
-                          />
-                        ),
-                      },
-                    ]),
-                {
-                  title: 'Material',
-                  key: 'name',
-                  render: (_: unknown, x) => (
-                    <Input
-                      size="small"
-                      value={x.materialName}
-                      onChange={(e) => setExtra(x.key, { materialName: e.target.value })}
-                    />
-                  ),
-                },
-                {
-                  title: 'Grade / spec',
-                  key: 'grade',
-                  width: 130,
-                  render: (_: unknown, x) => (
-                    <Input
-                      size="small"
-                      value={x.gradeOrSpec}
-                      onChange={(e) => setExtra(x.key, { gradeOrSpec: e.target.value })}
-                    />
-                  ),
-                },
-                {
-                  title: 'Quantity',
-                  key: 'qty',
-                  width: 100,
-                  render: (_: unknown, x) => (
-                    <InputNumber
-                      size="small"
-                      min={0.0001}
-                      style={{ width: '100%' }}
-                      value={x.quantity}
-                      onChange={(v) => setExtra(x.key, { quantity: v })}
-                    />
-                  ),
-                },
-                {
-                  title: 'Unit',
-                  key: 'unit',
-                  width: 80,
-                  render: (_: unknown, x) => (
-                    <Input
-                      size="small"
-                      value={x.unit}
-                      onChange={(e) => setExtra(x.key, { unit: e.target.value })}
-                    />
-                  ),
-                },
-                {
-                  title: 'Unit cost',
-                  key: 'cost',
-                  width: 110,
-                  render: (_: unknown, x) => (
-                    <InputNumber
-                      size="small"
-                      min={0}
-                      style={{ width: '100%' }}
-                      value={x.unitCost}
-                      onChange={(v) => setExtra(x.key, { unitCost: v })}
-                    />
-                  ),
-                },
-                {
-                  title: '',
-                  key: 'rm',
-                  width: 40,
-                  render: (_: unknown, x) => (
-                    <Button
-                      size="small"
-                      type="text"
-                      icon={<DeleteOutlined />}
-                      onClick={() => setExtras((prev) => prev.filter((y) => y.key !== x.key))}
-                    />
-                  ),
-                },
-              ]}
-            />
-          ) : (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              For material that is not on a job&apos;s plan. Each line is tied to a job.
-            </Text>
-          )}
+          <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 10 }}>
+            Only planned materials can be ordered. To order something else, add it to the
+            job&apos;s planned materials first (Edit on the job order).
+          </Text>
         </>
       ) : (
         <Alert type="info" showIcon message="Choose a supplier to see the materials still to order." />

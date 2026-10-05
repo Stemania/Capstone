@@ -1,6 +1,6 @@
 import { formatShop } from '../../utils/shopTime';
 import { useEffect, useState } from 'react';
-import { Button, Spin, message } from 'antd';
+import { Alert, Button, Spin } from 'antd';
 import { PrinterOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supplierOrdersApi } from '../../api/supplierOrders.api';
@@ -31,6 +31,7 @@ export default function SupplierOrderPrintPage() {
   const navigate = useNavigate();
   const [data, setData] = useState<SupplierOrderPrint | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!id) return;
@@ -42,7 +43,7 @@ export default function SupplierOrderPrintPage() {
         if (!cancelled) setData(d);
       })
       .catch((err) => {
-        if (!cancelled) message.error(getErrorMessage(err));
+        if (!cancelled) setError(getErrorMessage(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -60,11 +61,17 @@ export default function SupplierOrderPrintPage() {
     );
   }
   if (!data) {
-    return <div style={{ padding: 24 }}>Supplier order not found.</div>;
+    return (
+      <div style={{ padding: 24, maxWidth: 560 }}>
+        <Alert type="warning" showIcon message={error || 'Supplier order not found.'} />
+        <Button style={{ marginTop: 12 }} icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>
+          Back
+        </Button>
+      </div>
+    );
   }
 
   const { order, supplier } = data;
-  const isDraft = order.status === 'DRAFT';
   const supplierContact = supplier
     ? [supplier.contactPerson, supplier.phone, supplier.email].filter(Boolean).join(' · ')
     : '';
@@ -92,9 +99,7 @@ export default function SupplierOrderPrintPage() {
 
         <ReportStamp />
 
-        <h1 className="jo-print-title">
-          Purchase Order{isDraft ? ' — DRAFT (not issued)' : ''}
-        </h1>
+        <h1 className="jo-print-title">Purchase Order</h1>
 
         <div className="jo-print-meta">
           <div>
