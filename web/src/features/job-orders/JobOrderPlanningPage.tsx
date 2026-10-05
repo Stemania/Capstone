@@ -41,6 +41,7 @@ import JobOrderFlowSteps, {
   type JobFlowStepId,
 } from './JobOrderFlowSteps';
 import { jobOrdersListPath } from './jobOrderListPaths';
+import JobInfoCard from './JobInfoCard';
 import type {
   JobOrder,
   MachineInfo,
@@ -228,10 +229,7 @@ export default function JobOrderPlanningPage() {
   };
 
   const goToStep = (step: JobFlowStepId) => {
-    if (step === 1 && id) {
-      navigate(`/job-orders/${id}/edit?from=plan`);
-      return;
-    }
+    if (step < 2) return;
     setWizardStep(step);
     setSearchParams({ step: String(step) }, { replace: true });
   };
@@ -243,10 +241,6 @@ export default function JobOrderPlanningPage() {
     }
     if (!isPlanningStatus(job.status) || wizardStep === 4) {
       navigate(`/job-orders/${job.id}`);
-      return;
-    }
-    if (wizardStep === 2) {
-      goToStep(1);
       return;
     }
     if (wizardStep === 3) {
@@ -849,10 +843,6 @@ export default function JobOrderPlanningPage() {
     return <Alert type="error" message={error || 'Job order not found'} />;
   }
 
-  const qtyLabel =
-    job.quantity != null
-      ? `${job.quantity}${job.unitOfMeasure ? ` ${job.unitOfMeasure}` : ''}`
-      : '—';
   const readOnly = !isPlanningStatus(job.status);
   const problemsBySeq: Record<number, ScheduleProblem[]> = {};
   for (const p of scheduleProblems) (problemsBySeq[p.sequenceNo] ||= []).push(p);
@@ -1005,7 +995,7 @@ export default function JobOrderPlanningPage() {
       : wizardStep === 3
         ? 'Schedule'
         : wizardStep === 4
-          ? 'Scheduled'
+          ? 'Released'
           : 'Plan Job Order';
 
   return (
@@ -1027,33 +1017,12 @@ export default function JobOrderPlanningPage() {
             </Title>
           </div>
         </Space>
+        <JobOrderFlowSteps current={wizardStep} onStepClick={goToStep} locked={readOnly} />
       </div>
-
-      <JobOrderFlowSteps
-        current={wizardStep}
-        reached={resolveJobFlowStep(job)}
-        maxInteractive={4}
-        onStepClick={goToStep}
-      />
 
       {error && <Alert type="error" message={error} style={{ marginBottom: 16 }} showIcon />}
 
-      <div className="jo-plan__summary">
-        {[
-          ['Client', job.clientName || '—'],
-          ['Title', job.title],
-          ['Date required', job.dueDate ? formatShop(job.dueDate, 'MMM D, YYYY') : '—'],
-          ['Quantity', qtyLabel],
-          ['Job type', job.jobType?.replace(/_/g, ' ') || '—'],
-        ].map(([label, value]) => (
-          <div key={label}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-              {label}
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#0f1c2e' }}>{value}</div>
-          </div>
-        ))}
-      </div>
+      <JobInfoCard job={job} />
 
       {wizardStep === 4 ? (
         <div className="jo-plan__released">
@@ -1222,7 +1191,6 @@ export default function JobOrderPlanningPage() {
 
         {wizardStep === 2 && !readOnly ? (
           <div className="jo-plan__footer">
-            <Button onClick={goBackStep}>Back</Button>
             <Tooltip title={advanceTooltip}>
               <span>
                 <SplitActionButton
