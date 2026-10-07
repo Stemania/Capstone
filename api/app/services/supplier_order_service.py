@@ -21,6 +21,7 @@ from app.models.supplier_order import (
 )
 from app.services import material_delay_service as delay_service
 from app.services import material_purchase_service as mp_service
+from app.services.schedule_calendar import next_shop_working_day
 from app.utils.errors import AppError
 
 CENT = Decimal("0.01")
@@ -369,7 +370,7 @@ def issue_order(order: SupplierOrder, actor_id: str, date_issued=None) -> Suppli
         order.po_seq = seq
         order.po_number = format_po_number(seq)
         order.date_issued = issued
-        order.expected_delivery_date = issued + timedelta(days=lead)
+        order.expected_delivery_date = next_shop_working_day(issued + timedelta(days=lead))
         order.issued_by_id = actor_id
         order.prepared_by_id = actor_id
         order.status = SupplierOrderStatus.ISSUED
@@ -518,6 +519,7 @@ def change_expected_delivery(order: SupplierOrder, new_date, note) -> dict:
     new = _parse_date(new_date, "expectedDeliveryDate")
     if new is None:
         raise AppError("Choose the new expected delivery date.", "VALIDATION_ERROR", 400)
+    new = next_shop_working_day(new)
     note = (note or "").strip()
     if not note:
         raise AppError(

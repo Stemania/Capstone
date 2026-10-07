@@ -79,7 +79,7 @@ from app.services.delay_analysis_service import ran_over_target
 from app.services.job_order_service import _parse_datetime
 from app.services.material_purchase_service import sync_job_material_from_purchases
 from app.services.operation_service import recompute_variance
-from app.services.schedule_calendar import shop_local_to_utc, shop_now
+from app.services.schedule_calendar import next_shop_working_day, shop_local_to_utc, shop_now
 from app.services.schedule_service import propose_schedule
 from app.services.supplier_order_service import recompute_order_status
 
@@ -1204,7 +1204,9 @@ def _seeded_order(supplier, issued: date, creator, note: str) -> SupplierOrder:
         supplier_id=supplier.id,
         status=SupplierOrderStatus.ISSUED,
         date_issued=issued,
-        expected_delivery_date=issued + timedelta(days=supplier.typical_lead_time_days or 1),
+        expected_delivery_date=next_shop_working_day(
+            issued + timedelta(days=supplier.typical_lead_time_days or 1)
+        ),
         notes=note,
         prepared_by_id=creator.id,
         issued_by_id=creator.id,

@@ -540,6 +540,19 @@ def default_shop_schedule_by_dow():
     return out
 
 
+def next_shop_working_day(on_date: date) -> date:
+    """``on_date`` if the shop works that day, else the next day it does
+    (skipping Sundays and holidays; a special working day counts as working)."""
+    schedule = default_shop_schedule_by_dow()
+    exceptions = load_calendar_exceptions(on_date, on_date + timedelta(days=31))
+    d = on_date
+    for _ in range(32):
+        if effective_windows_for_date(d, schedule, exceptions):
+            return d
+        d += timedelta(days=1)
+    return on_date
+
+
 def shop_available_hours(period_from: date, period_to: date) -> float:
     """
     Available shop hours per calendar day from default shop working hours

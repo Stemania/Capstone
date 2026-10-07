@@ -420,13 +420,14 @@ def test_expected_arrival_matches_latest_outstanding_po_line(client, shop):
     outstanding = [l for l in readiness["lines"] if l["basis"] != "RECEIVED"]
     latest = max(outstanding, key=lambda l: l["expectedArrival"])
     assert latest["materialName"] == "Alloy rod"
-    assert readiness["expectedDate"] == latest["expectedArrival"] == "2031-03-09"
+    # Issued + 7 days lands on Sunday 9 Mar; expected moves to Monday.
+    assert readiness["expectedDate"] == latest["expectedArrival"] == "2031-03-10"
     assert readiness["limitingLine"]["purchaseId"] == latest["purchaseId"]
     assert readiness["limitingLine"]["fromOrderDeliveryDate"] is True
 
     orders = {o["supplierName"]: o for o in readiness["supplierOrders"]}
     assert orders["Slow Alloys"]["status"] == "ISSUED"
     assert orders["Slow Alloys"]["poNumber"]
-    assert orders["Slow Alloys"]["expectedDeliveryDate"] == "2031-03-09"
+    assert orders["Slow Alloys"]["expectedDeliveryDate"] == "2031-03-10"
     assert orders["Fast Steel"]["poNumber"]
     assert any(o["poNumber"] is None for o in readiness["supplierOrders"])

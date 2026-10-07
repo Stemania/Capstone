@@ -119,22 +119,29 @@ class MaterialPurchase(db.Model):
     @property
     def current_expected_date(self):
         """The supplier order's expected delivery date (as edited), or for a line
-        recorded without a PO, date ordered plus the supplier's lead time."""
+        recorded without a PO, date ordered plus the supplier's lead time
+        (moved to the next shop working day)."""
         from datetime import timedelta
+
+        from app.services.schedule_calendar import next_shop_working_day
 
         if self.supplier_order is not None:
             return self.supplier_order.expected_delivery_date
         lead = self.supplier.typical_lead_time_days if self.supplier else None
         if self.date_ordered is None or lead is None:
             return None
-        return self.date_ordered + timedelta(days=int(lead))
+        return next_shop_working_day(self.date_ordered + timedelta(days=int(lead)))
 
     @property
     def promised_date(self):
-        """The date promised when the order was placed, never the edited one."""
+        """The date promised when the order was placed, never the edited one;
+        a promise on a Sunday or shop holiday means the next working day."""
+        from app.services.schedule_calendar import next_shop_working_day
+
         order = self.supplier_order
         if order is not None:
-            return order.original_expected_delivery_date or order.expected_delivery_date
+            promised = order.original_expected_delivery_date or order.expected_delivery_date
+            return next_shop_working_day(promised) if promised else None
         return self.current_expected_date
 
     def days_overdue(self, today=None) -> int:

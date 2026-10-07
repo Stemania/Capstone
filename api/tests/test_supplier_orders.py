@@ -439,3 +439,69 @@ def test_existing_lines_stay_without_a_po(client, shop):
         headers=_headers(shop["office"]),
     )
     assert res.status_code == 200, res.get_json()
+
+
+@pytest.fixture
+def one_day(shop):
+    supplier = Supplier(name="Next Day Steel", typical_lead_time_days=1)
+    db.session.add(supplier)
+    db.session.commit()
+    return supplier
+
+
+def _one_line_order(client, shop, supplier, issued):
+    order = _add_lines(
+        client,
+        shop,
+        [{"jobOrderId": shop["job_a"].id, "plannedMaterialId": _planned_id(shop["job_a"]), "quantity": 4}],
+        supplier=supplier,
+    ).get_json()
+    res = _issue(client, shop, order["id"], when=issued)
+    assert res.status_code == 200, res.get_json()
+    return res.get_json()
+
+
+def test_saturday_order_from_one_day_supplier_is_promised_for_monday(client, shop, one_day):
+    from app.services.supplier_reliability_service import supplier_reliability
+
+    order = _one_line_order(client, shop, one_day, "2031-03-01")  # Saturday
+    assert order["expectedDeliveryDate"] == "2031-03-03"  # Monday, not Sunday
+
+    res = client.post(
+        f"/api/v1/supplier-orders/{order['id']}/receive",
+        json={"lineIds": [order["lines"][0]["id"]], "receivedDate": "2031-03-03"},
+        headers=_headers(shop["office"]),
+    )
+    assert res.status_code == 200, res.get_json()
+    row = next(r for r in supplier_reliability(today=date(2031, 3, 10)) if r["supplierId"] == one_day.id)
+    assert row["dueDeliveries"] == 1 and row["onTimeDeliveries"] == 1 and row["lateDeliveries"] == 0
+
+
+def test_promised_date_skips_shop_holidays(client, shop, one_day):
+    from app.models.worker_skill import CalendarExceptionType, WorkCalendarException
+
+    db.session.add(
+        WorkCalendarException(date=date(2031, 3, 3), type=CalendarExceptionType.HOLIDAY_NO_WORK)
+    )
+    db.session.commit()
+    order = _one_line_order(client, shop, one_day, "2031-03-01")
+    assert order["expectedDeliveryDate"] == "2031-03-04"  # past Sunday and the Monday holiday
+
+
+def test_edited_expected_date_moves_off_sunday(client, shop, one_day):
+    order = _one_line_order(client, shop, one_day, "2031-03-04")
+    res = client.patch(
+        f"/api/v1/supplier-orders/{order['id']}/expected-delivery",
+        json={"expectedDeliveryDate": "2031-03-09", "note": "Supplier said Sunday"},  # Sunday
+        headers=_headers(shop["office"]),
+    )
+    assert res.status_code == 200, res.get_json()
+    assert res.get_json()["expectedDeliveryDate"] == "2031-03-10"
+
+
+def test_stored_sunday_promise_counts_from_next_working_day(client, shop, one_day):
+    order = _one_line_order(client, shop, one_day, "2031-03-04")
+    row = db.session.get(MaterialPurchase, order["lines"][0]["id"])
+    row.supplier_order.expected_delivery_date = date(2031, 3, 9)  # Sunday, saved before this rule
+    db.session.commit()
+    assert row.promised_date == date(2031, 3, 10)
