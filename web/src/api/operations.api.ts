@@ -52,12 +52,18 @@ export const operationsApi = {
     unitId: string,
     category: DowntimeCategory,
     note?: string,
-    link?: { operationId?: string; jobOrderId?: string }
+    link?: { operationId?: string; jobOrderId?: string },
+    expectedRepairDate?: string | null
   ) =>
     apiClient.post<MachineDowntimeRecord>(`/operations/machine-units/${unitId}/downtime`, {
       category,
       note,
       ...link,
+      ...(expectedRepairDate ? { expectedRepairDate } : {}),
+    }),
+  setExpectedRepairDate: (downtimeId: string, expectedRepairDate: string | null) =>
+    apiClient.patch<MachineDowntimeRecord>(`/operations/machine-units/downtime/${downtimeId}`, {
+      expectedRepairDate,
     }),
   closeDowntime: (downtimeId: string, note?: string) =>
     apiClient.post<MachineDowntimeRecord>(`/operations/machine-units/downtime/${downtimeId}/close`, {

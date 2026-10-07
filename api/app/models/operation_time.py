@@ -133,6 +133,8 @@ class MachineDowntime(db.Model):
         index=True,
     )
     note = db.Column(db.Text, nullable=True)
+    # Shop-local date; the unit stays unavailable for scheduling through this day.
+    expected_repair_date = db.Column(db.Date, nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
 
     machine_unit = db.relationship("MachineUnit", back_populates="downtimes")
@@ -154,6 +156,9 @@ class MachineDowntime(db.Model):
             "reportedById": self.reported_by_id,
             "reportedByName": self.reported_by.full_name if self.reported_by else None,
             "note": self.note,
+            "expectedRepairDate": (
+                self.expected_repair_date.isoformat() if self.expected_repair_date else None
+            ),
             "open": self.ended_at is None,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }

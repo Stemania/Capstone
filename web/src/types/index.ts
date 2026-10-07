@@ -467,7 +467,7 @@ export interface MaterialWait {
   materialWaitReason?: string | null;
 }
 
-export type StaffAlertKind = 'MATERIAL_DELAY' | (string & {});
+export type StaffAlertKind = 'MATERIAL_DELAY' | 'SINGLE_UNIT_DOWN' | (string & {});
 
 /** One entry in the header bell. */
 export interface StaffAlert {
@@ -574,6 +574,8 @@ export interface MachineDowntimeRecord {
   reportedById: string;
   reportedByName?: string | null;
   note?: string | null;
+  /** Shop-local date (YYYY-MM-DD); the scheduler keeps the unit unavailable through it. */
+  expectedRepairDate?: string | null;
   open: boolean;
   createdAt?: string | null;
   affectedCount?: number;

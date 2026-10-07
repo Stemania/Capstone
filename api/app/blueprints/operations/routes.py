@@ -235,6 +235,7 @@ def open_downtime(unit_id):
         operation_id=data.get("operationId"),
         job_order_id=data.get("jobOrderId"),
         reporter_role=get_current_user_role(),
+        expected_repair_date=data.get("expectedRepairDate"),
     )
     payload = row.to_dict()
     affected = op_service.list_affected_operations(unit_id)
@@ -255,6 +256,19 @@ def close_downtime(downtime_id):
         actor_id=get_current_user_id(),
         actor_role=get_current_user_role(),
     )
+    return jsonify(row.to_dict())
+
+
+@operations_bp.route("/machine-units/downtime/<downtime_id>", methods=["PATCH"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def update_downtime(downtime_id):
+    data = request.get_json() or {}
+    if "expectedRepairDate" not in data:
+        return jsonify(
+            {"error": {"code": "VALIDATION_ERROR", "message": "Provide expectedRepairDate"}}
+        ), 400
+    row = op_service.set_downtime_expected_repair(downtime_id, data.get("expectedRepairDate"))
     return jsonify(row.to_dict())
 
 

@@ -73,6 +73,7 @@ def schedule_patches(monkeypatch):
         "app.services.schedule_service._machine_units_by_type",
         lambda: _lathe_units(lathe_id),
     )
+    monkeypatch.setattr("app.services.schedule_service._open_downtimes", lambda: {})
     return {"lathe_id": lathe_id, "schedule_by_dow": schedule_by_dow}
 
 

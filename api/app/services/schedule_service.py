@@ -205,6 +205,40 @@ def _load_external_bookings(exclude_job_id=None, exclude_operation_ids=None):
     return worker_busy, machine_busy
 
 
+def _open_downtimes():
+    from app.services.operation_service import open_downtimes_by_unit
+
+    return open_downtimes_by_unit()
+
+
+def _breakdown_notes(units, downtimes) -> tuple[list[str], bool]:
+    """Plain notes for candidate units that are down, and whether every unit is
+    down with no usable expected repair date (so nothing can be placed)."""
+    from app.services.operation_service import downtime_blocked_until
+
+    notes = []
+    indefinite = 0
+    for unit in units:
+        row = downtimes.get(unit.id)
+        if row is None:
+            continue
+        until = downtime_blocked_until(row)
+        if until is not None:
+            notes.append(
+                f"{unit.label} is down until {row.expected_repair_date.strftime('%a %d %b')}"
+            )
+            continue
+        indefinite += 1
+        if row.expected_repair_date:
+            notes.append(
+                f"{unit.label} is down and its expected repair date, "
+                f"{row.expected_repair_date.strftime('%a %d %b')}, has passed"
+            )
+        else:
+            notes.append(f"{unit.label} is down with no expected repair date")
+    return notes, bool(units) and indefinite == len(units)
+
+
 def _machine_units_by_type():
     grouped = {}
     for unit in MachineUnit.query.filter_by(active=True).order_by(MachineUnit.label).all():
@@ -703,6 +737,7 @@ def propose_schedule(
 
     in_job_worker_busy = {}
     in_job_machine_busy = {}
+    downtimes = None
     results = []
     prev_end = anchor_utc
     if material_not_before_utc is not None:
@@ -785,7 +820,15 @@ def propose_schedule(
         required = float(op["estimatedHours"])
         if not start or not end:
             worker_label = _worker_label(assigned_worker)
-            if placeable <= 0 and op.get("machineTypeId") and not units_by_type.get(op["machineTypeId"]):
+            candidates = list(units_by_type.get(op.get("machineTypeId"), []))
+            if preferred_unit:
+                candidates = [u for u in candidates if str(u.id) == str(preferred_unit)]
+            if downtimes is None:
+                downtimes = _open_downtimes()
+            down_notes, all_down = _breakdown_notes(candidates, downtimes)
+            if all_down:
+                msg = "; ".join(down_notes)
+            elif placeable <= 0 and op.get("machineTypeId") and not units_by_type.get(op["machineTypeId"]):
                 msg = (
                     f"could not schedule within {SCHEDULE_HORIZON_DAYS} days "
                     f"(no machine units configured; {required:.1f}h required)"
@@ -806,6 +849,8 @@ def propose_schedule(
                     f"{worker_label} has {placeable:.1f}h free of {required:.1f}h required. "
                     "Assign another worker or free up their time"
                 )
+            if down_notes and not all_down:
+                msg = f"{msg}. {'; '.join(down_notes)}"
             results.append(
                 _failure_result(
                     op,

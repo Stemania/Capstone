@@ -149,6 +149,7 @@ def test_open_machine_downtime_blocks_unit_in_scheduler(monkeypatch):
         machine_unit_id="unit-1",
         started_at=_ts(8),
         ended_at=None,
+        expected_repair_date=None,
     )
     mock_md = MagicMock()
     mock_md.query.filter.return_value.all.return_value = [row]

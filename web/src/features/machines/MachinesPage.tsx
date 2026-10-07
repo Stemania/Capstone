@@ -1,6 +1,7 @@
-import { formatShop } from '../../utils/shopTime';
+import { formatShop, shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  DatePicker,
   Input,
   Select,
   Modal,
@@ -111,6 +112,13 @@ function cardFooter(unit: MachineUnitStatus, nowMs: number): { text: string; bre
   return { text: 'No upcoming work' };
 }
 
+function repairDateText(unit: MachineUnitStatus): string {
+  const d = unit.openDowntime?.expectedRepairDate;
+  return d ? `Expected repair ${formatShop(d, 'ddd D MMM')}` : 'No expected repair date';
+}
+
+const disablePastDates = (d: dayjs.Dayjs) => d.isBefore(shopToday(), 'day');
+
 function cardNavigateTarget(unit: MachineUnitStatus): string | null {
   const op = unit.currentOperation ?? unit.nextOperation;
   return op?.jobOrderId ? `/job-orders/${op.jobOrderId}` : null;
@@ -121,6 +129,7 @@ function MachineUnitCard({
   nowMs,
   onReport,
   onClose,
+  onSetRepairDate,
   onOpenSchedule,
   onRetire,
   onRestore,
@@ -131,6 +140,7 @@ function MachineUnitCard({
   nowMs: number;
   onReport: (unit: MachineUnitStatus) => void;
   onClose: (unit: MachineUnitStatus) => void;
+  onSetRepairDate: (unit: MachineUnitStatus) => void;
   onOpenSchedule: () => void;
   onRetire: (unit: MachineUnitStatus) => void;
   onRestore: (unit: MachineUnitStatus) => void;
@@ -180,6 +190,13 @@ function MachineUnitCard({
         onClick: () => onReport(unit),
       });
     } else {
+      menuItems.push({
+        key: 'repairDate',
+        label: unit.openDowntime?.expectedRepairDate
+          ? 'Change expected repair date'
+          : 'Set expected repair date',
+        onClick: () => onSetRepairDate(unit),
+      });
       menuItems.push({
         key: 'close',
         label: 'Close breakdown',
@@ -259,6 +276,7 @@ function MachineUnitCard({
             {unit.openDowntime?.reportedByName
               ? ` · ${unit.openDowntime.reportedByName}`
               : ''}
+            <div>{repairDateText(unit)}</div>
           </div>
         ) : unit.nextOperation ? (
           <>
@@ -305,12 +323,14 @@ export default function MachinesPage() {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [reportFor, setReportFor] = useState<MachineUnitStatus | null>(null);
   const [closeFor, setCloseFor] = useState<MachineUnitStatus | null>(null);
+  const [repairFor, setRepairFor] = useState<MachineUnitStatus | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [operatorFor, setOperatorFor] = useState<MachineUnitStatus | null>(null);
   const [workers, setWorkers] = useState<User[]>([]);
   const [saving, setSaving] = useState(false);
   const [reportForm] = Form.useForm();
   const [closeForm] = Form.useForm();
+  const [repairForm] = Form.useForm();
   const [addForm] = Form.useForm();
   const [operatorForm] = Form.useForm();
 
@@ -410,7 +430,9 @@ export default function MachinesPage() {
       const { data } = await operationsApi.openDowntime(
         reportFor.id,
         values.reason,
-        values.note?.trim() || undefined
+        values.note?.trim() || undefined,
+        undefined,
+        values.expectedRepairDate ? values.expectedRepairDate.format('YYYY-MM-DD') : null
       );
       message.success('Breakdown reported');
       setReportFor(null);
@@ -437,6 +459,27 @@ export default function MachinesPage() {
       message.success('Breakdown closed');
       setCloseFor(null);
       closeForm.resetFields();
+      await fetchUnits();
+    } catch (err) {
+      if (err && typeof err === 'object' && 'errorFields' in err) return;
+      message.error(getErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const submitRepairDate = async () => {
+    if (!repairFor?.openDowntime) return;
+    try {
+      const values = await repairForm.validateFields();
+      setSaving(true);
+      await operationsApi.setExpectedRepairDate(
+        repairFor.openDowntime.id,
+        values.expectedRepairDate ? values.expectedRepairDate.format('YYYY-MM-DD') : null
+      );
+      message.success('Expected repair date saved');
+      setRepairFor(null);
+      repairForm.resetFields();
       await fetchUnits();
     } catch (err) {
       if (err && typeof err === 'object' && 'errorFields' in err) return;
@@ -638,6 +681,11 @@ export default function MachinesPage() {
                           closeForm.resetFields();
                           setCloseFor(u);
                         }}
+                        onSetRepairDate={(u) => {
+                          const d = u.openDowntime?.expectedRepairDate;
+                          repairForm.setFieldsValue({ expectedRepairDate: d ? dayjs(d) : null });
+                          setRepairFor(u);
+                        }}
                         onOpenSchedule={() => navigate('/schedule')}
                         onRetire={retireUnit}
                         onRestore={restoreUnit}
@@ -777,6 +825,42 @@ export default function MachinesPage() {
             ]}
           >
             <Input.TextArea rows={3} placeholder="Anything the shop should know" />
+          </Form.Item>
+          <Form.Item
+            name="expectedRepairDate"
+            label="Expected repair date (optional)"
+            extra="Scheduling treats the machine as unavailable through this date. Leave empty if unknown."
+          >
+            <DatePicker
+              style={{ width: '100%' }}
+              format="ddd D MMM YYYY"
+              disabledDate={disablePastDates}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={repairFor ? `Expected repair date — ${repairFor.label}` : 'Expected repair date'}
+        open={!!repairFor}
+        onCancel={() => setRepairFor(null)}
+        onOk={submitRepairDate}
+        confirmLoading={saving}
+        okText="Save"
+        destroyOnHidden
+      >
+        <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
+          Scheduling treats the machine as unavailable through this date. Clear it if the repair
+          date is no longer known.
+        </Typography.Paragraph>
+        <Form form={repairForm} layout="vertical">
+          <Form.Item name="expectedRepairDate" label="Expected repair date">
+            <DatePicker
+              allowClear
+              style={{ width: '100%' }}
+              format="ddd D MMM YYYY"
+              disabledDate={disablePastDates}
+            />
           </Form.Item>
         </Form>
       </Modal>

@@ -762,6 +762,58 @@ def _pause_running_operations_on_unit(machine_unit_id, reported_by_id, ts):
         )
 
 
+_REPAIR_DATE_ROLES = (UserRole.ADMIN.value, UserRole.OFFICE_STAFF.value)
+
+
+def _parse_expected_repair_date(raw, started_at):
+    """None clears it. Must not be before today or before the breakdown started."""
+    from datetime import date
+
+    from app.services.schedule_calendar import shop_now, utc_to_shop
+
+    if raw in (None, ""):
+        return None
+    try:
+        value = raw if isinstance(raw, date) else date.fromisoformat(str(raw)[:10])
+    except ValueError:
+        raise AppError("expectedRepairDate must be a date (YYYY-MM-DD)", "VALIDATION_ERROR", 400)
+    floor = max(shop_now().date(), utc_to_shop(_ensure_utc(started_at)).date())
+    if value < floor:
+        raise AppError(
+            "Expected repair date cannot be in the past.",
+            "VALIDATION_ERROR",
+            400,
+        )
+    return value
+
+
+def _alert_single_unit_breakdown(row, unit):
+    """The only active unit of its type is down: every job needing that machine
+    waits, so tell the Admin once per breakdown."""
+    from app.models.machine import MachineUnit
+    from app.models.staff_alert import StaffAlertKind
+    from app.services.staff_alert_service import raise_alert
+
+    siblings = MachineUnit.query.filter_by(
+        machine_type_id=unit.machine_type_id, active=True
+    ).count()
+    if siblings != 1:
+        return
+    type_name = unit.machine_type.name if unit.machine_type else "machine"
+    until = (
+        f"Expected repair: {row.expected_repair_date.strftime('%a %d %b')}."
+        if row.expected_repair_date
+        else "No expected repair date yet."
+    )
+    raise_alert(
+        roles=[UserRole.ADMIN],
+        kind=StaffAlertKind.SINGLE_UNIT_DOWN,
+        title=f"{unit.label} is down, the only {type_name} unit",
+        message=f"{row.reason}. Every job needing a {type_name} waits until it is repaired. {until}",
+        dedupe_key=f"single-unit-down:{row.id}",
+    )
+
+
 def open_machine_downtime(
     machine_unit_id,
     reported_by_id,
@@ -772,10 +824,17 @@ def open_machine_downtime(
     operation_id=None,
     job_order_id=None,
     reporter_role=None,
+    expected_repair_date=None,
 ):
     from app.models.machine import MachineUnit
     from app.models.operation_time import DOWNTIME_CATEGORY_LABELS, DowntimeCategory
 
+    if expected_repair_date not in (None, "") and reporter_role not in _REPAIR_DATE_ROLES:
+        raise AppError(
+            "Only the Admin or Office Staff can set an expected repair date.",
+            "FORBIDDEN",
+            403,
+        )
     unit = MachineUnit.query.get(machine_unit_id)
     if not unit:
         raise AppError("Machine unit not found", "NOT_FOUND", 404)
@@ -808,6 +867,7 @@ def open_machine_downtime(
         )
 
     ts = _parse_timestamp(started_at)
+    repair_date = _parse_expected_repair_date(expected_repair_date, ts)
     try:
         row = MachineDowntime(
             machine_unit_id=machine_unit_id,
@@ -818,9 +878,12 @@ def open_machine_downtime(
             job_order_id=linked_job_id,
             operation_id=linked_op_id,
             note=note,
+            expected_repair_date=repair_date,
         )
         db.session.add(row)
         _pause_running_operations_on_unit(machine_unit_id, reported_by_id, ts)
+        db.session.flush()
+        _alert_single_unit_breakdown(row, unit)
         db.session.commit()
         return row
     except Exception:
@@ -853,6 +916,17 @@ def close_machine_downtime(downtime_id, ended_at=None, note=None, *, actor_id, a
     except Exception:
         db.session.rollback()
         raise
+
+
+def set_downtime_expected_repair(downtime_id, expected_repair_date):
+    row = MachineDowntime.query.get(downtime_id)
+    if not row:
+        raise AppError("Downtime record not found", "NOT_FOUND", 404)
+    if row.ended_at is not None:
+        raise AppError("This breakdown is already closed.", "CONFLICT", 409)
+    row.expected_repair_date = _parse_expected_repair_date(expected_repair_date, row.started_at)
+    db.session.commit()
+    return row
 
 
 _AFFECTED_STATUSES = (
@@ -1092,14 +1166,37 @@ def set_machine_unit_default_operator(unit_id, operator_id):
     return unit
 
 
-def open_downtime_intervals_by_unit():
-    """Open downtimes block the unit from started_at through a far horizon end."""
+def downtime_blocked_until(row, now_utc=None):
+    """End of the unit's unavailability for an open breakdown: the end of its
+    expected repair date, or None (indefinite) when there is no date or the
+    date has passed with the machine still down."""
+    from datetime import time, timedelta
+
+    from app.services.schedule_calendar import shop_local_to_utc
+
+    if not row.expected_repair_date:
+        return None
+    until = shop_local_to_utc(row.expected_repair_date + timedelta(days=1), time(0, 0))
+    now = _ensure_utc(now_utc or datetime.now(timezone.utc))
+    return until if until > now else None
+
+
+def open_downtimes_by_unit():
+    return {
+        row.machine_unit_id: row
+        for row in MachineDowntime.query.filter(MachineDowntime.ended_at.is_(None)).all()
+    }
+
+
+def open_downtime_intervals_by_unit(now_utc=None):
+    """Open downtimes block the unit from started_at through the end of the
+    expected repair date, or through a far horizon end when there is none."""
     from datetime import timedelta
 
-    far = datetime.now(timezone.utc) + timedelta(days=3650)
+    now = _ensure_utc(now_utc or datetime.now(timezone.utc))
+    far = now + timedelta(days=3650)
     by_unit = {}
-    for row in MachineDowntime.query.filter(MachineDowntime.ended_at.is_(None)).all():
-        by_unit.setdefault(row.machine_unit_id, []).append(
-            (_ensure_utc(row.started_at), far)
-        )
+    for unit_id, row in open_downtimes_by_unit().items():
+        until = downtime_blocked_until(row, now) or far
+        by_unit.setdefault(unit_id, []).append((_ensure_utc(row.started_at), until))
     return by_unit

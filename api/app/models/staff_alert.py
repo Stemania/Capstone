@@ -19,6 +19,7 @@ class StaffAlertKind:
     MATERIAL_DELAY = "MATERIAL_DELAY"
     DELIVERY_OVERDUE = "DELIVERY_OVERDUE"
     JOB_AT_RISK = "JOB_AT_RISK"
+    SINGLE_UNIT_DOWN = "SINGLE_UNIT_DOWN"
 
 
 class StaffAlert(db.Model):
