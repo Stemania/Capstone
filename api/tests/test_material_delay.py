@@ -20,7 +20,13 @@ from app.models.user import User, UserRole, UserStatus
 from app.models.worker_profile import WorkerProfile
 from app.models.worker_skill import WorkerSchedule
 from app.services import material_delay_service as delay_service
-from app.services.schedule_calendar import SHOP_TZ, ensure_utc, shop_now, utc_to_shop
+from app.services.schedule_calendar import (
+    SHOP_TZ,
+    ensure_utc,
+    next_shop_working_day,
+    shop_now,
+    utc_to_shop,
+)
 
 
 def _user(email, role):
@@ -156,7 +162,7 @@ def test_issuing_moves_job_later_and_records_delay(client, shop):
     issued = _issue(client, shop, order["id"], shop["today"])
 
     job, starts = _starts(job)
-    arrival = shop["today"] + timedelta(days=10)
+    arrival = next_shop_working_day(shop["today"] + timedelta(days=10))
     assert utc_to_shop(starts[0]).date() == arrival
     assert utc_to_shop(starts[0]).time() == time(8, 0)
     assert starts[1] >= starts[0] + timedelta(hours=2)
@@ -189,7 +195,7 @@ def test_original_start_is_never_overwritten(client, shop):
     assert [o["outcome"] for o in outcomes] == ["MOVED"]
 
     job, after_edit = _starts(job)
-    assert utc_to_shop(after_edit[0]).date() == shop["today"] + timedelta(days=13)
+    assert utc_to_shop(after_edit[0]).date() == next_shop_working_day(so.expected_delivery_date)
     assert after_edit[0] > after_issue[0]
     assert ensure_utc(job.material_delay_original_start) == first_planned
     assert "expected delivery changed" in job.material_delay_reason

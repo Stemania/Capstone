@@ -85,6 +85,13 @@ def create_app(config_object=None):
 
     register_audit_listeners()
 
+    # Work out the model relationships once, here, rather than lazily on the
+    # first query while request threads and the background checks start at once.
+    import app.models as _models  # noqa: F401
+    from sqlalchemy.orm import configure_mappers
+
+    configure_mappers()
+
     return app
 
 

@@ -25,7 +25,12 @@ from app.models.supplier_order import SupplierOrder, SupplierOrderStatus
 from app.services import analytics_service
 from app.services.delay_analysis_service import material_delays
 from app.services.overdue_delivery_service import check_overdue_deliveries
-from app.services.schedule_calendar import ensure_utc, shop_working_hours, utc_to_shop
+from app.services.schedule_calendar import (
+    ensure_utc,
+    next_shop_working_day,
+    shop_working_hours,
+    utc_to_shop,
+)
 from app.services.supplier_reliability_service import NOT_ENOUGH, supplier_reliability
 from tests.test_material_delay import (  # noqa: F401  (fixture)
     _draft_order,
@@ -332,6 +337,8 @@ def test_overdue_undelivered_order_lowers_reliability(app, shop):
         _delivery(shop, sup, base + timedelta(days=i), received=base + timedelta(days=i))
     assert _row(sup)["reliabilityPct"] == pytest.approx(100.0)
 
+    # A promise falling on a Sunday or holiday counts from the next working day.
+    overdue_promise = next_shop_working_day(shop["today"] - timedelta(days=4))
     _delivery(shop, sup, shop["today"] - timedelta(days=4))
     # Not due yet: does not count either way.
     _delivery(shop, sup, shop["today"] + timedelta(days=3))
@@ -340,7 +347,7 @@ def test_overdue_undelivered_order_lowers_reliability(app, shop):
     assert row["dueDeliveries"] == 4
     assert row["overdueDeliveries"] == 1
     assert row["reliabilityPct"] == pytest.approx(75.0)
-    assert row["avgDaysLate"] == pytest.approx(4.0)
+    assert row["avgDaysLate"] == pytest.approx((shop["today"] - overdue_promise).days)
 
 
 def test_fewer_than_three_deliveries_shows_not_enough(client, shop):
