@@ -18,6 +18,7 @@ from app.models.operation_time import (
     OperationPauseReason,
     OperationTimeEvent,
     OperationTimeLog,
+    pause_reason_label,
 )
 from app.models.user import User
 from app.models.worker_skill import OperationType
@@ -916,7 +917,7 @@ def delays(from_s=None, to_s=None):
             {
                 "cause": reason,
                 "causeType": "PAUSE",
-                "label": reason,
+                "label": pause_reason_label(reason),
                 "hours": float(hrs),
                 "occurrenceCount": pause_counts[reason],
             }
@@ -968,6 +969,9 @@ def delays(from_s=None, to_s=None):
                 "occurrenceCount": int(count or 0),
             }
         )
+    # A row that rounds to 0.0 h (e.g. Machine down pauses fully covered by a
+    # downtime record) explains no delay.
+    cause_rows = [r for r in cause_rows if round(r["hours"], 1) > 0]
     cause_rows.sort(key=lambda r: -r["hours"])
     total_cause_hours = sum(r["hours"] for r in cause_rows)
     cumulative = 0.0

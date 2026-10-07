@@ -31,6 +31,21 @@ class OperationPauseReason(enum.Enum):
     OTHER = "OTHER"
 
 
+PAUSE_REASON_LABELS = {
+    OperationPauseReason.END_OF_SHIFT.value: "End of shift",
+    OperationPauseReason.BREAK.value: "Break",
+    OperationPauseReason.MACHINE_DOWN.value: "Machine down",
+    OperationPauseReason.WAITING_MATERIAL.value: "Waiting for material",
+    OperationPauseReason.WAITING_PRIOR_OPERATION.value: "Waiting on prior operation",
+    OperationPauseReason.OTHER.value: "Other",
+}
+
+
+def pause_reason_label(reason) -> str:
+    key = reason.value if isinstance(reason, OperationPauseReason) else str(reason or "")
+    return PAUSE_REASON_LABELS.get(key) or key.replace("_", " ").capitalize()
+
+
 class DowntimeCategory(enum.Enum):
     MECHANICAL_FAILURE = "MECHANICAL_FAILURE"
     ELECTRICAL_FAULT = "ELECTRICAL_FAULT"

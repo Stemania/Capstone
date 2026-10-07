@@ -17,6 +17,7 @@ from app.models.operation_time import (
     OperationPauseReason,
     OperationTimeEvent,
     OperationTimeLog,
+    pause_reason_label,
 )
 from app.models.schedule_move import DelayKind, MaterialCause, ScheduleMove
 from app.services.schedule_calendar import (
@@ -362,7 +363,9 @@ def late_jobs(period_from: date, period_to: date) -> list[dict]:
         if breakdown > 0:
             causes.append({"cause": "BREAKDOWN", "label": "Breakdowns", "hours": breakdown, "detail": None})
         for reason, hrs in sorted(other_pause.items(), key=lambda x: -x[1]):
-            causes.append({"cause": reason, "label": reason, "hours": hrs, "detail": None})
+            causes.append(
+                {"cause": reason, "label": pause_reason_label(reason), "hours": hrs, "detail": None}
+            )
 
         redo = [o for o in job.operations if o.rework_of_operation_id is not None]
         if redo:
