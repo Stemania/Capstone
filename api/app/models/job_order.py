@@ -180,6 +180,8 @@ class JobOrder(db.Model):
         db.String(36), db.ForeignKey("users.id"), nullable=False
     )
     delivered_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # When the Admin confirmed the schedule; worker actions cannot predate it.
+    released_at = db.Column(db.DateTime(timezone=True), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
     updated_at = db.Column(
         db.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow

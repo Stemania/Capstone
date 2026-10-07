@@ -7,11 +7,16 @@ import dayjs from 'dayjs';
 import { analyticsApi } from '../../api/analytics.api';
 import { operationsApi } from '../../api/operations.api';
 import { getErrorMessage } from '../../api/client';
+import axios from 'axios';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
+import { useOffline } from '../../offline/OfflineProvider';
+import { offlineCache } from '../../offline/offlineCache';
+import { overlayOperations, type OverlaidOperation } from '../../offline/overlay';
+import SyncChip from '../../offline/SyncChip';
 import type { MyWorkSummary, Operation } from '../../types';
 
 function opStatusBadge(
-  op: Operation,
+  op: OverlaidOperation,
   colors: { red: string; accent: string; green: string; greenSoft: string }
 ) {
   if (op.waitingForMaterials && op.status !== 'COMPLETED' && op.status !== 'IN_PROGRESS') {
@@ -106,21 +111,41 @@ function MyWorkSummaryCard() {
 }
 
 export default function MyAssignmentsPage() {
-  const [operations, setOperations] = useState<Operation[]>([]);
+  const [loaded, setLoaded] = useState<Operation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'active' | 'completed'>('active');
   const [query, setQuery] = useState('');
   const navigate = useNavigate();
   const { colors } = useWorkerTheme();
+  const { online, userId, pending, version } = useOffline();
 
   useEffect(() => {
+    if (!userId) return;
+    const fromPhone = () => offlineCache.read(userId).mine;
+    if (!online) {
+      const saved = fromPhone();
+      if (saved) setLoaded(saved);
+      else setError('No assignments saved on this phone yet. Connect once to download them.');
+      setLoading(false);
+      return;
+    }
     operationsApi
       .mine()
-      .then(({ data }) => setOperations(data))
-      .catch((err) => setError(getErrorMessage(err)))
+      .then(({ data }) => {
+        offlineCache.saveMine(userId, data);
+        setLoaded(data);
+        setError('');
+      })
+      .catch((err) => {
+        const saved = axios.isAxiosError(err) && !err.response ? fromPhone() : null;
+        if (saved) setLoaded(saved);
+        else setError(getErrorMessage(err));
+      })
       .finally(() => setLoading(false));
-  }, []);
+  }, [online, userId, version]);
+
+  const operations = useMemo(() => overlayOperations(loaded, pending), [loaded, pending]);
 
   const active = operations.filter((o) => o.status !== 'COMPLETED');
   const completed = operations.filter((o) => o.status === 'COMPLETED');
@@ -147,7 +172,7 @@ export default function MyAssignmentsPage() {
       />
 
       <div style={{ padding: 16 }}>
-        <MyWorkSummaryCard />
+        {online && <MyWorkSummaryCard />}
         <Segmented
           block
           className="worker-seg"
@@ -222,17 +247,20 @@ export default function MyAssignmentsPage() {
                       {op.jobNumber || op.jobOrderId.slice(0, 8).toUpperCase()}
                       {op.sequenceNo != null ? ` · Op ${op.sequenceNo}` : ''}
                     </span>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        padding: '3px 10px',
-                        borderRadius: 999,
-                        background: badge.bg,
-                        color: badge.color,
-                      }}
-                    >
-                      {badge.text}
+                    <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      {op.syncState && <SyncChip state={op.syncState} />}
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          padding: '3px 10px',
+                          borderRadius: 999,
+                          background: badge.bg,
+                          color: badge.color,
+                        }}
+                      >
+                        {badge.text}
+                      </span>
                     </span>
                   </div>
 

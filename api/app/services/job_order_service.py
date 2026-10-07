@@ -1054,6 +1054,7 @@ def confirm_job_schedule(job, data=None, actor_role=None):
                 op.status = OperationStatus.SCHEDULED
         job.status = JobOrderStatus.SCHEDULED
         job.status = derive_job_status(job)
+        job.released_at = datetime.now(timezone.utc)
         db.session.commit()
         safe_notify_job_milestone(job.id, NotificationMilestone.JOB_RECEIVED)
         return get_job_order(job.id, job.created_by_id, UserRole.ADMIN.value)

@@ -17,6 +17,7 @@ from app.models.notification import (
     NotificationMilestone,
     NotificationStatus,
 )
+from app.models.offline_action import OfflineActionReceipt
 from app.models.operation import JobOperation, Operation, OperationStatus, ReworkReasonCategory
 from app.models.operation_time import (
     DowntimeCategory,

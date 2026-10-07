@@ -475,6 +475,8 @@ export interface OperationTimeLog {
   workerName?: string | null;
   event: OperationTimeEvent;
   eventAt: string;
+  /** When the server received it; eventAt is the phone's time. Null for older or office-made records. */
+  receivedAt?: string | null;
   reason?: OperationPauseReason | null;
   note?: string | null;
 }

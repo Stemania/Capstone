@@ -335,6 +335,8 @@ def test_confirm_allowed_when_every_operation_is_scheduled(client, shop):
     assert res.status_code == 200, res.get_json()
     assert res.get_json()["status"] == "SCHEDULED"
     assert res.get_json()["operations"][0]["status"] == "SCHEDULED"
+    # Worker actions timestamped before this are refused as a wrong phone clock.
+    assert db.session.get(JobOrder, job.id).released_at is not None
 
 
 def test_failed_confirm_saves_nothing(client, shop):

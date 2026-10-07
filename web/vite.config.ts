@@ -49,18 +49,13 @@ export default defineConfig({
       workbox: {
         // Main bundle includes Ant Design + Recharts; allow precache above default 2 MiB.
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
-        globPatterns: ['**/*.{js,css,html,ico,svg,png,woff2}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/.*\/api\/v1\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: { maxEntries: 50, maxAgeSeconds: 300 },
-              networkTimeoutSeconds: 10,
-            },
-          },
-        ],
+        globPatterns: ['**/*.{js,css,html,ico,svg,png,ttf,woff2}'],
+        // Pages open offline from the precached app. API responses are not
+        // cached here: the worker's data is kept by src/offline, and a cached
+        // reply would hide that the phone is offline.
+        navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/api\//],
+        cleanupOutdatedCaches: true,
       },
     }),
   ],

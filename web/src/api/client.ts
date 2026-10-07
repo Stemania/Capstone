@@ -1,6 +1,14 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
+import { connectivity } from '../offline/connectivity';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+/** Sign-in keys only: the phone's waiting offline actions must survive. */
+function clearSession() {
+  localStorage.removeItem('accessToken');
+  localStorage.removeItem('refreshToken');
+  localStorage.removeItem('user');
+}
 
 const apiClient = axios.create({
   baseURL: API_BASE,
@@ -30,8 +38,13 @@ const processQueue = (error: unknown, token: string | null = null) => {
 };
 
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    connectivity.reportReachable();
+    return response;
+  },
   async (error: AxiosError) => {
+    if (error.response) connectivity.reportReachable();
+    else if (!axios.isCancel(error)) connectivity.reportUnreachable();
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
     if (error.response?.status === 401 && !originalRequest._retry) {
@@ -64,7 +77,8 @@ apiClient.interceptors.response.use(
 
       const refreshToken = localStorage.getItem('refreshToken');
       if (!refreshToken) {
-        localStorage.clear();
+        isRefreshing = false;
+        clearSession();
         window.location.href = '/login';
         return Promise.reject(error);
       }
@@ -81,7 +95,12 @@ apiClient.interceptors.response.use(
         return apiClient(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
-        localStorage.clear();
+        if (axios.isAxiosError(refreshError) && !refreshError.response) {
+          // No connection: stay signed in; the request fails as offline.
+          connectivity.reportUnreachable();
+          return Promise.reject(refreshError);
+        }
+        clearSession();
         window.location.href = '/login';
         return Promise.reject(refreshError);
       } finally {

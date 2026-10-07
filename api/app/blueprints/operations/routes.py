@@ -9,6 +9,7 @@ from app.models.operation_time import MachineDowntime
 from app.models.user import UserRole
 from app.services import completion_estimate_service as estimate_service
 from app.services import job_order_service as jo_service
+from app.services import offline_action_service as offline_service
 from app.services import operation_service as op_service
 from app.utils.errors import AppError
 
@@ -40,84 +41,80 @@ def assign_operation(operation_id):
     return jsonify(operation.to_dict())
 
 
+def _worker_action(operation_id, action, apply):
+    """Run a start/pause/resume/complete once per phone action id: a resent
+    action returns the operation as it is now instead of recording again.
+    ``apply`` also gets the time the server received the action."""
+    received_at = datetime.now(timezone.utc)
+    operation = JobOperation.query.get(operation_id)
+    if not operation:
+        raise AppError("Operation not found", "NOT_FOUND", 404)
+    data = request.get_json() or {}
+    user_id = get_current_user_id()
+    action_id = offline_service.client_action_id(data)
+    if offline_service.previous_result(action_id, user_id, action):
+        return jsonify(operation.to_dict())
+    operation = apply(operation, data, user_id, get_current_user_role(), received_at)
+    offline_service.record(action_id, user_id, action, operation.id)
+    estimate_service.after_operation_change(operation)
+    return jsonify(operation.to_dict())
+
+
 @operations_bp.route("/<operation_id>/start", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.PRODUCTION_WORKER)
 def start_operation(operation_id):
-    operation = JobOperation.query.get(operation_id)
-    if not operation:
-        raise AppError("Operation not found", "NOT_FOUND", 404)
-
-    data = request.get_json() or {}
-    timestamp = data.get("timestamp") or datetime.now(timezone.utc).isoformat()
-
-    operation = op_service.start_operation(
-        operation, get_current_user_id(), get_current_user_role(), timestamp
+    return _worker_action(
+        operation_id,
+        "start",
+        lambda op, data, uid, role, received_at: op_service.start_operation(
+            op, uid, role, data.get("timestamp") or received_at, received_at=received_at
+        ),
     )
-    estimate_service.after_operation_change(operation)
-    return jsonify(operation.to_dict())
 
 
 @operations_bp.route("/<operation_id>/pause", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.PRODUCTION_WORKER)
 def pause_operation(operation_id):
-    operation = JobOperation.query.get(operation_id)
-    if not operation:
-        raise AppError("Operation not found", "NOT_FOUND", 404)
-
     data = request.get_json() or {}
-    reason = data.get("reason")
-    if not reason:
+    if not data.get("reason"):
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "reason is required"}}), 400
-
-    operation = op_service.pause_operation(
-        operation,
-        get_current_user_id(),
-        get_current_user_role(),
-        reason=reason,
-        note=data.get("note"),
-        timestamp=data.get("timestamp"),
+    return _worker_action(
+        operation_id,
+        "pause",
+        lambda op, data, uid, role, received_at: op_service.pause_operation(
+            op, uid, role, reason=data.get("reason"), note=data.get("note"),
+            timestamp=data.get("timestamp") or received_at, received_at=received_at,
+        ),
     )
-    estimate_service.after_operation_change(operation)
-    return jsonify(operation.to_dict())
 
 
 @operations_bp.route("/<operation_id>/resume", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.PRODUCTION_WORKER)
 def resume_operation(operation_id):
-    operation = JobOperation.query.get(operation_id)
-    if not operation:
-        raise AppError("Operation not found", "NOT_FOUND", 404)
-
-    data = request.get_json() or {}
-    operation = op_service.resume_operation(
-        operation,
-        get_current_user_id(),
-        get_current_user_role(),
-        timestamp=data.get("timestamp"),
+    return _worker_action(
+        operation_id,
+        "resume",
+        lambda op, data, uid, role, received_at: op_service.resume_operation(
+            op, uid, role, timestamp=data.get("timestamp") or received_at,
+            received_at=received_at,
+        ),
     )
-    estimate_service.after_operation_change(operation)
-    return jsonify(operation.to_dict())
 
 
 @operations_bp.route("/<operation_id>/complete", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.PRODUCTION_WORKER)
 def complete_operation(operation_id):
-    operation = JobOperation.query.get(operation_id)
-    if not operation:
-        raise AppError("Operation not found", "NOT_FOUND", 404)
-
-    data = request.get_json() or {}
-    timestamp = data.get("timestamp") or datetime.now(timezone.utc).isoformat()
-
-    operation = op_service.complete_operation(
-        operation, get_current_user_id(), get_current_user_role(), timestamp
+    return _worker_action(
+        operation_id,
+        "complete",
+        lambda op, data, uid, role, received_at: op_service.complete_operation(
+            op, uid, role, data.get("timestamp") or received_at, received_at=received_at
+        ),
     )
-    estimate_service.after_operation_change(operation)
-    return jsonify(operation.to_dict())
 
 
 @operations_bp.route("/<operation_id>/send-out", methods=["POST"])
@@ -225,7 +222,17 @@ def patch_machine_unit(unit_id):
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF, UserRole.PRODUCTION_WORKER)
 def open_downtime(unit_id):
+    received_at = datetime.now(timezone.utc)
     data = request.get_json() or {}
+    user_id = get_current_user_id()
+    action_id = offline_service.client_action_id(data)
+    previous = offline_service.previous_result(action_id, user_id, "breakdown")
+    if previous:
+        row = MachineDowntime.query.get(previous)
+        payload = row.to_dict() if row else {"id": previous}
+        payload["affectedCount"] = 0
+        payload["affectedOperations"] = []
+        return jsonify(payload), 200
     row = op_service.open_machine_downtime(
         unit_id,
         reported_by_id=get_current_user_id(),
@@ -236,7 +243,9 @@ def open_downtime(unit_id):
         job_order_id=data.get("jobOrderId"),
         reporter_role=get_current_user_role(),
         expected_repair_date=data.get("expectedRepairDate"),
+        received_at=received_at,
     )
+    offline_service.record(action_id, user_id, "breakdown", row.id)
     payload = row.to_dict()
     affected = op_service.list_affected_operations(unit_id)
     payload["affectedCount"] = len(affected)

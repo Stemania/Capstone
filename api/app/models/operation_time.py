@@ -82,6 +82,9 @@ class OperationTimeLog(db.Model):
     event_at = db.Column(db.DateTime(timezone=True), nullable=False)
     reason = db.Column(db.Enum(OperationPauseReason), nullable=True)
     note = db.Column(db.Text, nullable=True)
+    # event_at is when it happened on the phone; received_at is when the server
+    # got it (null for records not sent by a worker's device).
+    received_at = db.Column(db.DateTime(timezone=True), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
 
     operation = db.relationship(
@@ -97,6 +100,7 @@ class OperationTimeLog(db.Model):
             "workerName": self.worker.full_name if self.worker else None,
             "event": self.event.value if self.event else None,
             "eventAt": self.event_at.isoformat() if self.event_at else None,
+            "receivedAt": self.received_at.isoformat() if self.received_at else None,
             "reason": self.reason.value if self.reason else None,
             "note": self.note,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
@@ -135,6 +139,8 @@ class MachineDowntime(db.Model):
     note = db.Column(db.Text, nullable=True)
     # Shop-local date; the unit stays unavailable for scheduling through this day.
     expected_repair_date = db.Column(db.Date, nullable=True)
+    # started_at as reported (phone time); received_at is when the server got it.
+    received_at = db.Column(db.DateTime(timezone=True), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
 
     machine_unit = db.relationship("MachineUnit", back_populates="downtimes")
@@ -148,6 +154,7 @@ class MachineDowntime(db.Model):
             "machineUnitLabel": self.machine_unit.label if self.machine_unit else None,
             "startedAt": self.started_at.isoformat() if self.started_at else None,
             "endedAt": self.ended_at.isoformat() if self.ended_at else None,
+            "receivedAt": self.received_at.isoformat() if self.received_at else None,
             "category": self.category.value if self.category else None,
             "reason": self.reason,
             "jobOrderId": self.job_order_id,

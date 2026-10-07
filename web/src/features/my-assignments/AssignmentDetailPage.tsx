@@ -1,13 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button, Modal, Spin, message } from 'antd';
 import { CheckCircleFilled, FileTextOutlined, WarningOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
+import axios from 'axios';
 import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
-import { operationsApi } from '../../api/operations.api';
 import { getErrorCode, getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
+import { useOffline, type RecordInput } from '../../offline/OfflineProvider';
+import { offlineCache } from '../../offline/offlineCache';
+import { overlayOperations } from '../../offline/overlay';
+import SyncChip from '../../offline/SyncChip';
 import { DOWNTIME_REASONS, type DowntimeCategory } from '../../constants/downtimeReasons';
 import { SHOP_TZ, formatShop, shopToday } from '../../utils/shopTime';
 import type { JobOrder, Operation, OperationPauseReason, PartCondition } from '../../types';
@@ -68,7 +72,8 @@ export default function AssignmentDetailPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { colors } = useWorkerTheme();
-  const [job, setJob] = useState<JobOrder | null>(null);
+  const { online, userId, pending, version, record } = useOffline();
+  const [loadedJob, setLoadedJob] = useState<JobOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [pauseForOp, setPauseForOp] = useState<Operation | null>(null);
@@ -77,12 +82,21 @@ export default function AssignmentDetailPage() {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const fetchJob = async () => {
-    if (!id) return;
+    if (!id || !userId) return;
+    const fromPhone = () => offlineCache.read(userId).jobs[id] || null;
+    if (!online) {
+      setLoadedJob(fromPhone());
+      setLoading(false);
+      return;
+    }
     try {
       const { data } = await jobOrdersApi.get(id);
-      setJob(data);
+      offlineCache.saveJob(userId, data);
+      setLoadedJob(data);
     } catch (err) {
-      message.error(getErrorMessage(err));
+      const saved = axios.isAxiosError(err) && !err.response ? fromPhone() : null;
+      if (saved) setLoadedJob(saved);
+      else message.error(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -91,7 +105,35 @@ export default function AssignmentDetailPage() {
   useEffect(() => {
     fetchJob();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, online, userId, version]);
+
+  const job = useMemo(
+    () =>
+      loadedJob
+        ? { ...loadedJob, operations: overlayOperations(loadedJob.operations || [], pending) }
+        : null,
+    [loadedJob, pending]
+  );
+
+  const labelFor = (op: Operation, verb: string) =>
+    `${verb} ${op.operationName || op.name || 'operation'}` +
+    (job?.jobNumber ? ` (${job.jobNumber})` : '');
+
+  /** Records the action; a refusal while online is thrown to the caller. */
+  const recordAction = async (
+    op: Operation,
+    input: Omit<RecordInput, 'operationId' | 'jobOrderId'>,
+    sentText: string
+  ) => {
+    const outcome = await record({ ...input, operationId: op.id, jobOrderId: op.jobOrderId });
+    if (outcome === 'sent') message.success(sentText);
+    else
+      message.info(
+        online
+          ? 'Saved on this phone. It is sent right after the earlier waiting actions.'
+          : 'Saved on this phone. It is sent when the connection returns.'
+      );
+  };
 
   useEffect(() => {
     const hasActive = (job?.operations || []).some(
@@ -108,18 +150,17 @@ export default function AssignmentDetailPage() {
   ) => {
     setActionLoading(op.id);
     try {
-      const ts = new Date().toISOString();
       if (action === 'start') {
-        await operationsApi.start(op.id, ts);
-        message.success('Operation started');
+        await recordAction(op, { kind: 'start', label: labelFor(op, 'Start') }, 'Operation started');
       } else if (action === 'resume') {
-        await operationsApi.resume(op.id, ts);
-        message.success('Operation resumed');
+        await recordAction(op, { kind: 'resume', label: labelFor(op, 'Resume') }, 'Operation resumed');
       } else {
-        await operationsApi.complete(op.id, ts);
-        message.success('Operation completed');
+        await recordAction(
+          op,
+          { kind: 'complete', label: labelFor(op, 'Complete') },
+          'Operation completed'
+        );
       }
-      await fetchJob();
     } catch (err) {
       const code = getErrorCode(err);
       if (code === 'MATERIALS_NOT_RECEIVED' || code === 'MATERIALS_NOT_ORDERED') {
@@ -143,10 +184,13 @@ export default function AssignmentDetailPage() {
     if (!pauseForOp) return;
     setActionLoading(pauseForOp.id);
     try {
-      await operationsApi.pause(pauseForOp.id, reason, undefined, new Date().toISOString());
-      message.success('Operation paused');
+      const reasonLabel = PAUSE_REASONS.find((r) => r.value === reason)?.label || reason;
+      await recordAction(
+        pauseForOp,
+        { kind: 'pause', reason, label: `${labelFor(pauseForOp, 'Pause')}: ${reasonLabel}` },
+        'Operation paused'
+      );
       setPauseForOp(null);
-      await fetchJob();
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
@@ -162,16 +206,21 @@ export default function AssignmentDetailPage() {
     }
     setActionLoading(reportForOp.id);
     try {
-      await operationsApi.openDowntime(
-        reportForOp.machineUnitId,
-        category,
-        reportNote.trim() || undefined,
-        { operationId: reportForOp.id }
+      const machine =
+        reportForOp.machineUnitLabel || reportForOp.machineTypeName || 'machine';
+      await recordAction(
+        reportForOp,
+        {
+          kind: 'breakdown',
+          machineUnitId: reportForOp.machineUnitId,
+          category,
+          note: reportNote.trim() || undefined,
+          label: `Report breakdown on ${machine}` + (job?.jobNumber ? ` (${job.jobNumber})` : ''),
+        },
+        'Breakdown reported'
       );
-      message.success('Breakdown reported');
       setReportForOp(null);
       setReportNote('');
-      await fetchJob();
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
@@ -194,7 +243,11 @@ export default function AssignmentDetailPage() {
     return (
       <div>
         <WorkerPageHeader title="Job Details" onBack={() => navigate('/my-assignments')} />
-        <p style={{ color: colors.red, padding: 16 }}>Job not found</p>
+        <p style={{ color: colors.red, padding: 16 }}>
+          {online
+            ? 'Job not found'
+            : 'This job is not saved on this phone yet. Open it once while connected.'}
+        </p>
       </div>
     );
   }
@@ -407,6 +460,8 @@ export default function AssignmentDetailPage() {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
                     <span style={{ fontWeight: 800, fontSize: 15, lineHeight: 1.3 }}>{opName}</span>
+                    <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    {op.syncState && <SyncChip state={op.syncState} />}
                     <span
                       style={{
                         flexShrink: 0,
@@ -434,7 +489,27 @@ export default function AssignmentDetailPage() {
                                 ? 'Redo'
                                 : 'Pending'}
                     </span>
+                    </span>
                   </div>
+
+                  {op.syncState === 'refused' && (
+                    <div
+                      style={{
+                        marginBottom: 12,
+                        padding: '10px 12px',
+                        borderRadius: 10,
+                        background: '#fef2f2',
+                        border: '1px solid #fecaca',
+                        color: colors.red,
+                        fontSize: 13,
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      <div style={{ fontWeight: 800 }}>Not accepted by the server</div>
+                      {op.syncError?.message || 'The server refused this action.'} Use the red
+                      bar at the top to try again or discard it.
+                    </div>
+                  )}
 
                   <div
                     style={{

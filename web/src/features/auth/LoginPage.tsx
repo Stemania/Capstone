@@ -5,11 +5,13 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { authApi, getOrCreateDeviceId } from '../../api/auth.api';
 import { getErrorCode, getErrorMessage } from '../../api/client';
+import { useOnline } from '../../offline/connectivity';
 import PinKeypad from './PinKeypad';
 import './LoginPage.css';
 
 export default function LoginPage() {
   const { login, user, loading, applySession } = useAuth();
+  const online = useOnline();
   const [form] = Form.useForm();
   const [error, setError] = useState('');
   const [pinError, setPinError] = useState('');
@@ -101,6 +103,15 @@ export default function LoginPage() {
             </>
           )}
 
+          {!online && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="Needs a connection"
+              description="Signing in needs a connection. Actions waiting on this phone are kept and sent after you sign in."
+            />
+          )}
           {error && <Alert type="error" message={error} style={{ marginBottom: 16 }} showIcon />}
 
           {pinMode ? (

@@ -181,6 +181,24 @@ function fmtDateTime(v?: string | null) {
   return formatShop(v, 'MMM D, YYYY h:mm A');
 }
 
+const SENT_LATE_MINUTES = 10;
+
+/** "received 3:40 PM (2h 5m later)" when the phone sent the action after it happened. */
+function ReceivedAt({ eventAt, receivedAt }: { eventAt: string; receivedAt?: string | null }) {
+  if (!receivedAt) return null;
+  const minutes = Math.round(dayjs(receivedAt).diff(dayjs(eventAt), 'minute', true));
+  const sameDay = formatShop(receivedAt, 'YYYY-MM-DD') === formatShop(eventAt, 'YYYY-MM-DD');
+  const when = formatShop(receivedAt, sameDay ? 'h:mm A' : 'MMM D, YYYY h:mm A');
+  if (minutes < SENT_LATE_MINUTES) return <> · received {when}</>;
+  const gap =
+    minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
+  return (
+    <span style={{ color: '#d46b08' }}>
+      {' · '}received {when} ({gap} later)
+    </span>
+  );
+}
+
 function fmtHours(v?: number | null) {
   if (v == null || Number.isNaN(v)) return '—';
   return `${v.toFixed(1)}h`;
@@ -1342,6 +1360,7 @@ export default function JobOrderDetailPage() {
                                           : ''}
                                         {' · '}
                                         {fmtDateTime(log.eventAt)}
+                                        <ReceivedAt eventAt={log.eventAt} receivedAt={log.receivedAt} />
                                         {log.workerName ? ` · ${log.workerName}` : ''}
                                         {log.note ? ` — ${log.note}` : ''}
                                       </li>

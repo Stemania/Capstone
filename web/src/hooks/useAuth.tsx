@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { authApi } from '../api/auth.api';
 import type { LoginResponse, User } from '../types';
@@ -34,7 +35,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(data);
         localStorage.setItem('user', JSON.stringify(data));
       })
-      .catch(() => {
+      .catch((err) => {
+        // Offline: keep the stored user so assignments open from the phone.
+        if (axios.isAxiosError(err) && !err.response) return;
         authApi.logout();
         setUser(null);
       })

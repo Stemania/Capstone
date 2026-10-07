@@ -1,6 +1,7 @@
 import { useAuth } from '../hooks/useAuth';
 import AppLayout from '../layouts/AppLayout';
 import WorkerLayout from '../layouts/WorkerLayout';
+import { OfflineProvider } from '../offline/OfflineProvider';
 
 /**
  * Picks worker chrome vs admin/office chrome for routes both roles share
@@ -9,6 +10,11 @@ import WorkerLayout from '../layouts/WorkerLayout';
  */
 export default function RoleAwareLayout() {
   const { isWorker } = useAuth();
-  if (isWorker) return <WorkerLayout />;
+  if (isWorker)
+    return (
+      <OfflineProvider>
+        <WorkerLayout />
+      </OfflineProvider>
+    );
   return <AppLayout />;
 }

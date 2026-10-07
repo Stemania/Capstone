@@ -1,7 +1,7 @@
 """Operation start/pause/resume/complete with append-only time logs."""
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from app.extensions import db
@@ -69,16 +69,45 @@ def list_my_operations(worker_id):
 
 
 def _assert_worker_owns(operation, user_id, user_role):
-    check_job_access(operation.job_order, user_id, user_role)
     # Assignment-gated for every role (including Admin): only the assignee
-    # may start/pause/resume/complete.
+    # may start/pause/resume/complete. Checked first so a worker whose
+    # operation was reassigned is told so, not just "Access denied".
     if operation.assigned_worker_id != user_id:
+        name = operation.operation_name or "This operation"
+        assignee = operation.assigned_worker
         raise AppError(
-            "You can only update operations assigned to you", "FORBIDDEN", 403
+            f"{name} is now assigned to {assignee.full_name}. Ask the office if you did this work."
+            if assignee
+            else f"{name} is no longer assigned to you. Ask the office if you did this work.",
+            "OPERATION_REASSIGNED",
+            403,
         )
+    check_job_access(operation.job_order, user_id, user_role)
 
 
-def _append_log(operation, worker_id, event, event_at, reason=None, note=None):
+CLOCK_WRONG_MESSAGE = "The phone's clock appears to be wrong. Check that automatic time is on."
+_CLOCK_FUTURE_TOLERANCE = timedelta(minutes=2)
+
+
+def check_action_time(event_at, received_at, operation=None, job=None):
+    """Refuse a device timestamp that cannot be right: more than two minutes
+    ahead of the server, before the operation's previous action, or before
+    the job was released."""
+    at = _ensure_utc(event_at)
+    clock_wrong = at > _ensure_utc(received_at) + _CLOCK_FUTURE_TOLERANCE
+    if not clock_wrong and operation is not None:
+        last = _last_event(operation)
+        clock_wrong = last is not None and at < _ensure_utc(last.event_at)
+    job = job if job is not None else (operation.job_order if operation is not None else None)
+    if not clock_wrong and job is not None and job.released_at is not None:
+        clock_wrong = at < _ensure_utc(job.released_at)
+    if clock_wrong:
+        raise AppError(CLOCK_WRONG_MESSAGE, "CLOCK_WRONG", 422)
+
+
+def _append_log(
+    operation, worker_id, event, event_at, reason=None, note=None, received_at=None
+):
     log = OperationTimeLog(
         operation_id=operation.id,
         worker_id=worker_id,
@@ -86,6 +115,7 @@ def _append_log(operation, worker_id, event, event_at, reason=None, note=None):
         event_at=_ensure_utc(event_at),
         reason=reason,
         note=note,
+        received_at=received_at,
     )
     db.session.add(log)
     return log
@@ -172,7 +202,7 @@ def _assert_earlier_operations_completed(operation):
         )
 
 
-def start_operation(operation, user_id, user_role, timestamp):
+def start_operation(operation, user_id, user_role, timestamp, received_at=None):
     from app.constants.machines import assert_machine_type_available
     from app.models.job_order import JobOrderStatus
 
@@ -213,6 +243,8 @@ def start_operation(operation, user_id, user_role, timestamp):
         _assert_materials_arrived(job, user_role)
 
     ts = _parse_timestamp(timestamp)
+    if received_at is not None:
+        check_action_time(ts, received_at, operation)
     before_status = job.status
     try:
         if first_start:
@@ -225,6 +257,7 @@ def start_operation(operation, user_id, user_role, timestamp):
             operation.assigned_worker_id or user_id,
             OperationTimeEvent.START,
             ts,
+            received_at=received_at,
         )
         job.status = derive_job_status(job)
         db.session.commit()
@@ -242,7 +275,9 @@ def start_operation(operation, user_id, user_role, timestamp):
         raise
 
 
-def pause_operation(operation, user_id, user_role, reason, note=None, timestamp=None):
+def pause_operation(
+    operation, user_id, user_role, reason, note=None, timestamp=None, received_at=None
+):
     _assert_worker_owns(operation, user_id, user_role)
 
     if operation.status != OperationStatus.IN_PROGRESS:
@@ -270,6 +305,8 @@ def pause_operation(operation, user_id, user_role, reason, note=None, timestamp=
         raise AppError("reason is required to pause", "VALIDATION_ERROR", 400)
 
     ts = _parse_timestamp(timestamp)
+    if received_at is not None:
+        check_action_time(ts, received_at, operation)
     try:
         _append_log(
             operation,
@@ -278,6 +315,7 @@ def pause_operation(operation, user_id, user_role, reason, note=None, timestamp=
             ts,
             reason=pause_reason,
             note=note,
+            received_at=received_at,
         )
         db.session.commit()
         return operation
@@ -286,7 +324,7 @@ def pause_operation(operation, user_id, user_role, reason, note=None, timestamp=
         raise
 
 
-def resume_operation(operation, user_id, user_role, timestamp=None):
+def resume_operation(operation, user_id, user_role, timestamp=None, received_at=None):
     from app.constants.machines import assert_machine_type_available
 
     _assert_worker_owns(operation, user_id, user_role)
@@ -310,12 +348,15 @@ def resume_operation(operation, user_id, user_role, timestamp=None):
         _assert_unit_not_down(operation.machine_unit_id)
 
     ts = _parse_timestamp(timestamp)
+    if received_at is not None:
+        check_action_time(ts, received_at, operation)
     try:
         _append_log(
             operation,
             operation.assigned_worker_id or user_id,
             OperationTimeEvent.RESUME,
             ts,
+            received_at=received_at,
         )
         db.session.commit()
         return operation
@@ -324,7 +365,7 @@ def resume_operation(operation, user_id, user_role, timestamp=None):
         raise
 
 
-def complete_operation(operation, user_id, user_role, timestamp):
+def complete_operation(operation, user_id, user_role, timestamp, received_at=None):
     _assert_not_outsourced(operation)
     _assert_worker_owns(operation, user_id, user_role)
 
@@ -343,6 +384,8 @@ def complete_operation(operation, user_id, user_role, timestamp):
         )
 
     ts = _parse_timestamp(timestamp)
+    if received_at is not None:
+        check_action_time(ts, received_at, operation)
     job = operation.job_order
     before_status = job.status
     try:
@@ -355,6 +398,7 @@ def complete_operation(operation, user_id, user_role, timestamp):
             operation.assigned_worker_id or user_id,
             OperationTimeEvent.COMPLETE,
             ts,
+            received_at=received_at,
         )
         # Refresh relationship for variance calc
         db.session.flush()
@@ -740,7 +784,7 @@ def _resolve_downtime_link(unit_id, operation_id, job_order_id, reporter_id, rep
     return op.id, op.job_order_id
 
 
-def _pause_running_operations_on_unit(machine_unit_id, reported_by_id, ts):
+def _pause_running_operations_on_unit(machine_unit_id, reported_by_id, ts, received_at=None):
     """Stop the clock on work running on a broken-down unit; workers resume it."""
     running = JobOperation.query.filter_by(
         machine_unit_id=machine_unit_id, status=OperationStatus.IN_PROGRESS
@@ -759,6 +803,7 @@ def _pause_running_operations_on_unit(machine_unit_id, reported_by_id, ts):
             OperationTimeEvent.PAUSE,
             pause_at,
             reason=OperationPauseReason.MACHINE_DOWN,
+            received_at=received_at,
         )
 
 
@@ -825,6 +870,7 @@ def open_machine_downtime(
     job_order_id=None,
     reporter_role=None,
     expected_repair_date=None,
+    received_at=None,
 ):
     from app.models.machine import MachineUnit
     from app.models.operation_time import DOWNTIME_CATEGORY_LABELS, DowntimeCategory
@@ -867,11 +913,19 @@ def open_machine_downtime(
         )
 
     ts = _parse_timestamp(started_at)
+    if received_at is not None:
+        check_action_time(
+            ts,
+            received_at,
+            db.session.get(JobOperation, linked_op_id) if linked_op_id else None,
+            db.session.get(JobOrder, linked_job_id) if linked_job_id else None,
+        )
     repair_date = _parse_expected_repair_date(expected_repair_date, ts)
     try:
         row = MachineDowntime(
             machine_unit_id=machine_unit_id,
             started_at=ts,
+            received_at=received_at,
             category=cat,
             reason=DOWNTIME_CATEGORY_LABELS[cat],
             reported_by_id=reported_by_id,
@@ -881,7 +935,7 @@ def open_machine_downtime(
             expected_repair_date=repair_date,
         )
         db.session.add(row)
-        _pause_running_operations_on_unit(machine_unit_id, reported_by_id, ts)
+        _pause_running_operations_on_unit(machine_unit_id, reported_by_id, ts, received_at)
         db.session.flush()
         _alert_single_unit_breakdown(row, unit)
         db.session.commit()

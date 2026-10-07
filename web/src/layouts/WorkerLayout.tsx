@@ -16,6 +16,10 @@ import { WORKER_SEED_TOKENS } from '../theme/adminTheme';
 import PinOfferModal from '../features/auth/PinOfferModal';
 import KeepAliveOutlet from '../navigation/KeepAliveOutlet';
 import { useNavMemory } from '../navigation/navMemory';
+import NeedsConnection from '../offline/NeedsConnection';
+import OfflineStatusBar from '../offline/OfflineStatusBar';
+import { useOffline } from '../offline/OfflineProvider';
+import { offlineCache } from '../offline/offlineCache';
 
 export interface WorkerPalette {
   bg: string;
@@ -298,28 +302,40 @@ export function WorkerPageHeader({
           </Popover>
         )}
       </div>
+      <OfflineStatusBar />
     </header>
   );
 }
 
 export default function WorkerLayout() {
-  const { logout: authLogout } = useAuth();
+  const { user, logout: authLogout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { resolveSectionNav } = useNavMemory();
+  const { online, pending } = useOffline();
   const colors = lightPalette;
   const isScan = location.pathname.startsWith('/scan');
+  // Only My Assignments and its job pages work without a connection.
+  const needsConnection = !online && !location.pathname.startsWith('/my-assignments');
 
   const logout = () => {
-    confirmLogout(() => {
-      authLogout();
-      try {
-        sessionStorage.removeItem('bmsc.navMemory.v1');
-      } catch {
-        /* ignore */
-      }
-      navigate('/login');
-    }, 'You will need to sign in again to see your jobs.');
+    const waiting = pending.length;
+    confirmLogout(
+      () => {
+        if (user) offlineCache.clear(user.id);
+        authLogout();
+        try {
+          sessionStorage.removeItem('bmsc.navMemory.v1');
+        } catch {
+          /* ignore */
+        }
+        navigate('/login');
+      },
+      waiting
+        ? `${waiting === 1 ? '1 action is' : `${waiting} actions are`} still waiting to send. ` +
+            'They stay on this phone and are sent after you sign in again.'
+        : 'You will need to sign in again to see your jobs.'
+    );
   };
 
   const goSection = (sectionKey: string) => {
@@ -389,7 +405,15 @@ export default function WorkerLayout() {
               paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
             }}
           >
-            <KeepAliveOutlet />
+            {needsConnection && (
+              <>
+                <WorkerPageHeader title="Offline" />
+                <NeedsConnection />
+              </>
+            )}
+            <div style={needsConnection ? { display: 'none' } : undefined}>
+              <KeepAliveOutlet />
+            </div>
           </main>
           <PinOfferModal />
 
