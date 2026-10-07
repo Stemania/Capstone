@@ -23,9 +23,12 @@ from app.models.user import User
 from app.models.worker_skill import OperationType
 from app.services.delay_analysis_service import (
     MATERIAL_CAUSE_LABEL,
+    OUTSOURCED_CAUSE,
+    OUTSOURCED_CAUSE_LABEL,
     PARETO_CAUSE,
     late_jobs,
     material_delays,
+    outsourced_delays,
     pause_intervals,
 )
 from app.services import forecast_service
@@ -84,12 +87,19 @@ def _period_meta(period_from, period_to, excluded):
     }
 
 
+def not_outsourced_filter():
+    """Outsourced work has no shop worker or machine, so it stays out of
+    efficiency and utilization."""
+    return ~JobOperation.operation_type.has(OperationType.is_outsourced.is_(True))
+
+
 def _completed_in_period_filters(start_utc, end_utc):
     return [
         JobOperation.status == OperationStatus.COMPLETED,
         JobOperation.actual_end.isnot(None),
         JobOperation.actual_end >= start_utc,
         JobOperation.actual_end < end_utc,
+        not_outsourced_filter(),
     ]
 
 
@@ -934,6 +944,17 @@ def delays(from_s=None, to_s=None):
                     "occurrenceCount": len({r["jobOrderId"] for r in rows}),
                 }
             )
+    late_back = outsourced_delays(start_utc, end_utc)
+    if late_back:
+        cause_rows.append(
+            {
+                "cause": OUTSOURCED_CAUSE,
+                "causeType": "OUTSOURCED",
+                "label": OUTSOURCED_CAUSE_LABEL,
+                "hours": float(sum(r["hours"] for r in late_back)),
+                "occurrenceCount": len(late_back),
+            }
+        )
     for category, hrs, count in rework_by_category:
         if not (float(hrs or 0) > 0 or int(count or 0) > 0):
             continue
@@ -989,6 +1010,9 @@ def delays(from_s=None, to_s=None):
     )
     payload["materialDelays"] = [
         {**r, "hours": _num(r["hours"])} for r in material
+    ]
+    payload["outsourcedDelays"] = [
+        {**r, "hours": _num(r["hours"])} for r in late_back
     ]
     payload["breakdownOverlapHours"] = _num(overlap_hours)
     payload["lateJobs"] = late_jobs(period_from, period_to)

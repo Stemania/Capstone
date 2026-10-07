@@ -10,6 +10,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.constants.scheduling import SCHEDULE_HORIZON_DAYS, SHOP_TIMEZONE
+from app.models.shop_settings import DEFAULT_BREAK_END, DEFAULT_BREAK_START, ShopSettings
 from app.models.worker_skill import CalendarExceptionType, WorkCalendarException, WorkerSchedule
 
 SHOP_TZ = ZoneInfo(SHOP_TIMEZONE)
@@ -234,11 +235,68 @@ def _merge_time_windows(windows: list[tuple[time, time]]) -> list[tuple[time, ti
     return merged
 
 
+def shop_break() -> tuple[time, time]:
+    """The daily break (shop-local start, end) from shop settings; 12:00-13:00
+    until the Admin changes it."""
+    cache = _request_cache()
+    if cache is not None and "break" in cache:
+        return cache["break"]
+    value = (DEFAULT_BREAK_START, DEFAULT_BREAK_END)
+    if has_app_context():
+        from app.extensions import db
+
+        with db.session.no_autoflush:
+            row = db.session.get(ShopSettings, 1)
+        if row is not None and row.break_start and row.break_end and row.break_start < row.break_end:
+            value = (row.break_start, row.break_end)
+    if cache is not None:
+        cache["break"] = value
+    return value
+
+
+def _without_break(windows: list[tuple[time, time]]) -> list[tuple[time, time]]:
+    break_start, break_end = shop_break()
+    out = []
+    for s, e in windows:
+        if break_end <= s or break_start >= e:
+            out.append((s, e))
+            continue
+        if s < break_start:
+            out.append((s, break_start))
+        if break_end < e:
+            out.append((break_end, e))
+    return out
+
+
+def break_intervals_utc(start_utc: datetime, end_utc: datetime) -> list[tuple[datetime, datetime]]:
+    """The daily break on every shop date touching [start, end), in UTC."""
+    start_utc, end_utc = ensure_utc(start_utc), ensure_utc(end_utc)
+    if end_utc <= start_utc:
+        return []
+    break_start, break_end = shop_break()
+    out = []
+    cur = utc_to_shop(start_utc).date()
+    last = utc_to_shop(end_utc).date()
+    while cur <= last:
+        out.append((shop_local_to_utc(cur, break_start), shop_local_to_utc(cur, break_end)))
+        cur += timedelta(days=1)
+    return out
+
+
+def hours_excluding_break(start_utc: datetime, end_utc: datetime) -> float:
+    """Clock hours in [start, end) minus the daily break."""
+    start_utc, end_utc = ensure_utc(start_utc), ensure_utc(end_utc)
+    if end_utc <= start_utc:
+        return 0.0
+    kept = subtract_intervals([(start_utc, end_utc)], break_intervals_utc(start_utc, end_utc))
+    return sum((e - s).total_seconds() for s, e in kept) / 3600.0
+
+
 def effective_windows_for_date(on_date, schedule_by_dow, exceptions_by_date):
     """
     Working windows (shop-local times) for one calendar date, applying
-    WorkerSchedule + WorkCalendarException. Overtime that does not touch the
-    regular shift (e.g. 08–17 plus 18–20) yields two windows.
+    WorkerSchedule + WorkCalendarException, minus the daily break. Overtime that
+    does not touch the regular shift (e.g. 08–17 plus 18–20) yields separate windows.
     """
     dow = on_date.weekday()  # 0=Mon … 6=Sun
     sched = schedule_by_dow.get(dow)
@@ -255,11 +313,11 @@ def effective_windows_for_date(on_date, schedule_by_dow, exceptions_by_date):
         CalendarExceptionType.SPECIAL_WORKING_DAY,
     ):
         if exc.start_time and exc.end_time:
-            return _merge_time_windows(base + [(exc.start_time, exc.end_time)])
+            return _without_break(_merge_time_windows(base + [(exc.start_time, exc.end_time)]))
         if not base_working:
-            return [(time(8, 0), time(17, 0))]
+            return _without_break([(time(8, 0), time(17, 0))])
 
-    return _merge_time_windows(base)
+    return _without_break(_merge_time_windows(base))
 
 
 def effective_hours_for_date(on_date, schedule_by_dow, exceptions_by_date):
@@ -321,7 +379,7 @@ def clear_calendar_cache() -> None:
 
 def _clear_on_relevant_flush(session, _flush_context):
     for obj in (*session.new, *session.dirty, *session.deleted):
-        if isinstance(obj, (WorkerSchedule, WorkCalendarException)):
+        if isinstance(obj, (WorkerSchedule, WorkCalendarException, ShopSettings)):
             clear_calendar_cache()
             return
 

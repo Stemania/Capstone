@@ -89,7 +89,9 @@ def test_admin_records_clock_in_and_clock_out(client, shop):
         headers=h,
     )
     assert res.status_code == 200, res.get_json()
-    assert res.get_json()["hoursWorked"] == 9.0
+    assert res.get_json()["hoursPresent"] == 9.0
+    # The 12:00-13:00 break is not worked time.
+    assert res.get_json()["hoursWorked"] == 8.0
 
     assert AuditLog.query.filter_by(entity_type="AttendanceRecord", entity_id=rec["id"]).count() >= 2
 
@@ -177,7 +179,8 @@ def test_edit_and_delete_record(client, shop):
     )
     assert res.status_code == 200, res.get_json()
     body = res.get_json()
-    assert body["hoursWorked"] == 8.0
+    assert body["hoursPresent"] == 8.0
+    assert body["hoursWorked"] == 7.0
     assert body["note"] == "Fixed"
     assert body["updatedByName"] == "Att Admin"
 
@@ -236,6 +239,7 @@ def test_worker_history_summary(client, shop):
         "daysAbsent": 1,
         "daysLate": 1,
         "hoursPresent": 17.5,
+        "hoursWorked": 15.5,
     }
     assert [r["date"] for r in data["rows"]] == [
         day.isoformat(),
@@ -320,6 +324,7 @@ def test_day_csv_matches_screen_rows(client, shop):
     assert by_name["Ana Worker"]["Clock in"] == "08:00"
     assert by_name["Ana Worker"]["Clock out"] == "16:30"
     assert by_name["Ana Worker"]["Hours present"] == "8.50"
+    assert by_name["Ana Worker"]["Hours worked"] == "7.50"
     assert by_name["Ben Worker"]["Status"] == "Incomplete"
     assert by_name["Ben Worker"]["Late (minutes)"] == "60"
 
@@ -335,7 +340,7 @@ def test_history_csv_matches_screen_rows(client, shop):
     screen = client.get(f"/api/v1/attendance/workers/{wid}{qs}", headers=h).get_json()
     lines = _csv_rows(client.get(f"/api/v1/attendance/workers/{wid}.csv{qs}", headers=h))
     body = lines[1:]
-    assert [(r[0], r[7]) for r in body] == [
+    assert [(r[0], r[8]) for r in body] == [
         (r["date"], {"INCOMPLETE": "Incomplete", "ABSENT": "Absent"}[r["status"]])
         for r in screen["rows"]
     ]

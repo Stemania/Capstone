@@ -26,6 +26,7 @@ import {
   calendarApi,
   type CalendarAffectedJob,
   type CalendarExceptionType,
+  type ShopBreak,
   type WorkCalendarException,
 } from '../../api/calendar.api';
 import { getErrorMessage } from '../../api/client';
@@ -167,6 +168,50 @@ export default function WorkCalendarPage() {
   } | null>(null);
   const [form] = Form.useForm();
   const watchType = Form.useWatch('type', form) as CalendarExceptionType | undefined;
+  const [shopBreak, setShopBreak] = useState<ShopBreak | null>(null);
+  const [breakOpen, setBreakOpen] = useState(false);
+  const [breakSaving, setBreakSaving] = useState(false);
+  const [breakForm] = Form.useForm();
+
+  useEffect(() => {
+    calendarApi
+      .getBreak()
+      .then(({ data }) => setShopBreak(data))
+      .catch(() => setShopBreak(null));
+  }, []);
+
+  const openBreak = () => {
+    if (!isAdmin || !shopBreak) return;
+    breakForm.setFieldsValue({
+      breakStart: dayjs(shopBreak.breakStart, 'HH:mm'),
+      breakEnd: dayjs(shopBreak.breakEnd, 'HH:mm'),
+    });
+    setBreakOpen(true);
+  };
+
+  const saveBreak = async () => {
+    const values = await breakForm.validateFields();
+    setBreakSaving(true);
+    try {
+      const { data } = await calendarApi.setBreak({
+        breakStart: (values.breakStart as Dayjs).format('HH:mm'),
+        breakEnd: (values.breakEnd as Dayjs).format('HH:mm'),
+      });
+      setShopBreak(data);
+      setBreakOpen(false);
+      message.success('Break saved');
+      if (data.affectedJobs.length) {
+        setAffected({
+          changeLabel: `Break changed to ${data.breakStart}–${data.breakEnd}`,
+          jobs: data.affectedJobs,
+        });
+      }
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setBreakSaving(false);
+    }
+  };
 
   const byDate = useMemo(() => {
     const map = new Map<string, WorkCalendarException>();
@@ -403,6 +448,11 @@ export default function WorkCalendarPage() {
             <span>
               <i className="work-calendar__dot work-calendar__dot--holiday" /> Holiday
             </span>
+            {shopBreak ? (
+              <Button size="small" onClick={openBreak} disabled={!isAdmin}>
+                Break {shopBreak.breakStart}–{shopBreak.breakEnd}
+              </Button>
+            ) : null}
             <span className="work-calendar__mode">
               {isAdmin ? 'Click a day to edit' : 'View only'}
             </span>
@@ -642,6 +692,53 @@ export default function WorkCalendarPage() {
             </Button>
           )}
         </div>
+      </Modal>
+
+      <Modal
+        open={breakOpen}
+        title="Daily break"
+        onCancel={() => setBreakOpen(false)}
+        onOk={saveBreak}
+        okText="Save"
+        confirmLoading={breakSaving}
+        forceRender
+      >
+        <p style={{ marginTop: 0, color: '#64748b' }}>
+          Not working time on every working day. Scheduling, capacity, workload and completion
+          estimates leave it out; an operation can run across it.
+        </p>
+        <Form form={breakForm} layout="vertical" requiredMark={false}>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item
+                name="breakStart"
+                label="Starts"
+                rules={[{ required: true, message: 'Enter the start' }]}
+              >
+                <TimePicker format="HH:mm" minuteStep={15} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="breakEnd"
+                label="Ends"
+                dependencies={['breakStart']}
+                rules={[
+                  { required: true, message: 'Enter the end' },
+                  ({ getFieldValue }) => ({
+                    validator(_, value: Dayjs | undefined) {
+                      const start = getFieldValue('breakStart') as Dayjs | undefined;
+                      if (!value || !start || value.isAfter(start)) return Promise.resolve();
+                      return Promise.reject(new Error('Must end after it starts'));
+                    },
+                  }),
+                ]}
+              >
+                <TimePicker format="HH:mm" minuteStep={15} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Form>
       </Modal>
 
       {affected ? (

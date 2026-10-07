@@ -1,12 +1,16 @@
 export type UserRole = 'ADMIN' | 'OFFICE_STAFF' | 'PRODUCTION_WORKER';
 export type UserStatus = 'INVITED' | 'ACTIVE' | 'DISABLED';
 
+/** A 1-5 level on a machine type, or on an operation type that uses no machine (one of the two). */
 export interface WorkerSkill {
   id?: string;
   workerId?: string;
-  machineTypeId: string;
+  machineTypeId?: string | null;
   machineTypeCode?: string | null;
   machineTypeName?: string | null;
+  operationTypeId?: string | null;
+  operationTypeCode?: string | null;
+  operationTypeName?: string | null;
   proficiency: number;
   isPrimary: boolean;
 }
@@ -28,6 +32,9 @@ export interface OperationType {
   defaultMachineTypeCode?: string | null;
   defaultMachineTypeName?: string | null;
   active: boolean;
+  /** Done by an outside shop: no worker or machine, a turnaround in days. */
+  isOutsourced?: boolean;
+  defaultTurnaroundDays?: number | null;
 }
 
 export interface WorkerProfile {
@@ -107,6 +114,9 @@ export interface AttendanceRecord {
   workDate: string;
   clockIn: string;
   clockOut: string | null;
+  /** Clock in to clock out. */
+  hoursPresent: number | null;
+  /** Hours present minus the daily break. */
   hoursWorked: number | null;
   note: string | null;
   recordedByName: string | null;
@@ -154,6 +164,7 @@ export interface AttendanceHistory {
     daysAbsent: number;
     daysLate: number;
     hoursPresent: number;
+    hoursWorked: number;
   };
 }
 
@@ -499,6 +510,12 @@ export interface Operation extends MaterialWait {
   operationName: string;
   operationTypeId?: string | null;
   operationTypeCode?: string | null;
+  isOutsourced?: boolean;
+  turnaroundDays?: number | null;
+  sentOutDate?: string | null;
+  sentTo?: string | null;
+  returnedDate?: string | null;
+  expectedReturnDate?: string | null;
   machineTypeId?: string | null;
   machineTypeCode?: string | null;
   machineTypeName?: string | null;
@@ -587,6 +604,8 @@ export interface ProposedOperation {
   id?: string | null;
   sequenceNo: number;
   operationName?: string;
+  isOutsourced?: boolean;
+  turnaroundDays?: number | null;
   assignedWorkerId?: string | null;
   machineTypeId?: string | null;
   machineUnitId?: string | null;

@@ -15,7 +15,7 @@ import {
 import { SearchOutlined } from '@ant-design/icons';
 import { useSearchParams } from 'react-router-dom';
 import { jobOrdersApi } from '../../api/jobOrders.api';
-import { usersApi, workerProfileApi } from '../../api/users.api';
+import { operationTypesApi, usersApi, workerProfileApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import type { User, WorkerSchedule, WorkerSkill } from '../../types';
 import WorkerHistoryPanel from './WorkerHistoryPanel';
@@ -27,9 +27,11 @@ const DAY_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Sat
 type DetailTab = 'skills' | 'hours' | 'history';
 
 type SkillRow = {
-  machineTypeId: string;
-  machineTypeCode: string;
-  machineTypeName: string;
+  /** `machine:<id>` or `operation:<id>` */
+  key: string;
+  kind: 'machine' | 'operation';
+  targetId: string;
+  name: string;
   enabled: boolean;
   proficiency: number;
   isPrimary: boolean;
@@ -107,26 +109,40 @@ export default function WorkerSetupPage() {
     const load = async () => {
       setDetailLoading(true);
       try {
-        const [machinesRes, skillsRes, scheduleRes] = await Promise.all([
+        const [machinesRes, typesRes, skillsRes, scheduleRes] = await Promise.all([
           jobOrdersApi.machines(),
+          operationTypesApi.list(),
           workerProfileApi.getSkills(workerId).catch(() => ({ data: [] as WorkerSkill[] })),
           workerProfileApi.getSchedule(workerId).catch(() => ({ data: [] as WorkerSchedule[] })),
         ]);
-        const existing = new Map((skillsRes.data || []).map((s) => [s.machineTypeId, s]));
-        setSkillRows(
-          machinesRes.data.map((m) => {
-            const mid = m.id || '';
-            const skill = existing.get(mid);
-            return {
-              machineTypeId: mid,
-              machineTypeCode: String(m.code),
-              machineTypeName: m.name,
-              enabled: Boolean(skill),
-              proficiency: skill?.proficiency ?? 3,
-              isPrimary: skill?.isPrimary ?? false,
-            };
-          })
+        const existing = new Map(
+          (skillsRes.data || []).map((s) => [
+            s.machineTypeId ? `machine:${s.machineTypeId}` : `operation:${s.operationTypeId}`,
+            s,
+          ])
         );
+        const row = (kind: SkillRow['kind'], targetId: string, name: string): SkillRow => {
+          const key = `${kind}:${targetId}`;
+          const skill = existing.get(key);
+          return {
+            key,
+            kind,
+            targetId,
+            name,
+            enabled: Boolean(skill),
+            proficiency: skill?.proficiency ?? 3,
+            isPrimary: skill?.isPrimary ?? false,
+          };
+        };
+        // Operations without a machine carry their own skill; Checking and
+        // outsourced work do not.
+        const noMachineTypes = (typesRes.data || [])
+          .filter((t) => !t.defaultMachineTypeId && !t.isOutsourced && t.code !== 'CHECKING')
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setSkillRows([
+          ...machinesRes.data.map((m) => row('machine', m.id || '', m.name)),
+          ...noMachineTypes.map((t) => row('operation', t.id, t.name)),
+        ]);
         if (scheduleRes.data?.length === 7) {
           setSchedule([...scheduleRes.data].sort((a, b) => a.dayOfWeek - b.dayOfWeek));
         } else {
@@ -161,7 +177,7 @@ export default function WorkerSetupPage() {
       await workerProfileApi.putSkills(
         workerId,
         enabled.map((r) => ({
-          machineTypeId: r.machineTypeId,
+          ...(r.kind === 'machine' ? { machineTypeId: r.targetId } : { operationTypeId: r.targetId }),
           proficiency: r.proficiency,
           isPrimary: r.isPrimary,
         }))
@@ -197,7 +213,7 @@ export default function WorkerSetupPage() {
 
   const skillColumns = [
     {
-      title: 'Can operate',
+      title: 'Can do',
       dataIndex: 'enabled',
       width: 100,
       render: (_: unknown, row: SkillRow) => (
@@ -206,7 +222,7 @@ export default function WorkerSetupPage() {
           onChange={(checked) => {
             setSkillRows((prev) =>
               prev.map((r) =>
-                r.machineTypeId === row.machineTypeId
+                r.key === row.key
                   ? {
                       ...r,
                       enabled: checked,
@@ -220,10 +236,15 @@ export default function WorkerSetupPage() {
       ),
     },
     {
-      title: 'Machine',
-      key: 'machine',
+      title: 'Machine or operation',
+      key: 'target',
       render: (_: unknown, row: SkillRow) => (
-        <strong>{row.machineTypeName}</strong>
+        <span>
+          <strong>{row.name}</strong>{' '}
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {row.kind === 'machine' ? 'machine' : 'no machine'}
+          </Text>
+        </span>
       ),
     },
     {
@@ -239,9 +260,7 @@ export default function WorkerSetupPage() {
           onChange={(v) => {
             setSkillRows((prev) =>
               prev.map((r) =>
-                r.machineTypeId === row.machineTypeId
-                  ? { ...r, proficiency: Number(v) || 1 }
-                  : r
+                r.key === row.key ? { ...r, proficiency: Number(v) || 1 } : r
               )
             );
           }}
@@ -261,7 +280,7 @@ export default function WorkerSetupPage() {
             setSkillRows((prev) =>
               prev.map((r) => ({
                 ...r,
-                isPrimary: r.machineTypeId === row.machineTypeId ? on : on ? false : r.isPrimary,
+                isPrimary: r.key === row.key ? on : on ? false : r.isPrimary,
               }))
             );
           }}
@@ -427,13 +446,15 @@ export default function WorkerSetupPage() {
                   </div>
                   <Table
                     size="small"
-                    rowKey="machineTypeId"
+                    rowKey="key"
                     pagination={false}
                     columns={skillColumns}
                     dataSource={skillRows}
                   />
                   <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 10 }}>
-                    Only machines they can operate should be switched on. One primary skill only.
+                    Switch on the machines they can operate and the operations they can do, each at
+                    level 1 to 5. One primary skill only. Once anyone has an operation skill, only
+                    workers with it are suggested and can be assigned to that operation.
                   </Text>
                 </div>
               ) : null}

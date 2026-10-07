@@ -27,6 +27,7 @@ from app.models.operation_time import (
 )
 from app.models.sales_invoice import SalesInvoice
 from app.models.schedule_move import DelayKind, ScheduleMove
+from app.models.shop_settings import ShopSettings
 from app.models.staff_alert import StaffAlert, StaffAlertKind
 from app.models.supplier import Supplier
 from app.models.supplier_order import SupplierOrder, SupplierOrderStatus
@@ -104,4 +105,5 @@ __all__ = [
     "StaffAlertKind",
     "ScheduleMove",
     "DelayKind",
+    "ShopSettings",
 ]

@@ -39,10 +39,19 @@ class AttendanceRecord(db.Model):
     updated_by = db.relationship("User", foreign_keys=[updated_by_id])
 
     @property
-    def hours_worked(self):
+    def hours_present(self):
         if not self.clock_out:
             return None
         return round((self.clock_out - self.clock_in).total_seconds() / 3600, 2)
+
+    @property
+    def hours_worked(self):
+        """Hours present minus the daily break."""
+        if not self.clock_out:
+            return None
+        from app.services.schedule_calendar import hours_excluding_break
+
+        return round(hours_excluding_break(self.clock_in, self.clock_out), 2)
 
     def to_dict(self):
         return {
@@ -52,6 +61,7 @@ class AttendanceRecord(db.Model):
             "workDate": self.work_date.isoformat(),
             "clockIn": self.clock_in.isoformat(),
             "clockOut": self.clock_out.isoformat() if self.clock_out else None,
+            "hoursPresent": self.hours_present,
             "hoursWorked": self.hours_worked,
             "note": self.note,
             "recordedByName": self.recorded_by.full_name if self.recorded_by else None,

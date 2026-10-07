@@ -279,7 +279,8 @@ def test_existing_booking_forces_later_slot(schedule_patches, monkeypatch):
     )
     op = result["operations"][0]
     assert op["scheduled"]
-    assert op["scheduledStart"] == block_end.isoformat()
+    # Booked until 12:00, then the 12:00-13:00 break.
+    assert op["scheduledStart"] == _anchor(hour=13).isoformat()
 
 
 def test_all_machine_units_busy(schedule_patches, monkeypatch):
@@ -484,7 +485,8 @@ def test_place_unbroken_moves_past_a_booking_instead_of_splitting_around_it():
 
     start, finish, _ = place_unbroken(windows, busy, timedelta(hours=3), anchor, end)
 
-    assert (start, finish) == (_mon(11), _mon(14))
+    # 11:00-12:00, the break, then 13:00-15:00.
+    assert (start, finish) == (_mon(11), _mon(15))
     # Two hours fit before the booking, so place_duration alone would straddle it.
     split_start, split_end, _ = place_duration(
         subtract_intervals(windows, busy), timedelta(hours=3), anchor, end
@@ -525,7 +527,7 @@ def test_proposal_never_straddles_another_jobs_machine_booking(schedule_patches,
     )
     op = result["operations"][0]
     assert datetime.fromisoformat(op["scheduledStart"]) == _mon(11)
-    assert datetime.fromisoformat(op["scheduledEnd"]) == _mon(14)
+    assert datetime.fromisoformat(op["scheduledEnd"]) == _mon(15)
 
 
 def test_sequential_operations_chain(schedule_patches):
@@ -600,7 +602,7 @@ def test_completed_predecessor_after_anchor_blocks_next(schedule_patches):
 def test_keeps_assigned_worker_and_moves_time(schedule_patches, monkeypatch):
     """
     Assigned worker busy until noon while Lathe #2 is free — the proposal keeps
-    the worker and starts at noon instead of swapping in someone else.
+    the worker and starts after the break instead of swapping in someone else.
     """
     f = schedule_patches
     busy_worker = "worker-busy"
@@ -629,7 +631,8 @@ def test_keeps_assigned_worker_and_moves_time(schedule_patches, monkeypatch):
     op = result["operations"][0]
     assert op["scheduled"] is True
     assert op["assignedWorkerId"] == busy_worker
-    assert op["scheduledStart"] == block_end.isoformat()
+    # Busy until 12:00, then the 12:00-13:00 break.
+    assert op["scheduledStart"] == _anchor(hour=13).isoformat()
 
 
 def test_assigned_worker_without_room_is_flagged(schedule_patches, monkeypatch):
@@ -696,7 +699,8 @@ def test_pinned_unit_keeps_assigned_worker(schedule_patches, monkeypatch):
     assert op["scheduled"] is True
     assert op["machineUnitId"] == "u2"
     assert op["assignedWorkerId"] == busy_worker
-    assert op["scheduledStart"] == block_end.isoformat()
+    # Busy until 12:00, then the 12:00-13:00 break.
+    assert op["scheduledStart"] == _anchor(hour=13).isoformat()
 
 
 def test_no_machine_op_keeps_busy_assigned_worker(schedule_patches, monkeypatch):
@@ -725,7 +729,8 @@ def test_no_machine_op_keeps_busy_assigned_worker(schedule_patches, monkeypatch)
     assert op["scheduled"] is True
     assert op["machineUnitId"] is None
     assert op["assignedWorkerId"] == busy_worker
-    assert op["scheduledStart"] == block_end.isoformat()
+    # Busy until 12:00, then the 12:00-13:00 break.
+    assert op["scheduledStart"] == _anchor(hour=13).isoformat()
 
 
 def test_first_operation_not_before_material_date(schedule_patches):
@@ -924,12 +929,12 @@ def test_gap_between_closing_and_overtime_is_not_working(monkeypatch):
     op = _single_op_proposal(shop_local_to_utc(monday, time(8, 0)), 10)["operations"][0]
 
     finish = datetime.fromisoformat(op["scheduledEnd"]).astimezone(SHOP)
-    # 08:00–17:00 (9h), 17:00–18:00 skipped, 18:00–19:00 (1h).
+    # 08:00–17:00 less the break (8h), 17:00–18:00 skipped, 18:00–20:00 (2h).
     assert finish.date() == monday
-    assert (finish.hour, finish.minute) == (19, 0)
+    assert (finish.hour, finish.minute) == (20, 0)
     starts = [datetime.fromisoformat(s["start"]).astimezone(SHOP) for s in op["segments"]]
     ends = [datetime.fromisoformat(s["end"]).astimezone(SHOP) for s in op["segments"]]
-    assert [(s.hour, e.hour) for s, e in zip(starts, ends)] == [(8, 17), (18, 19)]
+    assert [(s.hour, e.hour) for s, e in zip(starts, ends)] == [(8, 12), (13, 17), (18, 20)]
 
 
 def test_repropose_never_moves_in_progress_operations(monkeypatch):

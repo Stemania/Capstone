@@ -120,6 +120,37 @@ def complete_operation(operation_id):
     return jsonify(operation.to_dict())
 
 
+@operations_bp.route("/<operation_id>/send-out", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def send_out_operation(operation_id):
+    operation = JobOperation.query.get(operation_id)
+    if not operation:
+        raise AppError("Operation not found", "NOT_FOUND", 404)
+    data = request.get_json() or {}
+    operation = op_service.send_out_operation(
+        operation,
+        get_current_user_role(),
+        data.get("sentOutDate"),
+        data.get("sentTo"),
+    )
+    estimate_service.after_operation_change(operation)
+    return jsonify(operation.to_dict())
+
+
+@operations_bp.route("/<operation_id>/return", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def return_operation(operation_id):
+    operation = JobOperation.query.get(operation_id)
+    if not operation:
+        raise AppError("Operation not found", "NOT_FOUND", 404)
+    data = request.get_json() or {}
+    operation = op_service.return_operation(operation, data.get("returnedDate"))
+    estimate_service.after_operation_change(operation)
+    return jsonify(operation.to_dict())
+
+
 @operations_bp.route("/<operation_id>/rework", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)

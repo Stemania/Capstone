@@ -269,6 +269,9 @@ def worker_history(worker_id, date_from=None, date_to=None):
             "daysAbsent": sum(1 for r in rows if r["status"] == "ABSENT"),
             "daysLate": sum(1 for r in present if r["lateMinutes"]),
             "hoursPresent": round(
+                sum(r["record"]["hoursPresent"] or 0 for r in present), 2
+            ),
+            "hoursWorked": round(
                 sum(r["record"]["hoursWorked"] or 0 for r in present), 2
             ),
         },
@@ -293,6 +296,7 @@ CSV_HEADERS = [
     "Clock in",
     "Clock out",
     "Hours present",
+    "Hours worked",
     "Status",
     "Late (minutes)",
     "Note",
@@ -315,6 +319,7 @@ def rows_to_csv(rows) -> str:
     writer.writerow(CSV_HEADERS)
     for r in rows:
         rec = r["record"] or {}
+        present = rec.get("hoursPresent")
         hours = rec.get("hoursWorked")
         writer.writerow(
             [
@@ -324,6 +329,7 @@ def rows_to_csv(rows) -> str:
                 r["scheduledEnd"] or "",
                 _local_hm(rec.get("clockIn")),
                 _local_hm(rec.get("clockOut")),
+                "" if present is None else f"{present:.2f}",
                 "" if hours is None else f"{hours:.2f}",
                 STATUS_LABELS.get(r["status"], r["status"]),
                 r["lateMinutes"] or "",

@@ -327,11 +327,14 @@ def fetch_efficiency_pairs(worker_id, operation_type_id):
         if len(type_pairs) >= COLD_START_MIN_SAMPLES:
             return type_pairs
 
+    from app.services.analytics_service import not_outsourced_filter
+
     all_ops = JobOperation.query.filter(
         JobOperation.assigned_worker_id == worker_id,
         JobOperation.status == OperationStatus.COMPLETED,
         JobOperation.actual_worked_hours.isnot(None),
         JobOperation.estimated_hours.isnot(None),
+        not_outsourced_filter(),
     ).all()
     all_pairs = _pairs_from_ops(all_ops)
     if len(all_pairs) >= COLD_START_MIN_SAMPLES:

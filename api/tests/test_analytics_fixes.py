@@ -245,10 +245,11 @@ def test_weekly_trend_groups_by_manila_week_with_jobs_finished(shop):
 
 def test_ran_over_target_counts_hours_beyond_target_and_skips_redo():
     ops = [
-        SimpleNamespace(rework_of_operation_id=None, estimated_hours=4, actual_worked_hours=6.5),
-        SimpleNamespace(rework_of_operation_id=None, estimated_hours=3, actual_worked_hours=2),
-        SimpleNamespace(rework_of_operation_id=None, estimated_hours=None, actual_worked_hours=9),
-        SimpleNamespace(rework_of_operation_id="orig", estimated_hours=1, actual_worked_hours=5),
+        SimpleNamespace(rework_of_operation_id=None, estimated_hours=4, actual_worked_hours=6.5, is_outsourced=False),
+        SimpleNamespace(rework_of_operation_id=None, estimated_hours=3, actual_worked_hours=2, is_outsourced=False),
+        SimpleNamespace(rework_of_operation_id=None, estimated_hours=None, actual_worked_hours=9, is_outsourced=False),
+        SimpleNamespace(rework_of_operation_id="orig", estimated_hours=1, actual_worked_hours=5, is_outsourced=False),
+        SimpleNamespace(rework_of_operation_id=None, estimated_hours=1, actual_worked_hours=4, is_outsourced=True),
     ]
     assert ran_over_target(ops) == (pytest.approx(2.5), 1)
 

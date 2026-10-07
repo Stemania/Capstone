@@ -130,6 +130,23 @@ def delete_exception(exc_id):
     return jsonify({"message": "Deleted"})
 
 
+@calendar_bp.route("/break", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def get_break():
+    return jsonify(wp_service.get_shop_settings().to_dict())
+
+
+@calendar_bp.route("/break", methods=["PUT"])
+@jwt_required()
+@require_roles(UserRole.ADMIN)
+def put_break():
+    from flask_jwt_extended import get_jwt_identity
+
+    row, affected = wp_service.update_shop_break(request.get_json() or {}, get_jwt_identity())
+    return jsonify({**row.to_dict(), "affectedJobs": affected})
+
+
 operation_types_bp = Blueprint("operation_types", __name__)
 
 

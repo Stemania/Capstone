@@ -130,7 +130,11 @@ export default function ScheduleProposalPanel({
                   #{op.sequenceNo} {op.operationName}
                 </Text>
                 <div className="jo-plan__schedule-tags">
-                  {op.estimatedHoursDefaulted ? (
+                  {op.isOutsourced ? (
+                    <Tag color="purple" style={{ margin: 0, fontSize: 11 }}>
+                      Outsourced · {op.turnaroundDays ?? '?'} day{op.turnaroundDays === 1 ? '' : 's'}
+                    </Tag>
+                  ) : op.estimatedHoursDefaulted ? (
                     <Tag color="default" style={{ margin: 0, fontSize: 11 }}>
                       1.0h assumed
                     </Tag>
@@ -187,7 +191,7 @@ export default function ScheduleProposalPanel({
                   />
                 ) : (
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    No machine
+                    {op.isOutsourced ? 'Outside shop' : 'No machine'}
                   </Text>
                 )}
               </div>
@@ -212,7 +216,13 @@ export default function ScheduleProposalPanel({
                     />
                   </div>
                   <div className="jo-plan__schedule-field" data-label="End">
-                    <Tooltip title="Worked out from Start and the target hours, across working hours, overtime and holidays. Change the target hours in the Operations step.">
+                    <Tooltip
+                      title={
+                        op.isOutsourced
+                          ? 'Start plus the turnaround in calendar days. The next operation waits until it is returned.'
+                          : 'Worked out from Start and the target hours, across working hours, overtime and holidays. Change the target hours in the Operations step.'
+                      }
+                    >
                       <Text style={{ fontSize: 12, color: NAVY }}>
                         {op.scheduledEnd ? isoToShopDayjs(op.scheduledEnd)?.format('MMM D, YYYY HH:mm') : '—'}
                       </Text>

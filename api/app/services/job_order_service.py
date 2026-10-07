@@ -120,8 +120,26 @@ def _resolve_machine_type_id(op_data):
     return None
 
 
+def _assert_worker_has_operation_skill(worker, operation_type_id=None, operation_name=None):
+    """An operation without a machine refuses a worker who lacks its skill, but
+    only once at least one worker has that skill recorded."""
+    from app.services.worker_profile_service import operation_skill_holders
+
+    ot, holders = operation_skill_holders(
+        operation_type_id=operation_type_id, operation_name=operation_name
+    )
+    if holders is None or worker.id in holders:
+        return
+    raise AppError(
+        f"{worker.full_name} has no {ot.name} skill. "
+        "Add the skill under Worker setup, or assign a qualified worker.",
+        "WORKER_NOT_QUALIFIED",
+        400,
+    )
+
+
 def _assert_worker_has_machine_skill(worker, machine_type_id):
-    """Operations with no machine type (e.g. Checking) need no machine skill."""
+    """Operations with no machine type are checked by _assert_worker_has_operation_skill."""
     if not machine_type_id:
         return
     from app.models.worker_skill import WorkerSkill
@@ -168,6 +186,8 @@ def _validate_worker(
         operation_name=operation_name,
     )
     _assert_worker_has_machine_skill(worker, machine_type_id)
+    if not machine_type_id:
+        _assert_worker_has_operation_skill(worker, operation_type_id, operation_name)
     from app.services.worker_availability import assert_worker_available
 
     assert_worker_available(
@@ -221,7 +241,7 @@ _PART_CONDITION_RANK = {
 }
 
 # Completed ops that never change the stage.
-_STAGE_NEUTRAL_OP_CODES = frozenset({"CHECKING"})
+_STAGE_NEUTRAL_OP_CODES = frozenset({"CHECKING", "LAYOUT"})
 
 _OP_CODE_STAGE = {
     "CUTTING": PartCondition.CUT,
@@ -230,6 +250,7 @@ _OP_CODE_STAGE = {
     "FORMING": PartCondition.FORMED,
     "WELDING": PartCondition.ASSEMBLED,
     "ASSEMBLY": PartCondition.ASSEMBLED,
+    "FITTING": PartCondition.ASSEMBLED,
     "HEAT_TREATMENT": PartCondition.HEAT_TREATED,
     "FINISHING": PartCondition.FINISHED,
 }
@@ -253,7 +274,7 @@ _MACHINING_OP_CODES = frozenset(
 def _part_condition_from_op_code(code: str | None) -> PartCondition | None:
     """Stage reached by completing an op of this code.
 
-    None means the op does not change the stage (CHECKING). Any other op with
+    None means the op does not change the stage (CHECKING, LAYOUT). Any other op with
     no specific stage (e.g. custom names) is generic WORK_IN_PROCESS.
     """
     if code in _STAGE_NEUTRAL_OP_CODES:
@@ -379,6 +400,18 @@ def get_job_order(job_id, user_id, user_role):
     return job
 
 
+def _parse_turnaround(value):
+    if value is None or value == "":
+        return None
+    try:
+        days = int(value)
+    except (TypeError, ValueError):
+        raise AppError("turnaroundDays must be a whole number of days", "VALIDATION_ERROR", 400)
+    if days < 1 or days > 90:
+        raise AppError("turnaroundDays must be between 1 and 90", "VALIDATION_ERROR", 400)
+    return days
+
+
 def _build_operation(job_id, op_data, seq_fallback):
     from app.models.worker_skill import OperationType
 
@@ -396,6 +429,15 @@ def _build_operation(job_id, op_data, seq_fallback):
     machine_type_id = _resolve_machine_type_id(op_data)
     if not machine_type_id and op_type and op_type.default_machine_type_id:
         machine_type_id = op_type.default_machine_type_id
+    outsourced = bool(op_type and op_type.is_outsourced)
+    turnaround_days = None
+    if outsourced:
+        # Done outside the shop: no worker, machine or target hours.
+        worker_id = None
+        machine_type_id = None
+        turnaround_days = _parse_turnaround(op_data.get("turnaroundDays"))
+        if turnaround_days is None:
+            turnaround_days = op_type.default_turnaround_days
     if worker_id:
         # Clashes are checked on working periods when the schedule is confirmed.
         _validate_worker(
@@ -416,9 +458,12 @@ def _build_operation(job_id, op_data, seq_fallback):
         "operation_name": name,
         "operation_type_id": op_type.id if op_type else op_type_id,
         "machine_type_id": machine_type_id,
-        "machine_unit_id": op_data.get("machineUnitId"),
+        "machine_unit_id": None if outsourced else op_data.get("machineUnitId"),
         "assigned_worker_id": worker_id,
-        "estimated_hours": _parse_decimal(op_data.get("estimatedHours"), "estimatedHours"),
+        "estimated_hours": (
+            None if outsourced else _parse_decimal(op_data.get("estimatedHours"), "estimatedHours")
+        ),
+        "turnaround_days": turnaround_days,
         "scheduled_start": _parse_datetime(start),
         "scheduled_end": _parse_datetime(end),
         "status": status,
@@ -738,6 +783,10 @@ def _release_missing_items(job: JobOrder) -> list[str]:
     for op in ops:
         label = op.operation_name or f"Operation {op.sequence_no}"
         seq = op.sequence_no
+        if op.is_outsourced:
+            if not op.turnaround_days:
+                missing.append(f"#{seq} {label}: set the turnaround in days")
+            continue
         if not op.assigned_worker_id:
             missing.append(f"#{seq} {label}: assign a worker")
         if op.estimated_hours is None:
@@ -820,6 +869,10 @@ def _derive_scheduled_ends(job: JobOrder) -> None:
 
     for op in job.operations:
         if op.status in _STARTED_OPERATION_STATUSES or op.actual_start is not None:
+            continue
+        if op.is_outsourced:
+            if op.scheduled_start and op.turnaround_days:
+                op.scheduled_end = op.scheduled_start + timedelta(days=int(op.turnaround_days))
             continue
         if not op.scheduled_start or not op.assigned_worker_id:
             continue
@@ -1062,6 +1115,12 @@ def delete_job_order(job):
 
 
 def assign_operation_worker(operation, worker_id):
+    if operation.is_outsourced:
+        raise AppError(
+            "This operation is done outside the shop and has no worker.",
+            "OPERATION_OUTSOURCED",
+            409,
+        )
     if operation.status in _STARTED_OPERATION_STATUSES or operation.actual_start is not None:
         raise AppError(
             "This operation has already started, so its worker can't be changed.",
@@ -1158,6 +1217,11 @@ def apply_released_schedule(job, operations):
                         400,
                     )
             label = op.operation_name or f"Operation {op.sequence_no}"
+            if op.is_outsourced:
+                op.scheduled_start = start
+                if op.status == OperationStatus.PENDING:
+                    op.status = OperationStatus.SCHEDULED
+                continue
             worker_id = data.get("assignedWorkerId") or op.assigned_worker_id
             if not worker_id:
                 raise AppError(

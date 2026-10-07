@@ -179,13 +179,18 @@ def _propose(client, shop, job, body):
 def test_eight_hours_from_1600_end_next_working_day_not_midnight(shop):
     start, end, segments = place_from_start(shop["worker"].id, _at(MON, 16), 8)
     assert start == _at(MON, 16)
-    assert end == _at(TUE, 15)
-    assert segments == [(_at(MON, 16), _at(MON, 17)), (_at(TUE, 8), _at(TUE, 15))]
+    # Mon 16-17, Tue 08-12, the break, Tue 13-16.
+    assert end == _at(TUE, 16)
+    assert segments == [
+        (_at(MON, 16), _at(MON, 17)),
+        (_at(TUE, 8), _at(TUE, 12)),
+        (_at(TUE, 13), _at(TUE, 16)),
+    ]
 
 
 def test_end_skips_sundays_and_holidays_and_uses_overtime(shop):
     _start, end, _ = place_from_start(shop["worker"].id, _at(SAT, 16), 8)
-    assert end == _at(NEXT_MON, 15)
+    assert end == _at(NEXT_MON, 16)
 
     db.session.add(WorkCalendarException(date=TUE, type=CalendarExceptionType.HOLIDAY_NO_WORK))
     db.session.add(
@@ -194,8 +199,8 @@ def test_end_skips_sundays_and_holidays_and_uses_overtime(shop):
         )
     )
     db.session.flush()
-    _start, end, _ = place_from_start(shop["worker"].id, _at(MON, 16), 12)
-    # Mon 16-17 (1h), Tue holiday, Wed 08-19 with overtime (11h).
+    _start, end, _ = place_from_start(shop["worker"].id, _at(MON, 16), 11)
+    # Mon 16-17 (1h), Tue holiday, Wed 08-19 with overtime less the break (10h).
     assert end == _at(WED, 19)
 
 
@@ -208,7 +213,7 @@ def test_start_edit_in_proposal_ends_after_target_hours(client, shop):
     }
     op = _propose(client, shop, job, body)["operations"][0]
     assert _parse(op["scheduledStart"]) == _at(MON, 16)
-    assert _parse(op["scheduledEnd"]) == _at(TUE, 15)
+    assert _parse(op["scheduledEnd"]) == _at(TUE, 16)
 
 
 def test_start_typed_outside_working_hours_moves_to_next_working_time(client, shop):
@@ -230,7 +235,7 @@ def test_confirm_ignores_a_typed_end(client, shop):
     payload["scheduledEnd"] = _iso(TUE, 0)
     res = _confirm(client, shop, job, [payload])
     assert res.status_code == 200, res.get_json()
-    assert _parse(res.get_json()["operations"][0]["scheduledEnd"]) == _at(TUE, 15)
+    assert _parse(res.get_json()["operations"][0]["scheduledEnd"]) == _at(TUE, 16)
 
 
 # ---- Moving a Start re-places the following operations ---------------------
@@ -287,7 +292,8 @@ def test_following_operation_keeps_its_machine_unit_and_avoids_other_jobs(client
     )
     second = result["operations"][1]
     assert second["machineUnitId"] == shop["unit"].id
-    assert _parse(second["scheduledStart"]) == _at(TUE, 12)
+    # The unit is booked until 12:00, then the break.
+    assert _parse(second["scheduledStart"]) == _at(TUE, 13)
 
 
 # ---- Blocking checks refuse confirmation -----------------------------------

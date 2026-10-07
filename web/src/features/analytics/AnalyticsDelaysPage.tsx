@@ -43,6 +43,7 @@ const CAUSE_TYPE_LABEL: Record<string, string> = {
   DOWNTIME: 'Downtime',
   REWORK: 'Rework',
   MATERIAL: 'Material',
+  OUTSOURCED: 'Outsourced',
 };
 
 const fmtShop = (iso: string) => dayjs(iso).tz(SHOP_TZ).format('MMM D, HH:mm');

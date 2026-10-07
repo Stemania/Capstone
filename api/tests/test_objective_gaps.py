@@ -324,7 +324,11 @@ def test_confirm_refused_when_operations_have_no_window(client, shop):
 
 def test_confirm_allowed_when_every_operation_is_scheduled(client, shop):
     job = _job(shop, status=JobOrderStatus.DRAFT)
-    _op(job, 1, "Turning", worker=shop["worker"], machine=shop["lathe"])
+    op = _op(job, 1, "Turning", worker=shop["worker"], machine=shop["lathe"])
+    # T0 + 3h is 12:00 shop time, inside the daily break; start after it.
+    op.scheduled_start = T0 + timedelta(hours=4)
+    op.scheduled_end = T0 + timedelta(hours=6)
+    db.session.commit()
     res = client.post(
         f"/api/v1/job-orders/{job.id}/schedule/confirm", headers=_headers(shop["admin"])
     )

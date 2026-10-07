@@ -29,6 +29,10 @@ export const operationsApi = {
     }),
   assign: (id: string, assignedWorkerId: string) =>
     apiClient.patch<Operation>(`/operations/${id}/assign`, { assignedWorkerId }),
+  sendOut: (id: string, sentOutDate: string, sentTo: string) =>
+    apiClient.post<Operation>(`/operations/${id}/send-out`, { sentOutDate, sentTo }),
+  markReturned: (id: string, returnedDate: string) =>
+    apiClient.post<Operation>(`/operations/${id}/return`, { returnedDate }),
   machineUnitStatus: (includeInactive = false) =>
     apiClient.get<MachineUnitStatus[]>('/operations/machine-units/status', {
       params: includeInactive ? { includeInactive: true } : undefined,

@@ -26,6 +26,8 @@ from app.services.schedule_calendar import (
 from app.services.worker_availability import _parse_dt, get_busy_workers
 from app.services.worker_profile_service import (
     is_checking_operation,
+    is_skill_tracked_type,
+    operation_skill_holders,
     query_assignable_workers,
 )
 
@@ -154,12 +156,24 @@ def suggest_workers(
         for skill in WorkerSkill.query.filter_by(machine_type_id=target_machine_id).all():
             skill_by_worker[skill.worker_id] = skill
 
+    # No machine: the operation type's own skill filters and scores the same
+    # way, once anyone has it recorded.
+    op_type, op_skill_holders = operation_skill_holders(
+        machine_type_id=target_machine_id,
+        operation_type_id=resolved_op_type_id,
+        operation_name=operation_name,
+    )
+    skill_required = bool(target_machine_id) or op_skill_holders is not None
+    if op_skill_holders is not None:
+        skill_by_worker = op_skill_holders
+        machine_label = op_type.name
+
     workers = query_assignable_workers(
         include_admin=is_checking_operation(resolved_op_type_id, operation_name)
         and not target_machine_id
     ).all()
 
-    if target_machine_id:
+    if skill_required:
         workers = [w for w in workers if w.id in skill_by_worker]
 
     busy_workers = get_busy_workers(
@@ -179,8 +193,8 @@ def suggest_workers(
 
     suggestions = []
     for worker in workers:
-        skill = skill_by_worker.get(worker.id) if target_machine_id else None
-        if target_machine_id:
+        skill = skill_by_worker.get(worker.id) if skill_required else None
+        if skill_required:
             skill_score, skill_reason, skill_default = score_skill(
                 proficiency=skill.proficiency if skill else None,
                 is_primary=bool(skill and skill.is_primary),
@@ -188,7 +202,11 @@ def suggest_workers(
         else:
             skill_score, skill_reason, skill_default = (
                 1.0,
-                "no machine skill required",
+                (
+                    f"no {op_type.name} skill recorded yet"
+                    if is_skill_tracked_type(op_type)
+                    else "no machine skill required"
+                ),
                 False,
             )
 
@@ -216,9 +234,9 @@ def suggest_workers(
         reason = build_reason(ordered, machine_label=machine_label, unqualified=False)
 
         skills_codes = [
-            s.machine_type.code
+            s.machine_type.code if s.machine_type else s.operation_type.code
             for s in (worker.skills or [])
-            if s.machine_type
+            if s.machine_type or s.operation_type
         ]
         suggestions.append(
             {
@@ -230,7 +248,9 @@ def suggest_workers(
                 "qualified": True,
                 "components": components,
                 "reason": reason,
-                "matchedSkills": [mt.code] if mt and skill else [],
+                "matchedSkills": (
+                    [mt.code] if mt and skill else [op_type.code] if op_skill_holders and skill else []
+                ),
                 "proficiency": skill.proficiency if skill else None,
                 "available": True,
             }

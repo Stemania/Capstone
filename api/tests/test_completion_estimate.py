@@ -124,8 +124,8 @@ def test_ratio_above_one_pushes_predicted_finish_later(shop):
 
     estimate = est.predict_job(job, now=_at(MONDAY, 8))
 
-    # Target alone would finish at 12:00; at 1.5x it takes 6 hours.
-    assert datetime.fromisoformat(estimate["predictedFinish"]) == _at(MONDAY, 14)
+    # Target alone would finish at 12:00; at 1.5x it takes 6 hours, around the break.
+    assert datetime.fromisoformat(estimate["predictedFinish"]) == _at(MONDAY, 15)
     assert estimate["operations"][0]["ratio"] == pytest.approx(1.5)
     assert estimate["notEnoughHistoryNote"] is None
 
@@ -163,9 +163,12 @@ def test_in_progress_operation_takes_what_is_left_after_hours_worked(shop):
     first, second = estimate["operations"]
     assert first["hoursWorked"] == pytest.approx(2)
     assert first["predictedHoursLeft"] == pytest.approx(4)  # 6 predicted - 2 worked
-    assert datetime.fromisoformat(first["predictedEnd"]) == _at(MONDAY, 15)
-    # Facing follows in operation order and ends with the working day.
-    assert datetime.fromisoformat(estimate["predictedFinish"]) == _at(MONDAY, 17)
+    # 11:00-12:00, the break, 13:00-16:00.
+    assert datetime.fromisoformat(first["predictedEnd"]) == _at(MONDAY, 16)
+    # Facing follows in operation order: 16:00-17:00, then 08:00-09:00 next day.
+    assert datetime.fromisoformat(estimate["predictedFinish"]) == _at(
+        MONDAY + timedelta(days=1), 9
+    )
 
 
 def test_at_risk_change_sends_one_notification(shop):
@@ -185,7 +188,7 @@ def test_at_risk_change_sends_one_notification(shop):
     alerts = StaffAlert.query.filter_by(kind=StaffAlertKind.JOB_AT_RISK, job_order_id=job.id).all()
     assert sorted(a.recipient_id for a in alerts) == sorted([shop["admin"].id, shop["office"].id])
     assert "required Aug 10, 2026" in alerts[0].message
-    assert "Aug 12, 2026 14:00" in alerts[0].message  # 24h over 9h days from Monday 08:00
+    assert "Aug 12, 2026 17:00" in alerts[0].message  # 24h over 8h days from Monday 08:00
 
     # Still at risk: no second alert.
     assert est.sync_at_risk_alert(job, now) is False

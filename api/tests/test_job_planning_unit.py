@@ -65,12 +65,22 @@ def test_release_missing_lists_worker_and_hours():
                 operation_name="Milling",
                 assigned_worker_id=None,
                 estimated_hours=None,
+                is_outsourced=False,
             ),
             SimpleNamespace(
                 sequence_no=2,
                 operation_name="Turning",
                 assigned_worker_id="w1",
                 estimated_hours=Decimal("2"),
+                is_outsourced=False,
+            ),
+            SimpleNamespace(
+                sequence_no=3,
+                operation_name="Heat Treatment",
+                assigned_worker_id=None,
+                estimated_hours=None,
+                is_outsourced=True,
+                turnaround_days=None,
             ),
         ]
     )
@@ -79,6 +89,8 @@ def test_release_missing_lists_worker_and_hours():
     assert any("target hours" in m.lower() for m in missing)
     assert any("#1" in m for m in missing)
     assert not any("#2" in m and "worker" in m.lower() for m in missing)
+    # Outsourced work needs a turnaround, never a worker or target hours.
+    assert [m for m in missing if "#3" in m] == ["#3 Heat Treatment: set the turnaround in days"]
 
 
 def test_migration_012_maps_legacy_statuses():

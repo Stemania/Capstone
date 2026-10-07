@@ -64,6 +64,8 @@ def _seed_operation_types(machines):
             name=item["name"],
             default_machine_type_id=mid,
             active=True,
+            is_outsourced=bool(item.get("outsourced")),
+            default_turnaround_days=item.get("turnaround_days"),
         )
         db.session.add(ot)
         by_code[item["code"]] = ot

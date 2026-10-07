@@ -330,6 +330,12 @@ export default function AttendancePage() {
       title: 'Hours present',
       key: 'hours',
       width: 120,
+      render: (_: unknown, r) => fmtHours(r.record?.hoursPresent),
+    },
+    {
+      title: 'Hours worked',
+      key: 'worked',
+      width: 120,
       render: (_: unknown, r) => fmtHours(r.record?.hoursWorked),
     },
     { title: 'Status', key: 'status', width: 220, render: (_: unknown, r) => <StatusCell row={r} /> },
@@ -458,7 +464,7 @@ export default function AttendancePage() {
             dataSource={sheet?.rows || []}
             columns={dayColumns}
             pagination={false}
-            scroll={{ x: 960 }}
+            scroll={{ x: 1080 }}
           />
         </>
       ) : !historyWorker ? (
@@ -472,6 +478,7 @@ export default function AttendancePage() {
             <SummaryTile label="Days absent" value={history?.summary.daysAbsent ?? 0} color="#7A1528" />
             <SummaryTile label="Days late" value={history?.summary.daysLate ?? 0} color="#d97706" />
             <SummaryTile label="Hours present" value={fmtHours(history?.summary.hoursPresent ?? 0)} />
+            <SummaryTile label="Hours worked" value={fmtHours(history?.summary.hoursWorked ?? 0)} />
           </div>
           <Table
             className="std-list-table"
@@ -480,7 +487,7 @@ export default function AttendancePage() {
             dataSource={history?.rows || []}
             columns={historyColumns}
             pagination={{ pageSize: 31 }}
-            scroll={{ x: 1000 }}
+            scroll={{ x: 1120 }}
           />
         </>
       )}

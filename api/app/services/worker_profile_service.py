@@ -52,6 +52,46 @@ def is_checking_operation(operation_type_id=None, operation_name=None) -> bool:
     return name == "checking"
 
 
+def resolve_operation_type(operation_type_id=None, operation_name=None):
+    if operation_type_id:
+        ot = db.session.get(OperationType, operation_type_id)
+        if ot:
+            return ot
+    if operation_name:
+        name = str(operation_name).strip()
+        return OperationType.query.filter(
+            (OperationType.name.ilike(name))
+            | (OperationType.code.ilike(name.replace(" ", "_")))
+        ).first()
+    return None
+
+
+def is_skill_tracked_type(ot) -> bool:
+    """Operation types that use no machine carry their own worker skill.
+    Checking (Admin's work) and outsourced types are left out."""
+    return bool(
+        ot
+        and not ot.default_machine_type_id
+        and not ot.is_outsourced
+        and (ot.code or "").upper() != "CHECKING"
+    )
+
+
+def operation_skill_holders(machine_type_id=None, operation_type_id=None, operation_name=None):
+    """(operation type, {worker_id: WorkerSkill}) when an operation without a
+    machine is skill-tracked and at least one worker has that skill recorded;
+    otherwise (operation type or None, None) and every worker qualifies."""
+    if machine_type_id:
+        return None, None
+    ot = resolve_operation_type(operation_type_id, operation_name)
+    if not is_skill_tracked_type(ot):
+        return ot, None
+    rows = WorkerSkill.query.filter_by(operation_type_id=ot.id).all()
+    if not rows:
+        return ot, None
+    return ot, {s.worker_id: s for s in rows}
+
+
 def is_assignable_worker(user: User | None) -> bool:
     """True if this user can be assigned to a job operation."""
     if not user or not user.active:
@@ -135,8 +175,9 @@ def list_worker_skills(worker_id):
 def replace_worker_skills(worker_id, skills_payload):
     """
     Bulk replace skills.
-    skills_payload: [{machineTypeId, proficiency, isPrimary}, ...]
-    Empty list clears all skills (worker cannot operate any machine).
+    skills_payload: [{machineTypeId | operationTypeId, proficiency, isPrimary}, ...]
+    operationTypeId is for operation types that use no machine (Layout, Welding...).
+    Empty list clears all skills.
     """
     worker = get_worker_or_404(worker_id)
     ensure_worker_profile(worker)
@@ -149,14 +190,30 @@ def replace_worker_skills(worker_id, skills_payload):
     primary_set = False
     for item in skills_payload:
         mid = item.get("machineTypeId")
-        if not mid:
-            raise AppError("machineTypeId required", "VALIDATION_ERROR", 400)
-        if mid in seen:
-            raise AppError("Duplicate machineTypeId", "VALIDATION_ERROR", 400)
-        seen.add(mid)
-        mt = MachineType.query.get(mid)
-        if not mt:
-            raise AppError("Invalid machineTypeId", "VALIDATION_ERROR", 400)
+        oid = item.get("operationTypeId")
+        if bool(mid) == bool(oid):
+            raise AppError(
+                "Each skill needs a machine type or an operation type", "VALIDATION_ERROR", 400
+            )
+        key = ("machine", mid) if mid else ("operation", oid)
+        if key in seen:
+            raise AppError("Duplicate skill", "VALIDATION_ERROR", 400)
+        seen.add(key)
+        if mid:
+            mt = MachineType.query.get(mid)
+            if not mt:
+                raise AppError("Invalid machineTypeId", "VALIDATION_ERROR", 400)
+        else:
+            ot = db.session.get(OperationType, oid)
+            if not ot:
+                raise AppError("Invalid operationTypeId", "VALIDATION_ERROR", 400)
+            if not is_skill_tracked_type(ot):
+                raise AppError(
+                    f"{ot.name} does not take a worker skill "
+                    "(it uses a machine, is outsourced, or is Checking)",
+                    "VALIDATION_ERROR",
+                    400,
+                )
         try:
             proficiency = int(item.get("proficiency", 3))
         except (TypeError, ValueError):
@@ -171,7 +228,8 @@ def replace_worker_skills(worker_id, skills_payload):
         db.session.add(
             WorkerSkill(
                 worker_id=worker_id,
-                machine_type_id=mid,
+                machine_type_id=mid or None,
+                operation_type_id=oid or None,
                 proficiency=proficiency,
                 is_primary=is_primary,
             )
@@ -529,6 +587,50 @@ def jobs_affected_by_calendar_change(from_s, to_s=None):
         "to": d1.isoformat(),
         "jobs": list(jobs.values()),
     }
+
+
+def get_shop_settings():
+    """The single settings row, created with the default break when missing."""
+    from app.models.shop_settings import ShopSettings
+
+    row = db.session.get(ShopSettings, 1)
+    if row is None:
+        row = ShopSettings(id=1)
+        db.session.add(row)
+        db.session.commit()
+    return row
+
+
+def update_shop_break(data, actor_id):
+    """Set the daily break. Returns (settings, jobs with upcoming work to re-propose)."""
+    from app.constants.scheduling import SCHEDULE_HORIZON_DAYS
+    from app.services.audit_service import write_audit_event
+    from app.services.schedule_calendar import shop_now
+
+    try:
+        start = _parse_time(data.get("breakStart"))
+        end = _parse_time(data.get("breakEnd"))
+    except (TypeError, ValueError):
+        raise AppError("Enter the break as HH:MM", "VALIDATION_ERROR", 400)
+    if not start or not end:
+        raise AppError("Enter the break start and end", "VALIDATION_ERROR", 400)
+    if end <= start:
+        raise AppError("The break must end after it starts", "VALIDATION_ERROR", 400)
+
+    row = get_shop_settings()
+    before = row.to_dict()
+    row.break_start = start
+    row.break_end = end
+    row.updated_by_id = actor_id
+    db.session.flush()
+    write_audit_event("SHOP_BREAK_CHANGED", "ShopSettings", "1", before=before, after=row.to_dict())
+    db.session.commit()
+
+    today = shop_now().date()
+    affected = jobs_affected_by_calendar_change(
+        today.isoformat(), (today + timedelta(days=SCHEDULE_HORIZON_DAYS)).isoformat()
+    )
+    return row, affected["jobs"]
 
 
 def list_operation_types(active_only=True):

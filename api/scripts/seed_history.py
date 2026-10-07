@@ -571,6 +571,52 @@ def _append_log(op, worker_id, event, event_at, reason=None, note=None):
     )
 
 
+def _seed_outsourced_op(job, seq, ot, job_status, n_ops, cursor_day, rng):
+    """Outsourced work: sent out on cursor_day, back after the turnaround (late
+    now and then). No worker, machine, target hours or time log."""
+    turnaround = ot.default_turnaround_days or 3
+    if job_status == JobOrderStatus.SCHEDULED:
+        op_status = OperationStatus.PENDING
+    elif job_status == JobOrderStatus.IN_PROGRESS:
+        complete_through = max(1, n_ops // 3)
+        if seq <= complete_through:
+            op_status = OperationStatus.COMPLETED
+        elif seq == complete_through + 1:
+            op_status = OperationStatus.IN_PROGRESS
+        else:
+            op_status = OperationStatus.PENDING
+    else:
+        op_status = OperationStatus.COMPLETED
+
+    op = JobOperation(
+        job_order_id=job.id,
+        sequence_no=seq,
+        operation_name=ot.name,
+        operation_type_id=ot.id,
+        turnaround_days=turnaround,
+        status=op_status,
+        notes=TAG,
+    )
+    if op_status in (OperationStatus.COMPLETED, OperationStatus.IN_PROGRESS):
+        op.sent_out_date = cursor_day
+        op.sent_to = rng.choice(OUTSOURCE_SHOPS)
+        op.actual_start = shop_local_to_utc(cursor_day, time(8, 0))
+        op.scheduled_start = op.actual_start
+        op.scheduled_end = op.actual_start + timedelta(days=turnaround)
+    if op_status == OperationStatus.COMPLETED:
+        late_days = rng.choice([0, 0, 0, 0, 1, 2])
+        back = cursor_day + timedelta(days=turnaround + late_days)
+        op.returned_date = back
+        op.actual_end = shop_local_to_utc(back, time(17, 0))
+        cursor_day = back + timedelta(days=1)
+    db.session.add(op)
+    db.session.flush()
+    return op, cursor_day
+
+
+OUTSOURCE_SHOPS = ["Metro Heat Treating", "Valenzuela Hardening Works", "Cavite Thermal Services"]
+
+
 def _build_time_chain(
     op,
     worker_id,
@@ -1649,6 +1695,13 @@ def seed_history():
 
         for seq, ot_code in enumerate(route, start=1):
             ot = op_types[ot_code]
+            if ot.is_outsourced:
+                op, cursor_day = _seed_outsourced_op(
+                    job, seq, ot, status, n_ops, cursor_day, rng
+                )
+                created_ops.append(op)
+                ops_for_job.append(op)
+                continue
             mt = None
             mt_code = None
             if ot.default_machine_type_id:
@@ -1750,7 +1803,9 @@ def seed_history():
         # the follow-on is remachined (COMPLETED, shorter) before the job finishes.
         if status == JobOrderStatus.COMPLETED and rng.random() < REWORK_RATE:
             candidates = [
-                o for o in ops_for_job if o.status == OperationStatus.COMPLETED
+                o
+                for o in ops_for_job
+                if o.status == OperationStatus.COMPLETED and not o.turnaround_days
             ]
             if candidates:
                 original = rng.choice(candidates)
@@ -2062,7 +2117,9 @@ def seed_history():
         for i in range((horizon_to - horizon_from).days + 1)
         if (horizon_from + timedelta(days=i)).weekday() < 6
     )
-    avail_per_unit = avail_days * 9.0
+    from app.services.schedule_calendar import shop_available_hours
+
+    avail_per_unit = shop_available_hours(horizon_from, horizon_to)
     open_scheduled = (
         JobOperation.query.join(JobOrder)
         .filter(

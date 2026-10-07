@@ -95,6 +95,11 @@ class JobOperation(db.Model):
         db.Enum(ReworkReasonCategory), nullable=True
     )
     notes = db.Column(db.Text, nullable=True)
+    # Outsourced operations (e.g. Heat Treatment): days at the outside shop.
+    turnaround_days = db.Column(db.Integer, nullable=True)
+    sent_out_date = db.Column(db.Date(), nullable=True)
+    sent_to = db.Column(db.String(255), nullable=True)
+    returned_date = db.Column(db.Date(), nullable=True)
 
     job_order = db.relationship("JobOrder", back_populates="operations")
     operation_type = db.relationship("OperationType", back_populates="operations")
@@ -115,6 +120,18 @@ class JobOperation(db.Model):
         cascade="all, delete-orphan",
         order_by="OperationTimeLog.event_at",
     )
+
+    @property
+    def is_outsourced(self) -> bool:
+        return bool(self.operation_type and self.operation_type.is_outsourced)
+
+    @property
+    def expected_return_date(self):
+        if not self.sent_out_date or self.turnaround_days is None:
+            return None
+        from datetime import timedelta
+
+        return self.sent_out_date + timedelta(days=int(self.turnaround_days))
 
     def to_dict(
         self,
@@ -153,6 +170,14 @@ class JobOperation(db.Model):
             "operationName": self.operation_name,
             "operationTypeId": self.operation_type_id,
             "operationTypeCode": self.operation_type.code if self.operation_type else None,
+            "isOutsourced": self.is_outsourced,
+            "turnaroundDays": self.turnaround_days,
+            "sentOutDate": self.sent_out_date.isoformat() if self.sent_out_date else None,
+            "sentTo": self.sent_to,
+            "returnedDate": self.returned_date.isoformat() if self.returned_date else None,
+            "expectedReturnDate": (
+                self.expected_return_date.isoformat() if self.expected_return_date else None
+            ),
             "machineTypeId": self.machine_type_id,
             "machineTypeCode": self.machine_type.code if self.machine_type else None,
             "machineTypeName": self.machine_type.name if self.machine_type else None,

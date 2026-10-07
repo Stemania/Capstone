@@ -55,6 +55,7 @@ import { formatDifferenceFromTarget } from '../analytics/analyticsPeriod';
 import { WorkerPageHeader } from '../../layouts/WorkerLayout';
 import { jobOrdersListPath } from './jobOrderListPaths';
 import JobScheduleColorPicker from './JobScheduleColorPicker';
+import OutsourcedOperationPanel from './OutsourcedOperationPanel';
 import OrderMaterialsModal from '../supplier-orders/OrderMaterialsModal';
 import { JobMaterialsTable, materialArrivalText } from './MaterialOrdersSummary';
 import { ReproposeModal } from '../calendar/RescheduleAffectedJobs';
@@ -1241,11 +1242,19 @@ export default function JobOrderDetailPage() {
                             ) : null}
                           </span>
                           <StatusPill color={opSt.color} compact>
-                            {opSt.label}
+                            {op.isOutsourced && active ? 'Sent out' : opSt.label}
                             {active && op.isPaused ? ' · Paused' : ''}
                           </StatusPill>
                         </div>
 
+                        {op.isOutsourced ? (
+                          <OutsourcedOperationPanel
+                            op={op}
+                            canRecord={canManage && !isDraft && !isInvoicedOrDelivered}
+                            waitingOnEarlier={!ops.slice(0, index).every((o) => o.status === 'COMPLETED')}
+                            onChanged={fetchJob}
+                          />
+                        ) : (
                         <div
                           style={{
                             display: 'grid',
@@ -1292,6 +1301,7 @@ export default function JobOrderDetailPage() {
                             {fmtVariance(op.varianceHours, op.variancePct)}
                           </span>
                         </div>
+                        )}
 
                         {op.reworkReasonCategory || op.reworkReason ? (
                           <div style={{ fontSize: 12, color: MUTED, marginBottom: 8 }}>
@@ -1305,6 +1315,7 @@ export default function JobOrderDetailPage() {
                           </div>
                         ) : null}
 
+                        {op.isOutsourced ? null : (
                         <Collapse
                           size="small"
                           ghost
@@ -1340,6 +1351,7 @@ export default function JobOrderDetailPage() {
                             },
                           ]}
                         />
+                        )}
 
                         {!isDraft && isMine && (canStart || active) && (
                           <Space wrap style={{ marginTop: 10 }}>

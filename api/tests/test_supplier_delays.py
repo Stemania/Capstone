@@ -146,12 +146,12 @@ def test_rescheduled_moves_never_count_as_material_delay(app, shop):
 
     rows = material_delays()
     assert [r["jobOrderId"] for r in rows] == [material_job.id]
-    assert rows[0]["hours"] == pytest.approx(9.0)  # Monday 08:00-17:00 working hours
+    assert rows[0]["hours"] == pytest.approx(8.0)  # Monday 08:00-17:00 less the break
     assert rows[0]["supplierNames"] == "Slow Steel"
 
     data = analytics_service.delays(monday.isoformat(), tuesday.isoformat())
     causes = {c["cause"]: c for c in data["causes"]}
-    assert causes["MATERIAL_DELAY_SUPPLIER_LATE"]["hours"] == pytest.approx(9.0)
+    assert causes["MATERIAL_DELAY_SUPPLIER_LATE"]["hours"] == pytest.approx(8.0)
     assert causes["MATERIAL_DELAY_SUPPLIER_LATE"]["label"] == "Material delay: supplier late"
     assert causes["MATERIAL_DELAY_SUPPLIER_LATE"]["occurrenceCount"] == 1
     assert "MATERIAL_DELAY_NOT_ORDERED" not in causes
@@ -172,16 +172,16 @@ def test_material_delay_splits_supplier_late_and_not_ordered(app, shop):
     db.session.commit()
 
     by_cause = {r["cause"]: r for r in material_delays()}
-    assert by_cause[MaterialCause.NOT_ORDERED]["hours"] == pytest.approx(9.0)
+    assert by_cause[MaterialCause.NOT_ORDERED]["hours"] == pytest.approx(8.0)
     assert by_cause[MaterialCause.NOT_ORDERED]["suppliers"] == []
-    assert by_cause[MaterialCause.SUPPLIER_LATE]["hours"] == pytest.approx(9.0)
+    assert by_cause[MaterialCause.SUPPLIER_LATE]["hours"] == pytest.approx(8.0)
     assert by_cause[MaterialCause.SUPPLIER_LATE]["supplierNames"] == "Quick Steel"
 
     data = analytics_service.delays(monday.isoformat(), wednesday.isoformat())
     causes = {c["cause"]: c for c in data["causes"]}
     assert causes["MATERIAL_DELAY_NOT_ORDERED"]["label"] == "Material delay: not ordered"
-    assert causes["MATERIAL_DELAY_NOT_ORDERED"]["hours"] == pytest.approx(9.0)
-    assert causes["MATERIAL_DELAY_SUPPLIER_LATE"]["hours"] == pytest.approx(9.0)
+    assert causes["MATERIAL_DELAY_NOT_ORDERED"]["hours"] == pytest.approx(8.0)
+    assert causes["MATERIAL_DELAY_SUPPLIER_LATE"]["hours"] == pytest.approx(8.0)
 
 
 def test_unstarted_job_counts_only_time_already_lost(app, shop):
@@ -233,7 +233,8 @@ def test_breakdown_hours_are_not_counted_twice(app, shop, lathe):
     _log(op, worker, OperationTimeEvent.PAUSE, _local(monday, 10), OperationPauseReason.MACHINE_DOWN)
     _log(op, worker, OperationTimeEvent.RESUME, _local(monday, 12))
     _log(op, worker, OperationTimeEvent.COMPLETE, _local(monday, 16))
-    # Downtime 11:00-20:00 clock time; the shop closes at 17:00, so 6 working hours.
+    # Downtime 11:00-20:00 clock time; less the 12:00-13:00 break and after the
+    # 17:00 close, 5 working hours.
     db.session.add(
         MachineDowntime(
             machine_unit_id=lathe.id,
@@ -248,11 +249,11 @@ def test_breakdown_hours_are_not_counted_twice(app, shop, lathe):
 
     data = analytics_service.delays(monday.isoformat(), monday.isoformat())
     causes = {c["cause"]: c for c in data["causes"]}
-    assert causes["MACHINE_DOWNTIME"]["hours"] == pytest.approx(6.0)
+    assert causes["MACHINE_DOWNTIME"]["hours"] == pytest.approx(5.0)
     # 2 h "Machine down" pause, 1 h of it already inside the downtime record.
     assert causes["MACHINE_DOWN"]["hours"] == pytest.approx(1.0)
     assert data["breakdownOverlapHours"] == pytest.approx(1.0)
-    assert causes["MACHINE_DOWNTIME"]["hours"] + causes["MACHINE_DOWN"]["hours"] == pytest.approx(7.0)
+    assert causes["MACHINE_DOWNTIME"]["hours"] + causes["MACHINE_DOWN"]["hours"] == pytest.approx(6.0)
 
 
 def test_pause_of_unfinished_operation_is_counted(app, shop):

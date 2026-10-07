@@ -38,6 +38,7 @@ from app.services.schedule_calendar import (
     build_worker_working_windows,
     default_shop_schedule_by_dow,
     ensure_utc,
+    hours_excluding_break,
     intersect_intervals,
     load_calendar_exceptions,
     load_worker_schedule_maps,
@@ -74,6 +75,7 @@ def _compute_type_ratios() -> dict:
             JobOperation.operation_type_id.isnot(None),
             JobOperation.actual_worked_hours.isnot(None),
             JobOperation.estimated_hours > 0,
+            OperationType.is_outsourced.is_(False),
         )
         .group_by(JobOperation.operation_type_id, OperationType.name)
         .all()
@@ -143,7 +145,7 @@ def hours_worked_so_far(op, now: datetime) -> float:
             open_at = open_at or at
         elif log.event in (OperationTimeEvent.PAUSE, OperationTimeEvent.COMPLETE):
             if open_at and at > open_at:
-                total += (at - open_at).total_seconds()
+                total += hours_excluding_break(open_at, at) * 3600.0
             open_at = None
     if open_at and now > open_at:
         windows = _worker_windows(op.assigned_worker_id, open_at, now)
@@ -167,6 +169,32 @@ def predict_job(job, now: datetime | None = None, ratios: dict | None = None) ->
     cursor = now
     rows = []
     for op in remaining:
+        if op.is_outsourced:
+            # Back after its turnaround in calendar days, or now when it's late.
+            days = timedelta(days=int(op.turnaround_days or 0))
+            sent = ensure_utc(op.actual_start) if op.actual_start else None
+            start = sent or cursor
+            end = max(cursor, start + days)
+            rows.append(
+                {
+                    "operationId": op.id,
+                    "sequenceNo": op.sequence_no,
+                    "operationName": op.operation_name,
+                    "operationTypeName": op.operation_type.name if op.operation_type else None,
+                    "ratio": 1.0,
+                    "samples": 0,
+                    "enoughHistory": True,
+                    "targetHours": 0.0,
+                    "hoursWorked": 0.0,
+                    "predictedHoursLeft": 0.0,
+                    "predictedStart": start.isoformat(),
+                    "predictedEnd": end.isoformat(),
+                    "isOutsourced": True,
+                    "turnaroundDays": op.turnaround_days,
+                }
+            )
+            cursor = end
+            continue
         info = ratio_for(op, ratios)
         predicted_total = float(op.estimated_hours or 0) * info["ratio"]
         worked = hours_worked_so_far(op, now) if op.status == OperationStatus.IN_PROGRESS else 0.0

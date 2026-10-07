@@ -98,7 +98,10 @@ def _ordered_logs(operation):
 
 
 def compute_worked_hours(operation) -> Decimal | None:
-    """Sum START/RESUME → PAUSE/COMPLETE intervals. Ignores gaps while paused."""
+    """Sum START/RESUME → PAUSE/COMPLETE intervals, minus the daily break.
+    Ignores gaps while paused."""
+    from app.services.schedule_calendar import hours_excluding_break
+
     logs = _ordered_logs(operation)
     if not logs:
         return None
@@ -114,7 +117,7 @@ def compute_worked_hours(operation) -> Decimal | None:
                 open_start = at
         elif ev in (OperationTimeEvent.PAUSE, OperationTimeEvent.COMPLETE):
             if open_start is not None and at > open_start:
-                total_seconds += (at - open_start).total_seconds()
+                total_seconds += hours_excluding_break(open_start, at) * 3600.0
                 saw_close = True
             open_start = None
 
@@ -173,6 +176,7 @@ def start_operation(operation, user_id, user_role, timestamp):
     from app.constants.machines import assert_machine_type_available
     from app.models.job_order import JobOrderStatus
 
+    _assert_not_outsourced(operation)
     _assert_worker_owns(operation, user_id, user_role)
 
     job = operation.job_order
@@ -321,6 +325,7 @@ def resume_operation(operation, user_id, user_role, timestamp=None):
 
 
 def complete_operation(operation, user_id, user_role, timestamp):
+    _assert_not_outsourced(operation)
     _assert_worker_owns(operation, user_id, user_role)
 
     if operation.status == OperationStatus.COMPLETED:
@@ -362,6 +367,168 @@ def complete_operation(operation, user_id, user_role, timestamp):
                 joinedload(JobOrder.operations).joinedload(JobOperation.operation_type),
             ).get(job.id)
         )
+        job.status = derive_job_status(job)
+        advance_part_condition(job)
+        db.session.commit()
+        if (
+            before_status != JobOrderStatus.COMPLETED
+            and job.status == JobOrderStatus.COMPLETED
+        ):
+            from app.models.notification import NotificationMilestone
+            from app.services.notification_service import safe_notify_job_milestone
+
+            safe_notify_job_milestone(job.id, NotificationMilestone.JOB_COMPLETED)
+        return operation
+    except Exception:
+        db.session.rollback()
+        raise
+
+
+def _assert_not_outsourced(operation):
+    if operation.is_outsourced:
+        raise AppError(
+            f"{operation.operation_name or 'This operation'} is done outside the shop. "
+            "The office records when it is sent out and returned.",
+            "OPERATION_OUTSOURCED",
+            409,
+        )
+
+
+def _parse_shop_date(value, field):
+    from datetime import date as date_cls
+
+    if not value:
+        raise AppError(f"{field} is required", "VALIDATION_ERROR", 400)
+    if isinstance(value, date_cls):
+        return value
+    try:
+        return date_cls.fromisoformat(str(value)[:10])
+    except ValueError:
+        raise AppError(f"{field} must be a date (YYYY-MM-DD)", "VALIDATION_ERROR", 400)
+
+
+def _shop_moment(day, hour):
+    """Now when ``day`` is today in the shop, otherwise ``hour``:00 shop time that day."""
+    from datetime import time as time_cls
+
+    from app.services.schedule_calendar import SHOP_TZ, shop_now
+
+    now = shop_now()
+    if day == now.date():
+        return now.astimezone(timezone.utc)
+    return datetime.combine(day, time_cls(hour, 0), tzinfo=SHOP_TZ).astimezone(timezone.utc)
+
+
+def _reload_job_with_types(job_id):
+    from sqlalchemy.orm import joinedload
+
+    return JobOrder.query.options(
+        joinedload(JobOrder.operations).joinedload(JobOperation.operation_type),
+    ).get(job_id)
+
+
+def send_out_operation(operation, user_role, sent_out_date, sent_to):
+    """Admin or Office records an outsourced operation leaving the shop."""
+    from datetime import timedelta
+
+    from app.services.schedule_calendar import shop_now
+
+    if not operation.is_outsourced:
+        raise AppError(
+            "Only outsourced operations are sent out", "NOT_OUTSOURCED", 409
+        )
+    job = operation.job_order
+    if job.status == JobOrderStatus.DRAFT:
+        raise AppError(
+            "This job has not been released to production yet",
+            "INVALID_TRANSITION",
+            409,
+        )
+    if operation.status == OperationStatus.COMPLETED:
+        raise AppError("This operation has already returned", "INVALID_TRANSITION", 409)
+    if operation.sent_out_date is not None:
+        raise AppError("This operation has already been sent out", "INVALID_TRANSITION", 409)
+
+    day = _parse_shop_date(sent_out_date, "sentOutDate")
+    if day > shop_now().date():
+        raise AppError("The sent-out date cannot be in the future", "VALIDATION_ERROR", 400)
+    where = (sent_to or "").strip()
+    if not where:
+        raise AppError("Say where it was sent", "VALIDATION_ERROR", 400)
+    turnaround = operation.turnaround_days or (
+        operation.operation_type.default_turnaround_days if operation.operation_type else None
+    )
+    if not turnaround:
+        raise AppError(
+            "Set the turnaround in days before sending it out", "VALIDATION_ERROR", 400
+        )
+
+    _assert_earlier_operations_completed(operation)
+    first_start = not mp_service.job_has_started(job)
+    if first_start:
+        _assert_materials_arrived(job, user_role)
+
+    ts = _shop_moment(day, 8)
+    before_status = job.status
+    try:
+        if first_start:
+            mp_service.consume_received_lines(job, ts)
+        operation.status = OperationStatus.IN_PROGRESS
+        operation.actual_start = ts
+        operation.sent_out_date = day
+        operation.sent_to = where[:255]
+        operation.turnaround_days = int(turnaround)
+        operation.scheduled_start = ts
+        operation.scheduled_end = ts + timedelta(days=int(turnaround))
+        operation.assigned_worker_id = None
+        operation.machine_unit_id = None
+        job.status = derive_job_status(job)
+        db.session.commit()
+        if (
+            before_status != JobOrderStatus.IN_PROGRESS
+            and job.status == JobOrderStatus.IN_PROGRESS
+        ):
+            from app.models.notification import NotificationMilestone
+            from app.services.notification_service import safe_notify_job_milestone
+
+            safe_notify_job_milestone(job.id, NotificationMilestone.JOB_STARTED)
+        return operation
+    except Exception:
+        db.session.rollback()
+        raise
+
+
+def return_operation(operation, returned_date):
+    """Admin or Office records an outsourced operation coming back."""
+    from app.services.schedule_calendar import shop_now
+
+    if not operation.is_outsourced:
+        raise AppError("Only outsourced operations are returned", "NOT_OUTSOURCED", 409)
+    if operation.status == OperationStatus.COMPLETED:
+        raise AppError("This operation has already returned", "INVALID_TRANSITION", 409)
+    if operation.sent_out_date is None:
+        raise AppError("Record it as sent out first", "INVALID_TRANSITION", 409)
+
+    day = _parse_shop_date(returned_date, "returnedDate")
+    if day > shop_now().date():
+        raise AppError("The returned date cannot be in the future", "VALIDATION_ERROR", 400)
+    if day < operation.sent_out_date:
+        raise AppError(
+            "The returned date cannot be before it was sent out", "VALIDATION_ERROR", 400
+        )
+
+    ts = _shop_moment(day, 17)
+    start = _ensure_utc(operation.actual_start) if operation.actual_start else None
+    if start is not None and ts < start:
+        ts = start
+    job = operation.job_order
+    before_status = job.status
+    try:
+        operation.status = OperationStatus.COMPLETED
+        operation.returned_date = day
+        operation.actual_end = ts
+        db.session.flush()
+        job = _reload_job_with_types(job.id)
         job.status = derive_job_status(job)
         advance_part_condition(job)
         db.session.commit()

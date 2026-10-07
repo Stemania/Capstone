@@ -44,7 +44,17 @@ export interface CalendarAffectedJob {
   }[];
 }
 
+/** Daily break on every working day (shop-local HH:MM); never working time. */
+export interface ShopBreak {
+  breakStart: string;
+  breakEnd: string;
+  updatedAt?: string | null;
+}
+
 export const calendarApi = {
+  getBreak: () => apiClient.get<ShopBreak>('/calendar/break'),
+  setBreak: (body: { breakStart: string; breakEnd: string }) =>
+    apiClient.put<ShopBreak & { affectedJobs: CalendarAffectedJob[] }>('/calendar/break', body),
   affectedJobs: (from: string, to?: string) =>
     apiClient.get<{ from: string; to: string; jobs: CalendarAffectedJob[] }>(
       '/calendar/affected-jobs',

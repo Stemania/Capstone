@@ -1,10 +1,11 @@
 """Interval-level delay facts shared by the Delays analytics: pause time,
-material delay (MATERIAL schedule moves only) and late job orders."""
+material delay (MATERIAL schedule moves only), late returns of outsourced work
+and late job orders."""
 
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import joinedload
 
@@ -208,6 +209,57 @@ def material_delays(start_utc=None, end_utc=None, job_ids=None) -> list[dict]:
     return out
 
 
+OUTSOURCED_CAUSE = "OUTSOURCED_DELAY"
+OUTSOURCED_CAUSE_LABEL = "Outsourced delay"
+
+
+def outsourced_delays(start_utc=None, end_utc=None, job_ids=None) -> list[dict]:
+    """Outsourced operations back later than their turnaround, one row each.
+
+    The late time runs from the expected return (sent out + turnaround days) to
+    the return, or to now while it is still out, in shop working hours. With a
+    period, only time inside it counts.
+    """
+    from app.models.worker_skill import OperationType
+
+    q = JobOperation.query.options(joinedload(JobOperation.job_order)).filter(
+        JobOperation.operation_type.has(OperationType.is_outsourced.is_(True)),
+        JobOperation.actual_start.isnot(None),
+        JobOperation.turnaround_days.isnot(None),
+    )
+    if job_ids is not None:
+        q = q.filter(JobOperation.job_order_id.in_(list(job_ids)))
+    now = _now_utc()
+    out = []
+    for op in q.all():
+        due_back = ensure_utc(op.actual_start) + timedelta(days=int(op.turnaround_days))
+        back = ensure_utc(op.actual_end) if op.actual_end else now
+        s, e = due_back, back
+        if start_utc is not None:
+            s = max(s, ensure_utc(start_utc))
+        if end_utc is not None:
+            e = min(e, ensure_utc(end_utc))
+        if e <= s:
+            continue
+        hours = shop_working_hours([(s, e)])
+        if hours <= 0:
+            continue
+        out.append(
+            {
+                "operationId": op.id,
+                "jobOrderId": op.job_order_id,
+                "jobNumber": op.job_order.job_number if op.job_order else None,
+                "operationName": op.operation_name,
+                "sentTo": op.sent_to,
+                "expectedReturn": due_back.isoformat(),
+                "returned": op.actual_end is not None,
+                "hours": hours,
+            }
+        )
+    out.sort(key=lambda r: -r["hours"])
+    return out
+
+
 def _shop_date(dt) -> date | None:
     return ensure_utc(dt).astimezone(SHOP_TZ).date() if dt else None
 
@@ -219,6 +271,8 @@ def ran_over_target(operations) -> tuple[float, int]:
     count = 0
     for o in operations:
         if o.rework_of_operation_id is not None or o.estimated_hours is None:
+            continue
+        if o.is_outsourced:
             continue
         over = float(o.actual_worked_hours or 0) - float(o.estimated_hours)
         if over > 0:
@@ -254,6 +308,10 @@ def late_jobs(period_from: date, period_to: date) -> list[dict]:
         if p["reason"] not in NON_WORKING:
             pauses_by_job[p["jobOrderId"]].append(p)
 
+    outsourced = defaultdict(list)
+    for r in outsourced_delays(job_ids=ids):
+        outsourced[r["jobOrderId"]].append(r)
+
     downtime_by_job = defaultdict(lambda: defaultdict(list))
     now = _now_utc()
     for d in MachineDowntime.query.filter(MachineDowntime.job_order_id.in_(ids)).all():
@@ -272,6 +330,19 @@ def late_jobs(period_from: date, period_to: date) -> list[dict]:
                     "label": mat["causeLabel"],
                     "hours": mat["hours"],
                     "detail": mat["supplierNames"],
+                }
+            )
+
+        late_back = outsourced.get(job.id, [])
+        if late_back:
+            causes.append(
+                {
+                    "cause": OUTSOURCED_CAUSE,
+                    "label": OUTSOURCED_CAUSE_LABEL,
+                    "hours": sum(r["hours"] for r in late_back),
+                    "detail": ", ".join(
+                        sorted({r["sentTo"] for r in late_back if r["sentTo"]})
+                    ) or None,
                 }
             )
 

@@ -212,9 +212,33 @@ def _machine_units_by_type():
     return grouped
 
 
+def _outsourced_type(operation_type_id):
+    """(is outsourced, default turnaround days) for an operation type id."""
+    from app.models.worker_skill import OperationType
+
+    if not operation_type_id:
+        return False, None
+    ot = OperationType.query.get(operation_type_id)
+    if ot is None or not ot.is_outsourced:
+        return False, None
+    return True, ot.default_turnaround_days
+
+
+def _turnaround(value, default):
+    try:
+        days = int(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        days = None
+    return days or default or 1
+
+
 def _normalize_operation(op_data, seq_fallback: int) -> dict:
     if isinstance(op_data, JobOperation):
         est, defaulted = _parse_estimated_hours(op_data.estimated_hours)
+        outsourced = op_data.is_outsourced
+        default_days = (
+            op_data.operation_type.default_turnaround_days if outsourced else None
+        )
         return {
             "id": op_data.id,
             "sequenceNo": op_data.sequence_no,
@@ -230,8 +254,15 @@ def _normalize_operation(op_data, seq_fallback: int) -> dict:
             "scheduledEnd": op_data.scheduled_end.isoformat() if op_data.scheduled_end else None,
             "actualStart": op_data.actual_start.isoformat() if op_data.actual_start else None,
             "actualEnd": op_data.actual_end.isoformat() if op_data.actual_end else None,
+            "outsourced": outsourced,
+            "turnaroundDays": (
+                _turnaround(op_data.turnaround_days, default_days) if outsourced else None
+            ),
         }
     est, defaulted = _parse_estimated_hours(op_data.get("estimatedHours"))
+    outsourced, default_days = _outsourced_type(op_data.get("operationTypeId"))
+    if not op_data.get("operationTypeId") and op_data.get("isOutsourced"):
+        outsourced = True
     return {
         "id": op_data.get("id"),
         "sequenceNo": int(op_data.get("sequenceNo", op_data.get("seq", seq_fallback))),
@@ -247,7 +278,24 @@ def _normalize_operation(op_data, seq_fallback: int) -> dict:
         "scheduledEnd": op_data.get("scheduledEnd"),
         "actualStart": op_data.get("actualStart"),
         "actualEnd": op_data.get("actualEnd"),
+        "outsourced": outsourced,
+        "turnaroundDays": (
+            _turnaround(op_data.get("turnaroundDays"), default_days) if outsourced else None
+        ),
     }
+
+
+def _outsourced_window(op: dict, start: datetime, message=None) -> dict:
+    """Away from the shop for its turnaround in calendar days; no worker or machine."""
+    end = start + timedelta(days=int(op["turnaroundDays"] or 1))
+    return _result_from_slot(
+        {**op, "assignedWorkerId": None},
+        start.isoformat(),
+        end.isoformat(),
+        None,
+        scheduled=True,
+        message=message,
+    )
 
 
 def _frozen_result(op: dict) -> dict | None:
@@ -307,11 +355,12 @@ def _result_from_slot(
     start_dt = ensure_utc(datetime.fromisoformat(str(start).replace("Z", "+00:00")))
     end_dt = ensure_utc(datetime.fromisoformat(str(end).replace("Z", "+00:00")))
     wid = op.get("assignedWorkerId")
-    segments = (
-        _segments_for_worker_envelope(wid, start_dt, end_dt, exceptions_by_date)
-        if wid
-        else []
-    )
+    if op.get("outsourced"):
+        segments = [(start_dt, end_dt)]
+    elif wid:
+        segments = _segments_for_worker_envelope(wid, start_dt, end_dt, exceptions_by_date)
+    else:
+        segments = []
     return {
         "id": op.get("id"),
         "sequenceNo": op["sequenceNo"],
@@ -329,6 +378,8 @@ def _result_from_slot(
         "message": message,
         "placeableHours": placeable_hours,
         "requiredHours": required_hours,
+        "isOutsourced": bool(op.get("outsourced")),
+        "turnaroundDays": op.get("turnaroundDays"),
     }
 
 
@@ -548,6 +599,8 @@ def place_from_start(worker_id, start, hours):
 def _window_from_start(op: dict, requested_start) -> dict:
     """The operation starts at the requested time (moved to the next working time
     when outside working hours) and ends once its target hours are worked."""
+    if op.get("outsourced"):
+        return _outsourced_window(op, _parse_iso(requested_start))
     if not op.get("assignedWorkerId"):
         return _failure_result(op, MISSING_WORKER_MESSAGE, required_hours=op["estimatedHours"])
     requested = _parse_iso(requested_start)
@@ -684,6 +737,15 @@ def propose_schedule(
             )
             prev_end = max(prev_end, frozen_end)
             _record_in_job_busy(kept, op, in_job_worker_busy, in_job_machine_busy)
+            continue
+
+        if op.get("outsourced"):
+            not_before = prev_end
+            if never_earlier and op.get("scheduledStart"):
+                not_before = max(not_before, _parse_iso(op["scheduledStart"]))
+            slot = _outsourced_window(op, not_before)
+            results.append(slot)
+            prev_end = _parse_iso(slot["scheduledEnd"])
             continue
 
         # The Admin's worker choice is fixed; only the time moves.
@@ -1082,6 +1144,11 @@ def schedule_problems(
                 "SEQUENCE_VIOLATION",
                 f"{label(op)} starts before {label(prev[0])} ends ({_fmt_shop(prev[1])})",
             )
+
+        if op.get("outsourced"):
+            placed.append((op, [(start, end)]))
+            prev = (op, end)
+            continue
 
         segments = derive_working_segments(start, end, schedule_by_dow, exceptions)
         if not segments or segments[0][0] != start or segments[-1][1] != end:

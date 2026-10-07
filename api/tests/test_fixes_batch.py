@@ -105,9 +105,10 @@ def test_receive_additions_counted_adjust_ignored():
 
 
 def test_shop_available_hours_respects_calendar_exceptions():
-    """Holiday removes a day; overtime adds hours beyond the default 9h."""
+    """Holiday removes a day; overtime adds hours beyond the default 8h
+    (08:00-17:00 less the 12:00-13:00 break)."""
     period_from = date(2026, 8, 3)  # Mon
-    period_to = date(2026, 8, 8)  # Sat — 6 default working days × 9h = 54
+    period_to = date(2026, 8, 8)  # Sat — 6 default working days × 8h = 48
 
     holiday = SimpleNamespace(
         type=CalendarExceptionType.HOLIDAY_NO_WORK,
@@ -120,7 +121,7 @@ def test_shop_available_hours_respects_calendar_exceptions():
         end_time=time(20, 0),  # +3h on Wednesday
     )
     exceptions = {
-        date(2026, 8, 5): holiday,  # Wed removed (−9)
+        date(2026, 8, 5): holiday,  # Wed removed (−8)
         date(2026, 8, 6): overtime,  # Thu +3
     }
 
@@ -130,15 +131,15 @@ def test_shop_available_hours_respects_calendar_exceptions():
     ):
         hours = shop_available_hours(period_from, period_to)
 
-    # Mon,Tue,Thu(+3),Fri,Sat = 5*9 + 3 = 48; Wed holiday removed
-    assert hours == pytest.approx(48.0)
+    # Mon,Tue,Thu(+3),Fri,Sat = 5*8 + 3 = 43; Wed holiday removed
+    assert hours == pytest.approx(43.0)
 
     with patch(
         "app.services.schedule_calendar.load_calendar_exceptions",
         return_value={},
     ):
         flat = shop_available_hours(period_from, period_to)
-    assert flat == pytest.approx(54.0)
+    assert flat == pytest.approx(48.0)
 
 
 def test_analytics_shop_available_hours_delegates_to_calendar():

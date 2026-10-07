@@ -9,9 +9,18 @@ def _uuid():
 
 
 class WorkerSkill(db.Model):
+    """A worker's 1-5 level on a machine type, or on an operation type that uses no machine."""
+
     __tablename__ = "worker_skills"
     __table_args__ = (
         db.UniqueConstraint("worker_id", "machine_type_id", name="uq_worker_skill_machine"),
+        db.UniqueConstraint(
+            "worker_id", "operation_type_id", name="uq_worker_skill_operation_type"
+        ),
+        db.CheckConstraint(
+            "(machine_type_id IS NULL) <> (operation_type_id IS NULL)",
+            name="ck_worker_skill_one_target",
+        ),
     )
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
@@ -24,7 +33,13 @@ class WorkerSkill(db.Model):
     machine_type_id = db.Column(
         db.String(36),
         db.ForeignKey("machine_types.id"),
-        nullable=False,
+        nullable=True,
+        index=True,
+    )
+    operation_type_id = db.Column(
+        db.String(36),
+        db.ForeignKey("operation_types.id"),
+        nullable=True,
         index=True,
     )
     proficiency = db.Column(db.Integer, nullable=False, default=3)
@@ -32,6 +47,7 @@ class WorkerSkill(db.Model):
 
     worker = db.relationship("User", back_populates="skills")
     machine_type = db.relationship("MachineType", back_populates="worker_skills")
+    operation_type = db.relationship("OperationType")
 
     def to_dict(self):
         return {
@@ -40,6 +56,9 @@ class WorkerSkill(db.Model):
             "machineTypeId": self.machine_type_id,
             "machineTypeCode": self.machine_type.code if self.machine_type else None,
             "machineTypeName": self.machine_type.name if self.machine_type else None,
+            "operationTypeId": self.operation_type_id,
+            "operationTypeCode": self.operation_type.code if self.operation_type else None,
+            "operationTypeName": self.operation_type.name if self.operation_type else None,
             "proficiency": self.proficiency,
             "isPrimary": self.is_primary,
         }
@@ -116,6 +135,9 @@ class OperationType(db.Model):
         index=True,
     )
     active = db.Column(db.Boolean, nullable=False, default=True)
+    # Done by an outside shop: no worker or machine, a turnaround in days instead of hours.
+    is_outsourced = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    default_turnaround_days = db.Column(db.Integer, nullable=True)
 
     default_machine_type = db.relationship(
         "MachineType", back_populates="operation_types"
@@ -135,6 +157,8 @@ class OperationType(db.Model):
                 self.default_machine_type.name if self.default_machine_type else None
             ),
             "active": self.active,
+            "isOutsourced": bool(self.is_outsourced),
+            "defaultTurnaroundDays": self.default_turnaround_days,
         }
 
 
@@ -151,15 +175,20 @@ OPERATION_TYPE_SEED = [
     {"code": "KEYWAY", "name": "Keyway", "machine": "SHAPER"},
     {"code": "SPLINE", "name": "Spline", "machine": "SHAPER"},
     {"code": "SURFACE_GRINDING", "name": "Surface Grinding", "machine": "GRINDING"},
-    {"code": "HEAT_TREATMENT", "name": "Heat Treatment", "machine": None},
+    {"code": "HEAT_TREATMENT", "name": "Heat Treatment", "machine": None, "outsourced": True, "turnaround_days": 3},
     {"code": "CHECKING", "name": "Checking", "machine": None},
     {"code": "WELDING", "name": "Welding", "machine": None},
     {"code": "CUTTING", "name": "Cutting", "machine": None},
     {"code": "BENDING", "name": "Bending", "machine": None},
     {"code": "FORMING", "name": "Forming", "machine": None},
     {"code": "ASSEMBLY", "name": "Assembly", "machine": None},
-    {"code": "FINISHING", "name": "Finishing", "machine": None},
+    {"code": "FINISHING", "name": "Finishing (Bapping)", "machine": None},
+    {"code": "LAYOUT", "name": "Layout", "machine": None},
+    {"code": "FITTING", "name": "Fitting", "machine": None},
 ]
+
+# Steps pre-filled when planning a Fabrication job, in shop order.
+FABRICATION_SEQUENCE = ["LAYOUT", "CUTTING", "BENDING", "FITTING", "FINISHING"]
 
 SKILL_TOKEN_TO_MACHINE = {
     "lathe": "LATHE",

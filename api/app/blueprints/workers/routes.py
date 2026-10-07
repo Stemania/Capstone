@@ -7,6 +7,7 @@ from app.models.worker_skill import WorkerSkill
 from app.services.worker_availability import get_busy_workers
 from app.services.worker_profile_service import (
     is_checking_operation,
+    operation_skill_holders,
     query_assignable_workers,
 )
 from app.services.worker_suggestion_service import suggest_workers
@@ -44,6 +45,12 @@ def list_workers():
         query = query.join(WorkerSkill, WorkerSkill.worker_id == User.id).filter(
             WorkerSkill.machine_type_id == machine_type_id
         )
+    else:
+        _ot, holders = operation_skill_holders(
+            operation_type_id=operation_type_id, operation_name=operation_name
+        )
+        if holders is not None:
+            query = query.filter(User.id.in_(list(holders)))
     workers = query.all()
     result = []
     for w in workers:

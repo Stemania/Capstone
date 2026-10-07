@@ -69,11 +69,31 @@ type OpFormRow = {
   machineUnitId?: string;
   assignedWorkerId?: string;
   estimatedHours?: number | null;
+  turnaroundDays?: number | null;
   scheduledStart?: string;
   scheduledEnd?: string;
   status?: string;
   notes?: string;
 };
+
+/** Steps pre-filled when planning a Fabrication job, in shop order. */
+const FABRICATION_SEQUENCE = ['LAYOUT', 'CUTTING', 'BENDING', 'FITTING', 'FINISHING'];
+
+function isOutsourcedType(ot?: OperationType | null): boolean {
+  return Boolean(ot?.isOutsourced);
+}
+
+function fabricationRows(types: OperationType[]): OpFormRow[] {
+  return FABRICATION_SEQUENCE.map((code) => types.find((t) => t.code === code))
+    .filter((t): t is OperationType => Boolean(t))
+    .map((t) => ({
+      key: newRowKey(),
+      operationTypeId: t.id,
+      operationName: t.name,
+      machineTypeId: t.defaultMachineTypeId || undefined,
+      assignedWorkerId: undefined,
+    }));
+}
 
 function machineOptionsForRow(catalog: MachineInfo[], operations: OpFormRow[], rowIndex: number) {
   const reservedByOthers: Record<string, number> = {};
@@ -257,10 +277,12 @@ export default function JobOrderPlanningPage() {
       return items;
     }
     operations.forEach((op, index) => {
-      const name =
-        op.operationName ||
-        operationTypes.find((t) => t.id === op.operationTypeId)?.name ||
-        `Operation ${index + 1}`;
+      const ot = operationTypes.find((t) => t.id === op.operationTypeId);
+      const name = op.operationName || ot?.name || `Operation ${index + 1}`;
+      if (isOutsourcedType(ot)) {
+        if (!op.turnaroundDays) items.push(`#${index + 1} ${name}: set the turnaround in days`);
+        return;
+      }
       if (!op.assignedWorkerId) items.push(`#${index + 1} ${name}: assign a worker`);
       if (op.estimatedHours == null) items.push(`#${index + 1} ${name}: set target hours`);
     });
@@ -311,6 +333,10 @@ export default function JobOrderPlanningPage() {
     const seq = (suggestionFetchSeq.current[rowIndex] || 0) + 1;
     suggestionFetchSeq.current[rowIndex] = seq;
     const ot = operationTypes.find((t) => t.id === op.operationTypeId);
+    if (isOutsourcedType(ot)) {
+      setRowSuggestions((prev) => ({ ...prev, [rowIndex]: [] }));
+      return;
+    }
     if (isCheckingType(ot, op.operationName)) {
       setRowSuggestions((prev) => ({ ...prev, [rowIndex]: [] }));
       try {
@@ -422,20 +448,23 @@ export default function JobOrderPlanningPage() {
                   machineUnitId: op.machineUnitId || undefined,
                   assignedWorkerId: op.assignedWorkerId || undefined,
                   estimatedHours: op.estimatedHours,
+                  turnaroundDays: op.turnaroundDays ?? null,
                   scheduledStart: op.scheduledStart || undefined,
                   scheduledEnd: op.scheduledEnd || undefined,
                   status: op.status,
                   notes: op.notes || undefined,
                 }))
-            : [
-                {
-                  key: newRowKey(),
-                  operationTypeId: undefined,
-                  operationName: '',
-                  machineTypeId: undefined,
-                  assignedWorkerId: undefined,
-                },
-              ];
+            : j.jobType === 'FABRICATION' && fabricationRows(typesRes.data || []).length
+              ? fabricationRows(typesRes.data || [])
+              : [
+                  {
+                    key: newRowKey(),
+                    operationTypeId: undefined,
+                    operationName: '',
+                    machineTypeId: undefined,
+                    assignedWorkerId: undefined,
+                  },
+                ];
         setOperations(rows);
 
         // Restore schedule stage from persisted draft windows.
@@ -500,7 +529,9 @@ export default function JobOrderPlanningPage() {
           }
         }
 
+        const types = typesRes.data || [];
         rows.forEach((row, index) => {
+          if (isOutsourcedType(types.find((t) => t.id === row.operationTypeId))) return;
           void loadRowWorkers(index, row.machineTypeId, false);
           void loadSuggestions(index, row, { preserveExisting: true });
         });
@@ -526,6 +557,21 @@ export default function JobOrderPlanningPage() {
 
   const onOperationTypeChange = async (index: number, typeId: string) => {
     const ot = operationTypes.find((t) => t.id === typeId);
+    if (isOutsourcedType(ot)) {
+      setRowWorkers((prev) => ({ ...prev, [index]: [] }));
+      setRowSuggestions((prev) => ({ ...prev, [index]: [] }));
+      rowDataRef.current[index] = { workers: [], suggestions: [] };
+      patchRow(index, {
+        operationTypeId: typeId,
+        operationName: ot?.name || '',
+        machineTypeId: undefined,
+        machineUnitId: undefined,
+        assignedWorkerId: undefined,
+        estimatedHours: null,
+        turnaroundDays: operations[index]?.turnaroundDays ?? ot?.defaultTurnaroundDays ?? null,
+      });
+      return;
+    }
     if (isCheckingType(ot)) {
       try {
         const { data } = await workersApi.list({ forChecking: true });
@@ -558,6 +604,7 @@ export default function JobOrderPlanningPage() {
       operationName: ot?.name || '',
       machineTypeId,
       assignedWorkerId: undefined,
+      turnaroundDays: null,
     });
     void loadRowWorkers(index, machineTypeId);
     void loadSuggestions(index, {
@@ -590,19 +637,22 @@ export default function JobOrderPlanningPage() {
   const buildOperationsPayload = () =>
     operations.map((op, i) => {
       const ot = operationTypes.find((t) => t.id === op.operationTypeId);
+      const outsourced = isOutsourcedType(ot);
       const checking = isCheckingType(ot, op.operationName);
-      const mt = checking
-        ? undefined
-        : machines.find((m) => m.id === op.machineTypeId || m.code === op.machineTypeId);
+      const mt =
+        checking || outsourced
+          ? undefined
+          : machines.find((m) => m.id === op.machineTypeId || m.code === op.machineTypeId);
       return {
         id: op.id,
         sequenceNo: i + 1,
         operationTypeId: op.operationTypeId || null,
         operationName: op.operationName || ot?.name,
         ...(mt?.id ? { machineTypeId: mt.id } : { machinesNeeded: [] }),
-        assignedWorkerId: op.assignedWorkerId || null,
-        estimatedHours: op.estimatedHours ?? null,
-        machineUnitId: checking ? null : op.machineUnitId || null,
+        assignedWorkerId: outsourced ? null : op.assignedWorkerId || null,
+        estimatedHours: outsourced ? null : op.estimatedHours ?? null,
+        turnaroundDays: outsourced ? op.turnaroundDays ?? null : null,
+        machineUnitId: checking || outsourced ? null : op.machineUnitId || null,
         scheduledStart: op.scheduledStart || null,
         scheduledEnd: op.scheduledEnd || null,
         status: op.status || 'PENDING',
@@ -708,6 +758,8 @@ export default function JobOrderPlanningPage() {
       id: op.id,
       sequenceNo: op.sequenceNo,
       operationName: op.operationName,
+      operationTypeId: operations[op.sequenceNo - 1]?.operationTypeId || null,
+      turnaroundDays: op.turnaroundDays ?? null,
       assignedWorkerId: op.assignedWorkerId,
       machineTypeId: op.machineTypeId,
       machineUnitId: op.machineUnitId,
@@ -879,17 +931,17 @@ export default function JobOrderPlanningPage() {
       title: 'Machine',
       width: 180,
       render: (_: unknown, record: OpFormRow, index: number) => {
-        const checking = isCheckingType(
-          operationTypes.find((t) => t.id === record.operationTypeId),
-          record.operationName
-        );
+        const ot = operationTypes.find((t) => t.id === record.operationTypeId);
+        const outsourced = isOutsourcedType(ot);
+        const checking = isCheckingType(ot, record.operationName);
+        const noMachine = checking || outsourced;
         return (
           <Select
-            allowClear={!checking}
+            allowClear={!noMachine}
             style={{ width: '100%' }}
-            placeholder={checking ? 'No machine' : 'Machine'}
-            value={checking ? undefined : record.machineTypeId}
-            disabled={readOnly || checking}
+            placeholder={outsourced ? 'Outsourced' : checking ? 'No machine' : 'Machine'}
+            value={noMachine ? undefined : record.machineTypeId}
+            disabled={readOnly || noMachine}
             options={machineOptionsForRow(machines, operations, index)}
             onChange={(v) => onMachineTypeChange(index, v)}
           />
@@ -900,10 +952,11 @@ export default function JobOrderPlanningPage() {
       title: 'Worker',
       width: 200,
       render: (_: unknown, record: OpFormRow, index: number) => {
-        const checking = isCheckingType(
-          operationTypes.find((t) => t.id === record.operationTypeId),
-          record.operationName
-        );
+        const ot = operationTypes.find((t) => t.id === record.operationTypeId);
+        if (isOutsourcedType(ot)) {
+          return <Select style={{ width: '100%' }} placeholder="Outside shop" disabled />;
+        }
+        const checking = isCheckingType(ot, record.operationName);
         const qualifiedWorkers = rowWorkers[index] || [];
         const rowMachineId =
           record.machineTypeId ||
@@ -924,19 +977,33 @@ export default function JobOrderPlanningPage() {
       },
     },
     {
-      title: 'Target hours',
-      width: 120,
-      render: (_: unknown, record: OpFormRow, index: number) => (
-        <InputNumber
-          style={{ width: '100%' }}
-          min={0}
-          step={0.5}
-          placeholder="Hours"
-          value={record.estimatedHours ?? undefined}
-          disabled={readOnly}
-          onChange={(v) => patchRow(index, { estimatedHours: v })}
-        />
-      ),
+      title: 'Target',
+      width: 130,
+      render: (_: unknown, record: OpFormRow, index: number) =>
+        isOutsourcedType(operationTypes.find((t) => t.id === record.operationTypeId)) ? (
+          <InputNumber
+            style={{ width: '100%' }}
+            min={1}
+            max={90}
+            precision={0}
+            placeholder="Days"
+            suffix="days"
+            value={record.turnaroundDays ?? undefined}
+            disabled={readOnly}
+            onChange={(v) => patchRow(index, { turnaroundDays: v })}
+          />
+        ) : (
+          <InputNumber
+            style={{ width: '100%' }}
+            min={0}
+            step={0.5}
+            placeholder="Hours"
+            suffix="h"
+            value={record.estimatedHours ?? undefined}
+            disabled={readOnly}
+            onChange={(v) => patchRow(index, { estimatedHours: v })}
+          />
+        ),
     },
     {
       title: 'Instructions',
@@ -1057,6 +1124,14 @@ export default function JobOrderPlanningPage() {
           expandable={{
             expandedRowRender: (_record, index) => {
               const row = operations[index];
+              if (isOutsourcedType(operationTypes.find((t) => t.id === row?.operationTypeId))) {
+                return (
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    Done by an outside shop: no worker or machine. The schedule blocks out the
+                    turnaround days, and the next operation waits until it is returned.
+                  </Text>
+                );
+              }
               if (
                 isCheckingType(
                   operationTypes.find((t) => t.id === row?.operationTypeId),
