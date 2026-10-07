@@ -66,11 +66,12 @@ def list_purchases(
             "status must be ORDERED, RECEIVED, CONSUMED or OVERDUE", "VALIDATION_ERROR", 400
         )
 
+    # Job materials only: consumable restock is stock on the consumables list.
     q = MaterialPurchase.query.options(
         joinedload(MaterialPurchase.supplier),
         joinedload(MaterialPurchase.job_order),
         joinedload(MaterialPurchase.supplier_order),
-    )
+    ).filter(MaterialPurchase.job_order_id.isnot(None))
     d0 = _parse_date(from_s)
     d1 = _parse_date(to_s)
     if d0:
@@ -742,12 +743,38 @@ def _check_receive_date(purchase: MaterialPurchase, when: date):
         )
 
 
-def receive_lines(lines: list[MaterialPurchase], received_date=None) -> list[MaterialPurchase]:
+def _receive_consumable(p: MaterialPurchase, when: date, actor_id: str):
+    """A consumable line adds its quantity to stock, like Receive delivery,
+    with the RECEIVE event linked to the line (and so to its PO)."""
+    from app.models.tool_event import ToolEvent, ToolEventType
+
+    tool = p.tool
+    tool.quantity_on_hand = Decimal(str(tool.quantity_on_hand or 0)) + Decimal(str(p.quantity))
+    db.session.add(
+        ToolEvent(
+            tool_id=tool.id,
+            worker_id=actor_id,
+            type=ToolEventType.RECEIVE,
+            quantity=p.quantity,
+            reason=p.supplier_order.po_number if p.supplier_order else None,
+            supplier=p.supplier.name if p.supplier else None,
+            received_on=when,
+            material_purchase_id=p.id,
+        )
+    )
+
+
+def receive_lines(
+    lines: list[MaterialPurchase], received_date=None, *, actor_id=None
+) -> list[MaterialPurchase]:
     """Receive whole lines on one date. The only receiving path: updates each
-    supplier order's status and each job's material status."""
+    supplier order's status, each job's material status, and the stock of
+    consumable lines (once: a received line cannot be received again)."""
     from app.services.supplier_order_service import recompute_order_status
 
     when = _parse_date(received_date) or date.today()
+    if any(p.is_consumable for p in lines) and not actor_id:
+        raise AppError("Receiving consumables needs the receiver", "VALIDATION_ERROR", 400)
     for p in lines:
         if p.cancelled_at is not None:
             raise AppError(
@@ -766,12 +793,16 @@ def receive_lines(lines: list[MaterialPurchase], received_date=None) -> list[Mat
                 f"{p.material_name} was already received.", "ALREADY_RECEIVED", 409
             )
         _check_receive_date(p, when)
+    if len({p.id for p in lines}) != len(lines):
+        raise AppError("A line is listed twice.", "VALIDATION_ERROR", 400)
     for p in lines:
         p.date_received = when
+        if p.is_consumable:
+            _receive_consumable(p, when, actor_id)
         _consume_if_job_started(p)
     for order in {p.supplier_order for p in lines if p.supplier_order is not None}:
         recompute_order_status(order)
-    for job in {p.job_order for p in lines}:
+    for job in {p.job_order for p in lines if p.job_order is not None}:
         sync_job_material_from_purchases(job)
     db.session.commit()
 
@@ -779,7 +810,8 @@ def receive_lines(lines: list[MaterialPurchase], received_date=None) -> list[Mat
 
     jobs_by_order = {}
     for p in lines:
-        jobs_by_order.setdefault(p.supplier_order, set()).add(p.job_order)
+        if p.job_order is not None:
+            jobs_by_order.setdefault(p.supplier_order, set()).add(p.job_order)
     for order, jobs in jobs_by_order.items():
         material_delay_service.reschedule_jobs(jobs, material_delay_service.RECEIVED, order)
     return lines

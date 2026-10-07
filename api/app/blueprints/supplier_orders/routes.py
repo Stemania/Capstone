@@ -109,7 +109,10 @@ def cancel(order_id):
 def receive(order_id):
     data = request.get_json() or {}
     order = svc.receive_order_lines(
-        svc.get_order(order_id), data.get("lineIds") or [], data.get("receivedDate")
+        svc.get_order(order_id),
+        data.get("lineIds") or [],
+        data.get("receivedDate"),
+        actor_id=get_current_user_id(),
     )
     return jsonify(order.to_dict(include_lines=True))
 

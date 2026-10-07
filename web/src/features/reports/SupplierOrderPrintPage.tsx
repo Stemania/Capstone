@@ -141,7 +141,7 @@ export default function SupplierOrderPrintPage() {
                 <td>
                   <div style={{ fontWeight: 600 }}>{r.materialName}</div>
                   <div style={{ fontSize: 11, color: '#64748b' }}>
-                    For {r.jobNumbers.join(', ')}
+                    {r.jobNumbers.length ? `For ${r.jobNumbers.join(', ')}` : 'Consumable restock'}
                   </div>
                 </td>
                 <td>{displayOrDash(r.gradeOrSpec)}</td>

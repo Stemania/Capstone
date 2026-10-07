@@ -1,4 +1,5 @@
-"""Supplier purchase orders: one printable PO grouping lines from several jobs."""
+"""Supplier purchase orders: one printable PO grouping job material lines from
+several jobs and consumable restock lines."""
 
 from __future__ import annotations
 
@@ -132,7 +133,55 @@ def outstanding_planned_materials(job_id=None):
         "jobs": [
             {"id": j.id, "jobNumber": j.job_number, "title": j.title} for j in jobs
         ],
+        "lowStockConsumables": [] if job_id else low_stock_consumables(),
     }
+
+
+def _consumable_on_order() -> dict:
+    """Quantity per consumable on draft or issued lines not yet received."""
+    rows = (
+        MaterialPurchase.query.join(SupplierOrder)
+        .filter(
+            MaterialPurchase.tool_id.isnot(None),
+            MaterialPurchase.cancelled_at.is_(None),
+            MaterialPurchase.date_received.is_(None),
+            SupplierOrder.status.in_(
+                [SupplierOrderStatus.DRAFT, *RECEIVABLE_STATUSES]
+            ),
+        )
+        .all()
+    )
+    out: dict = {}
+    for ln in rows:
+        out[ln.tool_id] = out.get(ln.tool_id, Decimal("0")) + Decimal(str(ln.quantity))
+    return out
+
+
+def low_stock_consumables() -> list[dict]:
+    """Consumables at or below minimum stock with the suggested order quantity,
+    and what is already on a draft or open supplier order."""
+    from app.services.inventory_service import purchase_suggestions
+
+    on_order = _consumable_on_order()
+    rows = []
+    for item in purchase_suggestions()["items"]:
+        ordered = on_order.get(item["toolId"], Decimal("0"))
+        suggested = Decimal(str(item["suggestedOrderQuantity"] or 0))
+        rows.append(
+            {
+                "toolId": item["toolId"],
+                "name": item["name"],
+                "code": item["code"],
+                "sizeSpec": item["sizeSpec"],
+                "unit": item["unit"],
+                "quantityOnHand": item["quantityOnHand"],
+                "minimumStock": item["minimumStock"],
+                "suggestedOrderQuantity": item["suggestedOrderQuantity"],
+                "onOrderQuantity": float(ordered),
+                "remainingSuggestedQuantity": float(max(suggested - ordered, Decimal("0"))),
+            }
+        )
+    return rows
 
 
 # Drafts
@@ -163,9 +212,36 @@ def _require_draft(order: SupplierOrder):
         )
 
 
+def _build_consumable_line(supplier: Supplier, data: dict) -> MaterialPurchase:
+    """A consumable restock line: chosen from the consumables list, not tied to a job."""
+    from app.models.tool import Tool, ToolCategory
+
+    tool = Tool.query.get(data.get("toolId") or "")
+    if not tool or tool.category != ToolCategory.CONSUMABLE:
+        raise AppError("Consumable not found", "NOT_FOUND", 404)
+    unit = (data.get("unit") or tool.unit or "pcs").strip()
+    if unit != tool.unit:
+        raise AppError(
+            f"Unit must be {tool.unit} to match the consumable", "VALIDATION_ERROR", 400
+        )
+    grade = (data.get("gradeOrSpec") or "").strip() or tool.size_spec
+    return MaterialPurchase(
+        tool_id=tool.id,
+        material_name=tool.name,
+        grade_or_spec=grade,
+        quantity=_decimal(data.get("quantity"), "quantity", positive=True),
+        unit=tool.unit,
+        unit_cost=_decimal(
+            data.get("unitCost") if data.get("unitCost") is not None else 0, "unitCost"
+        ),
+        supplier_id=supplier.id,
+    )
+
+
 def add_lines_to_draft(supplier_id, lines: list, actor_id: str):
-    """Add lines (each tied to a job) to the supplier's open draft, starting one
-    if there is none. Returns (order, created_lines)."""
+    """Add lines to the supplier's open draft, starting one if there is none.
+    Each line is a job material (``jobOrderId`` + planned material) or a
+    consumable restock (``toolId``). Returns (order, created_lines)."""
     if not supplier_id:
         raise AppError("supplierId is required", "VALIDATION_ERROR", 400)
     supplier = Supplier.query.get(supplier_id)
@@ -180,9 +256,23 @@ def add_lines_to_draft(supplier_id, lines: list, actor_id: str):
         order = _draft_for(supplier, actor_id)
         created = []
         for data in lines:
+            if data.get("toolId") and data.get("jobOrderId"):
+                raise AppError(
+                    "A line is either a job material or a consumable, not both.",
+                    "VALIDATION_ERROR",
+                    400,
+                )
+            if data.get("toolId"):
+                line = _build_consumable_line(supplier, data)
+                line.supplier_order = order
+                db.session.add(line)
+                created.append(line)
+                continue
             job = JobOrder.query.get(data.get("jobOrderId") or "")
             if not job:
-                raise AppError("Each line needs a job order", "VALIDATION_ERROR", 400)
+                raise AppError(
+                    "Each line needs a job order or a consumable", "VALIDATION_ERROR", 400
+                )
             if job.status in CLOSED_JOB_STATUSES:
                 raise AppError(
                     f"{job.job_number} is {job.status.value.lower()}; "
@@ -228,7 +318,7 @@ def update_draft_line(order: SupplierOrder, line: MaterialPurchase, data: dict):
         line.unit_cost = _decimal(data.get("unitCost"), "unitCost")
     if "gradeOrSpec" in data:
         line.grade_or_spec = (data.get("gradeOrSpec") or "").strip() or None
-    if line.planned_material_id is None:
+    if line.planned_material_id is None and line.tool_id is None:
         if "materialName" in data:
             name = (data.get("materialName") or "").strip()
             if not name:
@@ -247,6 +337,11 @@ def remove_draft_line(order: SupplierOrder, line: MaterialPurchase):
 
 
 # Issuing
+
+
+def _jobs_of(lines) -> set:
+    """Jobs with a material line among ``lines`` (consumable lines have none)."""
+    return {ln.job_order for ln in lines if ln.job_order is not None}
 
 
 def _next_po_seq() -> int:
@@ -281,7 +376,7 @@ def issue_order(order: SupplierOrder, actor_id: str, date_issued=None) -> Suppli
         for line in order.active_lines:
             line.date_ordered = issued
         db.session.flush()
-        for job in {ln.job_order for ln in order.active_lines}:
+        for job in _jobs_of(order.active_lines):
             mp_service.sync_job_material_from_purchases(job)
         db.session.commit()
     except Exception:
@@ -337,9 +432,10 @@ def cancel_line(order: SupplierOrder, line: MaterialPurchase, actor_id: str):
         )
     _cancel_lines([line], actor_id)
     recompute_order_status(order)
-    mp_service.sync_job_material_from_purchases(line.job_order)
+    if line.job_order is not None:
+        mp_service.sync_job_material_from_purchases(line.job_order)
     db.session.commit()
-    delay_service.reschedule_jobs([line.job_order], delay_service.CANCELLED, order)
+    delay_service.reschedule_jobs(_jobs_of([line]), delay_service.CANCELLED, order)
     return line
 
 
@@ -355,7 +451,7 @@ def cancel_order(order: SupplierOrder, actor_id: str) -> SupplierOrder:
     lines = order.active_lines
     _cancel_lines(lines, actor_id)
     order.status = SupplierOrderStatus.CANCELLED
-    for job in {ln.job_order for ln in lines}:
+    for job in _jobs_of(lines):
         mp_service.sync_job_material_from_purchases(job)
     db.session.commit()
     delay_service.reschedule_for_order(order, delay_service.CANCELLED)
@@ -383,6 +479,7 @@ def split_line(order: SupplierOrder, line: MaterialPurchase, quantity) -> list:
         )
     rest = MaterialPurchase(
         job_order_id=line.job_order_id,
+        tool_id=line.tool_id,
         supplier_order=order,
         supplier_id=line.supplier_id,
         planned_material_id=line.planned_material_id,
@@ -494,7 +591,7 @@ def expected_delivery_history(order: SupplierOrder) -> list[dict]:
     ]
 
 
-def receive_order_lines(order: SupplierOrder, line_ids, received_date=None):
+def receive_order_lines(order: SupplierOrder, line_ids, received_date=None, *, actor_id=None):
     if order.status not in RECEIVABLE_STATUSES:
         raise AppError(
             "Only an issued supplier order can be received.", "ORDER_NOT_ISSUED", 409
@@ -502,7 +599,7 @@ def receive_order_lines(order: SupplierOrder, line_ids, received_date=None):
     if not line_ids:
         raise AppError("Choose the lines that arrived.", "VALIDATION_ERROR", 400)
     lines = [get_line(order, lid) for lid in line_ids]
-    mp_service.receive_lines(lines, received_date)
+    mp_service.receive_lines(lines, received_date, actor_id=actor_id)
     return order
 
 
@@ -515,13 +612,15 @@ def _money(v: Decimal) -> Decimal:
 
 def print_data(order: SupplierOrder) -> dict:
     """The printed PO. Lines with the same material, grade and unit print as one
-    row; the system keeps them separate per job. A draft has no PO number yet,
-    so it cannot be printed."""
+    row; the system keeps them separate per job. Consumable restock lines print
+    alongside, without a job number. A draft has no PO number yet, so it cannot
+    be printed."""
     if order.status == SupplierOrderStatus.DRAFT:
         raise AppError("Issue the order before printing.", "ORDER_NOT_ISSUED", 409)
     groups: "OrderedDict[tuple, dict]" = OrderedDict()
     for ln in order.active_lines:
         key = (
+            ln.is_consumable,
             (ln.material_name or "").strip().lower(),
             (ln.grade_or_spec or "").strip().lower(),
             (ln.unit or "").strip().lower(),
@@ -532,6 +631,7 @@ def print_data(order: SupplierOrder) -> dict:
                 "materialName": ln.material_name,
                 "gradeOrSpec": ln.grade_or_spec,
                 "unit": ln.unit,
+                "isConsumable": ln.is_consumable,
                 "amount": Decimal("0"),
                 "quantity": Decimal("0"),
                 "jobNumbers": [],

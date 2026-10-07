@@ -52,12 +52,21 @@ class ToolEvent(db.Model):
     job_order_id = db.Column(
         db.String(36), db.ForeignKey("job_orders.id"), nullable=True
     )
+    # RECEIVE of a consumable line on a supplier order; NULL = Receive delivery
+    # without a PO (e.g. a walk-in purchase).
+    material_purchase_id = db.Column(
+        db.String(36),
+        db.ForeignKey("material_purchases.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, nullable=False)
 
     tool = db.relationship("Tool", back_populates="events")
     tool_unit = db.relationship("ToolUnit", back_populates="events")
     worker = db.relationship("User", back_populates="tool_events")
     job_order = db.relationship("JobOrder", back_populates="tool_events")
+    material_purchase = db.relationship("MaterialPurchase")
 
     def to_dict(self):
         unit = self.tool_unit
@@ -94,5 +103,13 @@ class ToolEvent(db.Model):
             "supplier": self.supplier,
             "receivedOn": self.received_on.isoformat() if self.received_on else None,
             "jobOrderId": self.job_order_id,
+            "supplierOrderId": (
+                self.material_purchase.supplier_order_id if self.material_purchase else None
+            ),
+            "poNumber": (
+                self.material_purchase.supplier_order.po_number
+                if self.material_purchase and self.material_purchase.supplier_order
+                else None
+            ),
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }

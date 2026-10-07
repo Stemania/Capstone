@@ -1,4 +1,5 @@
-"""Actual raw-material purchases linked to a job order (one row per line)."""
+"""Purchase lines: job materials (linked to a job order) or consumable restock
+(linked to a consumable, not to a job). One row per line."""
 
 import uuid
 from datetime import datetime, timezone
@@ -27,13 +28,24 @@ class MaterialPurchase(db.Model):
         db.Index("ix_material_purchase_job", "job_order_id"),
         db.Index("ix_material_purchase_supplier", "supplier_id"),
         db.Index("ix_material_purchase_ordered", "date_ordered"),
+        db.CheckConstraint(
+            "(job_order_id IS NULL) <> (tool_id IS NULL)",
+            name="ck_material_purchase_job_or_consumable",
+        ),
     )
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
+    # Exactly one of job_order_id (job material) or tool_id (consumable restock).
     job_order_id = db.Column(
         db.String(36),
         db.ForeignKey("job_orders.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
+    )
+    tool_id = db.Column(
+        db.String(36),
+        db.ForeignKey("tools.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
     )
     # id of an entry in job_orders.raw_materials; NULL = "Other material".
     planned_material_id = db.Column(db.String(36), nullable=True, index=True)
@@ -65,8 +77,13 @@ class MaterialPurchase(db.Model):
     )
 
     job_order = db.relationship("JobOrder", back_populates="material_purchases")
+    tool = db.relationship("Tool")
     supplier = db.relationship("Supplier", back_populates="material_purchases")
     supplier_order = db.relationship("SupplierOrder", back_populates="lines")
+
+    @property
+    def is_consumable(self) -> bool:
+        return self.tool_id is not None
 
     @property
     def line_total(self):
@@ -143,9 +160,12 @@ class MaterialPurchase(db.Model):
             job_number = f"JO-{year}-{short}"
         return {
             "id": self.id,
+            "kind": "CONSUMABLE" if self.is_consumable else "JOB_MATERIAL",
             "jobOrderId": self.job_order_id,
             "jobNumber": job_number,
             "jobTitle": job.title if job else None,
+            "toolId": self.tool_id,
+            "toolCode": self.tool.code if self.tool else None,
             "plannedMaterialId": self.planned_material_id,
             "materialName": self.material_name,
             "gradeOrSpec": self.grade_or_spec,

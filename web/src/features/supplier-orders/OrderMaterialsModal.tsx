@@ -3,14 +3,17 @@ import { Alert, Button, Input, InputNumber, Modal, Select, Table, Typography, me
 import { ShoppingCartOutlined } from '@ant-design/icons';
 import { supplierOrdersApi } from '../../api/supplierOrders.api';
 import { suppliersApi } from '../../api/suppliers.api';
+import { toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
 import type {
+  LowStockConsumable,
   OutstandingMaterials,
   OutstandingPlannedMaterial,
   Supplier,
   SupplierOrder,
   SupplierOrderLineInput,
   SupplierReliability,
+  Tool,
 } from '../../types';
 import { fmtQty } from './supplierOrderUi';
 
@@ -42,13 +45,29 @@ function ReliabilityText({ row }: { row?: SupplierReliability }) {
 
 type PlannedEdit = { quantity: number | null; unitCost: number | null; gradeOrSpec: string };
 
+/** A consumable restock row: from the low-stock list, or added from the consumables list. */
+type ConsumableRow = {
+  toolId: string;
+  name: string;
+  code: string;
+  unit: string;
+  sizeSpec: string | null;
+  lowStock?: LowStockConsumable;
+};
+
 const rowKey = (m: OutstandingPlannedMaterial) => `${m.jobOrderId}:${m.plannedMaterialId}`;
 
+function fromLowStock(c: LowStockConsumable): ConsumableRow {
+  return { toolId: c.toolId, name: c.name, code: c.code, unit: c.unit, sizeSpec: c.sizeSpec, lowStock: c };
+}
+
 /**
- * The one path for ordering materials: lines go onto the chosen supplier's
- * open draft order (a new draft is started if there is none). Only planned
+ * The one path for purchasing: lines go onto the chosen supplier's open draft
+ * order (a new draft is started if there is none). Job materials: only planned
  * materials can be ordered; anything extra is added to the job's planned
- * materials first. With ``jobId`` only that job's materials are offered.
+ * materials first. Consumable restock: chosen from the consumables list,
+ * starting from those at or below minimum stock. With ``jobId`` only that
+ * job's materials are offered.
  */
 export default function OrderMaterialsModal({
   open,
@@ -71,17 +90,31 @@ export default function OrderMaterialsModal({
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [edits, setEdits] = useState<Record<string, PlannedEdit>>({});
+  const [consumables, setConsumables] = useState<Tool[]>([]);
+  const [consumableRows, setConsumableRows] = useState<ConsumableRow[]>([]);
+  const [selectedConsumables, setSelectedConsumables] = useState<string[]>([]);
+  const [consumableEdits, setConsumableEdits] = useState<Record<string, PlannedEdit>>({});
+  const offerConsumables = !jobId;
 
   useEffect(() => {
     if (!open) return;
     setSupplierId(defaultSupplierId || undefined);
     setSelected([]);
     setEdits({});
+    setSelectedConsumables([]);
+    setConsumableEdits({});
+    setConsumableRows([]);
     setLoading(true);
     suppliersApi
       .reliability()
       .then(({ data: rows }) => setReliability(Object.fromEntries(rows.map((r) => [r.supplierId, r]))))
       .catch(() => setReliability({}));
+    if (offerConsumables) {
+      toolsApi
+        .list({ category: 'CONSUMABLE' })
+        .then(({ data: rows }) => setConsumables(rows))
+        .catch(() => setConsumables([]));
+    }
     Promise.all([suppliersApi.list({ activeOnly: true }), supplierOrdersApi.outstanding(jobId)])
       .then(([s, o]) => {
         setSuppliers(s.data);
@@ -95,14 +128,40 @@ export default function OrderMaterialsModal({
           };
         }
         setEdits(initial);
+        const low = o.data.lowStockConsumables || [];
+        setConsumableRows(low.map(fromLowStock));
+        setConsumableEdits(
+          Object.fromEntries(
+            low.map((c) => [
+              c.toolId,
+              {
+                quantity: c.remainingSuggestedQuantity || c.suggestedOrderQuantity || 1,
+                unitCost: null,
+                gradeOrSpec: c.sizeSpec || '',
+              },
+            ])
+          )
+        );
       })
       .catch((err) => message.error(getErrorMessage(err)))
       .finally(() => setLoading(false));
-  }, [open, jobId, defaultSupplierId]);
+  }, [open, jobId, defaultSupplierId, offerConsumables]);
 
   const supplier = suppliers.find((s) => s.id === supplierId);
   const setEdit = (key: string, patch: Partial<PlannedEdit>) =>
     setEdits((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
+  const setConsumableEdit = (toolId: string, patch: Partial<PlannedEdit>) =>
+    setConsumableEdits((prev) => ({ ...prev, [toolId]: { ...prev[toolId], ...patch } }));
+  const addConsumable = (toolId: string) => {
+    const tool = consumables.find((t) => t.id === toolId);
+    if (!tool || consumableRows.some((r) => r.toolId === toolId)) return;
+    setConsumableRows((prev) => [
+      ...prev,
+      { toolId: tool.id, name: tool.name, code: tool.code, unit: tool.unit, sizeSpec: tool.sizeSpec },
+    ]);
+    setConsumableEdit(tool.id, { quantity: 1, unitCost: null, gradeOrSpec: tool.sizeSpec || '' });
+    setSelectedConsumables((prev) => [...prev, tool.id]);
+  };
   const onSubmit = async () => {
     if (!supplierId) {
       message.error('Choose a supplier');
@@ -129,8 +188,27 @@ export default function OrderMaterialsModal({
         gradeOrSpec: e.gradeOrSpec.trim() || null,
       });
     }
+    for (const c of consumableRows) {
+      if (!selectedConsumables.includes(c.toolId)) continue;
+      const e = consumableEdits[c.toolId];
+      if (!e?.quantity || e.quantity <= 0) {
+        message.error(`Enter a quantity for ${c.name}`);
+        return;
+      }
+      if (e.unitCost == null) {
+        message.error(`Enter a unit cost for ${c.name}`);
+        return;
+      }
+      lines.push({
+        toolId: c.toolId,
+        quantity: e.quantity,
+        unit: c.unit,
+        unitCost: e.unitCost,
+        gradeOrSpec: e.gradeOrSpec.trim() || null,
+      });
+    }
     if (!lines.length) {
-      message.error('Tick at least one material');
+      message.error(offerConsumables ? 'Tick at least one material or consumable' : 'Tick at least one material');
       return;
     }
     try {
@@ -169,7 +247,9 @@ export default function OrderMaterialsModal({
             {jobId ? 'Order materials for this job' : 'New supplier order'}
           </div>
           <div className="app-form-modal__sub">
-            Pick a supplier, then the planned materials to add to its draft order.
+            {offerConsumables
+              ? 'Pick a supplier, then the planned materials and consumables to add to its draft order.'
+              : 'Pick a supplier, then the planned materials to add to its draft order.'}
           </div>
         </div>
         <button type="button" className="app-form-modal__close" onClick={onClose} aria-label="Close">
@@ -302,6 +382,127 @@ export default function OrderMaterialsModal({
             Only planned materials can be ordered. To order something else, add it to the
             job&apos;s planned materials first (Edit on the job order).
           </Text>
+
+          {offerConsumables ? (
+            <>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  margin: '18px 0 8px',
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 13 }}>
+                  Consumables to restock (not tied to a job)
+                </div>
+                <Select
+                  showSearch
+                  size="small"
+                  optionFilterProp="label"
+                  placeholder="Add another consumable"
+                  style={{ width: 280 }}
+                  value={null}
+                  onChange={(v: string) => addConsumable(v)}
+                  options={consumables
+                    .filter((t) => !consumableRows.some((r) => r.toolId === t.id))
+                    .map((t) => ({ value: t.id, label: `${t.name} (${t.code})` }))}
+                />
+              </div>
+              <Table<ConsumableRow>
+                size="small"
+                loading={loading}
+                rowKey="toolId"
+                pagination={false}
+                scroll={{ y: 'min(260px, calc(100vh - 520px))' }}
+                dataSource={consumableRows}
+                locale={{ emptyText: 'No consumable is at or below its minimum stock.' }}
+                rowSelection={{
+                  selectedRowKeys: selectedConsumables,
+                  onChange: (keys) => setSelectedConsumables(keys as string[]),
+                }}
+                columns={[
+                  {
+                    title: 'Consumable',
+                    key: 'name',
+                    render: (_: unknown, c) => (
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{c.name}</div>
+                        <div style={{ fontSize: 11, color: '#64748b' }}>{c.code}</div>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: 'Stock',
+                    key: 'stock',
+                    width: 190,
+                    render: (_: unknown, c) =>
+                      c.lowStock ? (
+                        <div style={{ fontSize: 12 }}>
+                          <span style={{ color: '#b45309', fontWeight: 600 }}>
+                            {fmtQty(c.lowStock.quantityOnHand, c.unit)}
+                          </span>{' '}
+                          of min {fmtQty(c.lowStock.minimumStock, c.unit)}
+                          {c.lowStock.onOrderQuantity > 0 ? (
+                            <div style={{ color: '#64748b' }}>
+                              {fmtQty(c.lowStock.onOrderQuantity, c.unit)} already on order
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: 12, color: '#64748b' }}>Added</span>
+                      ),
+                  },
+                  {
+                    title: 'Size / spec',
+                    key: 'grade',
+                    width: 130,
+                    render: (_: unknown, c) => (
+                      <Input
+                        size="small"
+                        value={consumableEdits[c.toolId]?.gradeOrSpec}
+                        onChange={(e) => setConsumableEdit(c.toolId, { gradeOrSpec: e.target.value })}
+                      />
+                    ),
+                  },
+                  {
+                    title: 'Quantity',
+                    key: 'qty',
+                    width: 130,
+                    render: (_: unknown, c) => (
+                      <InputNumber
+                        size="small"
+                        min={0.01}
+                        style={{ width: '100%' }}
+                        value={consumableEdits[c.toolId]?.quantity}
+                        onChange={(v) => setConsumableEdit(c.toolId, { quantity: v })}
+                        addonAfter={c.unit}
+                      />
+                    ),
+                  },
+                  {
+                    title: 'Unit cost',
+                    key: 'cost',
+                    width: 120,
+                    render: (_: unknown, c) => (
+                      <InputNumber
+                        size="small"
+                        min={0}
+                        style={{ width: '100%' }}
+                        value={consumableEdits[c.toolId]?.unitCost}
+                        onChange={(v) => setConsumableEdit(c.toolId, { unitCost: v })}
+                      />
+                    ),
+                  },
+                ]}
+              />
+              <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 10 }}>
+                Quantities start at the suggested order quantity. Receiving a consumable line on the
+                order adds it to stock.
+              </Text>
+            </>
+          ) : null}
         </>
       ) : (
         <Alert type="info" showIcon message="Choose a supplier to see the materials still to order." />

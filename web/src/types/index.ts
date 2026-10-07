@@ -170,9 +170,13 @@ export interface AttendanceHistory {
 
 export interface MaterialPurchase {
   id: string;
-  jobOrderId: string;
+  /** JOB_MATERIAL lines belong to a job; CONSUMABLE lines restock a consumable. */
+  kind?: 'JOB_MATERIAL' | 'CONSUMABLE';
+  jobOrderId: string | null;
   jobNumber?: string | null;
   jobTitle?: string | null;
+  toolId?: string | null;
+  toolCode?: string | null;
   plannedMaterialId?: string | null;
   materialName: string;
   gradeOrSpec?: string | null;
@@ -267,6 +271,7 @@ export interface SupplierOrder {
   issuedByName?: string | null;
   lineCount: number;
   jobCount: number;
+  consumableLineCount?: number;
   subtotal: number;
   /** Days past the expected delivery date for lines not yet received. */
   daysOverdue?: number;
@@ -288,13 +293,32 @@ export interface OutstandingPlannedMaterial {
   remainingQuantity: number | null;
 }
 
+/** A consumable at or below its minimum stock, offered when creating a supplier order. */
+export interface LowStockConsumable {
+  toolId: string;
+  name: string;
+  code: string;
+  sizeSpec: string | null;
+  unit: string;
+  quantityOnHand: number;
+  minimumStock: number;
+  suggestedOrderQuantity: number;
+  /** Already on a draft or open supplier order, not yet received. */
+  onOrderQuantity: number;
+  remainingSuggestedQuantity: number;
+}
+
 export interface OutstandingMaterials {
   materials: OutstandingPlannedMaterial[];
   jobs: { id: string; jobNumber: string; title: string }[];
+  /** Empty when the list is for one job. */
+  lowStockConsumables: LowStockConsumable[];
 }
 
+/** A job material (jobOrderId + plannedMaterialId) or a consumable restock (toolId). */
 export interface SupplierOrderLineInput {
-  jobOrderId: string;
+  jobOrderId?: string;
+  toolId?: string;
   plannedMaterialId?: string | null;
   materialName?: string;
   gradeOrSpec?: string | null;
@@ -318,7 +342,9 @@ export interface SupplierOrderPrint {
     unit: string;
     unitCost: number;
     quantity: number;
+    /** Empty for consumable restock rows. */
     jobNumbers: string[];
+    isConsumable?: boolean;
     lineCount: number;
     amount: number;
   }[];

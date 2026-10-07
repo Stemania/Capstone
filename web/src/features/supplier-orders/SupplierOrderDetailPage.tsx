@@ -203,8 +203,12 @@ export default function SupplierOrderDetailPage() {
 
   const cancelLine = (ln: MaterialPurchase) =>
     Modal.confirm({
-      title: `Cancel “${ln.materialName}” for ${ln.jobNumber}?`,
-      content: 'The line stays on the order as cancelled; the material goes back to "to order".',
+      title: ln.jobOrderId
+        ? `Cancel “${ln.materialName}” for ${ln.jobNumber}?`
+        : `Cancel the restock of “${ln.materialName}”?`,
+      content: ln.jobOrderId
+        ? 'The line stays on the order as cancelled; the material goes back to "to order".'
+        : 'The line stays on the order as cancelled; nothing is added to stock.',
       okText: 'Cancel line',
       okButtonProps: { danger: true },
       cancelText: 'Keep',
@@ -282,14 +286,20 @@ export default function SupplierOrderDetailPage() {
       title: 'Job',
       key: 'job',
       width: 170,
-      render: (_: unknown, ln) => (
-        <div>
-          <Link to={`/job-orders/${ln.jobOrderId}`} style={{ fontWeight: 600 }}>
-            {ln.jobNumber}
-          </Link>
-          <div style={{ fontSize: 11, color: '#64748b' }}>{ln.jobTitle}</div>
-        </div>
-      ),
+      render: (_: unknown, ln) =>
+        ln.jobOrderId ? (
+          <div>
+            <Link to={`/job-orders/${ln.jobOrderId}`} style={{ fontWeight: 600 }}>
+              {ln.jobNumber}
+            </Link>
+            <div style={{ fontSize: 11, color: '#64748b' }}>{ln.jobTitle}</div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontWeight: 600, color: '#475569' }}>Consumable restock</div>
+            {ln.toolCode ? <div style={{ fontSize: 11, color: '#64748b' }}>{ln.toolCode}</div> : null}
+          </div>
+        ),
     },
     {
       title: 'Material',
@@ -297,7 +307,7 @@ export default function SupplierOrderDetailPage() {
       render: (_: unknown, ln) => (
         <div style={ln.cancelledAt ? { textDecoration: 'line-through', color: '#94a3b8' } : undefined}>
           {ln.materialName}
-          {!ln.plannedMaterialId ? (
+          {!ln.plannedMaterialId && ln.jobOrderId ? (
             <div style={{ fontSize: 11, color: '#64748b' }}>Unplanned</div>
           ) : null}
         </div>
@@ -694,7 +704,11 @@ export default function SupplierOrderDetailPage() {
         onOk={saveEdit}
         okText="Save"
         confirmLoading={busy}
-        title={editLine ? `Edit ${editLine.materialName} (${editLine.jobNumber})` : ''}
+        title={
+          editLine
+            ? `Edit ${editLine.materialName} (${editLine.jobNumber || 'consumable restock'})`
+            : ''
+        }
         destroyOnHidden
       >
         <div style={{ display: 'grid', gap: 12 }}>

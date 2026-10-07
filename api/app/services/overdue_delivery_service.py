@@ -66,7 +66,7 @@ def _alert(group: list[MaterialPurchase], today) -> None:
         title=title,
         message=(
             f"Expected {expected.strftime('%d %b %Y')}, not received yet ({materials}; "
-            f"for {', '.join(jobs) or 'no job'}). Follow up with {supplier}."
+            f"for {', '.join(jobs) or 'consumable restock'}). Follow up with {supplier}."
         ),
         job_order_id=first.job_order_id if order is None else None,
         supplier_order_id=order.id if order is not None else None,

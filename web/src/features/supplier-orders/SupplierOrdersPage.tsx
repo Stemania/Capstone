@@ -79,9 +79,13 @@ export default function SupplierOrdersPage() {
     {
       title: 'Lines',
       key: 'lines',
-      width: 110,
-      render: (_: unknown, r) =>
-        `${r.lineCount} (${r.jobCount} job${r.jobCount === 1 ? '' : 's'})`,
+      width: 150,
+      render: (_: unknown, r) => {
+        const parts = [];
+        if (r.jobCount) parts.push(`${r.jobCount} job${r.jobCount === 1 ? '' : 's'}`);
+        if (r.consumableLineCount) parts.push(`${r.consumableLineCount} consumable`);
+        return `${r.lineCount}${parts.length ? ` (${parts.join(', ')})` : ''}`;
+      },
     },
     { title: 'Issued', dataIndex: 'dateIssued', width: 120, render: (v) => fmtDay(v) },
     {

@@ -1,4 +1,5 @@
-"""Supplier purchase order grouping material lines from one or more job orders."""
+"""Supplier purchase order grouping job material lines from one or more job
+orders and consumable restock lines."""
 
 import enum
 import uuid
@@ -128,7 +129,8 @@ class SupplierOrder(db.Model):
             "issuedById": self.issued_by_id,
             "issuedByName": self.issued_by.full_name if self.issued_by else None,
             "lineCount": len(self.active_lines),
-            "jobCount": len({ln.job_order_id for ln in self.active_lines}),
+            "jobCount": len({ln.job_order_id for ln in self.active_lines if ln.job_order_id}),
+            "consumableLineCount": sum(1 for ln in self.active_lines if ln.tool_id),
             "subtotal": float(self.subtotal),
             "daysOverdue": self.days_overdue(),
             "createdAt": self.created_at.isoformat() if self.created_at else None,

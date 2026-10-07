@@ -139,7 +139,7 @@ export default function RawMaterialsPanel() {
       onOk: async () => {
         try {
           await jobOrdersApi.markPurchaseReceived(
-            row.jobOrderId,
+            row.jobOrderId!,
             row.id,
             receivedDate.format('YYYY-MM-DD')
           );
