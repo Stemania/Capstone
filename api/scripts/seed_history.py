@@ -65,6 +65,7 @@ from app.models.sales_invoice import SalesInvoice
 from app.models.schedule_move import DelayKind, MaterialCause, ScheduleMove
 from app.models.stocktake import Stocktake, StocktakeLine
 from app.models.supplier import Supplier
+from app.models.supplier_order import SupplierOrder, SupplierOrderStatus, format_po_number
 from app.models.tool import Tool, ToolCategory
 from app.models.tool_event import ToolEvent, ToolEventType
 from app.models.user import User, UserRole
@@ -80,6 +81,7 @@ from app.services.material_purchase_service import sync_job_material_from_purcha
 from app.services.operation_service import recompute_variance
 from app.services.schedule_calendar import shop_local_to_utc, shop_now
 from app.services.schedule_service import propose_schedule
+from app.services.supplier_order_service import recompute_order_status
 
 TAG = "HIST-SEED"
 PO_PREFIX = f"{TAG}-"
@@ -152,7 +154,10 @@ REWORK_RATE = 0.15
 STOCK_COUNT_GAPS = [7, 7, 7, 8, 10, 12, 14, 14]
 STOCK_NOTE = f"{TAG} stock count"
 DELIVERY_NOTE = f"{TAG} delivery"
-CONSUMABLE_SUPPLIER = "Hardware supplier"
+JOB_ORDER_NOTE = f"{TAG} job materials"
+RESTOCK_ORDER_NOTE = f"{TAG} consumable restock"
+# (name, lead days, on-time share)
+CONSUMABLE_SUPPLIER = ("Metro Hardware", 2, 0.88)
 RNG_SEED = 20260810
 
 
@@ -231,7 +236,7 @@ MATERIAL_CATALOG = [
 LINES_PER_JOB = ([1, 2, 3], [45, 35, 20])
 
 # Weight for secondary lines, price factor, and target share of deliveries on
-# time (counted per purchase line, as the reliability score does for lines with no PO).
+# time (counted per PO, as the reliability score does).
 SUPPLIER_PROFILES = {
     "STP": {"weight": 55, "price_factor": 1.00, "on_time": 0.85},
     "Railim": {"weight": 30, "price_factor": 0.97, "on_time": 0.70},
@@ -349,13 +354,38 @@ def wipe_history():
     db.session.flush()
 
     counts_n, deliveries_n = _wipe_stock_history()
+    orders_n = _wipe_seeded_orders()
     dts_n, cal_n, clients_n = _wipe_hist_artifacts(commit=True)
     print(
         f"Wiped: {len(jobs)} jobs, {op_count} operations, {log_count} time logs, "
-        f"{purchase_count} purchase lines, "
+        f"{purchase_count} purchase lines, {orders_n} supplier orders, "
         f"{dts_n} downtimes, {cal_n} calendar exceptions, {clients_n} clients, "
         f"{counts_n} stock counts, {deliveries_n} consumable deliveries."
     )
+
+
+def _wipe_seeded_orders() -> int:
+    """HIST-SEED supplier orders and their remaining (consumable restock) lines;
+    job material lines already went with their jobs."""
+    orders = SupplierOrder.query.filter(SupplierOrder.notes.like(f"{TAG}%")).all()
+    ids = [o.id for o in orders]
+    if ids:
+        line_ids = [
+            lid
+            for (lid,) in db.session.query(MaterialPurchase.id)
+            .filter(MaterialPurchase.supplier_order_id.in_(ids))
+            .all()
+        ]
+        if line_ids:
+            ToolEvent.query.filter(ToolEvent.material_purchase_id.in_(line_ids)).update(
+                {ToolEvent.material_purchase_id: None}, synchronize_session=False
+            )
+            MaterialPurchase.query.filter(MaterialPurchase.id.in_(line_ids)).delete(
+                synchronize_session=False
+            )
+        SupplierOrder.query.filter(SupplierOrder.id.in_(ids)).delete(synchronize_session=False)
+        db.session.flush()
+    return len(ids)
 
 
 def _load_catalog():
@@ -1052,7 +1082,8 @@ def _apply_late_material(job, supplier, first_start, rng):
 def _shape_deliveries(fab_jobs, first_start_by_job, suppliers, late_material, today, rng):
     """
     Set each (job, supplier) delivery on time or late so every supplier lands near
-    its SUPPLIER_PROFILES on-time share. Late-material deliveries already count late.
+    its SUPPLIER_PROFILES on-time share. Each group becomes one PO, so reliability
+    counts it once. Late-material deliveries already count late.
 
     Started jobs: every delivery lands on or before the first operation's start day
     (the start gate requires it). Not-started jobs: ordered on the job day; a
@@ -1068,15 +1099,15 @@ def _shape_deliveries(fab_jobs, first_start_by_job, suppliers, late_material, to
             per_supplier[p.supplier_id].append(p)
         for sid, lines in per_supplier.items():
             if late_material.get(job.id) == by_id[sid].name:
-                due[sid] += len(lines)
-                late[sid] += len(lines)
+                due[sid] += 1
+                late[sid] += 1
             else:
                 groups.append((job, by_id[sid], lines))
     groups.sort(key=lambda g: (g[2][0].date_ordered, g[0].created_at))
 
     for job, supplier, lines in groups:
         stated = supplier.typical_lead_time_days or 1
-        n = len(lines)
+        n = 1
         target_late = 1 - SUPPLIER_PROFILES[supplier.name]["on_time"]
         make_late = late[supplier.id] + n / 2 < target_late * (due[supplier.id] + n)
         first_start = first_start_by_job.get(job.id)
@@ -1087,6 +1118,8 @@ def _shape_deliveries(fab_jobs, first_start_by_job, suppliers, late_material, to
             order_day = _skip_sunday_back(
                 min(first_day - timedelta(days=stated + days_late + buffer_days), today)
             )
+            if (order_day + timedelta(days=stated)).weekday() == 6:
+                order_day = _skip_sunday_back(order_day - timedelta(days=1))
             promised = order_day + timedelta(days=stated)
             if make_late:
                 received = promised + timedelta(days=days_late)
@@ -1163,6 +1196,60 @@ def _settle_purchases(fab_jobs, first_start_by_job, suppliers, today, rng) -> di
                 first_start_by_job[job.id],
             )
     return late_material
+
+
+def _seeded_order(supplier, issued: date, creator, note: str) -> SupplierOrder:
+    """An issued PO (numbered later by _number_seeded_orders)."""
+    order = SupplierOrder(
+        supplier_id=supplier.id,
+        status=SupplierOrderStatus.ISSUED,
+        date_issued=issued,
+        expected_delivery_date=issued + timedelta(days=supplier.typical_lead_time_days or 1),
+        notes=note,
+        prepared_by_id=creator.id,
+        issued_by_id=creator.id,
+        created_at=shop_local_to_utc(issued, time(8, 0)),
+    )
+    db.session.add(order)
+    return order
+
+
+def _create_job_material_orders(fab_jobs, suppliers, creator) -> int:
+    """One PO per (job, supplier) delivery group, issued on its order day."""
+    by_id = {s.id: s for s in suppliers.values()}
+    n = 0
+    for job in fab_jobs:
+        per_supplier = defaultdict(list)
+        for p in job.material_purchases:
+            per_supplier[p.supplier_id].append(p)
+        for sid, lines in per_supplier.items():
+            issued = min(p.date_ordered for p in lines)
+            order = _seeded_order(by_id[sid], issued, creator, JOB_ORDER_NOTE)
+            for p in lines:
+                p.date_ordered = issued
+                p.supplier_order = order
+            recompute_order_status(order)
+            n += 1
+    db.session.flush()
+    return n
+
+
+def _number_seeded_orders() -> int:
+    """PO numbers in issue-date order, after any existing numbered PO."""
+    orders = (
+        SupplierOrder.query.filter(
+            SupplierOrder.notes.like(f"{TAG}%"), SupplierOrder.po_seq.is_(None)
+        )
+        .order_by(SupplierOrder.date_issued, SupplierOrder.created_at)
+        .all()
+    )
+    seq = db.session.query(db.func.max(SupplierOrder.po_seq)).scalar() or 0
+    for order in orders:
+        seq += 1
+        order.po_seq = seq
+        order.po_number = format_po_number(seq)
+    db.session.flush()
+    return len(orders)
 
 
 def _longest_stretch(job, needs_unit: bool):
@@ -1532,9 +1619,74 @@ def _seed_stock_history(creator, window_start: date, today: date, rng: random.Ra
                 )
             )
 
-    n_deliveries = 0
+    n_deliveries, n_orders = _receive_restock_orders(tools, deliveries, creator, rng)
+    return {
+        "counts": len(dates),
+        "first": dates[0],
+        "last": last,
+        "deliveries": n_deliveries,
+        "restockOrders": n_orders,
+        "afterLastCount": after_last,
+        "items": len(tools),
+    }
+
+
+def _consumable_supplier() -> Supplier:
+    name, lead, _ = CONSUMABLE_SUPPLIER
+    supplier = Supplier.query.filter_by(name=name).first()
+    if supplier is None:
+        supplier = Supplier(
+            name=name,
+            typical_lead_time_days=lead,
+            notes="Consumables: discs, inserts, oils, welding wire",
+            active=True,
+            is_seed=True,
+        )
+        db.session.add(supplier)
+        db.session.flush()
+    return supplier
+
+
+def _receive_restock_orders(tools, deliveries, creator, rng) -> tuple[int, int]:
+    """Every consumable delivery arrives on a restock PO, one PO per delivery
+    day, issued about the lead time before (a few arrive late). Each line's
+    RECEIVE event is linked to it, as receiving through the PO does."""
+    supplier = _consumable_supplier()
+    lead = supplier.typical_lead_time_days or 1
+    on_time = CONSUMABLE_SUPPLIER[2]
+    unit_costs = {t.id: Decimal(str(round(rng.uniform(25, 450), 2))) for t in tools}
+    by_day = defaultdict(list)
     for tool in tools:
         for on, qty in deliveries[tool.id]:
+            by_day[on].append((tool, qty))
+
+    n_lines = 0
+    late = 0
+    for k, on in enumerate(sorted(by_day)):
+        make_late = late + 0.5 < (1 - on_time) * (k + 1) and rng.random() < 0.5
+        late += make_late
+        if not make_late:
+            issued = min(on - timedelta(days=lead - rng.choice([0, 0, 0, 1])), on - timedelta(days=1))
+            if issued.weekday() == 6:
+                issued += timedelta(days=1) if issued + timedelta(days=1) < on else timedelta(days=-1)
+        else:
+            issued = _skip_sunday_back(on - timedelta(days=lead + rng.randint(1, 3)))
+        order = _seeded_order(supplier, issued, creator, RESTOCK_ORDER_NOTE)
+        for tool, qty in by_day[on]:
+            line = MaterialPurchase(
+                tool_id=tool.id,
+                material_name=tool.name,
+                grade_or_spec=tool.size_spec,
+                quantity=Decimal(str(qty)),
+                unit=tool.unit,
+                unit_cost=unit_costs[tool.id],
+                supplier_id=supplier.id,
+                date_ordered=issued,
+                date_received=on,
+            )
+            line.supplier_order = order
+            db.session.add(line)
+            db.session.flush()
             db.session.add(
                 ToolEvent(
                     tool_id=tool.id,
@@ -1542,21 +1694,16 @@ def _seed_stock_history(creator, window_start: date, today: date, rng: random.Ra
                     type=ToolEventType.RECEIVE,
                     quantity=Decimal(str(qty)),
                     reason=DELIVERY_NOTE,
-                    supplier=CONSUMABLE_SUPPLIER,
+                    supplier=supplier.name,
                     received_on=on,
+                    material_purchase_id=line.id,
                     created_at=shop_local_to_utc(on, time(10, 0)),
                 )
             )
-            n_deliveries += 1
+            n_lines += 1
+        recompute_order_status(order)
     db.session.flush()
-    return {
-        "counts": len(dates),
-        "first": dates[0],
-        "last": last,
-        "deliveries": n_deliveries,
-        "afterLastCount": after_last,
-        "items": len(tools),
-    }
+    return n_lines, len(by_day)
 
 
 def _wipe_stock_history() -> tuple[int, int]:
@@ -1882,6 +2029,7 @@ def seed_history():
 
     fab_jobs = [j for j in created_jobs if j.job_type == JobType.FABRICATION]
     late_material = _settle_purchases(fab_jobs, first_start_by_job, suppliers, today, late_rng)
+    job_orders_n = _create_job_material_orders(fab_jobs, suppliers, creator)
 
     # Explicit on-time / late mix for completed jobs (~22% late)
     completed_for_due = [
@@ -2005,6 +2153,7 @@ def seed_history():
             open_count += 1
 
     stock_stats = _seed_stock_history(creator, window_start, today, random.Random(RNG_SEED + 5))
+    numbered_n = _number_seeded_orders()
 
     db.session.commit()
 
@@ -2039,9 +2188,13 @@ def seed_history():
         print(
             f"Stock counts:        {stock_stats['counts']} ({stock_stats['first']} -> "
             f"{stock_stats['last']}) for {stock_stats['items']} consumables, "
-            f"{stock_stats['deliveries']} deliveries "
+            f"{stock_stats['deliveries']} deliveries on {stock_stats['restockOrders']} restock POs "
             f"({stock_stats['afterLastCount']} after the last count)"
         )
+    print(
+        f"Supplier orders:     {numbered_n} numbered POs "
+        f"({job_orders_n} job materials, {numbered_n - job_orders_n} consumable restock)"
+    )
     print(f"Operations created:  {len(created_ops)}")
     print(f"With variance data:  {len(with_var)}")
     print(f"Rework follow-ons:   {reworks}")
