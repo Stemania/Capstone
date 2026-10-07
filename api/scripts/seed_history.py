@@ -1971,9 +1971,15 @@ def seed_history():
                     note=f"{TAG} closed downtime #{i + 1}",
                 )
             )
-        # Open downtimes (1–2), prefer units not already open
+        # Open downtimes (1–2), prefer units not already open. Never on the only
+        # unit of a machine type: that would block every job needing it.
         open_count = 0
-        shuffled = list(all_units)
+        shuffled = [
+            u
+            for units in catalog["units_by_type"].values()
+            if len(units) > 1
+            for u in units
+        ]
         rng.shuffle(shuffled)
         for unit in shuffled:
             if open_count >= 2:
