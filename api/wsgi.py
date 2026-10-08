@@ -1,3 +1,8 @@
+# Load the idna codec once in the main thread, before gunicorn's request threads
+# start; a first lookup from several threads at once can fail with
+# "LookupError: unknown encoding: idna".
+import encodings.idna  # noqa: F401
+
 import os
 
 from app import create_app

@@ -56,6 +56,16 @@ def test_models_configure_in_this_process():
     configure_mappers()
 
 
+def test_render_uses_the_python_version_the_tests_run_on():
+    import platform
+    import re
+
+    render_yaml = (API_DIR.parent / "render.yaml").read_text()
+    match = re.search(r'key:\s*PYTHON_VERSION\s*\n\s*value:\s*"?([\d.]+)"?', render_yaml)
+    assert match, "render.yaml does not set PYTHON_VERSION"
+    assert match.group(1) == platform.python_version()
+
+
 def _pins():
     for line in (API_DIR / "requirements.txt").read_text().splitlines():
         line = line.split("#", 1)[0].strip()

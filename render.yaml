@@ -8,8 +8,9 @@ services:
     # threads keep requests concurrent.
     startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120
     envVars:
+      # The exact version the test suite passes with (api/.venv).
       - key: PYTHON_VERSION
-        value: "3.12.0"
+        value: "3.14.6"
       - key: FLASK_APP
         value: wsgi.py
       - key: FLASK_ENV
