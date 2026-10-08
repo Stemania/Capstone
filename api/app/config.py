@@ -40,6 +40,22 @@ class Config:
         os.getenv("DATABASE_URL", "postgresql+psycopg://bmsc:bmsc_dev@localhost:5432/bmsc")
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # Neon closes idle connections (and suspends the database); without these a
+    # request or background check can wait forever on a dead connection.
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_pre_ping": True,
+        "pool_recycle": 280,
+        "pool_timeout": 15,
+        "connect_args": {
+            "connect_timeout": 10,
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 3,
+            "tcp_user_timeout": 30000,
+        },
+    }
+    SLOW_REQUEST_SECONDS = float(os.getenv("SLOW_REQUEST_SECONDS", "1.0"))
 
     # Optional. No localhost default — an unset/mis-set Redis URL must not
     # point production at a Redis that does not exist in the container.
