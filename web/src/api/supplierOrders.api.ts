@@ -10,8 +10,8 @@ import type {
 export const supplierOrdersApi = {
   list: (params?: { status?: SupplierOrderStatus | 'OVERDUE'; supplierId?: string }) =>
     apiClient.get<SupplierOrder[]>('/supplier-orders', { params }),
-  /** Re-plans jobs held up by overdue deliveries and alerts Office Staff (idempotent). */
-  overdueCheck: () => apiClient.post<{ overdueLines: number }>('/supplier-orders/overdue-check'),
+  /** Starts the overdue-delivery and at-risk checks in the background (throttled by the server). */
+  overdueCheck: () => apiClient.post<{ started: boolean }>('/supplier-orders/overdue-check'),
   get: (id: string) => apiClient.get<SupplierOrder>(`/supplier-orders/${id}`),
   outstanding: (jobId?: string) =>
     apiClient.get<OutstandingMaterials>('/supplier-orders/outstanding', {

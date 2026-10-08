@@ -32,10 +32,9 @@ export default function SupplierOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('ALL');
   const [newOpen, setNewOpen] = useState(false);
-  const checked = useOverdueCheck();
+  useOverdueCheck();
 
   const fetchRows = useCallback(async () => {
-    if (!checked) return;
     setLoading(true);
     try {
       const { data } = await supplierOrdersApi.list(
@@ -47,7 +46,7 @@ export default function SupplierOrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [filter, checked]);
+  }, [filter]);
 
   useEffect(() => {
     void fetchRows();

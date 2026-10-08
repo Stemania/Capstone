@@ -6,11 +6,13 @@ becomes tomorrow at the earliest (see ``line_expected_arrival``), so the job's
 unstarted operations move later through the material delay rescheduling,
 recorded as a MATERIAL move.
 
-``check_overdue_deliveries`` runs when the API starts, once a day, and when the
-job orders, supplier orders or schedule pages are opened. It is safe to run
-repeatedly: jobs already placed after the material date do not move, and each
-overdue order raises one Office Staff alert per expected date. The same runs
-also sweep released jobs for at-risk alerts (``completion_estimate_service``).
+``check_overdue_deliveries`` runs when the API starts, once a day, and in the
+background when the job orders, supplier orders or schedule pages are opened
+(at most once every ``CHECK_INTERVAL_SECONDS``; a page never waits for it). It
+is safe to run repeatedly: jobs already placed after the material date do not
+move, and each overdue order raises one Office Staff alert per expected date.
+The same runs also sweep released jobs for at-risk alerts
+(``completion_estimate_service``).
 """
 
 from __future__ import annotations
@@ -108,6 +110,53 @@ def _seconds_until_next_run(now=None) -> float:
     return max((nxt - now).total_seconds(), 60.0)
 
 
+CHECK_INTERVAL_SECONDS = 300
+_run_lock = threading.Lock()
+_last_started: list[float] = []
+
+
+def run_checks(app) -> bool:
+    """Run the overdue delivery and at-risk checks in this thread.
+
+    Returns False without waiting when another run is in progress.
+    """
+    if not _run_lock.acquire(blocking=False):
+        return False
+    try:
+        _last_started[:] = [time.monotonic()]
+        try:
+            with app.app_context():
+                result = check_overdue_deliveries()
+                app.logger.info(
+                    "overdue_check lines=%s orders=%s moved=%s",
+                    result["overdueLines"],
+                    result["overdueOrders"],
+                    len(result["movedJobs"]),
+                )
+        except Exception:
+            app.logger.exception("Overdue delivery check failed")
+        try:
+            with app.app_context():
+                from app.services.completion_estimate_service import check_released_jobs
+
+                app.logger.info("at_risk_check alerts=%s", check_released_jobs())
+        except Exception:
+            app.logger.exception("At-risk check failed")
+        return True
+    finally:
+        _run_lock.release()
+
+
+def request_checks(app) -> bool:
+    """Start a background run unless one is running or started recently. Never blocks."""
+    if _run_lock.locked():
+        return False
+    if _last_started and time.monotonic() - _last_started[0] < CHECK_INTERVAL_SECONDS:
+        return False
+    threading.Thread(target=run_checks, args=(app,), name="page-open-checks", daemon=True).start()
+    return True
+
+
 def start_background_checks(app) -> None:
     """Check now (API start), then shortly after midnight shop time every day."""
     if app.config.get("TESTING"):
@@ -115,24 +164,7 @@ def start_background_checks(app) -> None:
 
     def _loop():
         while True:
-            try:
-                with app.app_context():
-                    result = check_overdue_deliveries()
-                    app.logger.info(
-                        "overdue_check lines=%s orders=%s moved=%s",
-                        result["overdueLines"],
-                        result["overdueOrders"],
-                        len(result["movedJobs"]),
-                    )
-            except Exception:
-                app.logger.exception("Overdue delivery check failed")
-            try:
-                with app.app_context():
-                    from app.services.completion_estimate_service import check_released_jobs
-
-                    app.logger.info("at_risk_check alerts=%s", check_released_jobs())
-            except Exception:
-                app.logger.exception("At-risk check failed")
+            run_checks(app)
             time.sleep(_seconds_until_next_run())
 
     threading.Thread(target=_loop, name="overdue-delivery-check", daemon=True).start()

@@ -25,12 +25,13 @@ def list_orders():
 @jwt_required()
 @require_roles(*_STAFF)
 def overdue_check():
-    from app.services.completion_estimate_service import check_released_jobs
-    from app.services.overdue_delivery_service import check_overdue_deliveries
+    from flask import current_app
 
-    result = check_overdue_deliveries()
-    result["atRiskAlerts"] = check_released_jobs()
-    return jsonify(result)
+    from app.services.overdue_delivery_service import request_checks
+
+    if current_app.config.get("TESTING"):
+        return jsonify({"started": False}), 202
+    return jsonify({"started": request_checks(current_app._get_current_object())}), 202
 
 
 @supplier_orders_bp.route("/outstanding", methods=["GET"])

@@ -141,10 +141,9 @@ function AdminOfficeScheduleBoard() {
   const [loading, setLoading] = useState(true);
 
   const { from, to } = useMemo(() => periodBounds(anchor, viewMode), [anchor, viewMode]);
-  const overdueChecked = useOverdueCheck();
+  useOverdueCheck();
 
   useEffect(() => {
-    if (!overdueChecked) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -167,7 +166,7 @@ function AdminOfficeScheduleBoard() {
     return () => {
       cancelled = true;
     };
-  }, [from, to, machineTypeId, workerId, clientId, includeCompleted, overdueChecked]);
+  }, [from, to, machineTypeId, workerId, clientId, includeCompleted]);
 
   const machineTypes = useMemo(() => {
     const map = new Map<string, string>();

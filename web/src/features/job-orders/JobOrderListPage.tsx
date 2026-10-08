@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Table, Button, Typography, Select, Dropdown, Input, Space, Spin, message, Drawer, Badge, Segmented, Modal, Tooltip } from 'antd';
+import { Alert, Table, Button, Select, Dropdown, Input, Space, Spin, message, Drawer, Badge, Segmented, Modal, Tooltip } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
   PlusOutlined,
@@ -279,31 +279,34 @@ export default function JobOrderListPage() {
 
   const fetchJobs = async (tab: ListTab = listTab) => {
     setLoading(true);
+    setError('');
     try {
       const { data } = await jobOrdersApi.list({
         scope: tab,
         awaitingMaterial: tab === 'production' && awaitingMaterialOnly ? true : undefined,
       });
       setJobs(data);
-      if (tab === 'drafts') {
-        setDraftCount(data.length);
-      } else if (isAdmin || isOfficeStaff) {
-        const drafts = await jobOrdersApi.list({ scope: 'drafts' });
-        setDraftCount(drafts.data.length);
-      }
+      if (tab === 'drafts') setDraftCount(data.length);
     } catch (err) {
+      setJobs([]);
       setError(getErrorMessage(err));
+      return;
     } finally {
       setLoading(false);
     }
+    if (tab !== 'drafts' && (isAdmin || isOfficeStaff)) {
+      jobOrdersApi
+        .list({ scope: 'drafts' })
+        .then((drafts) => setDraftCount(drafts.data.length))
+        .catch(() => undefined);
+    }
   };
 
-  const overdueChecked = useOverdueCheck();
+  useOverdueCheck();
 
   useEffect(() => {
-    if (!overdueChecked) return;
     fetchJobs(listTab);
-  }, [listTab, awaitingMaterialOnly, overdueChecked]);
+  }, [listTab, awaitingMaterialOnly]);
 
   const clientOptions = useMemo(() => {
     const names = new Set<string>();
@@ -951,13 +954,19 @@ export default function JobOrderListPage() {
         </div>
       )}
 
-      {error && (
-        <Typography.Text type="danger" style={{ display: 'block', marginBottom: 12 }}>
-          {error}
-        </Typography.Text>
-      )}
-
-      {isPhone ? (
+      {error ? (
+        <Alert
+          type="error"
+          showIcon
+          message="Job orders could not be loaded"
+          description={error}
+          action={
+            <Button type="primary" onClick={() => fetchJobs(listTab)}>
+              Try again
+            </Button>
+          }
+        />
+      ) : isPhone ? (
         <div className="admin-cards">
           {loading && (
             <div className="page-spinner">

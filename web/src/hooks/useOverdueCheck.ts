@@ -1,33 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { supplierOrdersApi } from '../api/supplierOrders.api';
 import { useAuth } from './useAuth';
 
 /**
- * Runs the overdue-delivery check when a page opens, so jobs held up by a late
- * supplier move even if nobody edits the order. Returns true once it has run
- * (or was skipped), so the page can load data that reflects it.
+ * Asks the server to run the overdue-delivery and at-risk checks in the
+ * background when a page opens, so jobs held up by a late supplier move even if
+ * nobody edits the order. The server throttles it; the page never waits for it.
  */
-export function useOverdueCheck(): boolean {
+export function useOverdueCheck(): void {
   const { isAdmin, isOfficeStaff } = useAuth();
   const allowed = isAdmin || isOfficeStaff;
-  const [done, setDone] = useState(!allowed);
 
   useEffect(() => {
-    if (!allowed) {
-      setDone(true);
-      return;
-    }
-    let cancelled = false;
-    supplierOrdersApi
-      .overdueCheck()
-      .catch(() => undefined)
-      .finally(() => {
-        if (!cancelled) setDone(true);
-      });
-    return () => {
-      cancelled = true;
-    };
+    if (allowed) supplierOrdersApi.overdueCheck().catch(() => undefined);
   }, [allowed]);
-
-  return done;
 }

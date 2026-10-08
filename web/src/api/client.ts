@@ -10,9 +10,14 @@ function clearSession() {
   localStorage.removeItem('user');
 }
 
+export const REQUEST_TIMEOUT_MS = 20_000;
+export const TIMEOUT_MESSAGE =
+  'The server took too long to answer. Check your connection and try again.';
+
 const apiClient = axios.create({
   baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
+  timeout: REQUEST_TIMEOUT_MS,
 });
 
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
@@ -116,6 +121,9 @@ export default apiClient;
 
 export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
+    if (!error.response && (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT')) {
+      return TIMEOUT_MESSAGE;
+    }
     const data = error.response?.data as { error?: { message?: string } };
     const apiMsg = data?.error?.message || error.message;
     if (apiMsg) return apiMsg;
