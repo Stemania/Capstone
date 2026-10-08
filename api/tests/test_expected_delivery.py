@@ -11,7 +11,7 @@ from app.models.job_order import JobOrder
 from app.models.staff_alert import StaffAlert
 from app.models.supplier_order import SupplierOrder
 from app.services import material_purchase_service as mp_service
-from app.services.schedule_calendar import ensure_utc, utc_to_shop
+from app.services.schedule_calendar import ensure_utc, next_shop_working_day, utc_to_shop
 from tests.test_material_delay import (  # noqa: F401  (fixtures)
     _draft_order,
     _headers,
@@ -93,7 +93,7 @@ def test_original_date_is_never_overwritten(client, shop):
         f"/api/v1/supplier-orders/{issued['id']}", headers=_headers(shop["office"])
     ).get_json()
     assert body["originalExpectedDeliveryDate"] == original
-    assert body["expectedDeliveryDate"] == (shop["today"] + timedelta(days=9)).isoformat()
+    assert body["expectedDeliveryDate"] == next_shop_working_day(shop["today"] + timedelta(days=9)).isoformat()
     assert [c["note"] for c in body["expectedDeliveryChanges"]] == ["Second push", "First push"]
 
 

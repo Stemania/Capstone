@@ -380,6 +380,7 @@ def test_reliability_follows_date_range_with_minimum_inside_it(client, shop):
     sup = shop["quick"]
     old = shop["today"] - timedelta(days=90)
     recent = shop["today"] - timedelta(days=20)
+    recent -= timedelta(days=recent.weekday())  # Monday: no promised date falls on a Sunday
     for i in range(3):
         _delivery(shop, sup, old + timedelta(days=i), received=old + timedelta(days=i + 3))
     for i in range(3):
