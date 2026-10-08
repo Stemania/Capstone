@@ -305,7 +305,13 @@ def sync_jobs(jobs) -> int:
 
 def check_released_jobs() -> int:
     """Sweep every released job (page opens and the daily check)."""
-    jobs = JobOrder.query.filter(JobOrder.status.in_(RELEASED)).all()
+    from app.services.job_order_service import job_list_load_options
+
+    jobs = (
+        JobOrder.query.options(*job_list_load_options())
+        .filter(JobOrder.status.in_(RELEASED))
+        .all()
+    )
     alerted = JobOrder.query.filter(
         JobOrder.status.notin_(RELEASED), JobOrder.at_risk_alerted.is_(True)
     ).all()

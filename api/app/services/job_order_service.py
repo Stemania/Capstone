@@ -333,20 +333,31 @@ def check_job_access(job_order, user_id, user_role):
     raise AppError("Access denied", "FORBIDDEN", 403)
 
 
-def list_job_orders(user_id, user_role, status=None, scope=None, awaiting_material=False):
+def job_list_load_options():
+    """Everything ``JobOrder.to_dict`` and the completion estimate read, in a
+    fixed number of queries however many jobs are loaded."""
     from sqlalchemy.orm import selectinload
 
     from app.models.material_purchase import MaterialPurchase
 
-    query = JobOrder.query.options(
-        joinedload(JobOrder.operations).joinedload(JobOperation.assigned_worker),
-        joinedload(JobOrder.operations).joinedload(JobOperation.machine_type),
+    operations = selectinload(JobOrder.operations)
+    purchases = selectinload(JobOrder.material_purchases)
+    return (
+        operations.joinedload(JobOperation.assigned_worker),
+        operations.joinedload(JobOperation.machine_type),
+        operations.joinedload(JobOperation.operation_type),
+        operations.selectinload(JobOperation.time_logs),
         joinedload(JobOrder.client),
+        joinedload(JobOrder.supplier),
         joinedload(JobOrder.created_by),
-        selectinload(JobOrder.material_purchases).joinedload(
-            MaterialPurchase.supplier_order
-        ),
+        joinedload(JobOrder.material_delay_supplier_order),
+        purchases.joinedload(MaterialPurchase.supplier_order),
+        purchases.joinedload(MaterialPurchase.supplier),
     )
+
+
+def list_job_orders(user_id, user_role, status=None, scope=None, awaiting_material=False):
+    query = JobOrder.query.options(*job_list_load_options())
     if user_role == UserRole.PRODUCTION_WORKER.value:
         query = query.filter(
             JobOrder.status.in_(tuple(PRODUCTION_VISIBLE_STATUSES)),
