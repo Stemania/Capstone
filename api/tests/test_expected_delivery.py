@@ -51,7 +51,7 @@ def test_later_date_keeps_original_audits_note_and_moves_job(client, shop):
     job, ops, issued = _issued_for_job_in(client, shop, 5)
     _, before = _first_start(job)
     issued_expected = date.fromisoformat(issued["expectedDeliveryDate"])
-    new = shop["today"] + timedelta(days=8)
+    new = next_shop_working_day(shop["today"] + timedelta(days=8))
     note = "Supplier confirmed delivery on " + new.strftime("%d %b")
 
     res = _change(client, shop["office"], issued["id"], new, note)

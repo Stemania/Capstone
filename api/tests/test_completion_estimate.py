@@ -205,7 +205,7 @@ def test_at_risk_change_sends_one_notification(shop):
 
 
 def test_job_dict_shows_both_finishes_and_flags_the_later(shop):
-    job = _job(shop, JobOrderStatus.SCHEDULED, due=MONDAY + timedelta(days=60))
+    job = _job(shop, JobOrderStatus.SCHEDULED, due=date(2031, 6, 1))
     _op(shop, job, shop["turning"], 1, 4, OperationStatus.SCHEDULED)
     job.operations[0].scheduled_start = _at(MONDAY + timedelta(days=30), 8)
     job.operations[0].scheduled_end = _at(MONDAY + timedelta(days=30), 12)
