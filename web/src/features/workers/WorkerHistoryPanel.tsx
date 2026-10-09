@@ -1,6 +1,6 @@
 import { formatShop } from '../../utils/shopTime';
 import { useEffect, useState } from 'react';
-import { DatePicker, Empty, Spin, Table, Typography, message } from 'antd';
+import { DatePicker, Empty, Spin, Table, Tag, Tooltip, Typography, message } from 'antd';
 import { type Dayjs } from 'dayjs';
 import { workerProfileApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
@@ -134,6 +134,13 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
                   <Text type="secondary" style={{ marginLeft: 6, fontSize: 11 }}>
                     rework
                   </Text>
+                ) : null}
+                {r.isCrew ? (
+                  <Tooltip title={(r.crew || []).map((m) => m.fullName).join(', ')}>
+                    <Tag style={{ marginLeft: 6, fontSize: 11 }}>
+                      Crew of {r.crewSize} · {r.crewRole === 'LEAD' ? 'lead' : 'helper'}
+                    </Tag>
+                  </Tooltip>
                 ) : null}
               </span>
             ),

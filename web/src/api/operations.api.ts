@@ -27,8 +27,11 @@ export const operationsApi = {
       category: data.category,
       reason: data.reason ?? data.note,
     }),
-  assign: (id: string, assignedWorkerId: string) =>
-    apiClient.patch<Operation>(`/operations/${id}/assign`, { assignedWorkerId }),
+  assign: (id: string, assignedWorkerId: string, helperIds?: string[]) =>
+    apiClient.patch<Operation>(`/operations/${id}/assign`, {
+      assignedWorkerId,
+      ...(helperIds ? { helperIds } : {}),
+    }),
   sendOut: (id: string, sentOutDate: string, sentTo: string) =>
     apiClient.post<Operation>(`/operations/${id}/send-out`, { sentOutDate, sentTo }),
   markReturned: (id: string, returnedDate: string) =>

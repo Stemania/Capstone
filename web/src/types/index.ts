@@ -555,6 +555,13 @@ export interface Operation extends MaterialWait {
   assignedWorkerName?: string | null;
   assignedWorkerNickname?: string | null;
   assignedWorkerPhotoVersion?: number | null;
+  /** Up to two helpers; the lead is assignedWorkerId. */
+  helperIds?: string[];
+  /** Lead first, then helpers. */
+  crew?: CrewMember[];
+  crewSize?: number;
+  /** Hours worked times crew size, for information. */
+  laborHours?: number | null;
   estimatedHours?: number | null;
   scheduledStart?: string | null;
   scheduledEnd?: string | null;
@@ -579,6 +586,14 @@ export interface Operation extends MaterialWait {
   name?: string;
   machinesNeeded?: string[];
   machineNames?: string[];
+}
+
+export interface CrewMember {
+  id: string;
+  fullName: string;
+  nickname?: string | null;
+  photoVersion?: number | null;
+  isLead: boolean;
 }
 
 export interface MachineUnitInfo {
@@ -628,6 +643,7 @@ export interface AffectedScheduledOperation {
   assignedWorkerName?: string | null;
   assignedWorkerNickname?: string | null;
   assignedWorkerPhotoVersion?: number | null;
+  crew?: CrewMember[];
 }
 
 export interface MachineUnitStatus extends MachineUnitInfo {
@@ -645,6 +661,7 @@ export interface ProposedOperation {
   isOutsourced?: boolean;
   turnaroundDays?: number | null;
   assignedWorkerId?: string | null;
+  helperIds?: string[];
   machineTypeId?: string | null;
   machineUnitId?: string | null;
   machineUnitLabel?: string | null;
@@ -760,6 +777,7 @@ export interface JobOrder extends MaterialWait {
   nextOperation?: string | null;
   nextOperationWorkerId?: string | null;
   nextOperationWorkerName?: string | null;
+  nextOperationCrew?: CrewMember[];
   operations?: Operation[];
   salesInvoice?: SalesInvoice | null;
   projectedCompletion?: string | null;
@@ -867,17 +885,17 @@ export interface NotificationLog {
   createdAt?: string | null;
 }
 
+/** Machine lead: operator, skill, efficiency, workload. Others: efficiency, workload. */
 export interface ScoringComponents {
-  skill: number;
+  operator?: number;
+  skill?: number;
   workload: number;
   efficiency: number;
 }
 
-export interface ScoringWeights {
-  skill: number;
-  workload: number;
-  efficiency: number;
-}
+export type ScoringWeights = ScoringComponents;
+
+export type SuggestionMode = 'MACHINE_LEAD' | 'NO_MACHINE' | 'HELPER';
 
 export interface WorkerSuggestion {
   workerId: string;
@@ -894,6 +912,10 @@ export interface WorkerSuggestion {
   qualified?: boolean;
   components?: ScoringComponents;
   reason?: string;
+  /** Machine leads are suggested with a unit; choosing the suggestion selects it. */
+  machineUnitId?: string | null;
+  machineUnitLabel?: string | null;
+  isUnitOperator?: boolean;
   /** Set when the operation starts today and the worker is past their start time without a clock-in. */
   attendanceWarning?: string | null;
 }
@@ -1596,6 +1618,10 @@ export interface WorkerHistoryOperation {
   actualHours: number | null;
   differenceHours: number | null;
   isRework: boolean;
+  isCrew?: boolean;
+  crewSize?: number;
+  crewRole?: 'LEAD' | 'HELPER';
+  crew?: CrewMember[];
 }
 
 export interface WorkerWorkHistory {

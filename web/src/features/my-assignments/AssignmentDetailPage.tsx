@@ -12,7 +12,7 @@ import { useOffline, type RecordInput } from '../../offline/OfflineProvider';
 import { offlineCache } from '../../offline/offlineCache';
 import { overlayOperations } from '../../offline/overlay';
 import SyncChip from '../../offline/SyncChip';
-import { PersonChip } from '../../components/PersonAvatar';
+import { CrewChips } from '../../components/PersonAvatar';
 import { DOWNTIME_REASONS, type DowntimeCategory } from '../../constants/downtimeReasons';
 import { SHOP_TZ, formatShop, shopToday } from '../../utils/shopTime';
 import type { JobOrder, Operation, OperationPauseReason, PartCondition } from '../../types';
@@ -417,7 +417,10 @@ export default function AssignmentDetailPage() {
           {ops.map((op, index) => {
             const done = op.status === 'COMPLETED';
             const active = op.status === 'IN_PROGRESS';
-            const isMine = op.assignedWorkerId === user?.id;
+            const isMine = Boolean(
+              user?.id &&
+                (op.assignedWorkerId === user.id || (op.helperIds || []).includes(user.id))
+            );
             const canStart =
               isMine &&
               (op.status === 'PENDING' || op.status === 'SCHEDULED' || op.status === 'REWORK') &&
@@ -603,14 +606,19 @@ export default function AssignmentDetailPage() {
                         {`: ${op.estimatedHours}h`}
                       </div>
                     ) : null}
-                    {!isMine && op.assignedWorkerName ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontWeight: 600, color: colors.text }}>Assigned:</span>
-                        <PersonChip
-                          userId={op.assignedWorkerId}
-                          fullName={op.assignedWorkerName}
-                          nickname={op.assignedWorkerNickname}
-                          photoVersion={op.assignedWorkerPhotoVersion}
+                    {op.assignedWorkerName && (!isMine || (op.crewSize || 1) > 1) ? (
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600, color: colors.text }}>
+                          {(op.crewSize || 1) > 1 ? 'Crew:' : 'Assigned:'}
+                        </span>
+                        <CrewChips
+                          crew={op.crew}
+                          lead={{
+                            id: op.assignedWorkerId,
+                            fullName: op.assignedWorkerName,
+                            nickname: op.assignedWorkerNickname,
+                            photoVersion: op.assignedWorkerPhotoVersion,
+                          }}
                           size={18}
                         />
                       </div>

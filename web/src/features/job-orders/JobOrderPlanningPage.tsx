@@ -70,6 +70,8 @@ type OpFormRow = {
   machineTypeId?: string;
   machineUnitId?: string;
   assignedWorkerId?: string;
+  /** Up to MAX_HELPERS; no helpers on Checking or outsourced work. */
+  helperIds?: string[];
   estimatedHours?: number | null;
   turnaroundDays?: number | null;
   scheduledStart?: string;
@@ -77,6 +79,8 @@ type OpFormRow = {
   status?: string;
   notes?: string;
 };
+
+const MAX_HELPERS = 2;
 
 /** Steps pre-filled when planning a Fabrication job, in shop order. */
 const FABRICATION_SEQUENCE = ['LAYOUT', 'CUTTING', 'BENDING', 'FITTING', 'FINISHING'];
@@ -152,17 +156,37 @@ function workerOptions(workers: User[]) {
   });
 }
 
-function pickBestWorkerId(
+function pickBestWorker(
   suggestions: WorkerSuggestion[],
   qualifiedWorkers?: User[],
-): string | undefined {
+): { workerId?: string; machineUnitId?: string } {
   const fromSuggestion = suggestions.find(
     (s) => s.qualified !== false && s.available !== false,
   );
-  if (fromSuggestion) return fromSuggestion.workerId;
+  if (fromSuggestion) {
+    return {
+      workerId: fromSuggestion.workerId,
+      machineUnitId: fromSuggestion.machineUnitId || undefined,
+    };
+  }
   const fromList = qualifiedWorkers?.find((w) => w.available !== false);
-  return fromList?.id;
+  return { workerId: fromList?.id };
 }
+
+/** "Gio Agao · Lathe #2" for a machine lead, else the name. */
+function suggestionLabel(s: WorkerSuggestion) {
+  const name = personLabel(s.fullName, s.nickname);
+  return s.machineUnitLabel ? `${name} · ${s.machineUnitLabel}` : name;
+}
+
+const RANKING_HELP =
+  'Only people who are free for the whole window, on shift, and not on a holiday are listed. ' +
+  'Machine operations, lead: being the assigned operator of a unit of that machine counts 40 per ' +
+  'cent, machine skill level 30 per cent, past performance 20 per cent and current workload 10 ' +
+  'per cent; each worker is shown with the unit that suits them best, and choosing them selects ' +
+  'that unit. Units with no assigned operator are open to anyone with the skill. Operations ' +
+  'without a machine: past performance 60 per cent and workload 40 per cent. Helpers, after the ' +
+  'lead is chosen: past performance and workload, 50 per cent each.';
 
 function newRowKey() {
   return `op-${Math.random().toString(36).slice(2, 10)}`;
@@ -186,6 +210,8 @@ export default function JobOrderPlanningPage() {
   const [machines, setMachines] = useState<MachineInfo[]>(MACHINE_OPTIONS);
   const [operationTypes, setOperationTypes] = useState<OperationType[]>([]);
   const [rowSuggestions, setRowSuggestions] = useState<Record<number, WorkerSuggestion[]>>({});
+  const [helperSuggestions, setHelperSuggestions] = useState<Record<string, WorkerSuggestion[]>>({});
+  const [allWorkers, setAllWorkers] = useState<User[]>([]);
   const [machineUnits, setMachineUnits] = useState<MachineUnitInfo[]>([]);
   const [scheduleOps, setScheduleOps] = useState<ProposedOperation[] | null>(null);
   const [scheduleMeta, setScheduleMeta] = useState<{
@@ -238,10 +264,15 @@ export default function JobOrderPlanningPage() {
         if (stillValid) return prev;
       }
 
-      const bestId = pickBestWorkerId(suggestions, workers);
-      if (row.assignedWorkerId === bestId) return prev;
+      const best = pickBestWorker(suggestions, workers);
+      if (row.assignedWorkerId === best.workerId) return prev;
       const next = [...prev];
-      next[rowIndex] = { ...row, assignedWorkerId: bestId };
+      next[rowIndex] = {
+        ...row,
+        assignedWorkerId: best.workerId,
+        machineUnitId: best.machineUnitId || row.machineUnitId,
+        helperIds: (row.helperIds || []).filter((h) => h !== best.workerId),
+      };
       return next;
     });
   };
@@ -366,6 +397,46 @@ export default function JobOrderPlanningPage() {
     }
   };
 
+  // Helper suggestions follow each row's lead (keyed by row key).
+  const helperQueryKey = operations
+    .map((o) => `${o.key}:${o.assignedWorkerId || ''}:${o.operationTypeId || ''}:${(o.helperIds || []).join(',')}`)
+    .join('|');
+  useEffect(() => {
+    let cancelled = false;
+    operations.forEach((op) => {
+      const ot = operationTypes.find((t) => t.id === op.operationTypeId);
+      if (!op.assignedWorkerId || isOutsourcedType(ot) || isCheckingType(ot, op.operationName)) {
+        setHelperSuggestions((prev) => (prev[op.key] ? { ...prev, [op.key]: [] } : prev));
+        return;
+      }
+      void workersApi
+        .suggest([], {
+          excludeJobId: id,
+          excludeOperationId: op.id,
+          operationTypeId: op.operationTypeId,
+          operationName: op.operationName,
+          machineTypeId: op.machineTypeId,
+          leadId: op.assignedWorkerId,
+          excludeWorkerIds: op.helperIds || [],
+        })
+        .then(({ data }) => {
+          if (!cancelled) setHelperSuggestions((prev) => ({ ...prev, [op.key]: data.suggestions || [] }));
+        })
+        .catch(() => undefined);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [helperQueryKey, operationTypes]);
+
+  useEffect(() => {
+    workersApi
+      .list()
+      .then(({ data }) => setAllWorkers(data))
+      .catch(() => setAllWorkers([]));
+  }, []);
+
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
@@ -420,6 +491,7 @@ export default function JobOrderPlanningPage() {
                   machineTypeId: op.machineTypeId || undefined,
                   machineUnitId: op.machineUnitId || undefined,
                   assignedWorkerId: op.assignedWorkerId || undefined,
+                  helperIds: op.helperIds || [],
                   estimatedHours: op.estimatedHours,
                   turnaroundDays: op.turnaroundDays ?? null,
                   scheduledStart: op.scheduledStart || undefined,
@@ -452,6 +524,7 @@ export default function JobOrderPlanningPage() {
                 sequenceNo: i + 1,
                 operationName: op.operationName,
                 assignedWorkerId: op.assignedWorkerId || null,
+                helperIds: op.helperIds || [],
                 machineTypeId: op.machineTypeId || null,
                 machineUnitId: op.machineUnitId || null,
                 machineUnitLabel: op.machineUnitId
@@ -540,17 +613,21 @@ export default function JobOrderPlanningPage() {
         machineTypeId: undefined,
         machineUnitId: undefined,
         assignedWorkerId: undefined,
+        helperIds: [],
         estimatedHours: null,
         turnaroundDays: operations[index]?.turnaroundDays ?? ot?.defaultTurnaroundDays ?? null,
       });
       return;
     }
-    const machineTypeId = isCheckingType(ot) ? undefined : ot?.defaultMachineTypeId || undefined;
+    const checking = isCheckingType(ot);
+    const machineTypeId = checking ? undefined : ot?.defaultMachineTypeId || undefined;
     patchRow(index, {
       operationTypeId: typeId,
       operationName: ot?.name || '',
       machineTypeId,
+      machineUnitId: undefined,
       assignedWorkerId: undefined,
+      ...(checking ? { helperIds: [] } : {}),
       turnaroundDays: null,
     });
     void loadRowWorkers(index, machineTypeId, true, typeId);
@@ -572,7 +649,7 @@ export default function JobOrderPlanningPage() {
     ) {
       return;
     }
-    patchRow(index, { machineTypeId, assignedWorkerId: undefined });
+    patchRow(index, { machineTypeId, machineUnitId: undefined, assignedWorkerId: undefined });
     void loadRowWorkers(index, machineTypeId, true, row?.operationTypeId);
     void loadSuggestions(index, {
       ...operations[index],
@@ -597,6 +674,10 @@ export default function JobOrderPlanningPage() {
         operationName: op.operationName || ot?.name,
         ...(mt?.id ? { machineTypeId: mt.id } : { machinesNeeded: [] }),
         assignedWorkerId: outsourced ? null : op.assignedWorkerId || null,
+        helperIds:
+          outsourced || checking || !op.assignedWorkerId
+            ? []
+            : (op.helperIds || []).filter((h) => h && h !== op.assignedWorkerId),
         estimatedHours: outsourced ? null : op.estimatedHours ?? null,
         turnaroundDays: outsourced ? op.turnaroundDays ?? null : null,
         machineUnitId: checking || outsourced ? null : op.machineUnitId || null,
@@ -708,6 +789,7 @@ export default function JobOrderPlanningPage() {
       operationTypeId: operations[op.sequenceNo - 1]?.operationTypeId || null,
       turnaroundDays: op.turnaroundDays ?? null,
       assignedWorkerId: op.assignedWorkerId,
+      helperIds: operations[op.sequenceNo - 1]?.helperIds || [],
       machineTypeId: op.machineTypeId,
       machineUnitId: op.machineUnitId,
       machineUnitLabel: op.machineUnitLabel,
@@ -896,8 +978,8 @@ export default function JobOrderPlanningPage() {
       },
     },
     {
-      title: 'Worker',
-      width: 200,
+      title: 'Crew',
+      width: 240,
       render: (_: unknown, record: OpFormRow, index: number) => {
         const ot = operationTypes.find((t) => t.id === record.operationTypeId);
         if (isOutsourcedType(ot)) {
@@ -906,24 +988,77 @@ export default function JobOrderPlanningPage() {
         const qualifiedWorkers = rowWorkers[index] || [];
         const rowType = operationTypes.find((t) => t.id === record.operationTypeId);
         const rowMachineId = record.machineTypeId || rowType?.defaultMachineTypeId;
+        const checking = isCheckingType(rowType, record.operationName);
+        const helpers = record.helperIds || [];
+        const helperChoices = (current?: string) =>
+          workerOptions(
+            allWorkers.filter(
+              (w) =>
+                w.id === current ||
+                (w.id !== record.assignedWorkerId && !helpers.includes(w.id)),
+            ),
+          );
+        const setHelpers = (next: string[]) => patchRow(index, { helperIds: next });
+        const unitLabel = record.machineUnitId
+          ? machineUnits.find((u) => u.id === record.machineUnitId)?.label
+          : null;
         return (
-          <Select
-            allowClear
-            showSearch
-            optionFilterProp="search"
-            style={{ width: '100%' }}
-            placeholder={
-              isCheckingType(rowType, record.operationName)
-                ? 'Admins only'
-                : rowMachineId
-                  ? 'Qualified workers'
-                  : 'Assign worker'
-            }
-            value={record.assignedWorkerId}
-            disabled={readOnly}
-            options={workerOptions(qualifiedWorkers)}
-            onChange={(v) => patchRow(index, { assignedWorkerId: v })}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="search"
+              style={{ width: '100%' }}
+              placeholder={checking ? 'Admins only' : rowMachineId ? 'Lead (qualified)' : 'Lead worker'}
+              value={record.assignedWorkerId}
+              disabled={readOnly}
+              options={workerOptions(qualifiedWorkers)}
+              onChange={(v) =>
+                patchRow(index, {
+                  assignedWorkerId: v,
+                  helperIds: v ? helpers.filter((h) => h !== v) : [],
+                })
+              }
+            />
+            {unitLabel && rowMachineId ? (
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                Unit: {unitLabel}
+              </Text>
+            ) : null}
+            {helpers.map((hid, hi) => (
+              <div key={`${hid}-${hi}`} style={{ display: 'flex', gap: 4 }}>
+                <Select
+                  showSearch
+                  optionFilterProp="search"
+                  style={{ flex: 1, minWidth: 0 }}
+                  placeholder="Helper"
+                  value={hid || undefined}
+                  disabled={readOnly}
+                  options={helperChoices(hid)}
+                  onChange={(v) => setHelpers(helpers.map((h, j) => (j === hi ? v : h)))}
+                />
+                {!readOnly && (
+                  <Button
+                    type="text"
+                    size="small"
+                    aria-label="Remove helper"
+                    icon={<DeleteOutlined />}
+                    onClick={() => setHelpers(helpers.filter((_, j) => j !== hi))}
+                  />
+                )}
+              </div>
+            ))}
+            {!readOnly && !checking && record.assignedWorkerId && helpers.length < MAX_HELPERS ? (
+              <Button
+                type="dashed"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={() => setHelpers([...helpers, ''])}
+              >
+                Add helper
+              </Button>
+            ) : null}
+          </div>
         );
       },
     },
@@ -1085,7 +1220,14 @@ export default function JobOrderPlanningPage() {
               }
               const suggestions = rowSuggestions[index] || [];
               const qualifiedWorkers = rowWorkers[index] || [];
-              if (!suggestions.length) return null;
+              const helperSugs = (helperSuggestions[row?.key || ''] || []).slice(0, 5);
+              const rowHelpers = (row?.helperIds || []).filter(Boolean);
+              const canAddHelper =
+                !readOnly &&
+                Boolean(row?.assignedWorkerId) &&
+                !isCheckingType(operationTypes.find((t) => t.id === row?.operationTypeId), row?.operationName) &&
+                rowHelpers.length < MAX_HELPERS;
+              if (!suggestions.length && !helperSugs.length) return null;
               const topId = suggestions[0]?.workerId;
               const assignedId = operations[index]?.assignedWorkerId;
               return (
@@ -1101,19 +1243,7 @@ export default function JobOrderPlanningPage() {
                     <Text type="secondary" style={{ fontSize: 11 }}>
                       Best match auto-selected — click another to override
                     </Text>
-                    <InfoTip
-                      title="How suggestions are ranked"
-                      content={
-                        'Suggested workers are ranked on three things. Skill level counts most, at ' +
-                        '50 per cent, because skill is how the shop already decides who takes a ' +
-                        'job. How busy they already are counts 30 per cent, so work is spread ' +
-                        'rather than always going to the same people. Past performance, meaning how ' +
-                        'close their finished work lands to the target hours, counts 20 per cent, ' +
-                        'and becomes more useful as more jobs are recorded. Workers who cannot run ' +
-                        'that machine, or who are not free during the scheduled time, are not ' +
-                        'listed at all.'
-                      }
-                    />
+                    <InfoTip title="How suggestions are ranked" content={RANKING_HELP} />
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                     {suggestions.slice(0, 5).map((s) => {
@@ -1125,7 +1255,11 @@ export default function JobOrderPlanningPage() {
                           key={s.workerId}
                           onClick={() => {
                             if (!inDropdown || readOnly) return;
-                            patchRow(index, { assignedWorkerId: s.workerId });
+                            patchRow(index, {
+                              assignedWorkerId: s.workerId,
+                              ...(s.machineUnitId ? { machineUnitId: s.machineUnitId } : {}),
+                              helperIds: rowHelpers.filter((h) => h !== s.workerId),
+                            });
                           }}
                           style={{
                             cursor: inDropdown && !readOnly ? 'pointer' : 'not-allowed',
@@ -1150,7 +1284,7 @@ export default function JobOrderPlanningPage() {
                               size={24}
                             />
                             <Text strong style={{ fontSize: 12 }}>
-                              {personLabel(s.fullName, s.nickname)}
+                              {suggestionLabel(s)}
                             </Text>
                             <Tag
                               color={isAssigned ? 'gold' : 'default'}
@@ -1177,12 +1311,68 @@ export default function JobOrderPlanningPage() {
                       );
                     })}
                   </div>
+                  {helperSugs.length > 0 && canAddHelper ? (
+                    <div style={{ marginTop: 10 }}>
+                      <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
+                        Suggested helpers — click to add (up to {MAX_HELPERS})
+                      </Text>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {helperSugs.map((s) => (
+                          <div
+                            key={s.workerId}
+                            onClick={() =>
+                              patchRow(index, {
+                                helperIds: [...rowHelpers, s.workerId].slice(0, MAX_HELPERS),
+                              })
+                            }
+                            style={{
+                              cursor: 'pointer',
+                              padding: '6px 10px',
+                              borderRadius: 6,
+                              border: '1px dashed #d9d9d9',
+                              background: '#fafafa',
+                              minWidth: 160,
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <PlusOutlined style={{ fontSize: 11, color: '#8c8c8c' }} />
+                              <PersonAvatar
+                                userId={s.workerId}
+                                fullName={s.fullName}
+                                photoVersion={s.photoVersion}
+                                size={22}
+                              />
+                              <Text style={{ fontSize: 12 }}>{personLabel(s.fullName, s.nickname)}</Text>
+                              <Tag style={{ margin: 0, fontSize: 11 }}>{(s.score * 100).toFixed(0)}%</Tag>
+                            </div>
+                            {s.attendanceWarning && (
+                              <Tag
+                                color="warning"
+                                icon={<WarningOutlined />}
+                                style={{ margin: '4px 0 0', fontSize: 11 }}
+                              >
+                                {s.attendanceWarning}
+                              </Tag>
+                            )}
+                            {s.reason && (
+                              <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+                                {s.reason}
+                              </Text>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               );
             },
             rowExpandable: (_record) => {
               const index = operations.findIndex((o) => o.key === _record.key);
-              return (rowSuggestions[index] || []).length > 0;
+              return (
+                (rowSuggestions[index] || []).length > 0 ||
+                (helperSuggestions[_record.key] || []).length > 0
+              );
             },
           }}
         />

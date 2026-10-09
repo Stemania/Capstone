@@ -22,6 +22,7 @@ import {
 import dayjs, { type Dayjs } from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import {
+  crewIdsOf,
   scheduleApi,
   type ScheduleBoardDowntime,
   type ScheduleBoardOperation,
@@ -59,7 +60,7 @@ import {
 import { formatShopDateTime, SHOP_TZ } from '../../utils/shopTime';
 import ScheduleExpandShell from './ScheduleExpandShell';
 import WorkerPersonalSchedule from './WorkerPersonalSchedule';
-import { PersonAvatar } from '../../components/PersonAvatar';
+import { PersonAvatar, crewNames } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
 
 const { Text } = Typography;
@@ -136,8 +137,8 @@ const NO_MACHINE_KEY = '__none__';
 const NO_OPS: ScheduleBoardOperation[] = [];
 const NO_DOWNTIMES: ScheduleBoardDowntime[] = [];
 
-function opGroupKey(op: ScheduleBoardOperation, rowMode: RowMode) {
-  return rowMode === 'worker' ? op.assignedWorkerId : op.machineUnitId || NO_MACHINE_KEY;
+function opGroupKeys(op: ScheduleBoardOperation, rowMode: RowMode) {
+  return rowMode === 'worker' ? crewIdsOf(op) : [op.machineUnitId || NO_MACHINE_KEY];
 }
 
 function rowGroupKey(row: RowDef, rowMode: RowMode) {
@@ -152,6 +153,18 @@ function groupBy<T>(items: T[], keyOf: (item: T) => string | null | undefined) {
     const list = map.get(key);
     if (list) list.push(item);
     else map.set(key, [item]);
+  }
+  return map;
+}
+
+function groupByMany<T>(items: T[], keysOf: (item: T) => (string | null | undefined)[]) {
+  const map = new Map<string | null | undefined, T[]>();
+  for (const item of items) {
+    for (const key of keysOf(item)) {
+      const list = map.get(key);
+      if (list) list.push(item);
+      else map.set(key, [item]);
+    }
   }
   return map;
 }
@@ -269,7 +282,7 @@ function AdminOfficeScheduleBoard() {
   };
 
   const opsByRowKey = useMemo(
-    () => groupBy(data?.operations ?? NO_OPS, (o) => opGroupKey(o, rowMode)),
+    () => groupByMany(data?.operations ?? NO_OPS, (o) => opGroupKeys(o, rowMode)),
     [data, rowMode]
   );
   const downtimesByUnit = useMemo(
@@ -1338,10 +1351,13 @@ const BoardRows = memo(function BoardRows({
                           </div>
                           <div>Client: {op.clientName || '—'}</div>
                           <div>
-                            Worker:{' '}
-                            {op.assignedWorkerName
-                              ? personLabel(op.assignedWorkerName, op.assignedWorkerNickname)
-                              : '—'}
+                            {(op.crew?.length || 0) > 1 ? 'Crew' : 'Worker'}:{' '}
+                            {crewNames(
+                              op.crew,
+                              op.assignedWorkerName
+                                ? personLabel(op.assignedWorkerName, op.assignedWorkerNickname)
+                                : null,
+                            ) || '—'}
                           </div>
                           <div>
                             Target hours:{' '}

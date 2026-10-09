@@ -1,5 +1,10 @@
 import apiClient from './client';
-import type { MaterialWait } from '../types';
+import type { CrewMember, MaterialWait } from '../types';
+
+/** Lead and helpers: a crew operation sits on every member's worker row. */
+export function crewIdsOf(op: { assignedWorkerId?: string | null; helperIds?: string[] }): string[] {
+  return op.assignedWorkerId ? [op.assignedWorkerId, ...(op.helperIds || [])] : [];
+}
 
 export type ShopDayWindow = {
   date: string;
@@ -34,6 +39,9 @@ export type ScheduleBoardOperation = {
   assignedWorkerName?: string | null;
   assignedWorkerNickname?: string | null;
   assignedWorkerPhotoVersion?: number | null;
+  helperIds?: string[];
+  /** Lead first, then helpers. */
+  crew?: CrewMember[];
   dueDate?: string | null;
   projectedCompletion?: string | null;
   scheduleFlag?: 'GREEN' | 'AMBER' | 'RED' | null;

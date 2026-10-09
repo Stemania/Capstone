@@ -1,14 +1,15 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Tooltip } from 'antd';
 import type { Dayjs } from 'dayjs';
-import type {
-  ScheduleBoardDowntime,
-  ScheduleBoardOperation,
-  ShopDayWindow,
+import {
+  crewIdsOf,
+  type ScheduleBoardDowntime,
+  type ScheduleBoardOperation,
+  type ShopDayWindow,
 } from '../../api/schedule.api';
 import { formatShopDateTime } from '../../utils/shopTime';
 import { adminPx } from '../../theme/adminTheme';
-import { PersonAvatar } from '../../components/PersonAvatar';
+import { PersonAvatar, crewNames } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
 import {
   HOUR_END,
@@ -182,13 +183,20 @@ function ScheduleTimelineBoard({
   const columnFill = true;
   const posArgs = [from, viewMode, isMobile, weekLayout, dayHourPx] as const;
 
-  const opsByRowKey = useMemo(
-    () =>
-      groupBy(operations, (o) =>
-        rowMode === 'worker' ? o.assignedWorkerId : o.machineUnitId || NO_MACHINE_KEY
-      ),
-    [operations, rowMode]
-  );
+  const opsByRowKey = useMemo(() => {
+    if (rowMode !== 'worker') {
+      return groupBy(operations, (o) => o.machineUnitId || NO_MACHINE_KEY);
+    }
+    const map = new Map<string | null | undefined, ScheduleBoardOperation[]>();
+    for (const o of operations) {
+      for (const wid of crewIdsOf(o)) {
+        const list = map.get(wid);
+        if (list) list.push(o);
+        else map.set(wid, [o]);
+      }
+    }
+    return map;
+  }, [operations, rowMode]);
   const downtimesByUnit = useMemo(
     () => groupBy(downtimes, (d) => d.machineUnitId),
     [downtimes]
@@ -525,9 +533,13 @@ function ScheduleTimelineBoard({
                             </div>
                           )}
                           {op.clientName ? <div>Client: {op.clientName}</div> : null}
-                          {op.assignedWorkerName ? (
+                          {op.assignedWorkerName || op.crew?.length ? (
                             <div>
-                              Worker: {personLabel(op.assignedWorkerName, op.assignedWorkerNickname)}
+                              {(op.crew?.length || 0) > 1 ? 'Crew' : 'Worker'}:{' '}
+                              {crewNames(
+                                op.crew,
+                                personLabel(op.assignedWorkerName, op.assignedWorkerNickname),
+                              )}
                             </div>
                           ) : null}
                           <div>

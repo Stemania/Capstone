@@ -12,6 +12,7 @@ import type {
   ScheduleProposeResult,
   ScheduleValidateResult,
   ScoringWeights,
+  SuggestionMode,
   User,
   WorkerSuggestion,
 } from '../types';
@@ -113,8 +114,11 @@ export const operationsApi = {
     apiClient.post<Operation>(`/operations/${id}/start`, { timestamp }),
   complete: (id: string, timestamp?: string) =>
     apiClient.post<Operation>(`/operations/${id}/complete`, { timestamp }),
-  assign: (id: string, assignedWorkerId: string) =>
-    apiClient.patch<Operation>(`/operations/${id}/assign`, { assignedWorkerId }),
+  assign: (id: string, assignedWorkerId: string, helperIds?: string[]) =>
+    apiClient.patch<Operation>(`/operations/${id}/assign`, {
+      assignedWorkerId,
+      ...(helperIds ? { helperIds } : {}),
+    }),
 };
 
 export const workersApi = {
@@ -136,9 +140,12 @@ export const workersApi = {
       machineTypeId?: string;
       operationTypeId?: string;
       operationName?: string;
+      /** Helper suggestions: the chosen lead, left out of the list. */
+      leadId?: string;
+      excludeWorkerIds?: string[];
     }
   ) =>
-    apiClient.post<{ suggestions: WorkerSuggestion[]; weights: ScoringWeights }>(
+    apiClient.post<{ suggestions: WorkerSuggestion[]; weights: ScoringWeights; mode?: SuggestionMode }>(
       '/workers/suggest',
       {
         operations,

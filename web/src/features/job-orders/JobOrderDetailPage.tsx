@@ -39,7 +39,7 @@ import { useAuth } from '../../hooks/useAuth';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import MaterialWaitTag from '../../components/MaterialWaitTag';
 import MaterialDelayTag from '../../components/MaterialDelayTag';
-import { PersonChip } from '../../components/PersonAvatar';
+import { CrewChips, PersonChip } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
 import type {
   JobOrder,
@@ -1062,7 +1062,11 @@ export default function JobOrderDetailPage() {
                   const active = op.status === 'IN_PROGRESS';
                   const isLast = index === ops.length - 1;
                   const opSt = OP_STATUS[op.status] || OP_STATUS.PENDING;
-                  const isMine = op.assignedWorkerId === user?.id;
+                  const isMine = Boolean(
+                    user?.id &&
+                      (op.assignedWorkerId === user.id || (op.helperIds || []).includes(user.id))
+                  );
+                  const helperCrew = (op.crew || []).filter((m) => !m.isLead);
                   const canStart =
                     !isDraft &&
                     isMine &&
@@ -1166,16 +1170,25 @@ export default function JobOrderDetailPage() {
                             <strong style={{ color: '#475569' }}>Machine:</strong> {dash(machine)}
                           </span>
                           <span>
-                            <strong style={{ color: '#475569' }}>Worker:</strong>{' '}
+                            <strong style={{ color: '#475569' }}>
+                              {(op.crewSize || 1) > 1 ? 'Crew:' : 'Worker:'}
+                            </strong>{' '}
                             {isAdmin && !isDraft && !isInvoicedOrDelivered && isNotStarted(op) ? (
-                              <OperationWorkerSelect op={op} onAssigned={fetchJob} />
+                              <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 4 }}>
+                                <OperationWorkerSelect op={op} onAssigned={fetchJob} />
+                                {helperCrew.length > 0 && <CrewChips crew={helperCrew} size={18} />}
+                              </span>
                             ) : (
-                              <PersonChip
-                                userId={op.assignedWorkerId}
-                                fullName={op.assignedWorkerName}
-                                nickname={op.assignedWorkerNickname}
-                                photoVersion={op.assignedWorkerPhotoVersion}
+                              <CrewChips
+                                crew={op.crew}
+                                lead={{
+                                  id: op.assignedWorkerId,
+                                  fullName: op.assignedWorkerName,
+                                  nickname: op.assignedWorkerNickname,
+                                  photoVersion: op.assignedWorkerPhotoVersion,
+                                }}
                                 size={18}
+                                emptyText="—"
                               />
                             )}
                           </span>
@@ -1199,6 +1212,12 @@ export default function JobOrderDetailPage() {
                             <strong style={{ color: '#475569' }}>Hours worked:</strong>{' '}
                             {fmtHours(op.actualWorkedHours)}
                           </span>
+                          {(op.crewSize || 1) > 1 && op.laborHours != null ? (
+                            <span title="Hours worked times crew size, for information">
+                              <strong style={{ color: '#475569' }}>Labor hours:</strong>{' '}
+                              {fmtHours(op.laborHours)} ({op.crewSize} people)
+                            </span>
+                          ) : null}
                           <span>
                             <strong style={{ color: '#475569' }}>Difference from target:</strong>{' '}
                             {fmtVariance(op.varianceHours, op.variancePct)}

@@ -13,6 +13,7 @@ import { useOffline } from '../../offline/OfflineProvider';
 import { offlineCache } from '../../offline/offlineCache';
 import { overlayOperations, type OverlaidOperation } from '../../offline/overlay';
 import SyncChip from '../../offline/SyncChip';
+import { CrewChips } from '../../components/PersonAvatar';
 import type { MyWorkSummary, Operation } from '../../types';
 
 function opStatusBadge(
@@ -269,6 +270,21 @@ export default function MyAssignmentsPage() {
                     {op.jobTitle}
                     {op.clientName ? ` · ${op.clientName}` : ''}
                   </div>
+                  {(op.crew?.length || 0) > 1 ? (
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 6,
+                        alignItems: 'flex-start',
+                        fontSize: 12,
+                        marginTop: -6,
+                        marginBottom: 12,
+                      }}
+                    >
+                      <span style={{ color: colors.textSecondary, fontWeight: 600 }}>Crew:</span>
+                      <CrewChips crew={op.crew} size={18} />
+                    </div>
+                  ) : null}
 
                   <div
                     style={{

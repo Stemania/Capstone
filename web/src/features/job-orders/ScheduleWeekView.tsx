@@ -68,6 +68,11 @@ function buildWorkerRows(workers: BoardWorker[], ops: ScheduleBoardOperation[]):
         photoVersion: op.assignedWorkerPhotoVersion,
       });
     }
+    for (const m of op.crew || []) {
+      if (!byId.has(m.id)) {
+        byId.set(m.id, { id: m.id, fullName: m.fullName, nickname: m.nickname, photoVersion: m.photoVersion });
+      }
+    }
   }
   return [...byId.values()]
     .sort((a, b) => a.fullName.localeCompare(b.fullName))
@@ -115,6 +120,7 @@ function proposedToBoardOp(
     machineUnitLabel: op.machineUnitLabel,
     assignedWorkerId: op.assignedWorkerId,
     assignedWorkerName: workerName || undefined,
+    helperIds: op.helperIds || [],
     scheduleColor: scheduleColor || null,
   };
 }

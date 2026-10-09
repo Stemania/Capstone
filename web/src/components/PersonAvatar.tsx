@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { usersApi } from '../api/users.api';
+import type { CrewMember } from '../types';
 import { initials, personLabel } from '../utils/people';
 
 /** Photo object URLs by "userId:version"; null when the photo could not be loaded. */
@@ -113,6 +114,69 @@ export function PersonChip({
       </span>
     </span>
   );
+}
+
+export interface CrewChipsProps {
+  crew?: CrewMember[] | null;
+  /** Used when there is no crew list (older payloads): the lead alone. */
+  lead?: { id?: string | null; fullName?: string | null; nickname?: string | null; photoVersion?: number | null };
+  size?: number;
+  emptyText?: string;
+  /** One line, wrapping helpers after the lead. */
+  vertical?: boolean;
+}
+
+/** Every crew member, lead first, each with their photo; helpers are marked. */
+export function CrewChips({ crew, lead, size = 22, emptyText = 'Unassigned', vertical = false }: CrewChipsProps) {
+  const members: CrewMember[] =
+    crew && crew.length
+      ? crew
+      : lead?.id || lead?.fullName
+        ? [
+            {
+              id: lead.id || '',
+              fullName: lead.fullName || '',
+              nickname: lead.nickname,
+              photoVersion: lead.photoVersion,
+              isLead: true,
+            },
+          ]
+        : [];
+  if (!members.length) return <span style={{ color: '#8c8c8c' }}>{emptyText}</span>;
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        flexDirection: vertical ? 'column' : 'row',
+        flexWrap: 'wrap',
+        alignItems: vertical ? 'flex-start' : 'center',
+        gap: vertical ? 4 : 10,
+        minWidth: 0,
+      }}
+    >
+      {members.map((m) => (
+        <span key={m.id || m.fullName} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <PersonChip
+            userId={m.id}
+            fullName={m.fullName}
+            nickname={m.nickname}
+            photoVersion={m.photoVersion}
+            size={size}
+            strong={m.isLead && members.length > 1}
+          />
+          {members.length > 1 && (
+            <span style={{ color: '#8c8c8c', fontSize: 12 }}>{m.isLead ? '(lead)' : '(helper)'}</span>
+          )}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** "Ana · Ben · Cara" for tooltips and print. */
+export function crewNames(crew?: CrewMember[] | null, fallback?: string | null): string {
+  if (crew && crew.length) return crew.map((m) => personLabel(m.fullName, m.nickname)).join(', ');
+  return fallback || '';
 }
 
 export default PersonAvatar;

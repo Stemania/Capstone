@@ -204,7 +204,7 @@ export default function JobOrderPrintPage() {
               <th>#</th>
               <th>Operation</th>
               <th>Machine</th>
-              <th>Worker</th>
+              <th>Crew</th>
               <th>Target hours</th>
               <th>Scheduled</th>
             </tr>
@@ -223,7 +223,15 @@ export default function JobOrderPrintPage() {
                     <td>
                       {displayOrDash(op.machineTypeName || op.machineTypeCode)}
                     </td>
-                    <td>{displayOrDash(op.assignedWorkerName)}</td>
+                    <td>
+                      {displayOrDash(
+                        op.crew && op.crew.length > 1
+                          ? op.crew
+                              .map((m) => (m.isLead ? `${m.fullName} (lead)` : m.fullName))
+                              .join(', ')
+                          : op.assignedWorkerName,
+                      )}
+                    </td>
                     <td>{op.estimatedHours != null ? op.estimatedHours : '—'}</td>
                     <td>{fmtWindow(op.scheduledStart, op.scheduledEnd)}</td>
                   </tr>

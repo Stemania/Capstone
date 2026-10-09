@@ -30,7 +30,7 @@ import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { operationsApi } from '../../api/operations.api';
 import { usersApi } from '../../api/users.api';
-import { PersonChip } from '../../components/PersonAvatar';
+import { PersonChip, crewNames } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
 import { getErrorMessage } from '../../api/client';
 import { DOWNTIME_REASONS } from '../../constants/downtimeReasons';
@@ -296,7 +296,10 @@ function MachineUnitCard({
             {cur.assignedWorkerName && (
               <div className="machine-card__worker">
                 <UserOutlined />
-                {personLabel(cur.assignedWorkerName, cur.assignedWorkerNickname)}
+                {crewNames(
+                  cur.crew,
+                  personLabel(cur.assignedWorkerName, cur.assignedWorkerNickname),
+                )}
               </div>
             )}
           </>
