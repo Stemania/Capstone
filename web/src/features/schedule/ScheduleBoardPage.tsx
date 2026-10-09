@@ -250,6 +250,11 @@ function AdminOfficeScheduleBoard() {
     else setAnchor((a) => a.add(dir, 'month'));
   };
 
+  const goToToday = () => {
+    setViewMode('day');
+    setAnchor(dayjs().tz(SHOP_TZ));
+  };
+
   const clearBoardFilters = () => {
     setMachineTypeId(undefined);
     setClientId(undefined);
@@ -438,7 +443,7 @@ function AdminOfficeScheduleBoard() {
               <button
                 type="button"
                 className="sched-m__date"
-                onClick={() => setAnchor(dayjs().tz(SHOP_TZ))}
+                onClick={goToToday}
                 title="Jump to today"
               >
                 <span className="sched-m__date-main">{periodLabel}</span>
@@ -694,7 +699,7 @@ function AdminOfficeScheduleBoard() {
             !isPhoneBoard ? (
               <Button
                 icon={<AimOutlined />}
-                onClick={() => setAnchor(dayjs().tz(SHOP_TZ))}
+                onClick={goToToday}
               >
                 Today
               </Button>
