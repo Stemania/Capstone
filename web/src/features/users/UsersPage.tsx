@@ -17,6 +17,8 @@ import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
 import { useIsPhone } from '../../hooks/useIsPhone';
+import { PersonAvatar, PersonChip } from '../../components/PersonAvatar';
+import PhotoUploadControl from '../../components/PhotoUploadControl';
 import type { User, UserRole } from '../../types';
 
 const NAVY = '#0f1c2e';
@@ -63,7 +65,8 @@ export default function UsersPage() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return users.filter((u) => {
-      if (q && !`${u.fullName} ${u.email}`.toLowerCase().includes(q)) return false;
+      if (q && !`${u.fullName} ${u.nickname || ''} ${u.email || ''}`.toLowerCase().includes(q))
+        return false;
       if (roleFilter.length && !roleFilter.includes(u.role)) return false;
       if (statusFilter.length) {
         const status: StatusFilter = u.active ? 'active' : 'inactive';
@@ -81,6 +84,7 @@ export default function UsersPage() {
   const onCreate = async (values: {
     email: string;
     fullName: string;
+    nickname?: string;
     role: string;
     mobileNumber: string;
     inviteChannel: 'EMAIL' | 'SMS';
@@ -90,6 +94,7 @@ export default function UsersPage() {
           await usersApi.create({
             email: values.email,
             fullName: values.fullName,
+            nickname: values.nickname?.trim() || undefined,
             role: values.role,
             mobileNumber: values.mobileNumber,
             inviteChannel: values.inviteChannel,
@@ -108,16 +113,28 @@ export default function UsersPage() {
     setEditUser(u);
     editForm.setFieldsValue({
       fullName: u.fullName,
-      email: u.email,
+      nickname: u.nickname || '',
+      email: u.email || '',
       mobileNumber: u.mobileNumber || '',
       role: u.role,
     });
   };
 
+  const sendInvite = async (u: User, channel: 'EMAIL' | 'SMS') => {
+    try {
+      await usersApi.resendInvite(u.id, channel);
+      message.success(channel === 'EMAIL' ? 'Invitation emailed' : 'Invitation code sent by SMS');
+      fetchUsers();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    }
+  };
+
   const onEditSave = async (values: {
     fullName: string;
-    email: string;
-    mobileNumber: string;
+    nickname?: string;
+    email?: string;
+    mobileNumber?: string;
     role: UserRole;
   }) => {
     if (!editUser) return;
@@ -125,8 +142,9 @@ export default function UsersPage() {
     try {
       await usersApi.update(editUser.id, {
         fullName: values.fullName.trim(),
-        email: values.email.trim(),
-        mobileNumber: values.mobileNumber.trim(),
+        nickname: (values.nickname || '').trim() || null,
+        email: (values.email || '').trim() || null,
+        mobileNumber: (values.mobileNumber || '').trim() || undefined,
         role: values.role,
       });
       message.success(
@@ -180,8 +198,16 @@ export default function UsersPage() {
       dataIndex: 'fullName',
       key: 'fullName',
       sorter: (a, b) => a.fullName.localeCompare(b.fullName),
-      render: (n: string) => (
-        <span style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>{n}</span>
+      render: (_: string, record: User) => (
+        <span style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>
+          <PersonChip
+            userId={record.id}
+            fullName={record.fullName}
+            nickname={record.nickname}
+            photoVersion={record.photoVersion}
+            size={26}
+          />
+        </span>
       ),
     },
     {
@@ -189,8 +215,13 @@ export default function UsersPage() {
       dataIndex: 'email',
       key: 'email',
       ellipsis: true,
-      sorter: (a, b) => a.email.localeCompare(b.email),
-      render: (v: string) => <span style={{ fontSize: 13, color: '#475569' }}>{v}</span>,
+      sorter: (a, b) => (a.email || '').localeCompare(b.email || ''),
+      render: (v: string | null) =>
+        v ? (
+          <span style={{ fontSize: 13, color: '#475569' }}>{v}</span>
+        ) : (
+          <span style={{ fontSize: 13, color: '#94a3b8' }}>No email yet</span>
+        ),
     },
     {
       title: 'Role',
@@ -236,19 +267,27 @@ export default function UsersPage() {
         ];
         const status = record.status || (record.active ? 'ACTIVE' : 'DISABLED');
         if (status === 'INVITED') {
-          items.push({
-            key: 'resend',
-            label: 'Resend invite',
-            onClick: async () => {
-              try {
-                await usersApi.resendInvite(record.id);
-                message.success('Invitation resent');
-                fetchUsers();
-              } catch (err) {
-                message.error(getErrorMessage(err));
-              }
-            },
-          });
+          if (record.email) {
+            items.push({
+              key: 'invite-email',
+              label: 'Send invite by email',
+              onClick: () => sendInvite(record, 'EMAIL'),
+            });
+          }
+          if (record.mobileNumber) {
+            items.push({
+              key: 'invite-sms',
+              label: 'Send invite by SMS',
+              onClick: () => sendInvite(record, 'SMS'),
+            });
+          }
+          if (!record.email && !record.mobileNumber) {
+            items.push({
+              key: 'invite-needs-contact',
+              label: 'Add email or mobile to invite',
+              onClick: () => openEdit(record),
+            });
+          }
           items.push({
             key: 'revoke-invite',
             label: 'Revoke invite',
@@ -417,8 +456,16 @@ export default function UsersPage() {
                 <div key={u.id} className="admin-card">
                   <div className="admin-card__top">
                     <div>
-                      <div className="admin-card__title">{u.fullName}</div>
-                      <div className="admin-card__meta">{u.email}</div>
+                      <div className="admin-card__title">
+                        <PersonChip
+                          userId={u.id}
+                          fullName={u.fullName}
+                          nickname={u.nickname}
+                          photoVersion={u.photoVersion}
+                          size={26}
+                        />
+                      </div>
+                      <div className="admin-card__meta">{u.email || 'No email yet'}</div>
                     </div>
                     <Dropdown
                       menu={{
@@ -589,6 +636,10 @@ export default function UsersPage() {
             <Input size="large" placeholder="e.g. Juan Dela Cruz" />
           </Form.Item>
 
+          <Form.Item name="nickname" label="Nickname" style={{ marginBottom: 14 }}>
+            <Input size="large" maxLength={40} placeholder="e.g. JD" />
+          </Form.Item>
+
           <Form.Item
             name="email"
             label="Email"
@@ -682,6 +733,25 @@ export default function UsersPage() {
           requiredMark="optional"
           style={{ marginTop: 12 }}
         >
+          {editUser ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <PersonAvatar
+                userId={editUser.id}
+                fullName={editUser.fullName}
+                photoVersion={editUser.photoVersion}
+                size={56}
+              />
+              <PhotoUploadControl
+                user={editUser}
+                onChange={(updated) => {
+                  setEditUser((prev) => (prev ? { ...prev, photoVersion: updated.photoVersion } : prev));
+                  setUsers((prev) =>
+                    prev.map((x) => (x.id === updated.id ? { ...x, photoVersion: updated.photoVersion } : x))
+                  );
+                }}
+              />
+            </div>
+          ) : null}
           <Form.Item
             name="fullName"
             label="Full Name"
@@ -690,16 +760,27 @@ export default function UsersPage() {
             <Input />
           </Form.Item>
           <Form.Item
+            name="nickname"
+            label="Nickname"
+            extra='Shown with the name, e.g. "PJ · Anthony Pajantoy".'
+          >
+            <Input maxLength={40} />
+          </Form.Item>
+          <Form.Item
             name="email"
             label="Email"
-            rules={[{ required: true, type: 'email', message: 'Valid email required' }]}
+            rules={[{ type: 'email', message: 'Valid email required' }]}
           >
             <Input />
           </Form.Item>
           <Form.Item
             name="mobileNumber"
             label="Mobile number"
-            rules={[{ required: true, whitespace: true, message: 'Mobile number is required' }]}
+            extra={
+              editUser?.status === 'INVITED'
+                ? 'Add an email or mobile number, save, then send the invite from the row menu.'
+                : undefined
+            }
           >
             <Input placeholder="09XX XXX XXXX" />
           </Form.Item>

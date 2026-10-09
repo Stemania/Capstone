@@ -18,13 +18,7 @@ import {
 import { ReportSection, ReportStamp, ReportToolbar } from './ReportChrome';
 
 function skillLabel(s: WorkerSkill) {
-  const name =
-    s.machineTypeName ||
-    s.machineTypeCode ||
-    s.operationTypeName ||
-    s.operationTypeCode ||
-    s.machineTypeId ||
-    s.operationTypeId;
+  const name = s.machineTypeName || s.machineTypeCode || s.machineTypeId;
   const primary = s.isPrimary ? ' (primary)' : '';
   return `${name} skill ${s.proficiency}${primary}`;
 }

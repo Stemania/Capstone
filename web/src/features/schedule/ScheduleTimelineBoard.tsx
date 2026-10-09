@@ -8,6 +8,8 @@ import type {
 } from '../../api/schedule.api';
 import { formatShopDateTime } from '../../utils/shopTime';
 import { adminPx } from '../../theme/adminTheme';
+import { PersonAvatar } from '../../components/PersonAvatar';
+import { personLabel } from '../../utils/people';
 import {
   HOUR_END,
   HOUR_START,
@@ -44,6 +46,8 @@ export type TimelineRow = {
   group?: string;
   machineUnitId?: string | null;
   workerId?: string | null;
+  personName?: string;
+  photoVersion?: number | null;
   noMachine?: boolean;
 };
 
@@ -353,9 +357,18 @@ function ScheduleTimelineBoard({
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                     minHeight: trackH,
+                    gap: 6,
                   }}
                 >
-                  {row.label}
+                  {row.workerId && row.personName ? (
+                    <PersonAvatar
+                      userId={row.workerId}
+                      fullName={row.personName}
+                      photoVersion={row.photoVersion}
+                      size={isMobile ? 20 : 24}
+                    />
+                  ) : null}
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.label}</span>
                 </div>
                 <div
                   style={{
@@ -513,7 +526,9 @@ function ScheduleTimelineBoard({
                           )}
                           {op.clientName ? <div>Client: {op.clientName}</div> : null}
                           {op.assignedWorkerName ? (
-                            <div>Worker: {op.assignedWorkerName}</div>
+                            <div>
+                              Worker: {personLabel(op.assignedWorkerName, op.assignedWorkerNickname)}
+                            </div>
                           ) : null}
                           <div>
                             {formatShopDateTime(seg.start)} → {formatShopDateTime(seg.end)}

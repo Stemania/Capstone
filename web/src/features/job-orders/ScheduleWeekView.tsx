@@ -18,10 +18,16 @@ import {
 } from '../schedule/scheduleTimelineUtils';
 import type { MachineUnitInfo, ProposedOperation } from '../../types';
 import { SHOP_TZ } from '../../utils/shopTime';
+import { personLabel } from '../../utils/people';
 import JobScheduleColorPicker from './JobScheduleColorPicker';
 
 type RowMode = 'machine' | 'worker';
-type BoardWorker = { id: string; fullName: string };
+type BoardWorker = {
+  id: string;
+  fullName: string;
+  nickname?: string | null;
+  photoVersion?: number | null;
+};
 
 const NO_DOWNTIMES: ScheduleBoardDowntime[] = [];
 
@@ -49,21 +55,28 @@ function buildMachineRows(units: MachineUnitInfo[]): TimelineRow[] {
 }
 
 function buildWorkerRows(workers: BoardWorker[], ops: ScheduleBoardOperation[]): TimelineRow[] {
-  const byId = new Map<string, string>();
+  const byId = new Map<string, BoardWorker>();
   for (const w of workers) {
-    byId.set(w.id, w.fullName);
+    byId.set(w.id, w);
   }
   for (const op of ops) {
     if (op.assignedWorkerId && !byId.has(op.assignedWorkerId)) {
-      byId.set(op.assignedWorkerId, op.assignedWorkerName || 'Worker');
+      byId.set(op.assignedWorkerId, {
+        id: op.assignedWorkerId,
+        fullName: op.assignedWorkerName || 'Worker',
+        nickname: op.assignedWorkerNickname,
+        photoVersion: op.assignedWorkerPhotoVersion,
+      });
     }
   }
-  return [...byId.entries()]
-    .sort((a, b) => a[1].localeCompare(b[1]))
-    .map(([id, name]) => ({
-      key: id,
-      label: name,
-      workerId: id,
+  return [...byId.values()]
+    .sort((a, b) => a.fullName.localeCompare(b.fullName))
+    .map((w) => ({
+      key: w.id,
+      label: personLabel(w.fullName, w.nickname),
+      workerId: w.id,
+      personName: w.fullName,
+      photoVersion: w.photoVersion,
     }));
 }
 
@@ -176,7 +189,7 @@ export default function ScheduleWeekView({
 
   const workerNameById = useMemo(() => {
     const map = new Map<string, string>();
-    for (const w of boardWorkers) map.set(w.id, w.fullName);
+    for (const w of boardWorkers) map.set(w.id, personLabel(w.fullName, w.nickname));
     return map;
   }, [boardWorkers]);
 

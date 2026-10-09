@@ -15,9 +15,12 @@ import {
 import { SearchOutlined } from '@ant-design/icons';
 import { useSearchParams } from 'react-router-dom';
 import { jobOrdersApi } from '../../api/jobOrders.api';
-import { operationTypesApi, usersApi, workerProfileApi } from '../../api/users.api';
+import { usersApi, workerProfileApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import type { User, WorkerSchedule, WorkerSkill } from '../../types';
+import { PersonAvatar } from '../../components/PersonAvatar';
+import PhotoUploadControl from '../../components/PhotoUploadControl';
+import { personLabel } from '../../utils/people';
 import WorkerHistoryPanel from './WorkerHistoryPanel';
 
 const { Text } = Typography;
@@ -27,15 +30,23 @@ const DAY_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Sat
 type DetailTab = 'skills' | 'hours' | 'history';
 
 type SkillRow = {
-  /** `machine:<id>` or `operation:<id>` */
+  /** Machine type id */
   key: string;
-  kind: 'machine' | 'operation';
-  targetId: string;
   name: string;
   enabled: boolean;
   proficiency: number;
   isPrimary: boolean;
 };
+
+function personSubline(u: User): string {
+  return [
+    u.role === 'ADMIN' ? 'Admin' : 'Production worker',
+    u.status === 'INVITED' ? 'not activated' : null,
+    u.email,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
 
 function defaultSchedule(): WorkerSchedule[] {
   return DAY_LABELS.map((_, dow) => ({
@@ -84,8 +95,12 @@ export default function WorkerSetupPage() {
       setListLoading(true);
       try {
         const { data } = await usersApi.list();
+        // Workers and Admins can both be assigned work.
         const production = data
-          .filter((u) => u.role === 'PRODUCTION_WORKER')
+          .filter(
+            (u) =>
+              (u.role === 'PRODUCTION_WORKER' || u.role === 'ADMIN') && u.status !== 'DISABLED'
+          )
           .sort((a, b) => a.fullName.localeCompare(b.fullName));
         setWorkers(production);
         if (!workerId && production[0]) {
@@ -109,40 +124,24 @@ export default function WorkerSetupPage() {
     const load = async () => {
       setDetailLoading(true);
       try {
-        const [machinesRes, typesRes, skillsRes, scheduleRes] = await Promise.all([
+        const [machinesRes, skillsRes, scheduleRes] = await Promise.all([
           jobOrdersApi.machines(),
-          operationTypesApi.list(),
           workerProfileApi.getSkills(workerId).catch(() => ({ data: [] as WorkerSkill[] })),
           workerProfileApi.getSchedule(workerId).catch(() => ({ data: [] as WorkerSchedule[] })),
         ]);
-        const existing = new Map(
-          (skillsRes.data || []).map((s) => [
-            s.machineTypeId ? `machine:${s.machineTypeId}` : `operation:${s.operationTypeId}`,
-            s,
-          ])
+        const existing = new Map((skillsRes.data || []).map((s) => [s.machineTypeId, s]));
+        setSkillRows(
+          machinesRes.data.map((m) => {
+            const skill = existing.get(m.id || '');
+            return {
+              key: m.id || '',
+              name: m.name,
+              enabled: Boolean(skill),
+              proficiency: skill?.proficiency ?? 3,
+              isPrimary: skill?.isPrimary ?? false,
+            };
+          })
         );
-        const row = (kind: SkillRow['kind'], targetId: string, name: string): SkillRow => {
-          const key = `${kind}:${targetId}`;
-          const skill = existing.get(key);
-          return {
-            key,
-            kind,
-            targetId,
-            name,
-            enabled: Boolean(skill),
-            proficiency: skill?.proficiency ?? 3,
-            isPrimary: skill?.isPrimary ?? false,
-          };
-        };
-        // Operations without a machine carry their own skill; Checking and
-        // outsourced work do not.
-        const noMachineTypes = (typesRes.data || [])
-          .filter((t) => !t.defaultMachineTypeId && !t.isOutsourced && t.code !== 'CHECKING')
-          .sort((a, b) => a.name.localeCompare(b.name));
-        setSkillRows([
-          ...machinesRes.data.map((m) => row('machine', m.id || '', m.name)),
-          ...noMachineTypes.map((t) => row('operation', t.id, t.name)),
-        ]);
         if (scheduleRes.data?.length === 7) {
           setSchedule([...scheduleRes.data].sort((a, b) => a.dayOfWeek - b.dayOfWeek));
         } else {
@@ -160,7 +159,9 @@ export default function WorkerSetupPage() {
   const filteredWorkers = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return workers;
-    return workers.filter((w) => `${w.fullName} ${w.email}`.toLowerCase().includes(q));
+    return workers.filter((w) =>
+      `${w.fullName} ${w.nickname || ''} ${w.email || ''}`.toLowerCase().includes(q)
+    );
   }, [workers, query]);
 
   const selected = workers.find((w) => w.id === workerId) || null;
@@ -177,7 +178,7 @@ export default function WorkerSetupPage() {
       await workerProfileApi.putSkills(
         workerId,
         enabled.map((r) => ({
-          ...(r.kind === 'machine' ? { machineTypeId: r.targetId } : { operationTypeId: r.targetId }),
+          machineTypeId: r.key,
           proficiency: r.proficiency,
           isPrimary: r.isPrimary,
         }))
@@ -236,16 +237,9 @@ export default function WorkerSetupPage() {
       ),
     },
     {
-      title: 'Machine or operation',
+      title: 'Machine',
       key: 'target',
-      render: (_: unknown, row: SkillRow) => (
-        <span>
-          <strong>{row.name}</strong>{' '}
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {row.kind === 'machine' ? 'machine' : 'no machine'}
-          </Text>
-        </span>
-      ),
+      render: (_: unknown, row: SkillRow) => <strong>{row.name}</strong>,
     },
     {
       title: 'Level',
@@ -364,8 +358,9 @@ export default function WorkerSetupPage() {
   return (
     <div>
       <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-        Set who can run which machines and weekly work hours. Work history is built from completed
-        operations and tool activity. Add or deactivate accounts under Users & Roles.
+        Set who can run which machines and weekly work hours, for production workers and Admins.
+        Work history is built from completed operations and tool activity. Add or deactivate
+        accounts under Users & Roles.
       </Text>
 
       <div className="worker-setup-grid">
@@ -383,7 +378,7 @@ export default function WorkerSetupPage() {
               <Spin />
             </div>
           ) : filteredWorkers.length === 0 ? (
-            <Text type="secondary">No production workers yet. Create them under Users & Roles.</Text>
+            <Text type="secondary">No workers yet. Create them under Users & Roles.</Text>
           ) : (
             <div className="worker-setup-list__items">
               {filteredWorkers.map((w) => {
@@ -394,9 +389,15 @@ export default function WorkerSetupPage() {
                     type="button"
                     className={`worker-setup-list__item${active ? ' is-active' : ''}`}
                     onClick={() => setWorker(w.id)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left' }}
                   >
-                    <div className="worker-setup-list__name">{w.fullName}</div>
-                    <div className="worker-setup-list__email">{w.email}</div>
+                    <PersonAvatar userId={w.id} fullName={w.fullName} photoVersion={w.photoVersion} />
+                    <span style={{ minWidth: 0 }}>
+                      <div className="worker-setup-list__name">
+                        {personLabel(w.fullName, w.nickname)}
+                      </div>
+                      <div className="worker-setup-list__email">{personSubline(w)}</div>
+                    </span>
                   </button>
                 );
               })}
@@ -413,11 +414,33 @@ export default function WorkerSetupPage() {
             </div>
           ) : (
             <>
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 18, fontWeight: 800, color: '#0f1c2e' }}>
-                  {selected?.fullName || 'Worker'}
+              <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+                <PersonAvatar
+                  userId={selected?.id}
+                  fullName={selected?.fullName}
+                  photoVersion={selected?.photoVersion}
+                  size={56}
+                />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: '#0f1c2e' }}>
+                    {selected ? personLabel(selected.fullName, selected.nickname) : 'Worker'}
+                  </div>
+                  <Text type="secondary">{selected ? personSubline(selected) : ''}</Text>
+                  {selected ? (
+                    <div style={{ marginTop: 6 }}>
+                      <PhotoUploadControl
+                        user={selected}
+                        onChange={(updated) =>
+                          setWorkers((prev) =>
+                            prev.map((w) =>
+                              w.id === updated.id ? { ...w, photoVersion: updated.photoVersion } : w
+                            )
+                          )
+                        }
+                      />
+                    </div>
+                  ) : null}
                 </div>
-                <Text type="secondary">{selected?.email}</Text>
               </div>
 
               <Segmented
@@ -452,9 +475,9 @@ export default function WorkerSetupPage() {
                     dataSource={skillRows}
                   />
                   <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 10 }}>
-                    Switch on the machines they can operate and the operations they can do, each at
-                    level 1 to 5. One primary skill only. Once anyone has an operation skill, only
-                    workers with it are suggested and can be assigned to that operation.
+                    Switch on the machines they can operate, each at level 1 to 5. One primary
+                    skill only. Operations without a machine take no skill: anyone can do them. A
+                    machine nobody has a skill for yet is open to everyone.
                   </Text>
                 </div>
               ) : null}

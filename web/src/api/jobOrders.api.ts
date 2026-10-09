@@ -125,7 +125,6 @@ export const workersApi = {
     machineTypeId?: string;
     operationTypeId?: string;
     operationName?: string;
-    forChecking?: boolean;
   }) => apiClient.get<User[]>('/workers', { params }),
   suggest: (
     operations: string[],

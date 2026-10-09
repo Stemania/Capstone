@@ -1,16 +1,13 @@
 export type UserRole = 'ADMIN' | 'OFFICE_STAFF' | 'PRODUCTION_WORKER';
 export type UserStatus = 'INVITED' | 'ACTIVE' | 'DISABLED';
 
-/** A 1-5 level on a machine type, or on an operation type that uses no machine (one of the two). */
+/** A 1-5 level on a machine type. Operations without a machine take no skill. */
 export interface WorkerSkill {
   id?: string;
   workerId?: string;
-  machineTypeId?: string | null;
+  machineTypeId: string;
   machineTypeCode?: string | null;
   machineTypeName?: string | null;
-  operationTypeId?: string | null;
-  operationTypeCode?: string | null;
-  operationTypeName?: string | null;
   proficiency: number;
   isPrimary: boolean;
 }
@@ -47,9 +44,13 @@ export interface WorkerProfile {
 
 export interface User {
   id: string;
-  email: string;
+  /** Empty for imported employees until the Admin invites them. */
+  email: string | null;
   mobileNumber?: string | null;
   fullName: string;
+  nickname?: string | null;
+  /** Changes when the photo does; null when there is no photo. */
+  photoVersion?: number | null;
   role: UserRole;
   status?: UserStatus;
   active: boolean;
@@ -552,6 +553,8 @@ export interface Operation extends MaterialWait {
   machineUnitLabel?: string | null;
   assignedWorkerId?: string | null;
   assignedWorkerName?: string | null;
+  assignedWorkerNickname?: string | null;
+  assignedWorkerPhotoVersion?: number | null;
   estimatedHours?: number | null;
   scheduledStart?: string | null;
   scheduledEnd?: string | null;
@@ -587,6 +590,8 @@ export interface MachineUnitInfo {
   active?: boolean;
   defaultOperatorId?: string | null;
   defaultOperatorName?: string | null;
+  defaultOperatorNickname?: string | null;
+  defaultOperatorPhotoVersion?: number | null;
 }
 
 export interface MachineDowntimeRecord {
@@ -621,6 +626,8 @@ export interface AffectedScheduledOperation {
   scheduledStart?: string | null;
   scheduledEnd?: string | null;
   assignedWorkerName?: string | null;
+  assignedWorkerNickname?: string | null;
+  assignedWorkerPhotoVersion?: number | null;
 }
 
 export interface MachineUnitStatus extends MachineUnitInfo {
@@ -875,7 +882,10 @@ export interface ScoringWeights {
 export interface WorkerSuggestion {
   workerId: string;
   fullName: string;
-  email: string;
+  nickname?: string | null;
+  photoVersion?: number | null;
+  role?: UserRole;
+  email: string | null;
   skills: string[];
   score: number;
   matchedSkills: string[];

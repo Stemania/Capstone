@@ -32,6 +32,8 @@ export type ScheduleBoardOperation = {
   machineUnitLabel?: string | null;
   assignedWorkerId?: string | null;
   assignedWorkerName?: string | null;
+  assignedWorkerNickname?: string | null;
+  assignedWorkerPhotoVersion?: number | null;
   dueDate?: string | null;
   projectedCompletion?: string | null;
   scheduleFlag?: 'GREEN' | 'AMBER' | 'RED' | null;
@@ -64,7 +66,13 @@ export type ScheduleBoardResponse = {
     machineTypeCode?: string | null;
     machineTypeName?: string | null;
   }[];
-  workers: { id: string; fullName: string }[];
+  workers: {
+    id: string;
+    fullName: string;
+    nickname?: string | null;
+    role?: string;
+    photoVersion?: number | null;
+  }[];
   clients: { id: string; name: string }[];
   operations: ScheduleBoardOperation[];
   downtimes: ScheduleBoardDowntime[];

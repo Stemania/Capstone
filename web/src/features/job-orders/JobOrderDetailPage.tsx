@@ -39,6 +39,8 @@ import { useAuth } from '../../hooks/useAuth';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import MaterialWaitTag from '../../components/MaterialWaitTag';
 import MaterialDelayTag from '../../components/MaterialDelayTag';
+import { PersonChip } from '../../components/PersonAvatar';
+import { personLabel } from '../../utils/people';
 import type {
   JobOrder,
   JobOrderStatus,
@@ -259,22 +261,14 @@ const ACTIVITY_ROW: CSSProperties = {
 function OperationWorkerSelect({ op, onAssigned }: { op: Operation; onAssigned: () => Promise<void> }) {
   const [workers, setWorkers] = useState<User[] | null>(null);
   const [saving, setSaving] = useState(false);
-  const isChecking =
-    (op.operationTypeCode || '').toUpperCase() === 'CHECKING' ||
-    op.operationName.trim().toLowerCase() === 'checking';
 
   const loadWorkers = async () => {
     if (workers) return;
     try {
-      const { data } = await workersApi.list(
-        isChecking
-          ? { forChecking: true, operationName: op.operationName }
-          : {
-              machineTypeId: op.machineTypeId || undefined,
-              operationTypeId: op.operationTypeId || undefined,
-              operationName: op.operationName,
-            }
-      );
+      const { data } = await workersApi.list({
+        machineTypeId: op.machineTypeId || undefined,
+        operationName: op.operationName,
+      });
       setWorkers(data);
     } catch (err) {
       message.error(getErrorMessage(err));
@@ -283,12 +277,40 @@ function OperationWorkerSelect({ op, onAssigned }: { op: Operation; onAssigned: 
   };
 
   const options = useMemo(() => {
-    const list = (workers || []).map((w) => ({ value: w.id, label: w.fullName }));
-    if (op.assignedWorkerId && !list.some((o) => o.value === op.assignedWorkerId)) {
-      list.unshift({ value: op.assignedWorkerId, label: op.assignedWorkerName || 'Current worker' });
+    const people = (workers || []).map((w) => ({
+      id: w.id,
+      fullName: w.fullName,
+      nickname: w.nickname,
+      photoVersion: w.photoVersion,
+    }));
+    if (op.assignedWorkerId && !people.some((p) => p.id === op.assignedWorkerId)) {
+      people.unshift({
+        id: op.assignedWorkerId,
+        fullName: op.assignedWorkerName || 'Current worker',
+        nickname: op.assignedWorkerNickname,
+        photoVersion: op.assignedWorkerPhotoVersion,
+      });
     }
-    return list;
-  }, [workers, op.assignedWorkerId, op.assignedWorkerName]);
+    return people.map((p) => ({
+      value: p.id,
+      search: personLabel(p.fullName, p.nickname),
+      label: (
+        <PersonChip
+          userId={p.id}
+          fullName={p.fullName}
+          nickname={p.nickname}
+          photoVersion={p.photoVersion}
+          size={18}
+        />
+      ),
+    }));
+  }, [
+    workers,
+    op.assignedWorkerId,
+    op.assignedWorkerName,
+    op.assignedWorkerNickname,
+    op.assignedWorkerPhotoVersion,
+  ]);
 
   return (
     <Select
@@ -300,7 +322,7 @@ function OperationWorkerSelect({ op, onAssigned }: { op: Operation; onAssigned: 
       loading={saving}
       disabled={saving}
       showSearch
-      optionFilterProp="label"
+      optionFilterProp="search"
       onDropdownVisibleChange={(open) => {
         if (open) void loadWorkers();
       }}
@@ -1147,7 +1169,13 @@ export default function JobOrderDetailPage() {
                             {isAdmin && !isDraft && !isInvoicedOrDelivered && isNotStarted(op) ? (
                               <OperationWorkerSelect op={op} onAssigned={fetchJob} />
                             ) : (
-                              dash(op.assignedWorkerName)
+                              <PersonChip
+                                userId={op.assignedWorkerId}
+                                fullName={op.assignedWorkerName}
+                                nickname={op.assignedWorkerNickname}
+                                photoVersion={op.assignedWorkerPhotoVersion}
+                                size={18}
+                              />
                             )}
                           </span>
                           <span>

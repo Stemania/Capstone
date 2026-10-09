@@ -7,12 +7,22 @@ export const usersApi = {
   create: (data: {
     email: string;
     fullName: string;
+    nickname?: string;
     role: string;
     mobileNumber: string;
     inviteChannel?: 'EMAIL' | 'SMS';
   }) => apiClient.post<User>('/users', data),
   update: (id: string, data: Partial<User>) =>
     apiClient.patch<User>(`/users/${id}`, data),
+  uploadPhoto: (id: string, file: File) => {
+    const body = new FormData();
+    body.append('file', file);
+    return apiClient.post<User>(`/users/${id}/photo`, body, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  deletePhoto: (id: string) => apiClient.delete<User>(`/users/${id}/photo`),
+  getPhoto: (id: string) => apiClient.get<Blob>(`/users/${id}/photo`, { responseType: 'blob' }),
   deactivate: (id: string) => apiClient.delete(`/users/${id}`),
   resendInvite: (id: string, channel?: 'EMAIL' | 'SMS') =>
     apiClient.post(`/users/${id}/invite`, channel ? { channel } : {}),

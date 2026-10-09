@@ -20,8 +20,10 @@ import {
   ShoppingCartOutlined,
   ClockCircleOutlined,
   BankOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { operationsApi } from '../api/operations.api';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { adminPx } from '../theme/adminTheme';
@@ -67,6 +69,10 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/analytics': {
     title: 'Analytics',
     subtitle: 'How the shop is doing — time, sales, and what is coming',
+  },
+  '/my-assignments': {
+    title: 'My assignments',
+    subtitle: 'Operations assigned to you — start, pause, and complete them',
   },
   '/users': { title: 'Users & Roles', subtitle: 'Manage accounts, roles, and who can sign in' },
   '/tools': { title: 'Inventory', subtitle: 'Tools and consumables' },
@@ -143,6 +149,24 @@ export default function AppLayout() {
   const location = useLocation();
   const { resolveSectionNav } = useNavMemory();
   const showBell = isAdmin || isOfficeStaff;
+  const [hasAssignments, setHasAssignments] = useState(false);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      setHasAssignments(false);
+      return;
+    }
+    let alive = true;
+    operationsApi
+      .mine()
+      .then(({ data }) => {
+        if (alive) setHasAssignments(data.length > 0);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [isAdmin, location.pathname]);
 
   const goSection = (sectionKey: string) => {
     const { to } = resolveSectionNav(sectionKey);
@@ -165,6 +189,14 @@ export default function AppLayout() {
       { key: '/analytics', icon: <BarChartOutlined />, label: 'Analytics' },
       { key: '/tools', icon: <ToolOutlined />, label: 'Inventory' },
     );
+  }
+
+  if (isAdmin && (hasAssignments || location.pathname.startsWith('/my-assignments'))) {
+    menuItems.splice(1, 0, {
+      key: '/my-assignments',
+      icon: <UnorderedListOutlined />,
+      label: 'My assignments',
+    });
   }
 
   if (isAdmin) {

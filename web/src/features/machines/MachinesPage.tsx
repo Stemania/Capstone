@@ -23,12 +23,15 @@ import {
   RightOutlined,
   PlusOutlined,
   ClusterOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { operationsApi } from '../../api/operations.api';
 import { usersApi } from '../../api/users.api';
+import { PersonChip } from '../../components/PersonAvatar';
+import { personLabel } from '../../utils/people';
 import { getErrorMessage } from '../../api/client';
 import { DOWNTIME_REASONS } from '../../constants/downtimeReasons';
 import type { MachineInfo, MachineUnitStatus, User } from '../../types';
@@ -74,6 +77,7 @@ function unitSearchText(unit: MachineUnitStatus): string {
     unit.machineTypeName,
     unit.machineTypeCode,
     unit.defaultOperatorName,
+    unit.defaultOperatorNickname,
     unit.openDowntime?.reason,
     unit.openDowntime?.reportedByName,
     cur?.operationName,
@@ -251,9 +255,35 @@ function MachineUnitCard({
 
       <div className="machine-card__body">
         <div className="machine-card__idle-copy" style={{ marginBottom: status === 'idle' ? 0 : 8 }}>
-          {unit.defaultOperatorName
-            ? `Operator: ${unit.defaultOperatorName}`
-            : 'Shared — no default operator'}
+          {unit.defaultOperatorId ? (
+            <PersonChip
+              userId={unit.defaultOperatorId}
+              fullName={unit.defaultOperatorName}
+              nickname={unit.defaultOperatorNickname}
+              photoVersion={unit.defaultOperatorPhotoVersion}
+              size={28}
+              strong
+            />
+          ) : (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span
+                aria-hidden="true"
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  background: '#e8ecf1',
+                  color: '#5b6b7f',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <TeamOutlined />
+              </span>
+              Open to all
+            </span>
+          )}
         </div>
         {status === 'retired' ? (
           <div className="machine-card__idle-copy">
@@ -266,7 +296,7 @@ function MachineUnitCard({
             {cur.assignedWorkerName && (
               <div className="machine-card__worker">
                 <UserOutlined />
-                {cur.assignedWorkerName}
+                {personLabel(cur.assignedWorkerName, cur.assignedWorkerNickname)}
               </div>
             )}
           </>
@@ -367,7 +397,10 @@ export default function MachinesPage() {
         const { data } = await usersApi.list();
         setWorkers(
           data
-            .filter((u) => u.role === 'PRODUCTION_WORKER' && u.active !== false)
+            .filter(
+              (u) =>
+                (u.role === 'PRODUCTION_WORKER' || u.role === 'ADMIN') && u.status !== 'DISABLED'
+            )
             .sort((a, b) => a.fullName.localeCompare(b.fullName))
         );
       } catch {
@@ -902,17 +935,28 @@ export default function MachinesPage() {
         destroyOnHidden
       >
         <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
-          Usual operator for this unit. Leave empty for shared machines. This only prefers the unit
-          when scheduling — it does not block other workers.
+          Usual operator for this unit (a worker or an Admin). Leave empty to keep it open to all.
+          This only prefers the unit when scheduling — it does not block other workers.
         </Typography.Paragraph>
         <Form form={operatorForm} layout="vertical">
           <Form.Item name="defaultOperatorId" label="Operator">
             <Select
               allowClear
               showSearch
-              optionFilterProp="label"
-              placeholder="Shared — anyone qualified"
-              options={workers.map((w) => ({ value: w.id, label: w.fullName }))}
+              optionFilterProp="search"
+              placeholder="Open to all"
+              options={workers.map((w) => ({
+                value: w.id,
+                search: personLabel(w.fullName, w.nickname),
+                label: (
+                  <PersonChip
+                    userId={w.id}
+                    fullName={w.fullName}
+                    nickname={w.nickname}
+                    photoVersion={w.photoVersion}
+                  />
+                ),
+              }))}
             />
           </Form.Item>
         </Form>

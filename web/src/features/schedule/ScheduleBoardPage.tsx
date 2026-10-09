@@ -59,6 +59,8 @@ import {
 import { formatShopDateTime, SHOP_TZ } from '../../utils/shopTime';
 import ScheduleExpandShell from './ScheduleExpandShell';
 import WorkerPersonalSchedule from './WorkerPersonalSchedule';
+import { PersonAvatar } from '../../components/PersonAvatar';
+import { personLabel } from '../../utils/people';
 
 const { Text } = Typography;
 
@@ -85,6 +87,8 @@ type RowDef = {
   group?: string;
   machineUnitId?: string | null;
   workerId?: string | null;
+  personName?: string;
+  photoVersion?: number | null;
   noMachine?: boolean;
 };
 
@@ -218,8 +222,10 @@ function AdminOfficeScheduleBoard() {
     if (rowMode === 'worker') {
       return data.workers.map((w) => ({
         key: w.id,
-        label: w.fullName,
+        label: personLabel(w.fullName, w.nickname),
         workerId: w.id,
+        personName: w.fullName,
+        photoVersion: w.photoVersion,
       }));
     }
     const out: RowDef[] = [];
@@ -390,7 +396,7 @@ function AdminOfficeScheduleBoard() {
         onChange={setWorkerId}
         options={(data?.workers || []).map((w) => ({
           value: w.id,
-          label: w.fullName,
+          label: personLabel(w.fullName, w.nickname),
         }))}
       />
       <Select
@@ -935,7 +941,7 @@ function AdminOfficeScheduleBoard() {
                     onChange={setWorkerId}
                     options={(data?.workers || []).map((w) => ({
                       value: w.id,
-                      label: w.fullName,
+                      label: personLabel(w.fullName, w.nickname),
                     }))}
                   />
                 </div>
@@ -1183,9 +1189,18 @@ const BoardRows = memo(function BoardRows({
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
                 minHeight: trackH,
+                gap: 6,
               }}
             >
-              {row.label}
+              {row.workerId && row.personName ? (
+                <PersonAvatar
+                  userId={row.workerId}
+                  fullName={row.personName}
+                  photoVersion={row.photoVersion}
+                  size={isMobile ? 20 : 24}
+                />
+              ) : null}
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.label}</span>
             </div>
             <div
               style={{
@@ -1322,7 +1337,12 @@ const BoardRows = memo(function BoardRows({
                             {op.jobNumber} · {op.jobTitle}
                           </div>
                           <div>Client: {op.clientName || '—'}</div>
-                          <div>Worker: {op.assignedWorkerName || '—'}</div>
+                          <div>
+                            Worker:{' '}
+                            {op.assignedWorkerName
+                              ? personLabel(op.assignedWorkerName, op.assignedWorkerNickname)
+                              : '—'}
+                          </div>
                           <div>
                             Target hours:{' '}
                             {op.estimatedHours != null ? op.estimatedHours : '—'}

@@ -42,6 +42,8 @@ import JobOrderFlowSteps, {
 } from './JobOrderFlowSteps';
 import { jobOrdersListPath } from './jobOrderListPaths';
 import JobInfoCard from './JobInfoCard';
+import { PersonAvatar, PersonChip } from '../../components/PersonAvatar';
+import { personLabel } from '../../utils/people';
 import type {
   JobOrder,
   MachineInfo,
@@ -127,12 +129,25 @@ function workerOptions(workers: User[]) {
       !free && w.activeJobTitle && w.activeJobTitle !== 'another job'
         ? w.activeJobTitle
         : undefined;
+    const name = personLabel(w.fullName, w.nickname);
     return {
       value: w.id,
       disabled: !free,
-      label: free
-        ? w.fullName
-        : `${w.fullName} (unavailable${title ? ` · ${title}` : ''})`,
+      search: name,
+      label: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%' }}>
+          <PersonChip
+            userId={w.id}
+            fullName={w.fullName}
+            nickname={w.nickname}
+            photoVersion={w.photoVersion}
+            size={20}
+          />
+          {free ? null : (
+            <span style={{ color: '#8c8c8c' }}>(unavailable{title ? ` · ${title}` : ''})</span>
+          )}
+        </span>
+      ),
     };
   });
 }
@@ -158,10 +173,6 @@ function isCheckingType(ot?: OperationType | null, operationName?: string): bool
     return ot.code === 'CHECKING' || ot.name.trim().toLowerCase() === 'checking';
   }
   return (operationName || '').trim().toLowerCase() === 'checking';
-}
-
-function findAdminWorker(workers: User[]): User | undefined {
-  return workers.find((w) => w.role === 'ADMIN' && w.active !== false);
 }
 
 export default function JobOrderPlanningPage() {
@@ -216,19 +227,6 @@ export default function JobOrderPlanningPage() {
     setOperations((prev) => {
       const row = prev[rowIndex];
       if (!row) return prev;
-
-      const ot = operationTypes.find((t) => t.id === row.operationTypeId);
-      if (isCheckingType(ot, row.operationName)) {
-        const admin = findAdminWorker(workers);
-        if (!admin || (row.assignedWorkerId === admin.id && !row.machineTypeId)) return prev;
-        const next = [...prev];
-        next[rowIndex] = {
-          ...row,
-          machineTypeId: undefined,
-          assignedWorkerId: admin.id,
-        };
-        return next;
-      }
 
       if (preserveExisting && row.assignedWorkerId) {
         const worker = workers.find((w) => w.id === row.assignedWorkerId);
@@ -335,35 +333,6 @@ export default function JobOrderPlanningPage() {
     const ot = operationTypes.find((t) => t.id === op.operationTypeId);
     if (isOutsourcedType(ot)) {
       setRowSuggestions((prev) => ({ ...prev, [rowIndex]: [] }));
-      return;
-    }
-    if (isCheckingType(ot, op.operationName)) {
-      setRowSuggestions((prev) => ({ ...prev, [rowIndex]: [] }));
-      try {
-        const { data } = await workersApi.list({ forChecking: true });
-        if (suggestionFetchSeq.current[rowIndex] !== seq) return;
-        const admin = findAdminWorker(data);
-        // Checking: Admin only in the assign list.
-        const checkingWorkers = admin ? [admin] : [];
-        setRowWorkers((prev) => ({ ...prev, [rowIndex]: checkingWorkers }));
-        rowDataRef.current[rowIndex] = { workers: checkingWorkers, suggestions: [] };
-        if (admin) {
-          setOperations((prev) => {
-            const row = prev[rowIndex];
-            if (!row) return prev;
-            if (row.assignedWorkerId === admin.id && !row.machineTypeId) return prev;
-            const next = [...prev];
-            next[rowIndex] = {
-              ...row,
-              machineTypeId: undefined,
-              assignedWorkerId: admin.id,
-            };
-            return next;
-          });
-        }
-      } catch {
-        /* keep existing assignment */
-      }
       return;
     }
     if (!op.operationTypeId && !op.machineTypeId && !op.operationName) {
@@ -572,33 +541,7 @@ export default function JobOrderPlanningPage() {
       });
       return;
     }
-    if (isCheckingType(ot)) {
-      try {
-        const { data } = await workersApi.list({ forChecking: true });
-        const admin = findAdminWorker(data);
-        const checkingWorkers = admin ? [admin] : [];
-        setRowWorkers((prev) => ({ ...prev, [index]: checkingWorkers }));
-        setRowSuggestions((prev) => ({ ...prev, [index]: [] }));
-        rowDataRef.current[index] = { workers: checkingWorkers, suggestions: [] };
-        patchRow(index, {
-          operationTypeId: typeId,
-          operationName: ot?.name || 'Checking',
-          machineTypeId: undefined,
-          assignedWorkerId: admin?.id,
-        });
-      } catch (err) {
-        message.error(getErrorMessage(err));
-        patchRow(index, {
-          operationTypeId: typeId,
-          operationName: ot?.name || 'Checking',
-          machineTypeId: undefined,
-          assignedWorkerId: undefined,
-        });
-      }
-      return;
-    }
-
-    const machineTypeId = ot?.defaultMachineTypeId || undefined;
+    const machineTypeId = isCheckingType(ot) ? undefined : ot?.defaultMachineTypeId || undefined;
     patchRow(index, {
       operationTypeId: typeId,
       operationName: ot?.name || '',
@@ -956,20 +899,19 @@ export default function JobOrderPlanningPage() {
         if (isOutsourcedType(ot)) {
           return <Select style={{ width: '100%' }} placeholder="Outside shop" disabled />;
         }
-        const checking = isCheckingType(ot, record.operationName);
         const qualifiedWorkers = rowWorkers[index] || [];
         const rowMachineId =
           record.machineTypeId ||
           operationTypes.find((t) => t.id === record.operationTypeId)?.defaultMachineTypeId;
         return (
           <Select
-            allowClear={!checking}
+            allowClear
+            showSearch
+            optionFilterProp="search"
             style={{ width: '100%' }}
-            placeholder={
-              checking ? 'Admin (locked)' : rowMachineId ? 'Qualified workers' : 'Assign worker'
-            }
+            placeholder={rowMachineId ? 'Qualified workers' : 'Assign worker'}
             value={record.assignedWorkerId}
-            disabled={readOnly || checking}
+            disabled={readOnly}
             options={workerOptions(qualifiedWorkers)}
             onChange={(v) => patchRow(index, { assignedWorkerId: v })}
           />
@@ -1132,18 +1074,6 @@ export default function JobOrderPlanningPage() {
                   </Text>
                 );
               }
-              if (
-                isCheckingType(
-                  operationTypes.find((t) => t.id === row?.operationTypeId),
-                  row?.operationName
-                )
-              ) {
-                return (
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    Checking is assigned to Admin and does not use a machine.
-                  </Text>
-                );
-              }
               const suggestions = rowSuggestions[index] || [];
               const qualifiedWorkers = rowWorkers[index] || [];
               if (!suggestions.length) return null;
@@ -1204,8 +1134,14 @@ export default function JobOrderPlanningPage() {
                             {(isTop || isAssigned) && (
                               <StarFilled style={{ color: '#c9a227', fontSize: 12 }} />
                             )}
+                            <PersonAvatar
+                              userId={s.workerId}
+                              fullName={s.fullName}
+                              photoVersion={s.photoVersion}
+                              size={24}
+                            />
                             <Text strong style={{ fontSize: 12 }}>
-                              {s.fullName}
+                              {personLabel(s.fullName, s.nickname)}
                             </Text>
                             <Tag
                               color={isAssigned ? 'gold' : 'default'}

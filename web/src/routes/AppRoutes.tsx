@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useParams } from 'react-router-dom';
+import { OfflineProvider } from '../offline/OfflineProvider';
 import { Spin } from 'antd';
 import { AuthProvider, useAuth } from '../hooks/useAuth';
 import { ProtectedRoute } from './ProtectedRoute';
@@ -52,6 +53,17 @@ function AnalyticsIndex() {
 function WorkerSetupFromUser() {
   const { id } = useParams();
   return <Navigate to={id ? `/worker-setup?tab=roster&worker=${id}` : '/worker-setup'} replace />;
+}
+
+/** Workers already get the offline queue from their layout; an Admin recording work needs it here. */
+function AssignmentsShell() {
+  const { isWorker } = useAuth();
+  if (isWorker) return <Outlet />;
+  return (
+    <OfflineProvider>
+      <Outlet />
+    </OfflineProvider>
+  );
 }
 
 function AnalyticsSuspense({ children }: { children: React.ReactNode }) {
@@ -168,9 +180,14 @@ export default function AppRoutes() {
                   {/* After /new, /edit, /plan so :id does not steal those paths */}
                   <Route path="/job-orders/:id" element={<JobOrderDetailPage />} />
 
+                  <Route element={<ProtectedRoute roles={['PRODUCTION_WORKER', 'ADMIN']} />}>
+                    <Route element={<AssignmentsShell />}>
+                      <Route path="/my-assignments" element={<MyAssignmentsPage />} />
+                      <Route path="/my-assignments/:id" element={<AssignmentDetailPage />} />
+                    </Route>
+                  </Route>
+
                   <Route element={<ProtectedRoute roles={['PRODUCTION_WORKER']} />}>
-                    <Route path="/my-assignments" element={<MyAssignmentsPage />} />
-                    <Route path="/my-assignments/:id" element={<AssignmentDetailPage />} />
                     <Route path="/scan" element={<ScanToolPage />} />
                     <Route path="/my-tools" element={<MyToolsPage />} />
                   </Route>

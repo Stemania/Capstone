@@ -12,6 +12,7 @@ import { useOffline, type RecordInput } from '../../offline/OfflineProvider';
 import { offlineCache } from '../../offline/offlineCache';
 import { overlayOperations } from '../../offline/overlay';
 import SyncChip from '../../offline/SyncChip';
+import { PersonChip } from '../../components/PersonAvatar';
 import { DOWNTIME_REASONS, type DowntimeCategory } from '../../constants/downtimeReasons';
 import { SHOP_TZ, formatShop, shopToday } from '../../utils/shopTime';
 import type { JobOrder, Operation, OperationPauseReason, PartCondition } from '../../types';
@@ -603,9 +604,15 @@ export default function AssignmentDetailPage() {
                       </div>
                     ) : null}
                     {!isMine && op.assignedWorkerName ? (
-                      <div>
-                        <span style={{ fontWeight: 600, color: colors.text }}>Assigned</span>
-                        {`: ${op.assignedWorkerName}`}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontWeight: 600, color: colors.text }}>Assigned:</span>
+                        <PersonChip
+                          userId={op.assignedWorkerId}
+                          fullName={op.assignedWorkerName}
+                          nickname={op.assignedWorkerNickname}
+                          photoVersion={op.assignedWorkerPhotoVersion}
+                          size={18}
+                        />
                       </div>
                     ) : null}
                     {(started || completed) && (
