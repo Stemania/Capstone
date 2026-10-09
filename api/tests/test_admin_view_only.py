@@ -32,8 +32,6 @@ ADMIN_REFUSED = [
     ("POST", f"/api/v1/supplier-orders/{X}/receive"),
     ("PATCH", f"/api/v1/supplier-orders/{X}/lines/{X}"),
     ("DELETE", f"/api/v1/supplier-orders/{X}/lines/{X}"),
-    ("POST", f"/api/v1/supplier-orders/{X}/lines/{X}/cancel"),
-    ("POST", f"/api/v1/supplier-orders/{X}/lines/{X}/split"),
     ("POST", "/api/v1/inventory/stocktakes"),
     ("POST", "/api/v1/tools"),
     ("PATCH", f"/api/v1/tools/{X}"),
@@ -44,11 +42,9 @@ ADMIN_REFUSED = [
     ("POST", f"/api/v1/tools/types/{X}/units"),
     ("POST", f"/api/v1/tools/types/{X}/receive"),
     ("PATCH", f"/api/v1/tools/units/{X}"),
-    ("POST", f"/api/v1/job-orders/{X}/material-received"),
     ("POST", f"/api/v1/job-orders/{X}/material-purchases"),
     ("PATCH", f"/api/v1/job-orders/{X}/material-purchases/{X}"),
     ("DELETE", f"/api/v1/job-orders/{X}/material-purchases/{X}"),
-    ("POST", f"/api/v1/job-orders/{X}/material-purchases/{X}/received"),
 ]
 
 
@@ -203,12 +199,8 @@ def test_office_staff_can_still_run_supplier_orders_and_job_materials(client, sh
     assert res.status_code == 200, res.get_json()
     _issue(client, shop, order["id"], shop["today"])
     res = client.post(
-        f"/api/v1/supplier-orders/{order['id']}/lines/{line_id}/split", json={"quantity": 1}, headers=h
-    )
-    assert res.status_code == 200, res.get_json()
-    res = client.post(
         f"/api/v1/supplier-orders/{order['id']}/receive",
-        json={"lineIds": [line_id], "receivedDate": shop["today"].isoformat()},
+        json={"receivedDate": shop["today"].isoformat()},
         headers=h,
     )
     assert res.status_code == 200, res.get_json()
@@ -218,7 +210,7 @@ def test_office_staff_can_still_run_supplier_orders_and_job_materials(client, sh
 
     res = client.post(
         f"/api/v1/job-orders/{job.id}/material-purchases",
-        json={"supplierId": shop["quick"].id, "plannedMaterialId": "pm-plate", "quantity": 4, "unitCost": 5},
+        json={"supplierId": shop["quick"].id, "materialName": "Plate", "quantity": 4, "unitCost": 5},
         headers=h,
     )
     assert res.status_code == 201, res.get_json()

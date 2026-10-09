@@ -38,7 +38,7 @@ def overdue_check():
 @jwt_required()
 @require_roles(*_STAFF)
 def outstanding():
-    return jsonify(svc.outstanding_planned_materials(job_id=request.args.get("jobId") or None))
+    return jsonify(svc.ordering_context(job_id=request.args.get("jobId") or None))
 
 
 @supplier_orders_bp.route("/draft-lines", methods=["POST"])
@@ -109,11 +109,8 @@ def cancel(order_id):
 @require_roles(UserRole.OFFICE_STAFF)
 def receive(order_id):
     data = request.get_json() or {}
-    order = svc.receive_order_lines(
-        svc.get_order(order_id),
-        data.get("lineIds") or [],
-        data.get("receivedDate"),
-        actor_id=get_current_user_id(),
+    order = svc.receive_order(
+        svc.get_order(order_id), data.get("receivedDate"), actor_id=get_current_user_id()
     )
     return jsonify(order.to_dict(include_lines=True))
 
@@ -140,23 +137,4 @@ def update_line(order_id, line_id):
 def remove_line(order_id, line_id):
     order = svc.get_order(order_id)
     svc.remove_draft_line(order, svc.get_line(order, line_id))
-    return jsonify(order.to_dict(include_lines=True))
-
-
-@supplier_orders_bp.route("/<order_id>/lines/<line_id>/cancel", methods=["POST"])
-@jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
-def cancel_line(order_id, line_id):
-    order = svc.get_order(order_id)
-    svc.cancel_line(order, svc.get_line(order, line_id), get_current_user_id())
-    return jsonify(order.to_dict(include_lines=True))
-
-
-@supplier_orders_bp.route("/<order_id>/lines/<line_id>/split", methods=["POST"])
-@jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
-def split_line(order_id, line_id):
-    order = svc.get_order(order_id)
-    data = request.get_json() or {}
-    svc.split_line(order, svc.get_line(order, line_id), data.get("quantity"))
     return jsonify(order.to_dict(include_lines=True))

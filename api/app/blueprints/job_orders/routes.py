@@ -113,32 +113,6 @@ def confirm_job_schedule(job_id):
     return jsonify(job.to_dict(include_operations=True, viewer_role=role))
 
 
-@job_orders_bp.route("/<job_id>/material-received", methods=["POST"])
-@jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
-def mark_material_received(job_id):
-    role = get_current_user_role()
-    job = jo_service.get_job_order(job_id, get_current_user_id(), role)
-    data = request.get_json() or {}
-    updated = jo_service.mark_material_received(job, data.get("receivedDate"))
-    return jsonify(updated.to_dict(include_operations=True, viewer_role=role))
-
-
-@job_orders_bp.route("/<job_id>/planned-materials/<material_id>", methods=["PATCH"])
-@jwt_required()
-@require_roles(UserRole.ADMIN)
-def set_planned_material_from_stock(job_id, material_id):
-    role = get_current_user_role()
-    job = jo_service.get_job_order(job_id, get_current_user_id(), role)
-    data = request.get_json() or {}
-    if "fromStock" not in data:
-        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "fromStock is required"}}), 400
-    updated = jo_service.set_planned_material_from_stock(
-        job, material_id, bool(data.get("fromStock"))
-    )
-    return jsonify(updated.to_dict(include_operations=True, viewer_role=role))
-
-
 @job_orders_bp.route("/<job_id>/material-purchases", methods=["GET"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
@@ -198,27 +172,6 @@ def update_material_purchase(job_id, purchase_id):
     return jsonify(updated.to_dict())
 
 
-@job_orders_bp.route(
-    "/<job_id>/material-purchases/<purchase_id>/received", methods=["POST"]
-)
-@jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
-def mark_purchase_received(job_id, purchase_id):
-    from app.models.material_purchase import MaterialPurchase
-    from app.services import material_purchase_service as mp_service
-    from app.utils.errors import AppError
-
-    jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
-    purchase = MaterialPurchase.query.filter_by(
-        id=purchase_id, job_order_id=job_id
-    ).first()
-    if not purchase:
-        raise AppError("Purchase not found", "NOT_FOUND", 404)
-    data = request.get_json() or {}
-    updated = mp_service.mark_purchase_received(purchase, data.get("receivedDate"))
-    return jsonify(updated.to_dict())
-
-
 @job_orders_bp.route("/<job_id>/material-purchases/<purchase_id>", methods=["DELETE"])
 @jwt_required()
 @require_roles(UserRole.OFFICE_STAFF)
@@ -239,7 +192,7 @@ def delete_material_purchase(job_id, purchase_id):
 
 @job_orders_bp.route("/<job_id>/deliver", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def deliver_job_order(job_id):
     role = get_current_user_role()
     job = jo_service.get_job_order(job_id, get_current_user_id(), role)

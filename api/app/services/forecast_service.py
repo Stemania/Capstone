@@ -168,7 +168,7 @@ def sales_forecast(today: date | None = None):
     return {
         "label": "salesForecast",
         "description": (
-            "Estimate: monthly income from completed and delivered jobs by completion "
+            "Estimate: monthly income from Completed and For Delivery jobs by completion "
             "month; next month is the average of the previous 3 complete months."
         ),
         **monthly_forecast(dated, today),

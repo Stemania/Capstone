@@ -65,7 +65,12 @@ from app.models.sales_invoice import SalesInvoice
 from app.models.schedule_move import DelayKind, MaterialCause, ScheduleMove
 from app.models.stocktake import Stocktake, StocktakeLine
 from app.models.supplier import Supplier
-from app.models.supplier_order import SupplierOrder, SupplierOrderStatus, format_po_number
+from app.models.supplier_order import (
+    SupplierOrder,
+    SupplierOrderStatus,
+    format_legacy_po_number,
+    format_po_number,
+)
 from app.models.tool import Tool, ToolCategory
 from app.models.tool_event import ToolEvent, ToolEventType
 from app.models.user import User, UserRole
@@ -908,29 +913,6 @@ def _amount_for_profile(profile_kind: str, rng: random.Random) -> Decimal:
     return Decimal(str(rng.randint(15, 70) * 1000))
 
 
-def _sample_raw_materials(rng: random.Random) -> list:
-    """Bill-of-materials lines for synthetic jobs."""
-    pool = [
-        ("Mild steel plate", "pcs"),
-        ("Mild steel round bar", "pcs"),
-        ("Stainless steel 304", "pcs"),
-        ("Cast iron blank", "pcs"),
-        ("Bronze bushing stock", "pcs"),
-        ("Welding electrode E6013", "kg"),
-        ("Cutting fluid", "L"),
-    ]
-    n = rng.randint(1, 3)
-    picks = rng.sample(pool, min(n, len(pool)))
-    return [
-        {
-            "name": name,
-            "quantity": rng.choice([1, 2, 3, 4, 6, 8, 10, 12]),
-            "unit": unit,
-        }
-        for name, unit in picks
-    ]
-
-
 def _load_suppliers() -> dict:
     """Material suppliers by name: RIC and STP from the reference loader, and
     Seno Metals (inactive, kept for its past orders), created if missing."""
@@ -1019,12 +1001,6 @@ def _add_purchase_lines(
         lines.append(line)
 
     job.supplier_id = suppliers[primary].id
-    job.raw_materials = [
-        {"name": ln.material_name, "quantity": float(ln.quantity), "unit": ln.unit}
-        for ln in lines
-    ]
-    for ln, planned in zip(lines, job.raw_materials):
-        ln.planned_material_id = planned["id"]
     db.session.flush()
     return lines
 
@@ -1241,17 +1217,35 @@ def _create_job_material_orders(fab_jobs, suppliers, creator) -> int:
         for sid, lines in per_supplier.items():
             issued = min(p.date_ordered for p in lines)
             order = _seeded_order(by_id[sid], issued, creator, JOB_ORDER_NOTE)
+            _receive_whole(lines)
             for p in lines:
                 p.date_ordered = issued
                 p.supplier_order = order
             recompute_order_status(order)
             n += 1
+        db.session.flush()
+        sync_job_material_from_purchases(job)
     db.session.flush()
     return n
 
 
+def _receive_whole(lines):
+    """Deliveries arrive complete: every line on an order shares one received
+    date (the last line's), or none while any line is still awaited."""
+    received = [p.date_received for p in lines if p.date_received]
+    if received and (len(received) == len(lines) or any(p.consumed_at for p in lines)):
+        arrived = max(received)
+        for p in lines:
+            p.date_received = arrived
+    else:
+        for p in lines:
+            p.date_received = None
+
+
 def _number_seeded_orders() -> int:
-    """PO numbers in issue-date order, after any existing numbered PO."""
+    """PO numbers in issue-date order: supplier code + year + sequence per
+    supplier per year (STP26000001), after any existing number. Seno Metals
+    has no code, so its past orders keep the earlier shop-wide format."""
     orders = (
         SupplierOrder.query.filter(
             SupplierOrder.notes.like(f"{TAG}%"), SupplierOrder.po_seq.is_(None)
@@ -1259,11 +1253,33 @@ def _number_seeded_orders() -> int:
         .order_by(SupplierOrder.date_issued, SupplierOrder.created_at)
         .all()
     )
-    seq = db.session.query(db.func.max(SupplierOrder.po_seq)).scalar() or 0
+    legacy_seq = (
+        db.session.query(db.func.max(SupplierOrder.po_seq))
+        .filter(SupplierOrder.po_year.is_(None))
+        .scalar()
+        or 0
+    )
+    next_seq = {}
     for order in orders:
-        seq += 1
-        order.po_seq = seq
-        order.po_number = format_po_number(seq)
+        code = order.supplier.code if order.supplier else None
+        if not code:
+            legacy_seq += 1
+            order.po_seq = legacy_seq
+            order.po_number = format_legacy_po_number(legacy_seq)
+            continue
+        year = order.date_issued.year
+        key = (order.supplier_id, year)
+        if key not in next_seq:
+            next_seq[key] = (
+                db.session.query(db.func.max(SupplierOrder.po_seq))
+                .filter(SupplierOrder.supplier_id == order.supplier_id, SupplierOrder.po_year == year)
+                .scalar()
+                or 0
+            )
+        next_seq[key] += 1
+        order.po_seq = next_seq[key]
+        order.po_year = year
+        order.po_number = format_po_number(code, year, next_seq[key])
     db.session.flush()
     return len(orders)
 
@@ -1868,7 +1884,7 @@ def seed_history():
             quantity=Decimal(str(rng.choice([1, 2, 4, 6, 12]))),
             unit_of_measure=rng.choice(["pcs", "lot", "set"]),
             amount=_amount_for_profile(client_profile["profile"], rng),
-            raw_materials=_sample_raw_materials(rng),
+            raw_materials=[],
             created_by_id=creator.id,
             created_at=shop_local_to_utc(job_day, time(7, 30)),
         )

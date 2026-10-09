@@ -14,6 +14,7 @@ from app.models.job_order import (
     PartCondition,
     PRODUCTION_STATUSES,
     PRODUCTION_VISIBLE_STATUSES,
+    default_material_status,
 )
 from app.models.machine import MachineType
 from app.models.operation import JobOperation, OperationStatus
@@ -44,46 +45,6 @@ def _parse_decimal(value, field_name):
         return Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
         raise AppError(f"Invalid {field_name}", "VALIDATION_ERROR", 400)
-
-
-def _normalize_raw_materials(items, existing=None):
-    """Clean the planned list. An entry keeps its id only when it matches one
-    already on the job; new entries get a fresh id from the model validator.
-
-    From stock is Admin-only and set through its own endpoint, so a saved list
-    keeps each existing entry's flag and new entries start without it.
-    """
-    existing = existing or {}
-    if items is None:
-        return []
-    if not isinstance(items, list):
-        raise AppError("rawMaterials must be a list", "VALIDATION_ERROR", 400)
-    normalized = []
-    kept_ids = set()
-    for item in items:
-        if isinstance(item, str):
-            name = item.strip()
-            if name:
-                normalized.append({"name": name})
-            continue
-        if not isinstance(item, dict):
-            raise AppError("Each raw material must be an object", "VALIDATION_ERROR", 400)
-        name = (item.get("name") or "").strip()
-        if not name:
-            continue
-        entry = {"name": name}
-        item_id = item.get("id")
-        if item_id in existing and item_id not in kept_ids:
-            entry["id"] = item_id
-            kept_ids.add(item_id)
-            if existing[item_id].get("fromStock"):
-                entry["fromStock"] = True
-        if item.get("quantity") not in (None, ""):
-            entry["quantity"] = float(_parse_decimal(item["quantity"], "raw material quantity"))
-        if item.get("unit"):
-            entry["unit"] = str(item["unit"]).strip()
-        normalized.append(entry)
-    return normalized
 
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -486,44 +447,55 @@ def _build_operation(job_id, op_data, seq_fallback):
 _DERIVED_MATERIAL_STATUSES = (MaterialStatus.ORDERED, MaterialStatus.RECEIVED)
 
 
-def _direct_material_status(value, *, has_lines: bool) -> MaterialStatus:
-    """Validate a material status sent by a client.
-
-    Only NOT_REQUIRED and TO_ORDER may be set directly; ORDERED and RECEIVED
-    come from purchase lines and are refused when the job has none.
-    """
+def _materials_needed(value) -> MaterialStatus:
+    """"Materials needed" on the job order form: To order or Not required.
+    Ordered and Received follow from the supplier orders and are not set."""
     try:
         status = MaterialStatus(value)
     except ValueError:
+        status = None
+    if status not in (MaterialStatus.TO_ORDER, MaterialStatus.NOT_REQUIRED):
         raise AppError(
-            "materialStatus must be NOT_REQUIRED, TO_ORDER, ORDERED, or RECEIVED",
-            "VALIDATION_ERROR",
-            400,
-        )
-    if status in _DERIVED_MATERIAL_STATUSES and not has_lines:
-        raise AppError(
-            "Material cannot be marked Ordered or Received until a purchase is "
-            "recorded. Record the purchase, or set material to To order or Not required.",
+            "Materials needed must be TO_ORDER or NOT_REQUIRED",
             "VALIDATION_ERROR",
             400,
         )
     return status
 
 
-def _assert_can_set_not_required(role):
-    if role != UserRole.ADMIN.value:
+def _assert_can_set_not_required(job, role):
+    """Office Staff choose freely while the job is pending; after release only
+    the Admin may set Not required (in place of the earlier From stock)."""
+    if job.status != JobOrderStatus.DRAFT and role != UserRole.ADMIN.value:
         raise AppError(
-            "Only the Admin can set material to Not required.",
+            "Only the Admin can set Materials needed to Not required after release.",
             "FORBIDDEN",
             403,
         )
 
 
+def _apply_materials_needed(job, value, role):
+    derived = {s.value for s in _DERIVED_MATERIAL_STATUSES}
+    if value in derived and job.material_status.value in derived:
+        return
+    wanted = _materials_needed(value)
+    if wanted == MaterialStatus.NOT_REQUIRED:
+        if job.material_status != MaterialStatus.NOT_REQUIRED:
+            _assert_can_set_not_required(job, role)
+            job.material_status = MaterialStatus.NOT_REQUIRED
+        return
+    if job.material_status == MaterialStatus.NOT_REQUIRED:
+        from app.services.material_purchase_service import sync_job_material_from_purchases
+
+        job.material_status = MaterialStatus.TO_ORDER
+        sync_job_material_from_purchases(job)
+
+
 def create_job_order(data, created_by_id, actor_role=None):
     """Office creates a DRAFT from the client PO. Operations are optional; no notify.
 
-    Planned materials decide the material status: some to buy means To order,
-    none means Not required. Choosing Not required explicitly is Admin-only.
+    Materials needed defaults to To order for Fabrication and Not required for
+    Repair and Modification; materials are entered later, when ordering.
     """
     priority = data.get("priority") or JobPriority.MODERATE.value
     try:
@@ -536,16 +508,11 @@ def create_job_order(data, created_by_id, actor_role=None):
     except ValueError:
         raise AppError("Invalid jobType", "VALIDATION_ERROR", 400)
 
-    raw_materials = _normalize_raw_materials(data.get("rawMaterials"))
     material_status = (
-        MaterialStatus.TO_ORDER if raw_materials else MaterialStatus.NOT_REQUIRED
+        _materials_needed(data["materialStatus"])
+        if data.get("materialStatus")
+        else default_material_status(job_type)
     )
-    if data.get("materialStatus"):
-        requested = _direct_material_status(data["materialStatus"], has_lines=False)
-        if requested == MaterialStatus.NOT_REQUIRED and raw_materials:
-            if actor_role is not None:
-                _assert_can_set_not_required(actor_role)
-            material_status = MaterialStatus.NOT_REQUIRED
 
     try:
         job = JobOrder(
@@ -562,7 +529,7 @@ def create_job_order(data, created_by_id, actor_role=None):
             quantity=_parse_decimal(data.get("quantity"), "quantity"),
             unit_of_measure=(data.get("unitOfMeasure") or None),
             amount=_parse_decimal(data.get("amount"), "amount"),
-            raw_materials=raw_materials,
+            raw_materials=[],
             material_status=material_status,
             material_expected_date=_parse_date(data.get("materialExpectedDate")),
             material_received_date=_parse_date(data.get("materialReceivedDate")),
@@ -589,7 +556,9 @@ def create_job_order(data, created_by_id, actor_role=None):
 
 
 def mark_job_delivered(job):
-    """Office marks the job delivered / ready for pickup. Fires JOB_DELIVERED."""
+    """Admin sets the job For Delivery (stored as DELIVERED) once it is
+    Completed and Office Staff have recorded the sales invoice. delivered_at is
+    the date on-time and lateness are measured on. Fires JOB_DELIVERED."""
     from app.models.notification import NotificationMilestone
     from app.services.notification_service import safe_notify_job_milestone
 
@@ -597,16 +566,21 @@ def mark_job_delivered(job):
         return job
 
     ops = list(job.operations or [])
-    if not ops or not all(op.status == OperationStatus.COMPLETED for op in ops):
+    if (
+        job.status != JobOrderStatus.COMPLETED
+        or not ops
+        or not all(op.status == OperationStatus.COMPLETED for op in ops)
+    ):
         raise AppError(
-            "All operations must be complete before delivery",
+            "The job must be Completed before it can be set For Delivery.",
             "INVALID_TRANSITION",
             409,
         )
 
     if job.sales_invoice is None:
         raise AppError(
-            "Record the sales invoice for this job before marking it delivered.",
+            "Office Staff must record the sales invoice before the job can be set "
+            "For Delivery.",
             "INVOICE_REQUIRED",
             409,
         )
@@ -696,55 +670,8 @@ def _apply_job_update(job, data, role):
         job.unit_of_measure = data.get("unitOfMeasure") or None
     if "amount" in data:
         job.amount = _parse_decimal(data.get("amount"), "amount")
-    if "rawMaterials" in data:
-        existing = {
-            m["id"]: m for m in (job.raw_materials or []) if isinstance(m, dict) and m.get("id")
-        }
-        new_list = _normalize_raw_materials(data.get("rawMaterials"), existing)
-        kept = {m.get("id") for m in new_list}
-        in_use = {
-            p.planned_material_id
-            for p in (job.material_purchases or [])
-            if p.planned_material_id and p.cancelled_at is None
-        }
-        dropped = [existing[i]["name"] for i in existing if i in in_use and i not in kept]
-        if dropped:
-            raise AppError(
-                "Cannot remove planned material with purchases recorded: "
-                + ", ".join(dropped),
-                "PLANNED_MATERIAL_IN_USE",
-                409,
-            )
-        previous = list(job.raw_materials or [])
-        job.raw_materials = new_list
-        if job.raw_materials != previous:
-            from app.services.material_purchase_service import (
-                apply_planned_materials_rule,
-            )
-
-            apply_planned_materials_rule(job, previous)
-    if "materialStatus" in data and data["materialStatus"]:
-        from app.services.material_purchase_service import placed_lines
-
-        has_lines = bool(placed_lines(job))
-        new_material_status = _direct_material_status(
-            data["materialStatus"], has_lines=has_lines
-        )
-        if (
-            new_material_status == MaterialStatus.NOT_REQUIRED
-            and job.material_status != MaterialStatus.NOT_REQUIRED
-        ):
-            _assert_can_set_not_required(role)
-        if new_material_status == MaterialStatus.NOT_REQUIRED:
-            job.material_status = MaterialStatus.NOT_REQUIRED
-        elif job.material_status == MaterialStatus.NOT_REQUIRED:
-            # Lifting Not required: the planned list and lines decide again.
-            from app.services.material_purchase_service import (
-                apply_planned_materials_rule,
-            )
-
-            job.material_status = MaterialStatus.TO_ORDER
-            apply_planned_materials_rule(job, [])
+    if data.get("materialStatus"):
+        _apply_materials_needed(job, data["materialStatus"], role)
     if "materialExpectedDate" in data:
         job.material_expected_date = _parse_date(data.get("materialExpectedDate"))
     if "materialReceivedDate" in data:
@@ -802,65 +729,6 @@ def _release_missing_items(job: JobOrder) -> list[str]:
         if op.estimated_hours is None:
             missing.append(f"#{seq} {label}: set target hours")
     return missing
-
-
-def set_planned_material_from_stock(job, material_id, from_stock):
-    """Admin marks one planned material as taken from the shop's stock (or not)."""
-    from app.services.material_purchase_service import apply_planned_materials_rule
-
-    items = list(job.raw_materials or [])
-    index = next(
-        (i for i, m in enumerate(items) if isinstance(m, dict) and m.get("id") == material_id),
-        None,
-    )
-    if index is None:
-        raise AppError("Planned material not found on this job", "NOT_FOUND", 404)
-    item = items[index]
-    if from_stock:
-        in_use = [
-            p
-            for p in (job.material_purchases or [])
-            if p.planned_material_id == material_id and p.cancelled_at is None
-        ]
-        if in_use:
-            raise AppError(
-                f"{item.get('name') or 'This material'} already has purchases recorded. "
-                "Cancel them before marking it From stock.",
-                "PLANNED_MATERIAL_IN_USE",
-                409,
-            )
-    updated = {k: v for k, v in item.items() if k != "fromStock"}
-    if from_stock:
-        updated["fromStock"] = True
-    if updated == item:
-        return get_job_order(job.id, job.created_by_id, UserRole.ADMIN.value)
-    try:
-        previous = items
-        job.raw_materials = items[:index] + [updated] + items[index + 1 :]
-        apply_planned_materials_rule(job, previous)
-        db.session.commit()
-        return get_job_order(job.id, job.created_by_id, UserRole.ADMIN.value)
-    except Exception:
-        db.session.rollback()
-        raise
-
-
-def mark_material_received(job, received_date=None):
-    """Office/Admin receives every outstanding purchase line for this job.
-
-    Refused when no purchase is recorded; job status follows from the lines.
-    """
-    from app.services import material_purchase_service as mp_service
-
-    try:
-        mp_service.receive_all_outstanding(job, received_date)
-        return get_job_order(job.id, job.created_by_id, UserRole.OFFICE_STAFF.value)
-    except AppError:
-        db.session.rollback()
-        raise
-    except Exception:
-        db.session.rollback()
-        raise
 
 
 def _material_floor_utc(job: JobOrder):

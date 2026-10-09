@@ -44,8 +44,8 @@ def shop(app):
     admin = _user("rd_admin@test.local", UserRole.ADMIN)
     office = _user("rd_office@test.local", UserRole.OFFICE_STAFF)
     client_row = Client(name="Readiness Client")
-    fast = Supplier(name="Fast Steel", typical_lead_time_days=3)
-    slow = Supplier(name="Slow Alloys", typical_lead_time_days=7)
+    fast = Supplier(name="Fast Steel", code="FST", typical_lead_time_days=3)
+    slow = Supplier(name="Slow Alloys", code="SLA", typical_lead_time_days=7)
     unknown = Supplier(name="No Lead Co")
     db.session.add_all([client_row, fast, slow, unknown])
     db.session.commit()
@@ -59,7 +59,7 @@ def shop(app):
     }
 
 
-def _draft(shop, *, expected=None, materials=None):
+def _draft(shop, *, expected=None):
     job = JobOrder(
         client_id=shop["client"].id,
         title="Readiness Job",
@@ -69,11 +69,6 @@ def _draft(shop, *, expected=None, materials=None):
         part_condition=PartCondition.RAW_MATERIAL,
         material_status=MaterialStatus.TO_ORDER,
         material_expected_date=expected,
-        raw_materials=[
-            {"id": f"plan-{i}", "name": name, "quantity": qty, "unit": "pcs"}
-            for i, (name, qty) in enumerate(materials or [])
-        ]
-        or None,
         created_by_id=shop["office"].id,
     )
     db.session.add(job)
@@ -108,7 +103,7 @@ def _line(job, supplier, ordered, received=None, name="Plate"):
 
 
 def test_office_opens_draft_detail_and_records_purchase(client, shop):
-    job = _draft(shop, materials=[("A36 plate 10mm", 2)])
+    job = _draft(shop)
     headers = _headers(shop["office"])
 
     res = client.get(f"/api/v1/job-orders/{job.id}", headers=headers)
@@ -118,7 +113,7 @@ def test_office_opens_draft_detail_and_records_purchase(client, shop):
     res = client.post(
         f"/api/v1/job-orders/{job.id}/material-purchases",
         json={
-            "plannedMaterialId": "plan-0",
+            "materialName": "A36 plate 10mm",
             "supplierId": shop["fast"].id,
             "quantity": 2,
             "unit": "pcs",
@@ -295,41 +290,29 @@ def test_inactive_supplier_lead_time_is_ignored(client, shop):
     assert _not_before_date(res.get_json()) == shop_now().date() + timedelta(days=3)
 
 
-def _planned(job, *names):
-    job.raw_materials = [
-        {"id": f"pm-{i}", "name": n, "quantity": 1, "unit": "pcs"} for i, n in enumerate(names)
-    ]
-    db.session.commit()
-
-
-def test_partly_ordered_job_waits_for_the_later_of_line_and_lead_time(client, shop):
+def test_ordered_job_waits_for_its_lines_not_the_lead_time_floor(client, shop):
     job = _draft(shop)
-    _planned(job, "Plate", "Rod")
-    line = _line(job, shop["fast"], shop_now().date(), name="Plate")
-    line.planned_material_id = "pm-0"
-    db.session.commit()
+    _line(job, shop["fast"], shop_now().date(), name="Plate")
     headers = _headers(shop["admin"])
 
     res = client.post(f"/api/v1/job-orders/{job.id}/schedule/propose", json={}, headers=headers)
     assert res.status_code == 200, res.get_json()
-    # Plate arrives in 3 days, but Rod is unordered: today + 7 wins.
-    assert _not_before_date(res.get_json()) == shop_now().date() + timedelta(days=7)
+    # Ordered: the Plate's 3-day arrival applies, not today + 7.
+    assert _not_before_date(res.get_json()) < shop_now().date() + timedelta(days=7)
 
-    late = _line(job, shop["slow"], date(2031, 3, 2), name="Rod")
-    late.planned_material_id = "pm-1"
-    db.session.commit()
+    _line(job, shop["slow"], date(2031, 3, 2), name="Rod")
     res = client.post(f"/api/v1/job-orders/{job.id}/schedule/propose", json={}, headers=headers)
     assert res.status_code == 200, res.get_json()
     assert _not_before_date(res.get_json()) == date(2031, 3, 9)
 
 
 def test_draft_supplier_order_does_not_count_as_ordered(client, shop):
-    job = _draft(shop, materials=[("A36 plate", 1)])
+    job = _draft(shop)
     headers = _headers(shop["office"])
     res = client.post(
         f"/api/v1/job-orders/{job.id}/material-purchases",
         json={
-            "plannedMaterialId": "plan-0",
+            "materialName": "A36 plate",
             "supplierId": shop["fast"].id,
             "quantity": 1,
             "unitCost": 100,
@@ -391,13 +374,13 @@ def test_draft_proposal_for_to_order_uses_lead_time_floor(client, shop):
 
 
 def test_expected_arrival_matches_latest_outstanding_po_line(client, shop):
-    job = _draft(shop, materials=[("Flat bar", 1), ("Alloy rod", 1)])
+    job = _draft(shop)
     headers = _headers(shop["office"])
-    for supplier, planned_id in ((shop["fast"], "plan-0"), (shop["slow"], "plan-1")):
+    for supplier, name in ((shop["fast"], "Flat bar"), (shop["slow"], "Alloy rod")):
         res = client.post(
             f"/api/v1/job-orders/{job.id}/material-purchases",
             json={
-                "plannedMaterialId": planned_id,
+                "materialName": name,
                 "supplierId": supplier.id,
                 "quantity": 1,
                 "unitCost": 100,

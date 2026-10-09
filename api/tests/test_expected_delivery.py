@@ -9,7 +9,7 @@ from app.extensions import db
 from app.models.audit_log import AuditLog
 from app.models.job_order import JobOrder
 from app.models.staff_alert import StaffAlert
-from app.models.supplier_order import SupplierOrder
+from app.models.supplier_order import SupplierOrder, SupplierOrderStatus
 from app.services import material_purchase_service as mp_service
 from app.services.schedule_calendar import ensure_utc, next_shop_working_day, utc_to_shop
 from tests.test_material_delay import (  # noqa: F401  (fixtures)
@@ -118,13 +118,11 @@ def test_change_applies_to_every_unreceived_line(client, shop):
     order = _draft_order(client, shop, job_b, shop["quick"])
     issued = _issue(client, shop, order["id"], shop["today"])
     so = db.session.get(SupplierOrder, issued["id"])
+    # An order partly received before deliveries had to arrive complete.
     line_a = next(ln for ln in so.active_lines if ln.job_order_id == job_a.id)
-    res = client.post(
-        f"/api/v1/supplier-orders/{so.id}/receive",
-        json={"lineIds": [line_a.id], "receivedDate": shop["today"].isoformat()},
-        headers=_headers(shop["office"]),
-    )
-    assert res.status_code == 200, res.get_json()
+    line_a.date_received = shop["today"]
+    so.status = SupplierOrderStatus.PARTIALLY_RECEIVED
+    db.session.commit()
 
     new = shop["today"] + timedelta(days=12)
     assert _change(client, shop["office"], so.id, new).status_code == 200
@@ -165,7 +163,7 @@ def test_received_cancelled_and_draft_orders_cannot_be_changed(client, shop):
     so = db.session.get(SupplierOrder, received["id"])
     client.post(
         f"/api/v1/supplier-orders/{so.id}/receive",
-        json={"lineIds": [ln.id for ln in so.active_lines], "receivedDate": shop["today"].isoformat()},
+        json={"receivedDate": shop["today"].isoformat()},
         headers=_headers(shop["office"]),
     )
     assert _change(client, shop["office"], so.id, new).status_code == 409

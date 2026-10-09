@@ -232,6 +232,8 @@ class Ctx:
         self.d2 = prev_workday(self.d1)
         self.rows = []
         self.po_count = 0
+        # Materials each job will order, typed in Order materials (job id -> lines).
+        self.materials = {}
 
     def next_po(self):
         self.po_count += 1
@@ -269,7 +271,7 @@ def new_job(ctx, *, title, client, job_type, ops, due_in, amount, quantity, unit
         "quantity": quantity,
         "unitOfMeasure": unit,
         "amount": amount,
-        "rawMaterials": materials or [],
+        "materialStatus": "TO_ORDER" if materials else None,
         "operations": [
             {
                 "operationTypeId": ctx.ops[code].id,
@@ -280,7 +282,10 @@ def new_job(ctx, *, title, client, job_type, ops, due_in, amount, quantity, unit
             for code, hours, worker, notes in ops
         ],
     }
-    return create_job_order(data, ctx.office.id, actor_role=ADMIN)
+    job = create_job_order(data, ctx.office.id, actor_role=ADMIN)
+    if materials:
+        ctx.materials[job.id] = materials
+    return job
 
 
 def ops_of(job):
@@ -319,23 +324,23 @@ def work_in_past(op, start_utc):
 
 
 def order_materials(ctx, job, supplier_code, *, issued, received=None):
-    """Order every planned material from one supplier on its own PO."""
+    """Order the job's materials from one supplier on its own PO, typed as in
+    Order materials; the delivery arrives complete."""
     supplier = ctx.suppliers[supplier_code]
     lines = [
         {
             "jobOrderId": job.id,
-            "plannedMaterialId": m["id"],
+            "materialName": m["name"],
             "quantity": m["quantity"],
+            "unit": m["unit"],
             "unitCost": PRICES[m["name"]],
         }
-        for m in job.raw_materials
+        for m in ctx.materials[job.id]
     ]
     order, _ = so_service.add_lines_to_draft(supplier.id, lines, ctx.office.id)
     so_service.issue_order(order, ctx.office.id, date_issued=issued.isoformat())
     if received:
-        so_service.receive_order_lines(
-            order, [ln.id for ln in order.active_lines], received.isoformat()
-        )
+        so_service.receive_order(order, received.isoformat(), actor_id=ctx.office.id)
     db.session.refresh(job)
     return order
 
@@ -449,7 +454,10 @@ def build_fixtures(ctx):
     turning, checking = schedule(tc28)
     work_in_past(turning, at(ctx.d2, 8))
     work_in_past(checking, at(ctx.d2, 13))
-    ctx.note("TC-28", tc28, "Office: Deliver is refused until the sales invoice is recorded.")
+    ctx.note(
+        "TC-28", tc28,
+        "Admin: For Delivery is refused until Office Staff record the sales invoice.",
+    )
 
     # TC-23 / TC-24: scheduled behind an issued PO; push its expected date later.
     tc23 = new_job(
@@ -483,7 +491,7 @@ def build_fixtures(ctx):
     po22 = order_materials(ctx, tc22, "RIC", issued=ctx.today)
     ctx.note("TC-22", tc22, f"Print supplier order {po22.po_number} (Railim).")
 
-    # TC-08 / TC-09: materials planned, nothing ordered yet.
+    # TC-08 / TC-09: materials needed (To order), nothing ordered yet.
     tc08 = new_job(
         ctx, title="TC-08 Spacer ring fabrication (order materials)", client=mmv,
         job_type="FABRICATION", ops=[],
@@ -493,7 +501,11 @@ def build_fixtures(ctx):
         ],
         due_in=18, amount=14200, quantity=10, unit="pcs",
     )
-    ctx.note("TC-08/09", tc08, "Office: Order materials, Issue, then Receive selected.")
+    ctx.note(
+        "TC-08/09", tc08,
+        "Office: Order materials (type AISI 1045 round bar 10 kg, Mild steel plate 6mm "
+        "2 pcs), Issue, then Receive order.",
+    )
 
     # TC-01 / TC-19: pending, operations without workers.
     tc01 = new_job(
@@ -533,7 +545,7 @@ def build_fixtures(ctx):
     )
     ctx.note("TC-02", tc02, f"Assign Maria at {shop_label(clash_at + timedelta(hours=1))}.")
 
-    # TC-29: client with notifications on; run the job from Received to Delivered.
+    # TC-29: client with notifications on; run the job from Received to For Delivery.
     client29 = Client(
         name=f"{TAG} Notification Client (TC-29)",
         contact="Replace with a real contact before TC-29",
@@ -549,7 +561,11 @@ def build_fixtures(ctx):
         ops=[("FACING", 1, ctx.juan, "Face housing seat flat.")],
         due_in=10, amount=5600, quantity=1, unit="pc",
     )
-    ctx.note("TC-29", tc29, "Set the client's real email/mobile first, then confirm, start, complete, invoice, deliver.")
+    ctx.note(
+        "TC-29", tc29,
+        "Set the client's real email/mobile first, then confirm, start, complete, "
+        "invoice (Office), and set For Delivery (Admin).",
+    )
 
 
 def print_summary(ctx):

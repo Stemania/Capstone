@@ -10,7 +10,7 @@ from app.models.tool import Tool, ToolCategory
 from app.models.tool_event import ToolEvent, ToolEventType
 from app.models.user import UserRole
 from app.services.supplier_reliability_service import supplier_reliability
-from tests.test_supplier_orders import _add_lines, _headers, _issue, _job, _planned_id, _user
+from tests.test_supplier_orders import _add_lines, _headers, _issue, _job, _line, _user
 
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def shop(app):
     admin = _user("cpo_admin@test.local", UserRole.ADMIN)
     office = _user("cpo_office@test.local", UserRole.OFFICE_STAFF)
     client_row = Client(name="CPO Client")
-    hardware = Supplier(name="CPO Hardware", typical_lead_time_days=2)
+    hardware = Supplier(name="CPO Hardware", code="CPH", typical_lead_time_days=2)
     disc = Tool(
         name="Cutting disc",
         code="CPO-DISC",
@@ -34,7 +34,7 @@ def shop(app):
     db.session.add_all([client_row, hardware, disc])
     db.session.commit()
     s = {"admin": admin, "office": office, "client": client_row, "hardware": hardware, "disc": disc}
-    s["job"] = _job(s, "Shaft", [{"name": "Round bar 50mm", "quantity": 4, "unit": "pcs"}])
+    s["job"] = _job(s, "Shaft")
     return s
 
 
@@ -42,10 +42,10 @@ def _consumable_line(shop, quantity=20):
     return {"toolId": shop["disc"].id, "quantity": quantity, "unit": "pcs", "unitCost": 35}
 
 
-def _receive(client, shop, order_id, line_ids, when="2031-03-04", user=None):
+def _receive(client, shop, order_id, when="2031-03-04", user=None):
     return client.post(
         f"/api/v1/supplier-orders/{order_id}/receive",
-        json={"lineIds": line_ids, "receivedDate": when},
+        json={"receivedDate": when},
         headers=_headers(user or shop["office"]),
     )
 
@@ -65,15 +65,7 @@ def test_one_order_holds_job_materials_and_consumables(client, shop):
     res = _add_lines(
         client,
         shop,
-        [
-            {
-                "jobOrderId": shop["job"].id,
-                "plannedMaterialId": _planned_id(shop["job"]),
-                "quantity": 4,
-                "unitCost": 250,
-            },
-            _consumable_line(shop),
-        ],
+        [_line(shop["job"]), _consumable_line(shop)],
         supplier=shop["hardware"],
     )
     assert res.status_code == 200, res.get_json()
@@ -95,7 +87,7 @@ def test_consumable_line_received_through_po_adds_stock_once(client, shop):
     _issue(client, shop, order["id"], when="2031-03-02")
     line_id = order["lines"][0]["id"]
 
-    res = _receive(client, shop, order["id"], [line_id])
+    res = _receive(client, shop, order["id"])
     assert res.status_code == 200, res.get_json()
     db.session.expire_all()
     assert Decimal(str(db.session.get(Tool, shop["disc"].id).quantity_on_hand)) == Decimal("23")
@@ -104,7 +96,7 @@ def test_consumable_line_received_through_po_adds_stock_once(client, shop):
     assert events[0].material_purchase_id == line_id
     assert events[0].to_dict()["poNumber"] == res.get_json()["poNumber"]
 
-    again = _receive(client, shop, order["id"], [line_id])
+    again = _receive(client, shop, order["id"])
     assert again.status_code == 409
 
     from app.models.material_purchase import MaterialPurchase
@@ -120,15 +112,21 @@ def test_consumable_line_received_through_po_adds_stock_once(client, shop):
     assert Decimal(str(db.session.get(Tool, shop["disc"].id).quantity_on_hand)) == Decimal("23")
 
 
-def test_job_material_line_still_needs_a_planned_material(client, shop):
+def test_job_material_line_is_typed_without_a_planned_material(client, shop):
     res = _add_lines(
         client,
         shop,
-        [{"jobOrderId": shop["job"].id, "materialName": "Unplanned plate", "quantity": 1, "unit": "pcs"}],
+        [{"jobOrderId": shop["job"].id, "materialName": "Plate 10mm", "quantity": 1, "unit": "pcs"}],
         supplier=shop["hardware"],
     )
+    assert res.status_code == 200, res.get_json()
+    [line] = res.get_json()["lines"]
+    assert line["materialName"] == "Plate 10mm" and line["plannedMaterialId"] is None
+
+    res = _add_lines(
+        client, shop, [{"jobOrderId": shop["job"].id, "quantity": 1}], supplier=shop["hardware"]
+    )
     assert res.status_code == 400
-    assert res.get_json()["error"]["code"] == "PLANNED_MATERIAL_REQUIRED"
 
 
 def test_a_line_cannot_be_both_job_material_and_consumable(client, shop):
@@ -143,7 +141,7 @@ def test_reliability_counts_consumable_deliveries(client, shop):
     for when_issued, when_received in zip(issued, received):
         order = _add_lines(client, shop, [_consumable_line(shop, 5)], supplier=shop["hardware"]).get_json()
         assert _issue(client, shop, order["id"], when=when_issued).status_code == 200
-        assert _receive(client, shop, order["id"], [order["lines"][0]["id"]], when=when_received).status_code == 200
+        assert _receive(client, shop, order["id"], when=when_received).status_code == 200
 
     row = next(
         r for r in supplier_reliability(today=date(2031, 4, 1)) if r["supplierId"] == shop["hardware"].id
@@ -159,7 +157,7 @@ def test_admin_cannot_add_or_receive_consumable_lines(client, shop):
 
     order = _add_lines(client, shop, [_consumable_line(shop)], supplier=shop["hardware"]).get_json()
     _issue(client, shop, order["id"])
-    res = _receive(client, shop, order["id"], [order["lines"][0]["id"]], user=shop["admin"])
+    res = _receive(client, shop, order["id"], user=shop["admin"])
     assert res.status_code == 403
     db.session.expire_all()
     assert Decimal(str(db.session.get(Tool, shop["disc"].id).quantity_on_hand)) == Decimal("3")

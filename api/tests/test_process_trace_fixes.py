@@ -446,11 +446,18 @@ def test_part_stage_cannot_be_set(client, shop):
     assert res.status_code == 400
 
 
-def test_office_cannot_set_not_required_on_pending_job(client, shop):
-    job = _job(shop, status=JobOrderStatus.DRAFT, material=MaterialStatus.TO_ORDER)
+def test_office_chooses_not_required_on_draft_but_not_after_release(client, shop):
+    draft = _job(shop, status=JobOrderStatus.DRAFT, material=MaterialStatus.TO_ORDER)
+    released = _job(shop, status=JobOrderStatus.SCHEDULED, material=MaterialStatus.TO_ORDER)
     db.session.commit()
     res = client.patch(
-        f"/api/v1/job-orders/{job.id}",
+        f"/api/v1/job-orders/{draft.id}",
+        json={"materialStatus": "NOT_REQUIRED"},
+        headers=_headers(shop["office"]),
+    )
+    assert res.status_code == 200
+    res = client.patch(
+        f"/api/v1/job-orders/{released.id}",
         json={"materialStatus": "NOT_REQUIRED"},
         headers=_headers(shop["office"]),
     )

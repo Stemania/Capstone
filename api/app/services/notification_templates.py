@@ -6,7 +6,7 @@ MILESTONE_LABELS = {
     NotificationMilestone.JOB_RECEIVED: "received",
     NotificationMilestone.JOB_STARTED: "started",
     NotificationMilestone.JOB_COMPLETED: "completed",
-    NotificationMilestone.JOB_DELIVERED: "ready for pickup / delivered",
+    NotificationMilestone.JOB_DELIVERED: "ready for delivery",
 }
 
 # Keep under ~160 chars for SMS. No portal links.
@@ -20,10 +20,10 @@ TEMPLATES = {
     ),
     NotificationMilestone.JOB_COMPLETED: (
         "BMSC: Job {job_number} ({title}) is complete. "
-        "We'll notify you when it's delivered."
+        "We'll notify you when it's ready for delivery."
     ),
     NotificationMilestone.JOB_DELIVERED: (
-        "BMSC: Job {job_number} ({title}) has been delivered / is ready for pickup."
+        "BMSC: Job {job_number} ({title}) is ready for delivery."
     ),
 }
 

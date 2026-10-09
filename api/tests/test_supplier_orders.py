@@ -14,6 +14,7 @@ from app.models.client import Client
 from app.models.job_order import JobOrder, JobOrderStatus, JobType, MaterialStatus, PartCondition
 from app.models.material_purchase import MaterialPurchase
 from app.models.supplier import Supplier
+from app.models.supplier_order import SupplierOrder, SupplierOrderStatus
 from app.models.user import User, UserRole, UserStatus
 
 
@@ -36,7 +37,7 @@ def _headers(user):
     return {"Authorization": f"Bearer {token}"}
 
 
-def _job(shop, title, raw_materials):
+def _job(shop, title):
     job = JobOrder(
         client_id=shop["client"].id,
         title=title,
@@ -45,7 +46,6 @@ def _job(shop, title, raw_materials):
         job_type=JobType.FABRICATION,
         part_condition=PartCondition.RAW_MATERIAL,
         material_status=MaterialStatus.TO_ORDER,
-        raw_materials=raw_materials,
         created_by_id=shop["office"].id,
     )
     db.session.add(job)
@@ -58,25 +58,25 @@ def shop(app):
     admin = _user("so_admin@test.local", UserRole.ADMIN)
     office = _user("so_office@test.local", UserRole.OFFICE_STAFF)
     client_row = Client(name="PO Client")
-    steel = Supplier(name="PO Steel", typical_lead_time_days=5, address="1 Mill Rd")
-    other = Supplier(name="Other Metals", typical_lead_time_days=2)
+    steel = Supplier(name="PO Steel", code="PSL", typical_lead_time_days=5, address="1 Mill Rd")
+    other = Supplier(name="Other Metals", code="OTM", typical_lead_time_days=2)
     db.session.add_all([client_row, steel, other])
     db.session.commit()
     s = {"admin": admin, "office": office, "client": client_row, "steel": steel, "other": other}
-    s["job_a"] = _job(s, "Shaft A", [{"name": "Round bar 50mm", "quantity": 4, "unit": "pcs"}])
-    s["job_b"] = _job(s, "Shaft B", [{"name": "Round bar 50mm", "quantity": 6, "unit": "pcs"}])
+    s["job_a"] = _job(s, "Shaft A")
+    s["job_b"] = _job(s, "Shaft B")
     return s
 
 
-def _planned_id(job):
-    return job.raw_materials[0]["id"]
-
-
-def _plan(job, name, quantity, unit="pcs"):
-    """Add a planned material to the job; only planned materials can be ordered."""
-    job.raw_materials = [*(job.raw_materials or []), {"name": name, "quantity": quantity, "unit": unit}]
-    db.session.commit()
-    return job.raw_materials[-1]["id"]
+def _line(job, name="Round bar 50mm", quantity=4, unit_cost=250, **extra):
+    return {
+        "jobOrderId": job.id,
+        "materialName": name,
+        "quantity": quantity,
+        "unit": "pcs",
+        "unitCost": unit_cost,
+        **extra,
+    }
 
 
 def _add_lines(client, shop, lines, supplier=None, user=None):
@@ -92,20 +92,8 @@ def _both_jobs_draft(client, shop):
         client,
         shop,
         [
-            {
-                "jobOrderId": shop["job_a"].id,
-                "plannedMaterialId": _planned_id(shop["job_a"]),
-                "quantity": 4,
-                "unitCost": 250,
-                "gradeOrSpec": "AISI 1045",
-            },
-            {
-                "jobOrderId": shop["job_b"].id,
-                "plannedMaterialId": _planned_id(shop["job_b"]),
-                "quantity": 6,
-                "unitCost": 250,
-                "gradeOrSpec": "aisi 1045",
-            },
+            _line(shop["job_a"], quantity=4, gradeOrSpec="AISI 1045"),
+            _line(shop["job_b"], quantity=6, gradeOrSpec="aisi 1045"),
         ],
     )
     assert res.status_code == 200, res.get_json()
@@ -120,6 +108,14 @@ def _issue(client, shop, order_id, user=None, when="2031-03-02"):
     )
 
 
+def _receive(client, shop, order_id, when, user=None):
+    return client.post(
+        f"/api/v1/supplier-orders/{order_id}/receive",
+        json={"receivedDate": when},
+        headers=_headers(user or shop["office"]),
+    )
+
+
 def _job_body(client, shop, job):
     return client.get(f"/api/v1/job-orders/{job.id}", headers=_headers(shop["admin"])).get_json()
 
@@ -130,32 +126,23 @@ def test_lines_from_two_jobs_on_one_order(client, shop):
     assert order["poNumber"] is None
     assert order["lineCount"] == 2 and order["jobCount"] == 2
     assert {ln["jobOrderId"] for ln in order["lines"]} == {shop["job_a"].id, shop["job_b"].id}
+    assert all(ln["plannedMaterialId"] is None for ln in order["lines"])
 
     # "Order materials" from a job's page lands on the same open draft.
     res = client.post(
         f"/api/v1/job-orders/{shop['job_a'].id}/material-purchases",
-        json={
-            "supplierId": shop["steel"].id,
-            "plannedMaterialId": _plan(shop["job_a"], "Cutting disc", 2),
-            "quantity": 2,
-            "unitCost": 40,
-        },
+        json={"supplierId": shop["steel"].id, **_line(shop["job_a"], "Cutting disc", 2, 40)},
         headers=_headers(shop["office"]),
     )
     assert res.status_code == 201, res.get_json()
     assert res.get_json()["supplierOrderId"] == order["id"]
 
     # A different supplier gets its own draft.
-    bolts = _plan(shop["job_a"], "Bolts", 1)
     other = _add_lines(
-        client,
-        shop,
-        [{"jobOrderId": shop["job_a"].id, "plannedMaterialId": bolts, "quantity": 1, "unitCost": 5}],
-        supplier=shop["other"],
+        client, shop, [_line(shop["job_a"], "Bolts", 1, 5)], supplier=shop["other"]
     ).get_json()
     assert other["id"] != order["id"]
 
-    # Every line's supplier matches its order's supplier.
     for ln in MaterialPurchase.query.filter(MaterialPurchase.supplier_order_id.isnot(None)):
         assert ln.supplier_id == ln.supplier_order.supplier_id
 
@@ -174,11 +161,10 @@ def test_issuing_assigns_number_and_locks_lines(client, shop):
     assert res.status_code == 200, res.get_json()
     issued = res.get_json()
     assert issued["status"] == "ISSUED"
-    assert issued["poNumber"] == "BMSC-PO-00001"
+    assert issued["poNumber"] == "PSL31000001"
     assert issued["dateIssued"] == "2031-03-02"
     assert issued["expectedDeliveryDate"] == "2031-03-07"
     assert issued["issuedById"] == shop["office"].id
-    assert issued["preparedById"] == shop["office"].id
     assert all(ln["dateOrdered"] == "2031-03-02" for ln in issued["lines"])
 
     headers = _headers(shop["office"])
@@ -187,6 +173,7 @@ def test_issuing_assigns_number_and_locks_lines(client, shop):
     )
     assert res.status_code == 409
     assert res.get_json()["error"]["code"] == "ORDER_LOCKED"
+    assert "cancel the order" in res.get_json()["error"]["message"]
     res = client.delete(f"/api/v1/supplier-orders/{order['id']}/lines/{line_id}", headers=headers)
     assert res.status_code == 409
     res = client.patch(
@@ -196,92 +183,94 @@ def test_issuing_assigns_number_and_locks_lines(client, shop):
     )
     assert res.status_code == 409
     assert res.get_json()["error"]["code"] == "ON_SUPPLIER_ORDER"
+    # Lines can no longer be cancelled or split one by one.
+    for path in ("cancel", "split"):
+        res = client.post(
+            f"/api/v1/supplier-orders/{order['id']}/lines/{line_id}/{path}",
+            json={"quantity": 1},
+            headers=headers,
+        )
+        assert res.status_code in (404, 405)
 
     body = _job_body(client, shop, shop["job_a"])
     assert body["materialStatus"] == "ORDERED"
     assert body["materialReadiness"]["expectedDate"] == "2031-03-07"
 
-    # Next PO takes the next number.
-    bolts = _plan(shop["job_a"], "Bolts", 1)
-    nxt = _add_lines(
-        client,
-        shop,
-        [{"jobOrderId": shop["job_a"].id, "plannedMaterialId": bolts, "quantity": 1, "unitCost": 5}],
-    ).get_json()
-    assert nxt["id"] != order["id"]
-    assert _issue(client, shop, nxt["id"]).get_json()["poNumber"] == "BMSC-PO-00002"
+
+def test_po_numbers_run_per_supplier_per_year(client, shop):
+    def issue_one(supplier, when):
+        order = _add_lines(client, shop, [_line(shop["job_a"], "Bolts", 1, 5)], supplier=supplier)
+        res = _issue(client, shop, order.get_json()["id"], when=when)
+        assert res.status_code == 200, res.get_json()
+        return res.get_json()["poNumber"]
+
+    assert issue_one(shop["steel"], "2031-03-02") == "PSL31000001"
+    assert issue_one(shop["steel"], "2031-03-03") == "PSL31000002"
+    assert issue_one(shop["other"], "2031-03-03") == "OTM31000001"
+    assert issue_one(shop["steel"], "2032-01-05") == "PSL32000001"
+    order = SupplierOrder.query.filter_by(po_number="PSL32000001").one()
+    assert (order.po_year, order.po_seq) == (2032, 1)
 
 
-def test_cancelling_a_line_returns_material_to_order(client, shop):
+def test_existing_po_numbers_are_kept(client, shop):
+    old = SupplierOrder(
+        supplier_id=shop["steel"].id,
+        status=SupplierOrderStatus.RECEIVED,
+        po_seq=88,
+        po_number="BMSC-PO-00088",
+        date_issued=date(2031, 1, 5),
+        prepared_by_id=shop["office"].id,
+    )
+    db.session.add(old)
+    db.session.commit()
+    order = _both_jobs_draft(client, shop)
+    assert _issue(client, shop, order["id"]).get_json()["poNumber"] == "PSL31000001"
+    assert db.session.get(SupplierOrder, old.id).po_number == "BMSC-PO-00088"
+
+
+def test_supplier_without_a_code_cannot_issue(client, shop):
+    nocode = Supplier(name="No Code Steel", typical_lead_time_days=3)
+    db.session.add(nocode)
+    db.session.commit()
+    order = _add_lines(client, shop, [_line(shop["job_a"])], supplier=nocode).get_json()
+    res = _issue(client, shop, order["id"])
+    assert res.status_code == 400
+    assert res.get_json()["error"]["code"] == "SUPPLIER_CODE_MISSING"
+
+
+def test_cancelling_the_order_returns_material_to_order(client, shop):
     order = _both_jobs_draft(client, shop)
     _issue(client, shop, order["id"])
-    line_a = next(ln for ln in order["lines"] if ln["jobOrderId"] == shop["job_a"].id)
-
-    assert _job_body(client, shop, shop["job_a"])["plannedMaterials"][0]["status"] == "PURCHASED"
+    assert _job_body(client, shop, shop["job_a"])["materialStatus"] == "ORDERED"
 
     res = client.post(
-        f"/api/v1/supplier-orders/{order['id']}/lines/{line_a['id']}/cancel",
-        headers=_headers(shop["office"]),
+        f"/api/v1/supplier-orders/{order['id']}/cancel", headers=_headers(shop["office"])
     )
     assert res.status_code == 200, res.get_json()
-    after = res.get_json()
-    assert after["status"] == "ISSUED"
-    assert after["lineCount"] == 1
-
-    body = _job_body(client, shop, shop["job_a"])
-    planned = body["plannedMaterials"][0]
-    assert planned["status"] == "TO_ORDER"
-    assert planned["remainingQuantity"] == 4
-    assert body["materialStatus"] == "TO_ORDER"
-
-    outstanding = client.get(
-        "/api/v1/supplier-orders/outstanding", headers=_headers(shop["office"])
-    ).get_json()["materials"]
-    assert [m["jobOrderId"] for m in outstanding] == [shop["job_a"].id]
-    # Job B's line is untouched.
-    assert _job_body(client, shop, shop["job_b"])["materialStatus"] == "ORDERED"
+    assert res.get_json()["status"] == "CANCELLED"
+    for job in (shop["job_a"], shop["job_b"]):
+        body = _job_body(client, shop, job)
+        assert body["materialStatus"] == "TO_ORDER"
+        assert body["materialReadiness"]["notOrderedYet"] is True
 
 
-def test_receiving_every_line_closes_the_order(client, shop):
+def test_receive_order_receives_every_line_on_one_date(client, shop):
     order = _both_jobs_draft(client, shop)
     _issue(client, shop, order["id"])
-    line_a, line_b = order["lines"]
-    headers = _headers(shop["office"])
 
-    # Partial delivery: split line B, receive part of it.
-    res = client.post(
-        f"/api/v1/supplier-orders/{order['id']}/lines/{line_b['id']}/split",
-        json={"quantity": 2},
-        headers=headers,
-    )
-    assert res.status_code == 200, res.get_json()
-    lines = res.get_json()["lines"]
-    assert len(lines) == 3
-    rest = next(ln for ln in lines if ln["id"] not in (line_a["id"], line_b["id"]))
-    assert rest["quantity"] == 4
-
-    res = client.post(
-        f"/api/v1/supplier-orders/{order['id']}/receive",
-        json={"lineIds": [line_a["id"], line_b["id"]], "receivedDate": "2031-03-06"},
-        headers=headers,
-    )
-    assert res.status_code == 200, res.get_json()
-    assert res.get_json()["status"] == "PARTIALLY_RECEIVED"
-    assert _job_body(client, shop, shop["job_a"])["materialStatus"] == "RECEIVED"
-    assert _job_body(client, shop, shop["job_b"])["materialStatus"] == "ORDERED"
-
-    res = client.post(
-        f"/api/v1/supplier-orders/{order['id']}/receive",
-        json={"lineIds": [rest["id"]], "receivedDate": "2031-03-09"},
-        headers=headers,
-    )
+    res = _receive(client, shop, order["id"], "2031-03-09")
     assert res.status_code == 200, res.get_json()
     closed = res.get_json()
     assert closed["status"] == "RECEIVED"
     assert closed["receivedDate"] == "2031-03-09"
-    job_b = _job_body(client, shop, shop["job_b"])
-    assert job_b["materialStatus"] == "RECEIVED"
-    assert job_b["materialReceivedDate"] == "2031-03-09"
+    assert {ln["dateReceived"] for ln in closed["lines"]} == {"2031-03-09"}
+    for job in (shop["job_a"], shop["job_b"]):
+        body = _job_body(client, shop, job)
+        assert body["materialStatus"] == "RECEIVED"
+        assert body["materialReceivedDate"] == "2031-03-09"
+
+    res = _receive(client, shop, order["id"], "2031-03-10")
+    assert res.status_code == 409
 
     # Lead time is measured per order: issued 03-02, received 03-09 = 7 days.
     res = client.get(
@@ -296,20 +285,34 @@ def test_receiving_every_line_closes_the_order(client, shop):
     assert lead["averageActualDays"] == 7
 
 
+def test_partly_received_order_is_completed_by_receive_order(client, shop):
+    order = _both_jobs_draft(client, shop)
+    _issue(client, shop, order["id"])
+    # An order partly received before the full-receipt rule.
+    first = db.session.get(MaterialPurchase, order["lines"][0]["id"])
+    first.date_received = date(2031, 3, 5)
+    so = db.session.get(SupplierOrder, order["id"])
+    so.status = SupplierOrderStatus.PARTIALLY_RECEIVED
+    db.session.commit()
+
+    res = client.post(
+        f"/api/v1/supplier-orders/{order['id']}/cancel", headers=_headers(shop["office"])
+    )
+    assert res.status_code == 409
+    assert "Receive order" in res.get_json()["error"]["message"]
+
+    res = _receive(client, shop, order["id"], "2031-03-08")
+    assert res.status_code == 200, res.get_json()
+    done = res.get_json()
+    assert done["status"] == "RECEIVED"
+    received = {ln["id"]: ln["dateReceived"] for ln in done["lines"]}
+    assert received[order["lines"][0]["id"]] == "2031-03-05"
+    assert received[order["lines"][1]["id"]] == "2031-03-08"
+
+
 def test_printout_combines_same_material_lines(client, shop):
     order = _both_jobs_draft(client, shop)
-    _add_lines(
-        client,
-        shop,
-        [
-            {
-                "jobOrderId": shop["job_b"].id,
-                "plannedMaterialId": _plan(shop["job_b"], "Plate 10mm", 1),
-                "quantity": 1,
-                "unitCost": 900,
-            }
-        ],
-    )
+    _add_lines(client, shop, [_line(shop["job_b"], "Plate 10mm", 1, 900)])
     client.patch(
         f"/api/v1/supplier-orders/{order['id']}",
         json={"vatRate": 12},
@@ -322,7 +325,7 @@ def test_printout_combines_same_material_lines(client, shop):
     )
     assert res.status_code == 200, res.get_json()
     data = res.get_json()
-    assert data["order"]["poNumber"] == "BMSC-PO-00001"
+    assert data["order"]["poNumber"] == "PSL31000001"
     assert data["supplier"]["address"] == "1 Mill Rd"
     assert len(data["rows"]) == 2
     bar = next(r for r in data["rows"] if r["materialName"] == "Round bar 50mm")
@@ -370,7 +373,6 @@ def test_draft_and_cancelled_lines_do_not_count_as_ordered(client, shop):
     assert body["materialReadiness"]["source"] != "PURCHASE_LINES"
     assert body["materialReadiness"]["expectedDate"] is None
     assert not body["materialReadiness"].get("lines")
-    assert body["plannedMaterials"][0]["purchasedQuantity"] == 0
     db.session.expire_all()
     with pytest.raises(AppError) as exc:
         operation_service.start_operation(
@@ -384,28 +386,23 @@ def test_draft_and_cancelled_lines_do_not_count_as_ordered(client, shop):
     )
     assert inv.status_code == 200, inv.get_json()
     assert inv.get_json()["summary"]["purchaseCount"] == 0
-    assert client.get("/api/v1/inventory/material-purchases", headers=headers).status_code == 200
     ana = client.get("/api/v1/analytics/purchasing?from=2031-01-01&to=2031-12-31", headers=headers)
     assert ana.status_code == 200 and ana.get_json()["purchaseCount"] == 0
 
-    # Issue, then cancel job A's line: it leaves spend, analytics and the gate.
+    # Issue, then cancel the order: its lines leave spend, analytics and the gate.
     _issue(client, shop, order["id"])
     res = client.post(
-        f"/api/v1/supplier-orders/{order['id']}/lines/{line_a['id']}/cancel",
-        headers=_headers(shop["office"]),
+        f"/api/v1/supplier-orders/{order['id']}/cancel", headers=_headers(shop["office"])
     )
     assert res.status_code == 200, res.get_json()
     inv = client.get(
         "/api/v1/inventory/material-purchases?from=2031-01-01&to=2031-12-31", headers=headers
     ).get_json()
-    assert inv["summary"]["purchaseCount"] == 1
-    assert inv["summary"]["totalSpend"] == 1500
+    assert inv["summary"]["purchaseCount"] == 0
     ana = client.get(
         "/api/v1/analytics/purchasing?from=2031-01-01&to=2031-12-31", headers=headers
     ).get_json()
-    assert ana["purchaseCount"] == 1 and ana["totalSpend"] == 1500
-    detail = client.get(f"/api/v1/supplier-orders/{order['id']}", headers=headers).get_json()
-    assert detail["subtotal"] == 1500 and detail["lineCount"] == 1
+    assert ana["purchaseCount"] == 0
     db.session.expire_all()
     with pytest.raises(AppError) as exc:
         operation_service.start_operation(
@@ -443,19 +440,14 @@ def test_existing_lines_stay_without_a_po(client, shop):
 
 @pytest.fixture
 def one_day(shop):
-    supplier = Supplier(name="Next Day Steel", typical_lead_time_days=1)
+    supplier = Supplier(name="Next Day Steel", code="NDS", typical_lead_time_days=1)
     db.session.add(supplier)
     db.session.commit()
     return supplier
 
 
 def _one_line_order(client, shop, supplier, issued):
-    order = _add_lines(
-        client,
-        shop,
-        [{"jobOrderId": shop["job_a"].id, "plannedMaterialId": _planned_id(shop["job_a"]), "quantity": 4}],
-        supplier=supplier,
-    ).get_json()
+    order = _add_lines(client, shop, [_line(shop["job_a"])], supplier=supplier).get_json()
     res = _issue(client, shop, order["id"], when=issued)
     assert res.status_code == 200, res.get_json()
     return res.get_json()
@@ -467,11 +459,7 @@ def test_saturday_order_from_one_day_supplier_is_promised_for_monday(client, sho
     order = _one_line_order(client, shop, one_day, "2031-03-01")  # Saturday
     assert order["expectedDeliveryDate"] == "2031-03-03"  # Monday, not Sunday
 
-    res = client.post(
-        f"/api/v1/supplier-orders/{order['id']}/receive",
-        json={"lineIds": [order["lines"][0]["id"]], "receivedDate": "2031-03-03"},
-        headers=_headers(shop["office"]),
-    )
+    res = _receive(client, shop, order["id"], "2031-03-03")
     assert res.status_code == 200, res.get_json()
     row = next(r for r in supplier_reliability(today=date(2031, 3, 10)) if r["supplierId"] == one_day.id)
     assert row["dueDeliveries"] == 1 and row["onTimeDeliveries"] == 1 and row["lateDeliveries"] == 0

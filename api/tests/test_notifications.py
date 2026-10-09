@@ -138,6 +138,14 @@ def test_templates_include_job_and_milestone_no_links():
     assert "http" not in body.lower()
 
 
+def test_for_delivery_message_reads_ready_for_delivery():
+    body = render_message(NotificationMilestone.JOB_DELIVERED, "JO-2026-ABCD", "Cyclodrive base")
+    assert body == "BMSC: Job JO-2026-ABCD (Cyclodrive base) is ready for delivery."
+    completed = render_message(NotificationMilestone.JOB_COMPLETED, "JO-2026-ABCD", "Cyclodrive base")
+    assert "ready for delivery" in completed
+    assert "delivered" not in (body + completed).lower()
+
+
 def test_each_milestone_fires_once_per_job(monkeypatch, flask_app):
     sends = []
     set_job, logs_store, existing = _patch_notify(monkeypatch, sends)

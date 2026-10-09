@@ -19,11 +19,14 @@ def _uuid():
     return str(uuid.uuid4())
 
 
-def format_po_number(seq: int, supplier_code: str | None = None) -> str:
-    """BMSC-PO-RIC-00012 when the supplier has a code, else BMSC-PO-00012.
-    The sequence is shop-wide either way."""
-    if supplier_code:
-        return f"{PO_PREFIX}{supplier_code}-{seq:05d}"
+def format_po_number(supplier_code: str, year: int, seq: int) -> str:
+    """Supplier code + 2-digit year + 6-digit sequence, e.g. STP26000001.
+    The sequence restarts each year for each supplier."""
+    return f"{supplier_code}{year % 100:02d}{seq:06d}"
+
+
+def format_legacy_po_number(seq: int) -> str:
+    """The earlier shop-wide format (BMSC-PO-00012), kept by existing orders."""
     return f"{PO_PREFIX}{seq:05d}"
 
 
@@ -53,10 +56,21 @@ class SupplierOrder(db.Model):
             unique=True,
             postgresql_where=db.text("status = 'DRAFT'"),
         ),
+        # New-format numbers: one sequence per supplier per year. Orders issued
+        # before it have no po_year and keep their shop-wide po_seq.
+        db.Index(
+            "uq_supplier_orders_supplier_year_seq",
+            "supplier_id",
+            "po_year",
+            "po_seq",
+            unique=True,
+            postgresql_where=db.text("po_year IS NOT NULL"),
+        ),
     )
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
-    po_seq = db.Column(db.Integer, nullable=True, unique=True)
+    po_seq = db.Column(db.Integer, nullable=True)
+    po_year = db.Column(db.SmallInteger, nullable=True)
     po_number = db.Column(db.String(32), nullable=True, unique=True)
     supplier_id = db.Column(
         db.String(36), db.ForeignKey("suppliers.id"), nullable=False, index=True

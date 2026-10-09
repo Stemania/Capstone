@@ -70,8 +70,8 @@ def shop(app):
             )
         )
     client_row = Client(name="Delay Client")
-    slow = Supplier(name="Slow Steel", typical_lead_time_days=10)
-    quick = Supplier(name="Quick Steel", typical_lead_time_days=1)
+    slow = Supplier(name="Slow Steel", code="SLS", typical_lead_time_days=10)
+    quick = Supplier(name="Quick Steel", code="QKS", typical_lead_time_days=1)
     db.session.add_all([client_row, slow, quick])
     db.session.commit()
     return {
@@ -95,7 +95,6 @@ def _job(shop, first_start, *, status=JobOrderStatus.SCHEDULED):
         job_type=JobType.FABRICATION,
         part_condition=PartCondition.RAW_MATERIAL,
         material_status=MaterialStatus.TO_ORDER,
-        raw_materials=[{"id": "pm-plate", "name": "Plate", "quantity": 1, "unit": "pcs"}],
         created_by_id=shop["office"].id,
     )
     db.session.add(job)
@@ -126,7 +125,8 @@ def _draft_order(client, shop, job, supplier):
             "lines": [
                 {
                     "jobOrderId": job.id,
-                    "plannedMaterialId": "pm-plate",
+                    "materialName": "Plate",
+                    "unit": "pcs",
                     "quantity": 1,
                     "unitCost": 100,
                 }
@@ -275,12 +275,9 @@ def test_overdue_at_issue_moves_job_and_receipt_never_moves_it_back(client, shop
     assert job.material_delay_supplier_order_id == order["id"]
     moved_to = starts[0]
 
-    line_id = issued["lines"][0]["id"] if issued.get("lines") else None
-    if line_id is None:
-        line_id = db.session.get(SupplierOrder, order["id"]).active_lines[0].id
     res = client.post(
-        f"/api/v1/supplier-orders/{order['id']}/receive",
-        json={"lineIds": [line_id], "receivedDate": shop["today"].isoformat()},
+        f"/api/v1/supplier-orders/{issued['id']}/receive",
+        json={"receivedDate": shop["today"].isoformat()},
         headers=_headers(shop["office"]),
     )
     assert res.status_code == 200, res.get_json()

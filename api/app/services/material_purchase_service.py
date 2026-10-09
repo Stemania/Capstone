@@ -153,48 +153,6 @@ def outstanding_lines(job: JobOrder) -> list[MaterialPurchase]:
     return [p for p in placed_lines(job) if p.date_received is None]
 
 
-def needing_planned_materials(raw_materials) -> list[dict]:
-    """Planned materials the shop has to buy: everything not marked From stock."""
-    return [
-        m
-        for m in (raw_materials or [])
-        if isinstance(m, dict) and m.get("id") and not m.get("fromStock")
-    ]
-
-
-def _planned_coverage(job: JobOrder) -> list[tuple[dict, bool, bool]]:
-    """(planned material, fully ordered, fully received) for each material to buy.
-
-    Only placed lines linked to that planned material count toward it.
-    """
-    placed = placed_lines(job)
-    rows = []
-    for m in needing_planned_materials(job.raw_materials):
-        linked = [p for p in placed if p.planned_material_id == m["id"]]
-        ordered_qty = sum((Decimal(str(p.quantity or 0)) for p in linked), Decimal("0"))
-        planned_qty = m.get("quantity")
-        ordered = bool(linked) and (
-            planned_qty is None or ordered_qty >= Decimal(str(planned_qty))
-        )
-        received = ordered and all(p.date_received is not None for p in linked)
-        rows.append((m, ordered, received))
-    return rows
-
-
-def unordered_planned_materials(job: JobOrder) -> list[str]:
-    """Names of planned materials not yet fully on a placed order."""
-    return [m.get("name") or "Material" for m, ordered, _ in _planned_coverage(job) if not ordered]
-
-
-def unreceived_planned_materials(job: JobOrder) -> list[str]:
-    """Names of planned materials ordered but not fully received."""
-    return [
-        m.get("name") or "Material"
-        for m, ordered, received in _planned_coverage(job)
-        if ordered and not received
-    ]
-
-
 def line_expected_arrival(p: MaterialPurchase, today: date | None = None) -> dict:
     """A received line arrives on its received date; a PO line on its order's
     expected delivery date; a line recorded without a PO on date ordered plus
@@ -261,12 +219,10 @@ def derived_material_expected(job: JobOrder) -> dict | None:
 
 
 def has_unordered_materials(job: JobOrder) -> bool:
-    """True while some material the job needs is not on a placed order."""
+    """True while a To order job has no line on an issued supplier order."""
     if job.material_status == MaterialStatus.NOT_REQUIRED:
         return False
-    return bool(unordered_planned_materials(job)) or (
-        job.material_status == MaterialStatus.TO_ORDER and not placed_lines(job)
-    )
+    return not placed_lines(job)
 
 
 def lead_time_floor(today: date | None = None) -> tuple[date | None, int | None]:
@@ -403,40 +359,12 @@ def job_has_started(job: JobOrder) -> bool:
 def material_start_block(job: JobOrder, *, for_worker: bool = False) -> dict | None:
     """Why the job's first operation cannot start yet for materials, or None.
 
-    Unless material is NOT_REQUIRED, every planned material (other than From
-    stock) must be fully ordered and received, and every placed line must have
-    arrived, whatever the job-level status says. Returns {"code", "message"}.
+    A job with materials Not required starts freely. A To order job needs at
+    least one line on an issued supplier order and every such line received.
+    Returns {"code", "message"}.
     """
     if job.material_status == MaterialStatus.NOT_REQUIRED:
         return None
-
-    unordered = unordered_planned_materials(job)
-    if unordered:
-        if for_worker:
-            message = (
-                "The materials for this job have not all been ordered yet. "
-                "Please check with the office."
-            )
-        else:
-            message = (
-                f"Not all planned materials are ordered for job {job.job_number}: "
-                f"{', '.join(unordered)}. Order them on an issued supplier order, or "
-                "mark them From stock if the shop already has them."
-            )
-        return {"code": "MATERIALS_NOT_ORDERED", "message": message}
-    unreceived = unreceived_planned_materials(job)
-    if unreceived:
-        if for_worker:
-            message = (
-                "The materials for this job have not all arrived yet. "
-                "Please wait for the office to receive them before starting."
-            )
-        else:
-            message = (
-                f"Planned materials not yet received: {', '.join(unreceived)}. "
-                "Mark them received before starting the first operation."
-            )
-        return {"code": "MATERIALS_NOT_RECEIVED", "message": message}
 
     outstanding = outstanding_lines(job)
     if not outstanding:
@@ -450,8 +378,8 @@ def material_start_block(job: JobOrder, *, for_worker: bool = False) -> dict | N
         else:
             message = (
                 f"No material has been ordered for job {job.job_number} "
-                f"({job.title}). Order it on an issued supplier order, or set "
-                "material to Not required if the shop already has it."
+                f"({job.title}). Order it and issue the supplier order, or the "
+                "Admin can set Materials needed to Not required if the shop already has it."
             )
         return {"code": "MATERIALS_NOT_ORDERED", "message": message}
     if for_worker:
@@ -466,7 +394,7 @@ def material_start_block(job: JobOrder, *, for_worker: bool = False) -> dict | N
         )
         message = (
             f"Materials not yet received for this job: {names}. "
-            "Mark them received before starting the first operation."
+            "Receive the supplier order before starting the first operation."
         )
     return {"code": "MATERIALS_NOT_RECEIVED", "message": message}
 
@@ -519,44 +447,18 @@ def _consume_if_job_started(purchase: MaterialPurchase):
         purchase.consumed_at = datetime.now(timezone.utc)
 
 
-def apply_planned_materials_rule(job: JobOrder, previous_raw_materials) -> None:
-    """Re-derive material status after the planned list changed.
-
-    Materials to buy make the job To order; none make it Not required. A job
-    the Admin marked Not required while it still had materials to buy keeps
-    that choice.
-    """
-    admin_override = (
-        job.material_status == MaterialStatus.NOT_REQUIRED
-        and bool(needing_planned_materials(previous_raw_materials))
-    )
-    if admin_override:
-        return
-    if not needing_planned_materials(job.raw_materials) and not placed_lines(job):
-        job.material_status = MaterialStatus.NOT_REQUIRED
-        job.material_received_date = None
-        return
-    job.material_status = MaterialStatus.TO_ORDER
-    sync_job_material_from_purchases(job)
-
-
 def sync_job_material_from_purchases(job: JobOrder):
     """
     Derive job material_status from purchase lines.
     - Any purchases → at least ORDERED (unless already RECEIVED / NOT_REQUIRED)
     - All lines have date_received → RECEIVED + material_received_date = max(received)
     - No placed lines left (all cancelled / still on a draft PO) → back to TO_ORDER
-    - Any planned material not fully on a placed order → TO_ORDER
     Only placed lines count (see ``placed_lines``).
     """
     if job.material_status == MaterialStatus.NOT_REQUIRED:
         return
 
     lines = placed_lines(job)
-    if unordered_planned_materials(job):
-        job.material_status = MaterialStatus.TO_ORDER
-        job.material_received_date = None
-        return
     if not lines:
         if job.material_status in (MaterialStatus.ORDERED, MaterialStatus.RECEIVED):
             job.material_status = MaterialStatus.TO_ORDER
@@ -575,49 +477,22 @@ def sync_job_material_from_purchases(job: JobOrder):
         job.material_received_date = None
 
 
-def _planned_material(job: JobOrder, planned_id):
-    """The job's planned-material entry for ``planned_id``; None for Other material."""
-    if not planned_id:
-        return None
-    for item in job.raw_materials or []:
-        if isinstance(item, dict) and item.get("id") == planned_id:
-            if item.get("fromStock"):
-                raise AppError(
-                    f"{item.get('name') or 'This material'} is marked From stock, "
-                    "so it is not bought for this job.",
-                    "PLANNED_MATERIAL_FROM_STOCK",
-                    400,
-                )
-            return item
-    raise AppError(
-        "Planned material not found on this job", "VALIDATION_ERROR", 400
-    )
-
-
-def _check_planned_unit(planned, unit):
-    if planned and planned.get("unit") and unit != planned["unit"]:
-        raise AppError(
-            f"Unit must be {planned['unit']} to match the planned material",
-            "VALIDATION_ERROR",
-            400,
-        )
-
-
 def build_draft_line(job: JobOrder, supplier: Supplier, data: dict) -> MaterialPurchase:
-    """Validate one line for a draft supplier order (not added to the session).
-
-    Only the job's planned materials can be ordered; anything extra is added to
-    the job's planned materials first."""
-    planned_id = data.get("plannedMaterialId") or data.get("planned_material_id")
-    if not planned_id:
+    """Validate one job material line for a draft supplier order (not added to
+    the session). Office Staff type the material when ordering; the job must
+    need materials (To order)."""
+    if job.material_status == MaterialStatus.NOT_REQUIRED:
         raise AppError(
-            "Only the job's planned materials can be ordered. "
-            "Add the material to the job's planned materials first.",
-            "PLANNED_MATERIAL_REQUIRED",
-            400,
+            f"{job.job_number} has Materials needed set to Not required. Set it to "
+            "To order first if materials must be bought for it.",
+            "MATERIALS_NOT_REQUIRED",
+            409,
         )
-    planned = _planned_material(job, planned_id)
-    name = planned["name"]
+    name = (data.get("materialName") or data.get("material_name") or "").strip()
+    if not name:
+        raise AppError("materialName is required", "VALIDATION_ERROR", 400)
+    if len(name) > 255:
+        raise AppError("materialName is too long", "VALIDATION_ERROR", 400)
 
     qty = _parse_decimal(data.get("quantity"), "quantity")
     if qty <= 0:
@@ -626,16 +501,13 @@ def build_draft_line(job: JobOrder, supplier: Supplier, data: dict) -> MaterialP
         data.get("unitCost") if data.get("unitCost") is not None else data.get("unit_cost", 0),
         "unitCost",
     )
-    default_unit = (planned or {}).get("unit") or "pcs"
-    unit = (data.get("unit") or default_unit).strip() or default_unit
-    _check_planned_unit(planned, unit)
+    unit = (data.get("unit") or "pcs").strip() or "pcs"
     grade = (
         data.get("gradeOrSpec") or data.get("grade_or_spec") or ""
     ).strip() or None
 
     return MaterialPurchase(
         job_order=job,
-        planned_material_id=planned["id"] if planned else None,
         material_name=name,
         grade_or_spec=grade,
         quantity=qty,
@@ -717,16 +589,6 @@ def update_purchase(purchase: MaterialPurchase, data: dict) -> MaterialPurchase:
             raise AppError(
                 "dateReceived cannot be before dateOrdered", "VALIDATION_ERROR", 400
             )
-    if "plannedMaterialId" in data or "planned_material_id" in data:
-        planned = _planned_material(
-            job, data.get("plannedMaterialId") or data.get("planned_material_id")
-        )
-        purchase.planned_material_id = planned["id"] if planned else None
-    if {"plannedMaterialId", "planned_material_id", "unit"} & set(data):
-        _check_planned_unit(
-            _planned_material(job, purchase.planned_material_id), purchase.unit
-        )
-
     _consume_if_job_started(purchase)
     sync_job_material_from_purchases(job)
     db.session.commit()
@@ -767,7 +629,7 @@ def _receive_consumable(p: MaterialPurchase, when: date, actor_id: str):
 def receive_lines(
     lines: list[MaterialPurchase], received_date=None, *, actor_id=None
 ) -> list[MaterialPurchase]:
-    """Receive whole lines on one date. The only receiving path: updates each
+    """Receive whole lines on one date (called by Receive order): updates each
     supplier order's status, each job's material status, and the stock of
     consumable lines (once: a received line cannot be received again)."""
     from app.services.supplier_order_service import recompute_order_status
@@ -815,22 +677,6 @@ def receive_lines(
     for order, jobs in jobs_by_order.items():
         material_delay_service.reschedule_jobs(jobs, material_delay_service.RECEIVED, order)
     return lines
-
-
-def mark_purchase_received(purchase: MaterialPurchase, received_date=None):
-    receive_lines([purchase], received_date)
-    return purchase
-
-
-def receive_all_outstanding(job: JobOrder, received_date=None) -> int:
-    """Job-level "Material received": receive every outstanding placed line."""
-    if not placed_lines(job):
-        raise AppError(
-            "No material has been ordered for this job yet.", "NO_PURCHASE_LINES", 409
-        )
-    outstanding = outstanding_lines(job)
-    receive_lines(outstanding, received_date)
-    return len(outstanding)
 
 
 def delete_purchase(purchase: MaterialPurchase):

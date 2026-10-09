@@ -98,42 +98,36 @@ def get_line(order: SupplierOrder, line_id) -> MaterialPurchase:
     return line
 
 
-def outstanding_planned_materials(job_id=None):
-    """Planned materials still to order (not yet on any placed or draft order),
-    across every open job, plus the jobs lines can be added to."""
-    q = JobOrder.query.options(joinedload(JobOrder.material_purchases)).filter(
-        JobOrder.status.notin_(CLOSED_JOB_STATUSES)
+def ordering_context(job_id=None):
+    """Open jobs that need materials (To order), the earliest required first,
+    with what is already on draft or issued orders, plus low-stock consumables.
+    Office Staff type each material line when ordering."""
+    q = JobOrder.query.options(
+        joinedload(JobOrder.material_purchases), joinedload(JobOrder.client)
+    ).filter(
+        JobOrder.status.notin_(CLOSED_JOB_STATUSES),
+        JobOrder.material_status != MaterialStatus.NOT_REQUIRED,
     )
     if job_id:
         q = q.filter(JobOrder.id == job_id)
-    jobs = q.order_by(JobOrder.due_date.asc()).all()
-    rows = []
-    for job in jobs:
-        if job.material_status == MaterialStatus.NOT_REQUIRED:
-            continue
-        for m in job.planned_materials_summary():
-            if m["status"] not in ("TO_ORDER", "PARTLY_ORDERED"):
-                continue
-            rows.append(
-                {
-                    "jobOrderId": job.id,
-                    "jobNumber": job.job_number,
-                    "jobTitle": job.title,
-                    "dueDate": job.due_date.isoformat() if job.due_date else None,
-                    "plannedMaterialId": m["id"],
-                    "materialName": m["name"],
-                    "unit": m["unit"],
-                    "plannedQuantity": m["plannedQuantity"],
-                    "orderedQuantity": m["purchasedQuantity"],
-                    "draftQuantity": m["draftQuantity"],
-                    "remainingQuantity": m["remainingQuantity"],
-                }
-            )
+    jobs = []
+    for job in q.order_by(JobOrder.due_date.asc()).all():
+        active = [p for p in job.material_purchases or [] if p.cancelled_at is None]
+        jobs.append(
+            {
+                "id": job.id,
+                "jobNumber": job.job_number,
+                "title": job.title,
+                "clientName": job.client.name if job.client else None,
+                "dueDate": job.due_date.isoformat() if job.due_date else None,
+                "materialStatus": job.material_status.value,
+                "issuedLineCount": sum(1 for p in active if not p.is_draft),
+                "draftLineCount": sum(1 for p in active if p.is_draft),
+                "notOrderedYet": not mp_service.placed_lines(job),
+            }
+        )
     return {
-        "materials": rows,
-        "jobs": [
-            {"id": j.id, "jobNumber": j.job_number, "title": j.title} for j in jobs
-        ],
+        "jobs": jobs,
         "lowStockConsumables": [] if job_id else low_stock_consumables(),
     }
 
@@ -208,7 +202,8 @@ def _draft_for(supplier: Supplier, actor_id: str) -> SupplierOrder:
 def _require_draft(order: SupplierOrder):
     if order.status != SupplierOrderStatus.DRAFT:
         raise AppError(
-            "This supplier order was issued; its lines are locked. Cancel a line instead.",
+            "This supplier order was issued; its lines are locked. To change it, "
+            "cancel the order and issue a new one.",
             "ORDER_LOCKED",
             409,
         )
@@ -242,7 +237,7 @@ def _build_consumable_line(supplier: Supplier, data: dict) -> MaterialPurchase:
 
 def add_lines_to_draft(supplier_id, lines: list, actor_id: str):
     """Add lines to the supplier's open draft, starting one if there is none.
-    Each line is a job material (``jobOrderId`` + planned material) or a
+    Each line is a job material (``jobOrderId`` + the typed material) or a
     consumable restock (``toolId``). Returns (order, created_lines)."""
     if not supplier_id:
         raise AppError("supplierId is required", "VALIDATION_ERROR", 400)
@@ -346,8 +341,15 @@ def _jobs_of(lines) -> set:
     return {ln.job_order for ln in lines if ln.job_order is not None}
 
 
-def _next_po_seq() -> int:
-    current = db.session.query(func.max(SupplierOrder.po_seq)).scalar()
+def _next_po_seq(supplier_id: str, year: int) -> int:
+    """Next number in the supplier's sequence for the year. Locks the
+    supplier row so two orders issued at once cannot take the same number."""
+    db.session.query(Supplier.id).filter(Supplier.id == supplier_id).with_for_update().one()
+    current = (
+        db.session.query(func.max(SupplierOrder.po_seq))
+        .filter(SupplierOrder.supplier_id == supplier_id, SupplierOrder.po_year == year)
+        .scalar()
+    )
     return int(current or 0) + 1
 
 
@@ -372,11 +374,19 @@ def issue_order(order: SupplierOrder, actor_id: str, date_issued=None) -> Suppli
             "SUPPLIER_LEAD_TIME_MISSING",
             400,
         )
+    if not order.supplier.code:
+        raise AppError(
+            f"{order.supplier.name} has no supplier code. Set it on the Suppliers page "
+            "before issuing; the PO number starts with it.",
+            "SUPPLIER_CODE_MISSING",
+            400,
+        )
     issued = _parse_date(date_issued, "dateIssued") or date.today()
     try:
-        seq = _next_po_seq()
+        seq = _next_po_seq(order.supplier_id, issued.year)
         order.po_seq = seq
-        order.po_number = format_po_number(seq, order.supplier.code if order.supplier else None)
+        order.po_year = issued.year
+        order.po_number = format_po_number(order.supplier.code, issued.year, seq)
         order.date_issued = issued
         order.expected_delivery_date = next_shop_working_day(issued + timedelta(days=lead))
         order.issued_by_id = actor_id
@@ -395,7 +405,7 @@ def issue_order(order: SupplierOrder, actor_id: str, date_issued=None) -> Suppli
     return order
 
 
-# After issue: cancel, split, receive
+# After issue: lines are locked. The order is received whole or cancelled whole.
 
 
 def recompute_order_status(order: SupplierOrder):
@@ -425,35 +435,14 @@ def _cancel_lines(lines, actor_id):
         ln.cancelled_by_id = actor_id
 
 
-def cancel_line(order: SupplierOrder, line: MaterialPurchase, actor_id: str):
-    """After issue a line is cancelled, never edited; its material goes back to to-order."""
-    if order.status not in RECEIVABLE_STATUSES:
-        if order.status == SupplierOrderStatus.DRAFT:
-            raise AppError(
-                "Draft lines can be removed instead.", "ORDER_NOT_ISSUED", 409
-            )
-        raise AppError("This supplier order is closed.", "ORDER_CLOSED", 409)
-    if line.cancelled_at is not None:
-        raise AppError("This line is already cancelled.", "LINE_CANCELLED", 409)
-    if line.date_received is not None:
-        raise AppError(
-            "A received line cannot be cancelled.", "ALREADY_RECEIVED", 409
-        )
-    _cancel_lines([line], actor_id)
-    recompute_order_status(order)
-    if line.job_order is not None:
-        mp_service.sync_job_material_from_purchases(line.job_order)
-    db.session.commit()
-    delay_service.reschedule_jobs(_jobs_of([line]), delay_service.CANCELLED, order)
-    return line
-
-
 def cancel_order(order: SupplierOrder, actor_id: str) -> SupplierOrder:
+    """Cancel the whole order; its jobs' materials go back to to-order. To
+    change an issued order, cancel it and issue a new one."""
     if order.status in (SupplierOrderStatus.RECEIVED, SupplierOrderStatus.CANCELLED):
         raise AppError("This supplier order is closed.", "ORDER_CLOSED", 409)
     if any(ln.date_received for ln in order.active_lines):
         raise AppError(
-            "Some lines were already received. Cancel the remaining lines one by one.",
+            "Part of this order was received earlier. Complete it with Receive order.",
             "PARTLY_RECEIVED",
             409,
         )
@@ -465,44 +454,6 @@ def cancel_order(order: SupplierOrder, actor_id: str) -> SupplierOrder:
     db.session.commit()
     delay_service.reschedule_for_order(order, delay_service.CANCELLED)
     return order
-
-
-def split_line(order: SupplierOrder, line: MaterialPurchase, quantity) -> list:
-    """Partial delivery: keep ``quantity`` on this line and move the rest to a
-    new line on the same order, so each can be received as a whole line."""
-    if order.status not in RECEIVABLE_STATUSES:
-        raise AppError(
-            "Only lines on an issued supplier order can be split.", "ORDER_NOT_ISSUED", 409
-        )
-    if line.cancelled_at is not None or line.date_received is not None:
-        raise AppError(
-            "Only an outstanding line can be split.", "VALIDATION_ERROR", 400
-        )
-    keep = _decimal(quantity, "quantity", positive=True)
-    total = Decimal(str(line.quantity))
-    if keep >= total:
-        raise AppError(
-            f"Split quantity must be less than {total.normalize()} {line.unit}",
-            "VALIDATION_ERROR",
-            400,
-        )
-    rest = MaterialPurchase(
-        job_order_id=line.job_order_id,
-        tool_id=line.tool_id,
-        supplier_order=order,
-        supplier_id=line.supplier_id,
-        planned_material_id=line.planned_material_id,
-        material_name=line.material_name,
-        grade_or_spec=line.grade_or_spec,
-        quantity=total - keep,
-        unit=line.unit,
-        unit_cost=line.unit_cost,
-        date_ordered=line.date_ordered,
-    )
-    line.quantity = keep
-    db.session.add(rest)
-    db.session.commit()
-    return [line, rest]
 
 
 EXPECTED_DELIVERY_CHANGED = "EXPECTED_DELIVERY_CHANGED"
@@ -601,14 +552,16 @@ def expected_delivery_history(order: SupplierOrder) -> list[dict]:
     ]
 
 
-def receive_order_lines(order: SupplierOrder, line_ids, received_date=None, *, actor_id=None):
+def receive_order(order: SupplierOrder, received_date=None, *, actor_id=None):
+    """Deliveries arrive complete: receive every open line on one date. Also
+    completes an order partly received before this rule."""
     if order.status not in RECEIVABLE_STATUSES:
         raise AppError(
             "Only an issued supplier order can be received.", "ORDER_NOT_ISSUED", 409
         )
-    if not line_ids:
-        raise AppError("Choose the lines that arrived.", "VALIDATION_ERROR", 400)
-    lines = [get_line(order, lid) for lid in line_ids]
+    lines = [ln for ln in order.active_lines if ln.date_received is None]
+    if not lines:
+        raise AppError("Every line on this order is already received.", "ALREADY_RECEIVED", 409)
     mp_service.receive_lines(lines, received_date, actor_id=actor_id)
     return order
 

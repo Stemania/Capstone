@@ -33,7 +33,6 @@ from app.services.job_order_service import (
     advance_part_condition,
     create_job_order,
     mark_job_delivered,
-    mark_material_received,
     update_job_order,
 )
 from app.utils.errors import AppError
@@ -206,7 +205,7 @@ def test_line_received_after_job_started_is_consumed_immediately(people):
     op1.actual_start = datetime(2026, 9, 10, 1, 0, tzinfo=timezone.utc)
     late = _line(job, "Extra shim", received=None)
     db.session.refresh(job)
-    mp_service.mark_purchase_received(late, "2026-09-12")
+    mp_service.receive_lines([late], "2026-09-12")
     assert late.status == "CONSUMED"
 
 
@@ -256,7 +255,7 @@ def test_start_gate_passes_once_all_lines_received(people):
     pending = _line(job, "Bronze bushing", received=None)
     op1 = _add_op(job, "TURNING", people["worker"].id)
     db.session.refresh(job)
-    mp_service.mark_purchase_received(pending, "2026-09-05")
+    mp_service.receive_lines([pending], "2026-09-05")
     operation_service.start_operation(
         op1, people["worker"].id, UserRole.PRODUCTION_WORKER.value, None
     )
@@ -338,7 +337,7 @@ def test_update_refuses_received_without_purchase_lines(people):
     with pytest.raises(AppError) as exc:
         update_job_order(job, {"materialStatus": "RECEIVED"}, actor_role=UserRole.ADMIN.value)
     assert exc.value.code == "VALIDATION_ERROR"
-    assert "until a purchase is recorded" in exc.value.message
+    assert "TO_ORDER or NOT_REQUIRED" in exc.value.message
 
 
 def test_update_refuses_ordered_without_purchase_lines(people):
@@ -394,39 +393,12 @@ def test_admin_can_set_not_required_on_released_job(people):
     assert job.material_status == MaterialStatus.NOT_REQUIRED
 
 
-def test_office_cannot_set_not_required_on_draft(people):
+def test_office_can_choose_not_required_while_pending(people):
     job = _job(people, material_status=MaterialStatus.TO_ORDER, status=JobOrderStatus.DRAFT)
-    with pytest.raises(AppError) as exc:
-        update_job_order(
-            job, {"materialStatus": "NOT_REQUIRED"}, actor_role=UserRole.OFFICE_STAFF.value
-        )
-    assert exc.value.code == "FORBIDDEN"
-    assert job.material_status == MaterialStatus.TO_ORDER
-
-
-def test_material_received_button_receives_every_outstanding_line(people):
-    job = _job(people)
-    earlier = _line(job, "Round bar", received=date(2026, 9, 3))
-    a = _line(job, "Bronze bushing", received=None)
-    b = _line(job, "Hex nut", received=None)
-    db.session.refresh(job)
-
-    mark_material_received(job, "2026-09-08")
-
-    assert a.date_received == date(2026, 9, 8)
-    assert b.date_received == date(2026, 9, 8)
-    assert earlier.date_received == date(2026, 9, 3)
-    assert job.material_status == MaterialStatus.RECEIVED
-    assert job.material_received_date == date(2026, 9, 8)
-
-
-def test_material_received_button_refused_without_purchase_lines(people):
-    job = _job(people, material_status=MaterialStatus.TO_ORDER)
-    db.session.refresh(job)
-    with pytest.raises(AppError) as exc:
-        mark_material_received(job, "2026-09-08")
-    assert exc.value.code == "NO_PURCHASE_LINES"
-    assert exc.value.message == "No material has been ordered for this job yet."
+    update_job_order(
+        job, {"materialStatus": "NOT_REQUIRED"}, actor_role=UserRole.OFFICE_STAFF.value
+    )
+    assert job.material_status == MaterialStatus.NOT_REQUIRED
 
 
 def test_start_gate_ignores_not_required_jobs(people):
@@ -564,6 +536,19 @@ def test_delivery_blocked_until_invoice_recorded(people):
     si_service.record_invoice(job, _invoice_data(job), people["office"].id)
     mark_job_delivered(job)
     assert job.status == JobOrderStatus.DELIVERED
+    assert job.delivered_at is not None
+
+
+@pytest.mark.parametrize("status", [JobOrderStatus.SCHEDULED, JobOrderStatus.IN_PROGRESS])
+def test_for_delivery_needs_a_completed_job(people, status):
+    job = _job(people, status=status)
+    _add_op(job, "TURNING", status=OperationStatus.COMPLETED)
+    db.session.refresh(job)
+    with pytest.raises(AppError) as exc:
+        mark_job_delivered(job)
+    assert exc.value.code == "INVALID_TRANSITION"
+    assert "Completed" in exc.value.message
+    assert job.status == status
 
 
 def test_invoice_requires_completed_job(people):

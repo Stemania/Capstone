@@ -87,7 +87,29 @@ def test_started_jobs_receive_before_first_op_and_consume_at_start(people):
             assert ln.unit_cost > 0
         assert job.material_status == MaterialStatus.RECEIVED
         assert job.created_at <= start
-        assert job.raw_materials and len(job.raw_materials) == len(lines)
+        assert job.raw_materials == []
+        assert all(ln.planned_material_id is None for ln in lines)
+
+
+def test_each_seeded_order_arrives_complete_with_a_new_po_number(people):
+    from app.models.supplier_order import SupplierOrderStatus
+    from scripts.seed_history import _create_job_material_orders, _number_seeded_orders
+
+    starts = _weekday_starts(datetime(2026, 8, 3, 1, 0, tzinfo=timezone.utc), 20)
+    suppliers, jobs, _late = _seed(people, starts, random.Random(5))
+    _create_job_material_orders(jobs, suppliers, people["office"])
+    orders = {ln.supplier_order for job in jobs for ln in job.material_purchases}
+    _number_seeded_orders()
+
+    for order in orders:
+        received = {ln.date_received for ln in order.active_lines}
+        assert len(received) == 1, order.po_number
+        assert order.status == SupplierOrderStatus.RECEIVED
+        code = order.supplier.code
+        if code:
+            assert order.po_number == f"{code}{order.date_issued.year % 100:02d}{order.po_seq:06d}"
+        else:
+            assert order.po_number.startswith("BMSC-PO-")
 
 
 def test_not_started_job_keeps_future_deliveries_on_order(people):

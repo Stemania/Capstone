@@ -1224,7 +1224,7 @@ def sales_forecast(from_s=None, to_s=None):
     committed = {
         "label": "committedPipeline",
         "description": (
-            "Released jobs not yet completed or delivered; pending jobs are "
+            "Released jobs not yet completed or For Delivery; pending jobs are "
             "left out (fact, not a forecast). "
             "Grouped by expected completion from scheduled_end when present, "
             "otherwise due_date."

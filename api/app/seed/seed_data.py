@@ -333,10 +333,6 @@ def seed_database():
         quantity=1,
         unit_of_measure="lot",
         amount=31360.00,
-        raw_materials=[
-            {"name": "Drive shaft blank", "quantity": 1, "unit": "pc"},
-            {"name": "Bearing grease", "quantity": 1, "unit": "tube"},
-        ],
         created_by_id=office.id,
     )
     job2 = JobOrder(
@@ -355,10 +351,6 @@ def seed_database():
         quantity=12,
         unit_of_measure="pcs",
         amount=26880.00,
-        raw_materials=[
-            {"name": "Mild steel plate 6mm", "quantity": 12, "unit": "pcs"},
-            {"name": "Welding rod E6013", "quantity": 2, "unit": "kg"},
-        ],
         created_by_id=office.id,
     )
     job3 = JobOrder(
@@ -376,9 +368,6 @@ def seed_database():
         quantity=2,
         unit_of_measure="pcs",
         amount=15400.00,
-        raw_materials=[
-            {"name": "Cast housing blank", "quantity": 2, "unit": "pcs"},
-        ],
         created_by_id=admin.id,
     )
 

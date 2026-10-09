@@ -142,6 +142,8 @@ class JobOrder(db.Model):
     quantity = db.Column(db.Numeric(12, 2), nullable=True)
     unit_of_measure = db.Column(db.String(32), nullable=True)
     amount = db.Column(db.Numeric(14, 2), nullable=True)
+    # Planned materials from the earlier job order form, kept read-only
+    # ("Planned (earlier record)"). Materials are now entered when ordering.
     # [{ "name": "Mild steel plate", "quantity": 2, "unit": "pcs" }, ...]
     raw_materials = db.Column(JSONB, nullable=False, default=list)
     material_status = db.Column(
@@ -334,9 +336,9 @@ class JobOrder(db.Model):
     def _material_readiness(self):
         from app.services.material_purchase_service import (
             derived_material_expected,
+            has_unordered_materials,
             job_supplier_orders,
             material_readiness_date,
-            unordered_planned_materials,
         )
 
         ready, reason = material_readiness_date(self)
@@ -357,12 +359,29 @@ class JobOrder(db.Model):
             ),
             "lines": derived["lines"] if derived else [],
             "supplierOrders": job_supplier_orders(self),
-            "unorderedMaterials": (
-                []
-                if self.material_status == MaterialStatus.NOT_REQUIRED
-                else unordered_planned_materials(self)
-            ),
+            "notOrderedYet": has_unordered_materials(self),
         }
+
+    def material_lines_summary(self):
+        """The job's material lines (not cancelled, consumables excluded) without
+        costs, so every role can see what material the job uses."""
+        return [
+            {
+                "id": p.id,
+                "materialName": p.material_name,
+                "gradeOrSpec": p.grade_or_spec,
+                "quantity": float(p.quantity) if p.quantity is not None else None,
+                "unit": p.unit,
+                "status": p.status,
+                "poNumber": p.supplier_order.po_number if p.supplier_order else None,
+                "expectedDate": (
+                    p.current_expected_date.isoformat() if p.current_expected_date else None
+                ),
+                "dateReceived": p.date_received.isoformat() if p.date_received else None,
+            }
+            for p in self.material_purchases or []
+            if p.cancelled_at is None
+        ]
 
     @property
     def job_number(self) -> str:
@@ -476,6 +495,7 @@ class JobOrder(db.Model):
             data["materialDelay"] = self._material_delay()
         if include_operations:
             data["operations"] = self._serialize_operations(ops)
+            data["materialLines"] = self.material_lines_summary()
             if not hide_commercial:
                 inv = self.sales_invoice
                 data["salesInvoice"] = inv.to_dict() if inv else None

@@ -138,7 +138,7 @@ def correct_invoice(job: JobOrder, data: dict) -> SalesInvoice:
         raise AppError("No sales invoice has been recorded for this job", "NOT_FOUND", 404)
     if job.status == JobOrderStatus.DELIVERED or job.delivered_at:
         raise AppError(
-            "The job has been delivered, so its sales invoice is locked.",
+            "The job is For Delivery, so its sales invoice is locked.",
             "INVOICE_LOCKED",
             409,
         )

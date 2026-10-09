@@ -1,5 +1,5 @@
-"""Only planned materials are ordered, a PO prints once issued, and the sales
-invoice is a recorded reference to the shop's BIR-registered invoice.
+"""A PO prints once issued, the sales invoice is a recorded reference to the
+shop's BIR-registered invoice, and only the Admin sets a job For Delivery.
 
 Uses the bmsc_test database from conftest (schema built from the models).
 """
@@ -47,14 +47,14 @@ def shop(app):
         "admin": _user("opi_admin@test.local", UserRole.ADMIN),
         "office": _user("opi_office@test.local", UserRole.OFFICE_STAFF),
         "client": Client(name="OPI Client"),
-        "steel": Supplier(name="OPI Steel", typical_lead_time_days=5),
+        "steel": Supplier(name="OPI Steel", code="OPS", typical_lead_time_days=5),
     }
     db.session.add_all([s["client"], s["steel"]])
     db.session.commit()
     return s
 
 
-def _job(shop, *, status=JobOrderStatus.DRAFT, raw_materials=None, amount=None):
+def _job(shop, *, status=JobOrderStatus.DRAFT, to_order=False, amount=None):
     job = JobOrder(
         client_id=shop["client"].id,
         title="OPI Shaft",
@@ -62,8 +62,7 @@ def _job(shop, *, status=JobOrderStatus.DRAFT, raw_materials=None, amount=None):
         status=status,
         job_type=JobType.FABRICATION,
         part_condition=PartCondition.RAW_MATERIAL,
-        material_status=MaterialStatus.TO_ORDER if raw_materials else MaterialStatus.NOT_REQUIRED,
-        raw_materials=raw_materials or [],
+        material_status=MaterialStatus.TO_ORDER if to_order else MaterialStatus.NOT_REQUIRED,
         amount=amount,
         created_by_id=shop["office"].id,
     )
@@ -99,125 +98,18 @@ def _today():
     return shop_now().date().isoformat()
 
 
-# --- 2. Only planned materials can be ordered ---
-
-
-def test_line_without_a_planned_material_is_refused(client, shop):
-    job = _job(shop, raw_materials=[{"name": "Round bar 50mm", "quantity": 4, "unit": "pcs"}])
-
-    res = _add_lines(
-        client,
-        shop,
-        [{"jobOrderId": job.id, "materialName": "Cutting disc", "quantity": 2, "unitCost": 40}],
-    )
-    assert res.status_code == 400
-    assert res.get_json()["error"]["code"] == "PLANNED_MATERIAL_REQUIRED"
-    assert MaterialPurchase.query.count() == 0
-
-
-def test_job_purchase_route_also_requires_a_planned_material(client, shop):
-    job = _job(shop, raw_materials=[{"name": "Round bar 50mm", "quantity": 4, "unit": "pcs"}])
-
-    res = client.post(
-        f"/api/v1/job-orders/{job.id}/material-purchases",
-        json={"supplierId": shop["steel"].id, "materialName": "Bolts", "quantity": 1, "unitCost": 5},
-        headers=_headers(shop["office"]),
-    )
-    assert res.status_code == 400
-    assert res.get_json()["error"]["code"] == "PLANNED_MATERIAL_REQUIRED"
-
-
-def test_planned_material_is_ordered_under_its_planned_name(client, shop):
-    job = _job(shop, raw_materials=[{"name": "Round bar 50mm", "quantity": 4, "unit": "pcs"}])
-    planned_id = job.raw_materials[0]["id"]
-
-    res = _add_lines(
-        client,
-        shop,
-        [
-            {
-                "jobOrderId": job.id,
-                "plannedMaterialId": planned_id,
-                "materialName": "Something else",
-                "quantity": 4,
-                "unitCost": 250,
-            }
-        ],
-    )
-    assert res.status_code == 200, res.get_json()
-    line = res.get_json()["lines"][0]
-    assert line["plannedMaterialId"] == planned_id
-    assert line["materialName"] == "Round bar 50mm"
-
-
-def test_extra_material_is_added_to_the_plan_first_then_ordered(client, shop):
-    job = _job(shop, raw_materials=[{"name": "Round bar 50mm", "quantity": 4, "unit": "pcs"}])
-    res = client.patch(
-        f"/api/v1/job-orders/{job.id}",
-        json={
-            "rawMaterials": [
-                *job.raw_materials,
-                {"name": "Cutting disc", "quantity": 2, "unit": "pcs"},
-            ]
-        },
-        headers=_headers(shop["office"]),
-    )
-    assert res.status_code == 200, res.get_json()
-    disc = next(m for m in res.get_json()["plannedMaterials"] if m["name"] == "Cutting disc")
-
-    res = _add_lines(
-        client,
-        shop,
-        [{"jobOrderId": job.id, "plannedMaterialId": disc["id"], "quantity": 2, "unitCost": 40}],
-    )
-    assert res.status_code == 200, res.get_json()
-
-
-def test_nothing_left_to_order_once_every_planned_material_is_on_an_order(client, shop):
-    job = _job(
-        shop,
-        raw_materials=[
-            {"name": "Round bar 50mm", "quantity": 4, "unit": "pcs"},
-            {"name": "Plate 10mm", "quantity": 1, "unit": "pcs"},
-        ],
-    )
-    headers = _headers(shop["office"])
-    outstanding = client.get(f"/api/v1/supplier-orders/outstanding?jobId={job.id}", headers=headers)
-    assert len(outstanding.get_json()["materials"]) == 2
-
-    res = _add_lines(
-        client,
-        shop,
-        [
-            {"jobOrderId": job.id, "plannedMaterialId": m["id"], "quantity": m["quantity"], "unitCost": 10}
-            for m in job.raw_materials
-        ],
-    )
-    assert res.status_code == 200, res.get_json()
-
-    outstanding = client.get(f"/api/v1/supplier-orders/outstanding?jobId={job.id}", headers=headers)
-    assert outstanding.get_json()["materials"] == []
-    statuses = {
-        m["status"]
-        for m in client.get(f"/api/v1/job-orders/{job.id}", headers=headers).get_json()[
-            "plannedMaterials"
-        ]
-    }
-    assert statuses == {"ON_DRAFT_ORDER"}
-
-
 # --- 3. A PO prints only once issued ---
 
 
 def test_draft_order_cannot_be_printed_until_issued(client, shop):
-    job = _job(shop, raw_materials=[{"name": "Round bar 50mm", "quantity": 4, "unit": "pcs"}])
+    job = _job(shop, to_order=True)
     order = _add_lines(
         client,
         shop,
         [
             {
                 "jobOrderId": job.id,
-                "plannedMaterialId": job.raw_materials[0]["id"],
+                "materialName": "Round bar 50mm",
                 "quantity": 4,
                 "unitCost": 250,
             }
@@ -239,7 +131,7 @@ def test_draft_order_cannot_be_printed_until_issued(client, shop):
 
     res = client.get(f"/api/v1/supplier-orders/{order['id']}/print", headers=headers)
     assert res.status_code == 200, res.get_json()
-    assert res.get_json()["order"]["poNumber"] == "BMSC-PO-00001"
+    assert res.get_json()["order"]["poNumber"] == "OPS31000001"
 
 
 # --- 4. Sales invoice: a recorded reference ---
@@ -321,18 +213,41 @@ def test_invoice_needs_a_completed_job_and_only_one_per_job(client, shop):
     assert res.get_json()["error"]["code"] == "INVOICE_EXISTS"
 
 
-def test_delivery_still_requires_a_recorded_invoice(client, shop):
-    job = _completed_job(shop)
-    headers = _headers(shop["office"])
+def _deliver(client, job, user):
+    return client.post(f"/api/v1/job-orders/{job.id}/deliver", headers=_headers(user))
 
-    res = client.post(f"/api/v1/job-orders/{job.id}/deliver", headers=headers)
+
+def test_for_delivery_requires_a_recorded_invoice(client, shop):
+    job = _completed_job(shop)
+
+    res = _deliver(client, job, shop["admin"])
     assert res.status_code == 409
     assert res.get_json()["error"]["code"] == "INVOICE_REQUIRED"
+    assert "sales invoice" in res.get_json()["error"]["message"]
 
     assert _record(client, shop, job).status_code == 201
-    res = client.post(f"/api/v1/job-orders/{job.id}/deliver", headers=headers)
+    res = _deliver(client, job, shop["admin"])
     assert res.status_code == 200, res.get_json()
-    assert res.get_json()["status"] == "DELIVERED"
+    body = res.get_json()
+    assert body["status"] == "DELIVERED"
+    assert body["deliveredAt"]
+
+
+def test_office_staff_can_no_longer_set_for_delivery(client, shop):
+    job = _completed_job(shop)
+    assert _record(client, shop, job).status_code == 201
+    res = _deliver(client, job, shop["office"])
+    assert res.status_code == 403
+    db.session.expire_all()
+    assert db.session.get(JobOrder, job.id).status == JobOrderStatus.COMPLETED
+
+
+def test_for_delivery_needs_a_completed_job(client, shop):
+    job = _job(shop, status=JobOrderStatus.IN_PROGRESS, amount=Decimal("100"))
+    res = _deliver(client, job, shop["admin"])
+    assert res.status_code == 409
+    assert res.get_json()["error"]["code"] == "INVALID_TRANSITION"
+    assert "Completed" in res.get_json()["error"]["message"]
 
 
 def _correct(client, shop, job, user=None, **body):
@@ -399,8 +314,7 @@ def test_admin_cannot_correct_an_invoice(client, shop):
 def test_invoice_is_locked_after_delivery(client, shop):
     job = _completed_job(shop)
     assert _record(client, shop, job).status_code == 201
-    headers = _headers(shop["office"])
-    assert client.post(f"/api/v1/job-orders/{job.id}/deliver", headers=headers).status_code == 200
+    assert _deliver(client, job, shop["admin"]).status_code == 200
 
     res = _correct(client, shop, job, amount=1, reason="Too late")
     assert res.status_code == 409
@@ -431,5 +345,5 @@ def test_existing_generated_invoice_numbers_stay_as_references(client, shop):
     assert body["invoiceNumber"] == "BMSC-INV-00007"
     assert body["amount"] == 11200.0
 
-    res = client.post(f"/api/v1/job-orders/{job.id}/deliver", headers=_headers(shop["office"]))
+    res = _deliver(client, job, shop["admin"])
     assert res.status_code == 200, res.get_json()

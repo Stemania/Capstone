@@ -475,12 +475,12 @@ def test_supplier_purchase_and_invoice_write_audit_rows_with_actor(client, shop)
     supplier_id = res.get_json()["id"]
 
     job = _job(shop, status=JobOrderStatus.SCHEDULED, amount=Decimal("1500"))
-    job.raw_materials = [{"name": "AISI 1045 round bar", "quantity": 2, "unit": "pcs"}]
+    job.material_status = MaterialStatus.TO_ORDER
     db.session.commit()
     res = client.post(
         f"/api/v1/job-orders/{job.id}/material-purchases",
         json={
-            "plannedMaterialId": job.raw_materials[0]["id"],
+            "materialName": "AISI 1045 round bar",
             "supplierId": supplier_id,
             "quantity": 2,
             "unit": "pcs",
