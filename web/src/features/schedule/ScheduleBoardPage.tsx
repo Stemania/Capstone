@@ -47,13 +47,8 @@ import {
   pxPerHour,
   fitDayPxPerHour,
   scaleWeekTimelineLayout,
-  scheduleBarLabelParts,
-  scheduleBarTextStyle,
   scheduleOpTitle,
-  SCHEDULE_BAR_LABEL_SPAN_STYLE,
-  SCHEDULE_BAR_META_STYLE,
   MATERIAL_WAIT_BAR_IMAGE,
-  SCHEDULE_BAR_TITLE_STYLE,
   mergeAdjacentWeekPieces,
   splitSegmentAcrossWeekDays,
   timelineWidth,
@@ -92,6 +87,46 @@ type RowDef = {
   workerId?: string | null;
   noMachine?: boolean;
 };
+
+const NOW_COLOR = '#2563eb';
+
+const BAR_TEXT_STYLE = {
+  display: 'flex',
+  flexDirection: 'column',
+  justifyContent: 'center',
+  flex: 1,
+  minWidth: 0,
+  gap: 1,
+  lineHeight: 1.2,
+} as const;
+
+const BAR_LINE_STYLE = {
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+} as const;
+
+const BAR_PILL_STYLE = {
+  flexShrink: 0,
+  border: '1px solid rgba(255,255,255,0.85)',
+  background: 'rgba(255,255,255,0.12)',
+  borderRadius: 999,
+  padding: '0 7px',
+  fontSize: 10,
+  fontWeight: 600,
+  lineHeight: '16px',
+  whiteSpace: 'nowrap',
+} as const;
+
+/** Shop time, refreshed every minute for the board's "now" line. */
+function useShopNow(): Dayjs {
+  const [now, setNow] = useState(() => dayjs().tz(SHOP_TZ));
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(dayjs().tz(SHOP_TZ)), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+  return now;
+}
 
 const NO_MACHINE_KEY = '__none__';
 const NO_OPS: ScheduleBoardOperation[] = [];
@@ -283,6 +318,14 @@ function AdminOfficeScheduleBoard() {
     [from, to, viewMode, isMobile, weekLayout, dayHourPx]
   );
   const pph = dayHourPx ?? pxPerHour(viewMode, isMobile);
+  const now = useShopNow();
+  const nowLeft = useMemo(() => {
+    const hour = now.hour() + now.minute() / 60;
+    if (hour < HOUR_START || hour > HOUR_END) return null;
+    if (now.isBefore(from.startOf('day')) || now.isAfter(to.endOf('day'))) return null;
+    const left = leftPx(now.toISOString(), from, viewMode, isMobile, weekLayout, dayHourPx);
+    return left != null && left >= 0 && left <= boardW ? left : null;
+  }, [now, from, to, viewMode, isMobile, weekLayout, dayHourPx, boardW]);
   const boardCollapsedMaxHeight = isPhoneBoard
       ? 'calc(100dvh - 340px)'
       : isMobile
@@ -675,7 +718,7 @@ function AdminOfficeScheduleBoard() {
                 display: 'flex',
                 position: 'sticky',
                 top: 0,
-                zIndex: 3,
+                zIndex: 5,
                 background: '#f8fafc',
               }}
             >
@@ -726,6 +769,42 @@ function AdminOfficeScheduleBoard() {
                       {col.label}
                     </div>
                   ))}
+                {nowLeft != null ? (
+                  <>
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: nowLeft - 1,
+                        bottom: 0,
+                        width: 2,
+                        height: 8,
+                        background: NOW_COLOR,
+                        pointerEvents: 'none',
+                      }}
+                    />
+                    <div
+                      aria-label="Now"
+                      style={{
+                        position: 'absolute',
+                        left: nowLeft,
+                        bottom: -8,
+                        transform: 'translateX(-50%)',
+                        background: NOW_COLOR,
+                        color: '#fff',
+                        fontSize: 10,
+                        fontWeight: 600,
+                        lineHeight: '16px',
+                        padding: '0 7px',
+                        borderRadius: 4,
+                        whiteSpace: 'nowrap',
+                        boxShadow: '0 1px 2px rgba(15,23,42,0.2)',
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      Now
+                    </div>
+                  </>
+                ) : null}
               </div>
             </div>
 
@@ -745,6 +824,7 @@ function AdminOfficeScheduleBoard() {
               isMobile={isMobile}
               weekLayout={weekLayout}
               dayHourPx={dayHourPx}
+              nowLeft={nowLeft}
               onOpenJob={openJob}
             />
           </div>
@@ -981,6 +1061,7 @@ type BoardRowsProps = {
   isMobile: boolean;
   weekLayout: WeekTimelineLayout | null;
   dayHourPx: number | undefined;
+  nowLeft: number | null;
   onOpenJob: (jobOrderId: string) => void;
 };
 
@@ -1000,12 +1081,27 @@ const BoardRows = memo(function BoardRows({
   isMobile,
   weekLayout,
   dayHourPx,
+  nowLeft,
   onOpenJob,
 }: BoardRowsProps) {
-  const columnFill = true;
+  const columnFill = false;
   const posArgs = [from, viewMode, isMobile, weekLayout, dayHourPx] as const;
   return (
     <div style={{ position: 'relative' }}>
+    {nowLeft != null ? (
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          bottom: 0,
+          left: labelW + nowLeft - 1,
+          width: 2,
+          background: NOW_COLOR,
+          zIndex: 3,
+          pointerEvents: 'none',
+        }}
+      />
+    ) : null}
     {rows.map((row) => {
       const ops = opsByRowKey.get(rowGroupKey(row, rowMode)) ?? NO_OPS;
       const dts = (rowMode === 'machine' && row.machineUnitId ? downtimesByUnit.get(row.machineUnitId) : undefined) ?? NO_DOWNTIMES;
@@ -1069,7 +1165,7 @@ const BoardRows = memo(function BoardRows({
                 flexShrink: 0,
                 position: 'sticky',
                 left: 0,
-                zIndex: 2,
+                zIndex: 4,
                 background: '#fff',
                 borderRight: `1px solid ${BORDER}`,
                 padding: '6px 8px',
@@ -1202,26 +1298,13 @@ const BoardRows = memo(function BoardRows({
                   const color =
                     op.scheduleColor || STATUS_COLOR[op.status] || '#2563eb';
                   const late = !!op.isLate;
-                  const label =
-                    barW >= 22
-                      ? scheduleBarLabelParts(
-                          op.operationName,
-                          op.jobNumber,
-                          op.clientName,
-                          barW,
-                          isMobile,
-                          op.sequenceNo
-                        )
-                      : null;
-                  const textStyle = scheduleBarTextStyle({
-                    mobile: isMobile,
-                    barWidthPx: barW,
-                    columnFill,
-                  });
-                  const metaFontSize = Math.max(
-                    9,
-                    Math.round((textStyle.fontSize as number) * 0.88)
-                  );
+                  const showText = barW >= 22;
+                  const showPill = barW >= adminPx(150) && !isMobile;
+                  const opTitle = scheduleOpTitle(op.sequenceNo, op.operationName);
+                  const title = op.jobNumber ? `Job ${op.jobNumber}` : opTitle;
+                  const meta = [op.clientName, op.jobNumber ? opTitle : null]
+                    .filter(Boolean)
+                    .join(' · ');
                   return [
                     <Tooltip
                       key={`${op.id}-${i}`}
@@ -1271,35 +1354,45 @@ const BoardRows = memo(function BoardRows({
                           backgroundImage: op.waitingForMaterials
                             ? MATERIAL_WAIT_BAR_IMAGE
                             : undefined,
-                          border: columnFill ? 'none' : late ? '2px solid #7A1528' : 'none',
-                          borderRadius: columnFill ? 0 : 4,
+                          border: 'none',
+                          borderRadius: adminPx(6),
                           color: '#fff',
-                          ...textStyle,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: adminPx(6),
+                          boxSizing: 'border-box',
+                          margin: 0,
+                          padding: barW < adminPx(64) ? `0 ${adminPx(4)}px` : `0 ${adminPx(8)}px`,
+                          overflow: 'hidden',
+                          textAlign: 'left',
                           cursor: 'pointer',
                           zIndex: 2,
-                          boxShadow: columnFill
-                            ? late
-                              ? 'inset 0 0 0 2px #7A1528'
-                              : undefined
-                            : late
-                              ? '0 0 0 1px rgba(122,21,40,0.35)'
-                              : undefined,
+                          boxShadow: late
+                            ? 'inset 0 0 0 2px #7A1528, 0 1px 2px rgba(15,23,42,0.18)'
+                            : '0 1px 2px rgba(15,23,42,0.18)',
                         }}
                       >
-                        {label ? (
-                          <span style={SCHEDULE_BAR_LABEL_SPAN_STYLE}>
-                            <span style={SCHEDULE_BAR_TITLE_STYLE}>{label.title}</span>
-                            {label.meta ? (
+                        {showText ? (
+                          <span style={BAR_TEXT_STYLE}>
+                            <span style={{ ...BAR_LINE_STYLE, fontSize: adminPx(isMobile ? 11 : 12), fontWeight: 700 }}>
+                              {title}
+                            </span>
+                            {meta ? (
                               <span
                                 style={{
-                                  ...SCHEDULE_BAR_META_STYLE,
-                                  fontSize: metaFontSize,
+                                  ...BAR_LINE_STYLE,
+                                  fontSize: adminPx(isMobile ? 10 : 11),
+                                  fontWeight: 500,
+                                  opacity: 0.9,
                                 }}
                               >
-                                {label.meta}
+                                {meta}
                               </span>
                             ) : null}
                           </span>
+                        ) : null}
+                        {showPill ? (
+                          <span style={BAR_PILL_STYLE}>{statusLabel(op.status)}</span>
                         ) : null}
                       </button>
                     </Tooltip>,
