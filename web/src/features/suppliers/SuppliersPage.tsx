@@ -243,7 +243,7 @@ export default function SuppliersPage() {
               <Form.Item
                 name="code"
                 label="Code"
-                tooltip="2 to 5 letters, used in PO numbers (e.g. RIC gives BMSC-PO-RIC-00012)."
+                tooltip="2 to 5 letters that start this supplier's PO numbers (e.g. STP gives STP26000001). Needed before a PO can be issued."
                 normalize={(v: string) => (v || '').toUpperCase().replace(/[^A-Z]/g, '')}
                 rules={[{ pattern: /^[A-Z]{2,5}$/, message: '2 to 5 letters' }]}
               >

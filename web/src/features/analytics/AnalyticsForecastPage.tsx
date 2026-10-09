@@ -188,9 +188,9 @@ export default function AnalyticsForecastPage() {
           title="Accepted jobs and sales forecast"
           description={
             <>
-              Released jobs not yet completed or delivered are money already on the books; pending
-              jobs that are still being planned are left out. The sales forecast is an estimate:
-              income from completed and delivered jobs per completion month, and{' '}
+              Released jobs not yet completed or set For Delivery are money already on the books;
+              pending jobs that are still being planned are left out. The sales forecast is an
+              estimate: income from completed and For Delivery jobs per completion month, and{' '}
               {monthLabel(sales.forecastMonth)} is the average of the previous 3 complete months.
               Its error comes from testing the same method on every past month that had 3 months
               before it. Both use all records, not the date range above. Keep the two figures
@@ -239,7 +239,7 @@ export default function AnalyticsForecastPage() {
             }}
           >
             <SummaryCard
-              label="Accepted, not delivered"
+              label="Accepted, not yet completed"
               value={formatMoney(pipeline.totalAmount)}
               hint={`${formatInt(pipeline.jobCount)} released jobs, not yet completed`}
             />
@@ -260,7 +260,7 @@ export default function AnalyticsForecastPage() {
             pagination={false}
             rowKey="month"
             dataSource={pipelineMonths}
-            locale={{ emptyText: 'No accepted jobs waiting to be delivered.' }}
+            locale={{ emptyText: 'No accepted jobs waiting to be completed.' }}
             columns={[
               { title: 'Expected completion month', dataIndex: 'month' },
               { title: 'Jobs', dataIndex: 'jobCount', width: 80, align: 'right' },

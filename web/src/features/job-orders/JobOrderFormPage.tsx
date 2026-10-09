@@ -12,20 +12,25 @@ import {
   Row,
   Col,
   Space,
-  Modal,
+  Radio,
 } from 'antd';
-import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined } from '@ant-design/icons';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { clientsApi, jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
-import { MATERIAL_UNITS } from '../../api/materialCatalog.api';
-import { MaterialNameInput } from '../../components/MaterialInputs';
-import type { Client } from '../../types';
+import { useAuth } from '../../hooks/useAuth';
+import type { Client, JobOrderStatus } from '../../types';
 import { jobOrdersDraftsListPath } from './jobOrderListPaths';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
+
+type MaterialsNeeded = 'TO_ORDER' | 'NOT_REQUIRED';
+
+/** Fabrication needs material bought for it; Repair and Modification usually don't. */
+const defaultMaterialsNeeded = (jobType?: string): MaterialsNeeded =>
+  jobType === 'FABRICATION' ? 'TO_ORDER' : 'NOT_REQUIRED';
 
 export default function JobOrderFormPage() {
   const { id } = useParams();
@@ -39,6 +44,10 @@ export default function JobOrderFormPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [jobNumber, setJobNumber] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<JobOrderStatus | null>(null);
+  const [materialsTouched, setMaterialsTouched] = useState(false);
+  const { isAdmin } = useAuth();
+  const released = jobStatus != null && jobStatus !== 'DRAFT';
   const NAVY = '#0f1c2e';
   const backTo = !id
     ? jobOrdersDraftsListPath()
@@ -71,6 +80,8 @@ export default function JobOrderFormPage() {
         const { data } = await jobOrdersApi.get(id);
         if (cancelled) return;
         setJobNumber(data.jobNumber || data.id.slice(0, 8).toUpperCase());
+        setJobStatus(data.status);
+        setMaterialsTouched(true);
         form.setFieldsValue({
           clientId: data.clientId,
           title: data.title,
@@ -82,10 +93,7 @@ export default function JobOrderFormPage() {
           quantity: data.quantity,
           unitOfMeasure: data.unitOfMeasure,
           amount: data.amount,
-          rawMaterials:
-            (data.rawMaterials?.length ?? 0) > 0
-              ? data.rawMaterials
-              : [{ name: '', quantity: undefined, unit: '' }],
+          materialsNeeded: data.materialStatus === 'NOT_REQUIRED' ? 'NOT_REQUIRED' : 'TO_ORDER',
         });
       } catch (err) {
         if (!cancelled) setError(getErrorMessage(err));
@@ -110,29 +118,12 @@ export default function JobOrderFormPage() {
       quantity?: number;
       unitOfMeasure?: string;
       amount?: number;
-      rawMaterials?: { id?: string; name: string; quantity?: number; unit?: string }[];
+      materialsNeeded: MaterialsNeeded;
     };
     try {
       values = await form.validateFields();
     } catch {
       return;
-    }
-
-    const hasPlannedMaterials = (values.rawMaterials || []).some((m) => m.name?.trim());
-    if (values.jobType === 'FABRICATION' && !hasPlannedMaterials) {
-      const proceed = await new Promise<boolean>((resolve) => {
-        Modal.confirm({
-          title: 'No raw materials planned',
-          content:
-            'Fabrication usually needs material. Without planned materials this job is marked ' +
-            'Not required and nothing will be ordered for it. Is that correct?',
-          okText: 'Save anyway',
-          cancelText: 'Add materials',
-          onOk: () => resolve(true),
-          onCancel: () => resolve(false),
-        });
-      });
-      if (!proceed) return;
     }
 
     setSubmitting(true);
@@ -148,14 +139,7 @@ export default function JobOrderFormPage() {
       quantity: values.quantity ?? null,
       unitOfMeasure: values.unitOfMeasure || null,
       amount: values.amount ?? null,
-      rawMaterials: (values.rawMaterials || [])
-        .filter((m) => m.name?.trim())
-        .map((m) => ({
-          id: m.id || undefined,
-          name: m.name.trim(),
-          quantity: m.quantity,
-          unit: m.unit || undefined,
-        })),
+      materialStatus: values.materialsNeeded,
     };
 
     try {
@@ -211,7 +195,13 @@ export default function JobOrderFormPage() {
         className="jo-form"
         initialValues={{
           jobType: 'FABRICATION',
-          rawMaterials: [{ name: '', quantity: undefined, unit: '' }],
+          materialsNeeded: defaultMaterialsNeeded('FABRICATION'),
+        }}
+        onValuesChange={(changed) => {
+          if ('materialsNeeded' in changed) setMaterialsTouched(true);
+          if ('jobType' in changed && !materialsTouched) {
+            form.setFieldValue('materialsNeeded', defaultMaterialsNeeded(changed.jobType));
+          }
         }}
       >
         <Row gutter={[16, 0]} align="stretch">
@@ -292,69 +282,27 @@ export default function JobOrderFormPage() {
           </Col>
           <Col xs={24} md={12} className="jo-form__pair-col">
             <div className="jo-form__materials">
-              <div className="jo-form__materials-label">Raw Materials</div>
-              <Form.List name="rawMaterials">
-                {(fields, { add, remove }) => (
-                  <div className="jo-form__materials-body">
-                    <div className="jo-form__materials-scroll">
-                      {fields.map(({ key, name, ...rest }) => (
-                        <div key={key} className="jo-form__materials-row">
-                          <Form.Item {...rest} name={[name, 'id']} hidden noStyle>
-                            <Input />
-                          </Form.Item>
-                          <Form.Item
-                            {...rest}
-                            name={[name, 'name']}
-                            style={{ flex: 2, marginBottom: 0 }}
-                          >
-                            <MaterialNameInput
-                              onPick={(item) => {
-                                if (!form.getFieldValue(['rawMaterials', name, 'unit'])) {
-                                  form.setFieldValue(['rawMaterials', name, 'unit'], item.defaultUnit);
-                                }
-                              }}
-                            />
-                          </Form.Item>
-                          <Form.Item
-                            {...rest}
-                            name={[name, 'quantity']}
-                            style={{ width: 88, marginBottom: 0 }}
-                          >
-                            <InputNumber style={{ width: '100%' }} min={0} placeholder="Qty" />
-                          </Form.Item>
-                          <Form.Item
-                            {...rest}
-                            name={[name, 'unit']}
-                            style={{ width: 96, marginBottom: 0 }}
-                          >
-                            <Select
-                              allowClear
-                              placeholder="Unit"
-                              options={MATERIAL_UNITS.map((u) => ({ value: u, label: u }))}
-                            />
-                          </Form.Item>
-                          <Button
-                            type="text"
-                            danger
-                            icon={<DeleteOutlined />}
-                            disabled={fields.length <= 1}
-                            onClick={() => remove(name)}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                    <Button
-                      type="default"
-                      onClick={() => add()}
-                      block
-                      icon={<PlusOutlined />}
-                      className="jo-form__materials-add"
-                    >
-                      Add Material
-                    </Button>
-                  </div>
-                )}
-              </Form.List>
+              <Form.Item
+                name="materialsNeeded"
+                label="Materials needed"
+                rules={[{ required: true }]}
+                style={{ marginBottom: 8 }}
+              >
+                <Radio.Group>
+                  <Space direction="vertical">
+                    <Radio value="TO_ORDER">To order</Radio>
+                    <Radio value="NOT_REQUIRED" disabled={released && !isAdmin}>
+                      Not required (client-supplied or from stock)
+                    </Radio>
+                  </Space>
+                </Radio.Group>
+              </Form.Item>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                Materials are entered when ordering (Order materials on the job), not here.
+                {released && !isAdmin
+                  ? ' After release only the Admin can set Not required.'
+                  : ''}
+              </Text>
             </div>
           </Col>
         </Row>

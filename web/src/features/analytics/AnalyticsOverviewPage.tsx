@@ -98,12 +98,12 @@ export default function AnalyticsOverviewPage() {
         <SummaryCard
           label="Jobs finished"
           value={formatInt(overview.jobs.completed)}
-          hint={`${overview.jobs.onTime} on time · ${overview.jobs.late} late · ${overview.jobs.awaitingDelivery} awaiting delivery`}
+          hint={`${overview.jobs.onTime} on time · ${overview.jobs.late} late · ${overview.jobs.awaitingDelivery} not yet set For Delivery`}
         />
         <SummaryCard
-          label="Delivered on time"
+          label="On time"
           value={formatPct(onTimeRate, 0)}
-          hint="Share of delivered jobs that met the date required (excludes awaiting delivery)"
+          hint="Share of jobs set For Delivery by the date required (excludes jobs not yet set For Delivery)"
         />
         <SummaryCard
           label="Average days late"
@@ -114,8 +114,8 @@ export default function AnalyticsOverviewPage() {
           }
           hint={
             overview.jobs.late > 0
-              ? `Longest ${formatInt(overview.jobs.maxDaysLate)} days · ${formatInt(overview.jobs.late)} late delivered jobs`
-              : 'No late deliveries in this period'
+              ? `Longest ${formatInt(overview.jobs.maxDaysLate)} days · ${formatInt(overview.jobs.late)} late jobs`
+              : 'No late jobs in this period'
           }
         />
         <SummaryCard

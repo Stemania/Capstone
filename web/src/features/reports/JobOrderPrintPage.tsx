@@ -69,6 +69,7 @@ export default function JobOrderPrintPage() {
     [job]
   );
   const materials: RawMaterial[] = job?.rawMaterials || [];
+  const orderedLines = job?.materialLines || [];
 
   if (loading) {
     return (
@@ -141,31 +142,60 @@ export default function JobOrderPrintPage() {
           <div>{displayOrDash(job.description)}</div>
         </div>
 
-        <h2 className="jo-print-h2">Raw materials</h2>
-        <table className="jo-print-table">
-          <thead>
-            <tr>
-              <th>Material</th>
-              <th>Qty</th>
-              <th>Unit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {materials.length === 0 ? (
+        <h2 className="jo-print-h2">Materials</h2>
+        <div className="jo-print-block">
+          <strong>Materials needed</strong>{' '}
+          {job.materialStatus === 'NOT_REQUIRED'
+            ? 'Not required (client-supplied or from stock)'
+            : 'To order'}
+        </div>
+        {orderedLines.length > 0 && (
+          <table className="jo-print-table">
+            <thead>
               <tr>
-                <td colSpan={3}>—</td>
+                <th>Material</th>
+                <th>Grade / spec</th>
+                <th>Qty</th>
+                <th>Unit</th>
+                <th>Supplier PO #</th>
               </tr>
-            ) : (
-              materials.map((m, i) => (
-                <tr key={`${m.name}-${i}`}>
-                  <td>{displayOrDash(m.name)}</td>
+            </thead>
+            <tbody>
+              {orderedLines.map((m) => (
+                <tr key={m.id}>
+                  <td>{displayOrDash(m.materialName)}</td>
+                  <td>{displayOrDash(m.gradeOrSpec)}</td>
                   <td>{m.quantity != null ? m.quantity : '—'}</td>
                   <td>{displayOrDash(m.unit)}</td>
+                  <td>{displayOrDash(m.poNumber)}</td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {materials.length > 0 && (
+          <>
+            <h2 className="jo-print-h2">Planned (earlier record)</h2>
+            <table className="jo-print-table">
+              <thead>
+                <tr>
+                  <th>Material</th>
+                  <th>Qty</th>
+                  <th>Unit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {materials.map((m, i) => (
+                  <tr key={`${m.name}-${i}`}>
+                    <td>{displayOrDash(m.name)}</td>
+                    <td>{m.quantity != null ? m.quantity : '—'}</td>
+                    <td>{displayOrDash(m.unit)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
 
         <h2 className="jo-print-h2">Operations</h2>
         <table className="jo-print-table">

@@ -138,11 +138,9 @@ export default function RawMaterialsPanel() {
       okText: 'Mark received',
       onOk: async () => {
         try {
-          await jobOrdersApi.markPurchaseReceived(
-            row.jobOrderId!,
-            row.id,
-            receivedDate.format('YYYY-MM-DD')
-          );
+          await jobOrdersApi.updateMaterialPurchase(row.jobOrderId!, row.id, {
+            dateReceived: receivedDate.format('YYYY-MM-DD'),
+          });
           message.success('Marked received');
           await fetchRows();
         } catch (err) {
@@ -274,12 +272,21 @@ export default function RawMaterialsPanel() {
       title: '',
       key: 'act',
       width: 110,
-      render: (_: unknown, r) =>
-        !canEdit || r.dateReceived ? null : (
+      render: (_: unknown, r) => {
+        if (!canEdit || r.dateReceived || r.status === 'CANCELLED') return null;
+        if (r.supplierOrderId) {
+          return r.status === 'DRAFT' ? null : (
+            <Tooltip title="Deliveries arrive complete: receive the whole order on its page.">
+              <Link to={`/supplier-orders/${r.supplierOrderId}`}>Receive order</Link>
+            </Tooltip>
+          );
+        }
+        return r.jobOrderId ? (
           <Button size="small" onClick={() => markReceived(r)}>
             Received
           </Button>
-        ),
+        ) : null;
+      },
     },
   ];
 

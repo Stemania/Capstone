@@ -534,13 +534,13 @@ export default function AnalyticsDelaysPage() {
       <AnalyticsGrid>
         <AnalyticsSection
           title="Late job orders"
-          description="Job orders delivered in this period after their required date, with the delay causes recorded against each over the whole job."
+          description="Job orders set For Delivery in this period after their required date, with the delay causes recorded against each over the whole job."
           onExport={() =>
             exportCsv(`late-job-orders-${data.period.from}_${data.period.to}.csv`, lateJobs, [
               { key: 'job', header: 'JobOrder', value: (r) => r.jobNumber },
               { key: 'client', header: 'Client', value: (r) => r.clientName },
               { key: 'due', header: 'RequiredDate', value: (r) => r.dueDate },
-              { key: 'delivered', header: 'DeliveredDate', value: (r) => r.deliveredDate },
+              { key: 'delivered', header: 'ForDeliveryDate', value: (r) => r.deliveredDate },
               { key: 'late', header: 'DaysLate', value: (r) => r.daysLate },
               {
                 key: 'causes',
@@ -554,7 +554,7 @@ export default function AnalyticsDelaysPage() {
           exportDisabled={!lateJobs.length}
         >
           {lateJobs.length === 0 ? (
-            <Text type="secondary">No job orders delivered late in this period.</Text>
+            <Text type="secondary">No job orders set For Delivery late in this period.</Text>
           ) : (
             <Table
               size="small"
@@ -571,7 +571,7 @@ export default function AnalyticsDelaysPage() {
                 { title: 'Client', dataIndex: 'clientName', width: 170, render: (v) => v || '—' },
                 { title: 'Required', dataIndex: 'dueDate', width: 120, render: (v: string) => fmtDay(v) },
                 {
-                  title: 'Delivered',
+                  title: 'For Delivery',
                   dataIndex: 'deliveredDate',
                   width: 120,
                   render: (v: string) => fmtDay(v),

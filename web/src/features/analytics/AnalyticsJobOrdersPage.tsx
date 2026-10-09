@@ -81,22 +81,22 @@ export default function AnalyticsJobOrdersPage() {
         <SummaryCard
           label="Jobs finished"
           value={formatInt(finished.completed)}
-          hint={`${formatInt(finished.awaitingDelivery)} still awaiting delivery`}
+          hint={`${formatInt(finished.awaitingDelivery)} not yet set For Delivery`}
         />
         <SummaryCard
-          label="Delivered"
+          label="For Delivery"
           value={formatInt(delivered.count)}
           hint={`${formatMoney(delivered.amount)} · ${delivered.onTime} on time · ${delivered.late} late`}
         />
         <SummaryCard
-          label="Delivered on time"
+          label="On time"
           value={formatPct(onTimeRate, 0)}
-          hint="Delivered on or before the date required"
+          hint="Set For Delivery on or before the date required"
         />
         <SummaryCard
           label="Open past the date required"
           value={formatInt(openNow.pastDateRequired)}
-          hint="Not yet delivered, as of today"
+          hint="Not yet set For Delivery, as of today"
         />
       </div>
 
@@ -104,7 +104,7 @@ export default function AnalyticsJobOrdersPage() {
         <AnalyticsSection
           span={6}
           title="Job orders received and open"
-          description="Received in the selected period by job type, and every job order not yet delivered as of today."
+          description="Received in the selected period by job type, and every job order not yet set For Delivery as of today."
           onExport={() =>
             exportCsv(`job-orders-received-${data.period.from}_${data.period.to}.csv`, received.byJobType, [
               { key: 'type', header: 'JobType', value: (r) => JOB_TYPE_LABEL[r.jobType] ?? r.jobType },

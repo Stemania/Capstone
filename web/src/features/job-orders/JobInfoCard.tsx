@@ -20,7 +20,10 @@ const peso = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP'
 export default function JobInfoCard({ job }: { job: JobOrder }) {
   const [open, setOpen] = useState(true);
   const due = job.dueDate ? dueHint(job.dueDate) : null;
-  const materials = (job.rawMaterials || []).filter((m) => m.name?.trim());
+  const ordered = job.materialLines || [];
+  const planned = (job.rawMaterials || []).filter((m) => m.name?.trim());
+  const materialsNeeded =
+    job.materialStatus === 'NOT_REQUIRED' ? 'Not required (client-supplied or from stock)' : 'To order';
   const description = job.description?.trim();
   const entered = job.createdAt
     ? `Entered${job.createdByName ? ` by ${job.createdByName}` : ''} · ${formatShop(job.createdAt, 'MMM D, YYYY')}`
@@ -95,24 +98,38 @@ export default function JobInfoCard({ job }: { job: JobOrder }) {
               )}
             </div>
             <div className="jo-info__block">
-              <div className="jo-info__label">
-                Raw materials{materials.length ? ` (${materials.length})` : ''}
-              </div>
-              {materials.length ? (
+              <div className="jo-info__label">Materials needed</div>
+              <p className="jo-info__desc">{materialsNeeded}</p>
+              {ordered.length ? (
                 <ul className="jo-info__materials">
-                  {materials.map((m, i) => (
-                    <li key={m.id || `${m.name}-${i}`}>
-                      <span className="jo-info__mat-name">{m.name}</span>
+                  {ordered.map((m) => (
+                    <li key={m.id}>
+                      <span className="jo-info__mat-name">
+                        {m.materialName}
+                        {m.gradeOrSpec ? ` · ${m.gradeOrSpec}` : ''}
+                      </span>
                       <span className="jo-info__mat-qty">
                         {m.quantity != null ? `${m.quantity}${m.unit ? ` ${m.unit}` : ''}` : '—'}
                       </span>
-                      {m.fromStock ? <span className="jo-info__stock">In stock</span> : null}
                     </li>
                   ))}
                 </ul>
-              ) : (
-                <p className="jo-info__empty">No raw materials listed</p>
-              )}
+              ) : null}
+              {planned.length ? (
+                <>
+                  <div className="jo-info__label">Planned (earlier record)</div>
+                  <ul className="jo-info__materials">
+                    {planned.map((m, i) => (
+                      <li key={m.id || `${m.name}-${i}`}>
+                        <span className="jo-info__mat-name">{m.name}</span>
+                        <span className="jo-info__mat-qty">
+                          {m.quantity != null ? `${m.quantity}${m.unit ? ` ${m.unit}` : ''}` : '—'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
             </div>
           </div>
         </>

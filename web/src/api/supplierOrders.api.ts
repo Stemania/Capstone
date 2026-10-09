@@ -30,8 +30,9 @@ export const supplierOrdersApi = {
       note,
     }),
   cancel: (id: string) => apiClient.post<SupplierOrder>(`/supplier-orders/${id}/cancel`),
-  receive: (id: string, lineIds: string[], receivedDate?: string) =>
-    apiClient.post<SupplierOrder>(`/supplier-orders/${id}/receive`, { lineIds, receivedDate }),
+  /** Receive order: every open line on one date. */
+  receive: (id: string, receivedDate?: string) =>
+    apiClient.post<SupplierOrder>(`/supplier-orders/${id}/receive`, { receivedDate }),
   print: (id: string) => apiClient.get<SupplierOrderPrint>(`/supplier-orders/${id}/print`),
   updateLine: (
     id: string,
@@ -46,8 +47,4 @@ export const supplierOrdersApi = {
   ) => apiClient.patch<SupplierOrder>(`/supplier-orders/${id}/lines/${lineId}`, data),
   removeLine: (id: string, lineId: string) =>
     apiClient.delete<SupplierOrder>(`/supplier-orders/${id}/lines/${lineId}`),
-  cancelLine: (id: string, lineId: string) =>
-    apiClient.post<SupplierOrder>(`/supplier-orders/${id}/lines/${lineId}/cancel`),
-  splitLine: (id: string, lineId: string, quantity: number) =>
-    apiClient.post<SupplierOrder>(`/supplier-orders/${id}/lines/${lineId}/split`, { quantity }),
 };

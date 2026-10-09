@@ -22,7 +22,6 @@ import {
   EditOutlined,
   PlusOutlined,
   PrinterOutlined,
-  ScissorOutlined,
   StopOutlined,
 } from '@ant-design/icons';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -68,7 +67,6 @@ export default function SupplierOrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [toReceive, setToReceive] = useState<string[]>([]);
   const [editLine, setEditLine] = useState<MaterialPurchase | null>(null);
   const [editValues, setEditValues] = useState<{
     quantity: number | null;
@@ -88,7 +86,6 @@ export default function SupplierOrderDetailPage() {
       setOrder(data);
       setNotes(data.notes || '');
       setVatRate(data.vatRate ?? null);
-      setToReceive([]);
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
@@ -110,7 +107,6 @@ export default function SupplierOrderDetailPage() {
       }));
       setNotes(data.notes || '');
       setVatRate(data.vatRate ?? null);
-      setToReceive([]);
       message.success(ok);
     } catch (err) {
       message.error(getErrorMessage(err));
@@ -184,69 +180,27 @@ export default function SupplierOrderDetailPage() {
     }
   };
 
-  const receiveSelected = () =>
+  const openLines = lines.filter((ln) => !ln.cancelledAt && !ln.dateReceived);
+  const receiveOrder = () =>
     askDate(
-      `Receive ${toReceive.length} line${toReceive.length === 1 ? '' : 's'}?`,
-      'Date received',
-      'Receive',
-      (d) => run(() => supplierOrdersApi.receive(order.id, toReceive, d), 'Lines received')
+      `Receive ${order.poNumber}?`,
+      `Deliveries arrive complete: all ${openLines.length} open line${
+        openLines.length === 1 ? '' : 's'
+      } on this order are received on one date. Date received:`,
+      'Receive order',
+      (d) => run(() => supplierOrdersApi.receive(order.id, d), 'Order received')
     );
 
   const cancelOrder = () =>
     Modal.confirm({
       title: 'Cancel this supplier order?',
-      content: 'Every line is cancelled and its material goes back to "to order".',
+      content:
+        'Every line is cancelled and its material goes back to "to order". To change an issued order, cancel it and issue a new one.',
       okText: 'Cancel order',
       okButtonProps: { danger: true },
       cancelText: 'Keep',
       onOk: () => run(() => supplierOrdersApi.cancel(order.id), 'Order cancelled'),
     });
-
-  const cancelLine = (ln: MaterialPurchase) =>
-    Modal.confirm({
-      title: ln.jobOrderId
-        ? `Cancel “${ln.materialName}” for ${ln.jobNumber}?`
-        : `Cancel the restock of “${ln.materialName}”?`,
-      content: ln.jobOrderId
-        ? 'The line stays on the order as cancelled; the material goes back to "to order".'
-        : 'The line stays on the order as cancelled; nothing is added to stock.',
-      okText: 'Cancel line',
-      okButtonProps: { danger: true },
-      cancelText: 'Keep',
-      onOk: () => run(() => supplierOrdersApi.cancelLine(order.id, ln.id), 'Line cancelled'),
-    });
-
-  const splitLine = (ln: MaterialPurchase) => {
-    let keep: number | null = null;
-    Modal.confirm({
-      title: `Split “${ln.materialName}” (${fmtQty(ln.quantity, ln.unit)})`,
-      content: (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ marginBottom: 8, fontSize: 13, color: '#475569' }}>
-            Quantity that arrived (kept on this line). The rest moves to a new line to receive
-            later.
-          </div>
-          <InputNumber
-            min={0.0001}
-            max={ln.quantity}
-            style={{ width: '100%' }}
-            addonAfter={ln.unit}
-            onChange={(v) => {
-              keep = v;
-            }}
-          />
-        </div>
-      ),
-      okText: 'Split',
-      onOk: () => {
-        if (!keep || keep >= ln.quantity) {
-          message.error(`Enter a quantity below ${ln.quantity}`);
-          return Promise.reject();
-        }
-        return run(() => supplierOrdersApi.splitLine(order.id, ln.id, keep as number), 'Line split');
-      },
-    });
-  };
 
   const removeLine = (ln: MaterialPurchase) =>
     run(() => supplierOrdersApi.removeLine(order.id, ln.id), 'Line removed').catch(() => {});
@@ -308,9 +262,6 @@ export default function SupplierOrderDetailPage() {
       render: (_: unknown, ln) => (
         <div style={ln.cancelledAt ? { textDecoration: 'line-through', color: '#94a3b8' } : undefined}>
           {ln.materialName}
-          {!ln.plannedMaterialId && ln.jobOrderId ? (
-            <div style={{ fontSize: 11, color: '#64748b' }}>Unplanned</div>
-          ) : null}
         </div>
       ),
     },
@@ -359,33 +310,20 @@ export default function SupplierOrderDetailPage() {
       key: 'act',
       width: 90,
       render: (_: unknown, ln) => {
-        if (!isOfficeStaff) return null;
-        if (isDraft) {
-          return (
-            <Space size={0}>
-              <Tooltip title="Edit line">
-                <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(ln)} />
-              </Tooltip>
-              <Tooltip title="Remove line">
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<DeleteOutlined />}
-                  disabled={busy}
-                  onClick={() => removeLine(ln)}
-                />
-              </Tooltip>
-            </Space>
-          );
-        }
-        if (!receivable || ln.cancelledAt || ln.dateReceived) return null;
+        if (!isOfficeStaff || !isDraft) return null;
         return (
           <Space size={0}>
-            <Tooltip title="Split for a partial delivery">
-              <Button size="small" type="text" icon={<ScissorOutlined />} onClick={() => splitLine(ln)} />
+            <Tooltip title="Edit line">
+              <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(ln)} />
             </Tooltip>
-            <Tooltip title="Cancel line">
-              <Button size="small" type="text" danger icon={<StopOutlined />} onClick={() => cancelLine(ln)} />
+            <Tooltip title="Remove line">
+              <Button
+                size="small"
+                type="text"
+                icon={<DeleteOutlined />}
+                disabled={busy}
+                onClick={() => removeLine(ln)}
+              />
             </Tooltip>
           </Space>
         );
@@ -437,10 +375,10 @@ export default function SupplierOrderDetailPage() {
             <Button
               type="primary"
               icon={<CheckOutlined />}
-              disabled={!toReceive.length || busy}
-              onClick={receiveSelected}
+              disabled={!openLines.length || busy}
+              onClick={receiveOrder}
             >
-              Receive selected
+              Receive order
             </Button>
           ) : null}
           <Tooltip title={isDraft ? 'Issue the order before printing' : undefined}>
@@ -623,7 +561,11 @@ export default function SupplierOrderDetailPage() {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message="Lines are locked after issue. Cancel a line instead of editing it; split a line when only part of it arrived."
+          message={
+            order.status === 'PARTIALLY_RECEIVED'
+              ? 'Part of this order was received earlier. Complete it with Receive order.'
+              : 'Lines are locked after issue. To change the order, cancel it and issue a new one. Deliveries arrive complete: Receive order receives every line on one date.'
+          }
         />
       ) : null}
 
@@ -634,15 +576,6 @@ export default function SupplierOrderDetailPage() {
         dataSource={lines}
         columns={columns}
         locale={{ emptyText: editableDraft ? 'No lines yet. Add lines to this draft.' : 'No lines yet.' }}
-        rowSelection={
-          receivableByMe
-            ? {
-                selectedRowKeys: toReceive,
-                onChange: (keys) => setToReceive(keys as string[]),
-                getCheckboxProps: (ln) => ({ disabled: !!ln.cancelledAt || !!ln.dateReceived }),
-              }
-            : undefined
-        }
       />
 
       <OrderMaterialsModal

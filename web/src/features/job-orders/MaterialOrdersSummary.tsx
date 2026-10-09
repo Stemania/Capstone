@@ -5,10 +5,11 @@ import { Link } from 'react-router-dom';
 import OverdueTag from '../../components/OverdueTag';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import type {
+  JobMaterialLine,
   MaterialLineArrival,
   MaterialPurchase,
   MaterialReadiness,
-  PlannedMaterialSummary,
+  RawMaterial,
 } from '../../types';
 
 const MUTED = '#64748b';
@@ -50,171 +51,135 @@ export function materialArrivalText(readiness?: MaterialReadiness | null): strin
   return null;
 }
 
-type RowStatus = 'TO_ORDER' | 'ON_DRAFT' | 'ORDERED' | 'RECEIVED' | 'CONSUMED' | 'FROM_STOCK';
+type LineStatus = 'ON_DRAFT' | 'ORDERED' | 'RECEIVED' | 'CONSUMED';
 
-const ROW_STATUS_PILL: Record<RowStatus, { label: string; color: PillColor }> = {
-  TO_ORDER: { label: 'To order', color: 'red' },
+const LINE_STATUS_PILL: Record<LineStatus, { label: string; color: PillColor }> = {
   ON_DRAFT: { label: 'On draft PO', color: 'gray' },
   ORDERED: { label: 'Ordered', color: 'amber' },
   RECEIVED: { label: 'Received', color: 'green' },
   CONSUMED: { label: 'Consumed', color: 'gray' },
-  FROM_STOCK: { label: 'From stock', color: 'blue' },
 };
 
-const LINE_RANK: Record<string, number> = { ON_DRAFT: 0, ORDERED: 1, RECEIVED: 2, CONSUMED: 3 };
-
-function lineStatus(p: MaterialPurchase): RowStatus {
-  if (p.status === 'DRAFT') return 'ON_DRAFT';
-  if (p.status === 'CONSUMED' || p.consumedAt) return 'CONSUMED';
-  if (p.status === 'RECEIVED' || p.dateReceived) return 'RECEIVED';
+function lineStatus(status: string | null | undefined, dateReceived?: string | null): LineStatus {
+  if (status === 'DRAFT') return 'ON_DRAFT';
+  if (status === 'CONSUMED') return 'CONSUMED';
+  if (status === 'RECEIVED' || dateReceived) return 'RECEIVED';
   return 'ORDERED';
 }
 
-/** The least advanced line decides the row: one undelivered line keeps it "Ordered". */
-function leastAdvanced(lines: MaterialPurchase[]): RowStatus {
-  return lines
-    .map(lineStatus)
-    .reduce((a, b) => (LINE_RANK[b] < LINE_RANK[a] ? b : a));
-}
-
-function plannedStatus(m: PlannedMaterialSummary, lines: MaterialPurchase[]): RowStatus {
-  if (m.fromStock) return 'FROM_STOCK';
-  if (m.status === 'TO_ORDER' || m.status === 'PARTLY_ORDERED') return 'TO_ORDER';
-  if (lines.length) return leastAdvanced(lines);
-  return m.status === 'ON_DRAFT_ORDER' ? 'ON_DRAFT' : 'ORDERED';
-}
-
-type Row = {
-  key: string;
-  name: string;
-  quantity: string;
-  status: RowStatus;
-  lines: MaterialPurchase[];
-  planned?: PlannedMaterialSummary;
-  notPlanned?: boolean;
+/** One ordered material line, from the full purchase (Office/Admin) or the cost-free summary. */
+export type MaterialLineRow = {
+  id: string;
+  materialName: string;
+  gradeOrSpec: string | null;
+  quantity: number | null;
+  unit: string | null;
+  status: LineStatus;
+  poNumber: string | null;
+  supplierName?: string | null;
+  supplierOrderId?: string | null;
+  expectedDate: string | null;
+  dateReceived: string | null;
+  daysOverdue?: number;
+  purchase?: MaterialPurchase;
 };
 
-export function buildMaterialRows(
-  planned: PlannedMaterialSummary[],
-  purchases: MaterialPurchase[]
-): Row[] {
-  const active = purchases.filter((p) => p.status !== 'CANCELLED' && !p.cancelledAt);
-  const byPlanned = new Map<string, MaterialPurchase[]>();
-  for (const p of active) {
-    if (!p.plannedMaterialId) continue;
-    const list = byPlanned.get(p.plannedMaterialId) || [];
-    list.push(p);
-    byPlanned.set(p.plannedMaterialId, list);
-  }
-  const plannedIds = new Set(planned.map((m) => m.id));
-  const rows: Row[] = planned.map((m) => {
-    const lines = byPlanned.get(m.id) || [];
-    return {
-      key: m.id,
-      name: m.name,
-      quantity: fmtQty(m.plannedQuantity, m.unit),
-      status: plannedStatus(m, lines),
-      lines,
-      planned: m,
-    };
-  });
-  for (const p of active) {
-    if (p.plannedMaterialId && plannedIds.has(p.plannedMaterialId)) continue;
-    rows.push({
-      key: p.id,
-      name: p.materialName,
-      quantity: fmtQty(p.quantity, p.unit),
-      status: lineStatus(p),
-      lines: [p],
-      notPlanned: true,
-    });
-  }
-  return rows;
+export function rowsFromPurchases(purchases: MaterialPurchase[]): MaterialLineRow[] {
+  return purchases
+    .filter((p) => p.status !== 'CANCELLED' && !p.cancelledAt)
+    .map((p) => ({
+      id: p.id,
+      materialName: p.materialName,
+      gradeOrSpec: p.gradeOrSpec ?? null,
+      quantity: p.quantity,
+      unit: p.unit,
+      status: lineStatus(p.consumedAt ? 'CONSUMED' : p.status, p.dateReceived),
+      poNumber: p.poNumber ?? null,
+      supplierName: p.supplierName,
+      supplierOrderId: p.supplierOrderId,
+      expectedDate: p.currentExpectedDate || p.expectedDeliveryDate || null,
+      dateReceived: p.dateReceived ?? null,
+      daysOverdue: p.daysOverdue,
+      purchase: p,
+    }));
 }
 
-function SupplierOrderRef({ line, showQty }: { line: MaterialPurchase; showQty: boolean }) {
-  const supplier = line.supplierName || 'Supplier';
-  const qty = showQty ? (
-    <span style={{ color: MUTED, fontSize: 11 }}> · {fmtQty(line.quantity, line.unit)}</span>
-  ) : null;
-  if (!line.supplierOrderId) {
-    return (
-      <div>
-        {supplier} <span style={{ color: MUTED, fontSize: 12 }}>· No PO</span>
-        {qty}
-      </div>
+export function rowsFromSummary(lines: JobMaterialLine[]): MaterialLineRow[] {
+  return lines.map((l) => ({
+    id: l.id,
+    materialName: l.materialName,
+    gradeOrSpec: l.gradeOrSpec,
+    quantity: l.quantity,
+    unit: l.unit,
+    status: lineStatus(l.status, l.dateReceived),
+    poNumber: l.poNumber,
+    expectedDate: l.expectedDate,
+    dateReceived: l.dateReceived,
+  }));
+}
+
+function SupplierOrderRef({ row }: { row: MaterialLineRow }) {
+  const supplier = row.supplierName;
+  if (!row.supplierOrderId) {
+    return row.poNumber ? (
+      <span>{row.poNumber}</span>
+    ) : (
+      <span>
+        {supplier ? `${supplier} ` : ''}
+        <span style={{ color: MUTED, fontSize: 12 }}>{supplier ? '· No PO' : 'No PO'}</span>
+      </span>
     );
   }
   return (
-    <div>
-      <Link to={`/supplier-orders/${line.supplierOrderId}`}>
-        {supplier} · {line.poNumber || 'Draft'}
-      </Link>
-      {qty}
-    </div>
+    <Link to={`/supplier-orders/${row.supplierOrderId}`}>
+      {supplier ? `${supplier} · ` : ''}
+      {row.poNumber || 'Draft'}
+    </Link>
   );
 }
 
-function LineDate({ line }: { line: MaterialPurchase }) {
-  if (line.dateReceived) return <div>Received {fmt(line.dateReceived)}</div>;
-  if (line.status === 'DRAFT') return <div style={{ color: '#94a3b8' }}>Not issued</div>;
-  const expected = line.currentExpectedDate || line.expectedDeliveryDate;
+function LineDate({ row }: { row: MaterialLineRow }) {
+  if (row.dateReceived) return <div>Received {fmt(row.dateReceived)}</div>;
+  if (row.status === 'ON_DRAFT') return <div style={{ color: '#94a3b8' }}>Not issued</div>;
   return (
     <div>
-      {expected ? `Expected ${fmt(expected)}` : '—'}
-      {line.daysOverdue ? (
+      {row.expectedDate ? `Expected ${fmt(row.expectedDate)}` : '—'}
+      {row.daysOverdue ? (
         <span style={{ marginLeft: 6 }}>
-          <OverdueTag days={line.daysOverdue} />
+          <OverdueTag days={row.daysOverdue} />
         </span>
       ) : null}
     </div>
   );
 }
 
-const lineGap = { display: 'flex', flexDirection: 'column' as const, gap: 4 };
-
 /**
- * One row per planned material with where it stands: on which supplier order,
- * and when it is expected or was received. Lines not tied to a planned
- * material (older data) follow as "Not planned" rows.
+ * The job's ordered material lines: what, how much, on which supplier order,
+ * and when it is expected or was received.
  */
 export function JobMaterialsTable({
-  planned,
-  purchases,
-  showStatus = true,
-  showOrders = true,
+  lines,
   renderLineAction,
-  renderRowAction,
 }: {
-  planned: PlannedMaterialSummary[];
-  purchases: MaterialPurchase[];
-  showStatus?: boolean;
-  showOrders?: boolean;
-  renderLineAction?: (line: MaterialPurchase) => ReactNode;
-  renderRowAction?: (m: PlannedMaterialSummary) => ReactNode;
+  lines: MaterialLineRow[];
+  renderLineAction?: (row: MaterialLineRow) => ReactNode;
 }) {
-  const rows = buildMaterialRows(planned, showOrders ? purchases : []);
   return (
-    <Table<Row>
+    <Table<MaterialLineRow>
       size="small"
-      rowKey="key"
+      rowKey="id"
       pagination={false}
-      dataSource={rows}
-      locale={{ emptyText: 'No planned materials.' }}
+      dataSource={lines}
+      locale={{ emptyText: 'Nothing ordered for this job yet.' }}
       columns={[
         {
           title: 'Material',
           key: 'name',
           render: (_: unknown, r) => (
             <>
-              <div style={{ color: NAVY, fontWeight: 600 }}>{r.name}</div>
-              {r.lines[0]?.gradeOrSpec ? (
-                <div style={{ fontSize: 11, color: MUTED }}>{r.lines[0].gradeOrSpec}</div>
-              ) : null}
-              {r.notPlanned ? (
-                <Tooltip title="Ordered before only planned materials could be ordered.">
-                  <span style={{ fontSize: 11, color: MUTED }}>Not planned</span>
-                </Tooltip>
+              <div style={{ color: NAVY, fontWeight: 600 }}>{r.materialName}</div>
+              {r.gradeOrSpec ? (
+                <div style={{ fontSize: 11, color: MUTED }}>{r.gradeOrSpec}</div>
               ) : null}
             </>
           ),
@@ -223,63 +188,61 @@ export function JobMaterialsTable({
           title: 'Quantity',
           key: 'qty',
           width: 110,
-          render: (_: unknown, r) => <span style={{ color: MUTED }}>{r.quantity}</span>,
+          render: (_: unknown, r) => <span style={{ color: MUTED }}>{fmtQty(r.quantity, r.unit)}</span>,
+        },
+        {
+          title: 'Supplier order',
+          key: 'order',
+          render: (_: unknown, r) => <SupplierOrderRef row={r} />,
         },
         {
           title: 'Status',
           key: 'status',
-          width: 150,
+          width: 120,
           render: (_: unknown, r) => {
-            const pill = ROW_STATUS_PILL[r.status];
+            const pill = LINE_STATUS_PILL[r.status];
             return (
-              <div>
-                {showStatus || r.status === 'FROM_STOCK' ? (
-                  <StatusPill color={pill.color} compact>
-                    {pill.label}
-                  </StatusPill>
-                ) : null}
-                {r.planned ? renderRowAction?.(r.planned) : null}
-              </div>
+              <StatusPill color={pill.color} compact>
+                {pill.label}
+              </StatusPill>
             );
           },
         },
-        ...(showOrders
-          ? [
-              {
-                title: 'Supplier order',
-                key: 'order',
-                render: (_: unknown, r: Row) =>
-                  r.lines.length ? (
-                    <div style={lineGap}>
-                      {r.lines.map((ln) => (
-                        <SupplierOrderRef key={ln.id} line={ln} showQty={r.lines.length > 1} />
-                      ))}
-                    </div>
-                  ) : (
-                    <span style={{ color: '#94a3b8' }}>—</span>
-                  ),
-              },
-              {
-                title: 'Expected / received',
-                key: 'date',
-                width: 190,
-                render: (_: unknown, r: Row) =>
-                  r.lines.length ? (
-                    <div style={{ ...lineGap, fontSize: 12, color: MUTED }}>
-                      {r.lines.map((ln) => (
-                        <div key={ln.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <LineDate line={ln} />
-                          {renderLineAction?.(ln)}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <span style={{ color: '#94a3b8' }}>—</span>
-                  ),
-              },
-            ]
-          : []),
+        {
+          title: 'Expected / received',
+          key: 'date',
+          width: 190,
+          render: (_: unknown, r) => (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: MUTED }}>
+              <LineDate row={r} />
+              {renderLineAction?.(r)}
+            </div>
+          ),
+        },
       ]}
     />
+  );
+}
+
+/** Planned materials entered on the job order form before materials were typed
+ *  when ordering. Kept for reference only. */
+export function EarlierPlannedMaterials({ materials }: { materials: RawMaterial[] }) {
+  const rows = materials.filter((m) => m.name?.trim());
+  if (!rows.length) return null;
+  return (
+    <div style={{ marginTop: 12 }}>
+      <Tooltip title="Entered on the job order form under the earlier process. Read-only.">
+        <div style={{ fontSize: 12, fontWeight: 700, color: MUTED, marginBottom: 4 }}>
+          Planned (earlier record)
+        </div>
+      </Tooltip>
+      {rows.map((m, i) => (
+        <div key={m.id || `${m.name}-${i}`} style={{ fontSize: 13, color: MUTED, marginBottom: 2 }}>
+          <span style={{ color: NAVY }}>{m.name}</span>
+          {m.quantity != null || m.unit ? ` — ${fmtQty(m.quantity ?? null, m.unit)}` : ''}
+          {m.fromStock ? ' · from stock' : ''}
+        </div>
+      ))}
+    </div>
   );
 }

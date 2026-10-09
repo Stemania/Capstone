@@ -25,7 +25,7 @@ const STATUS_PILL: Record<string, { label: string; color: PillColor }> = {
   SCHEDULED: { label: 'Scheduled', color: 'blue' },
   IN_PROGRESS: { label: 'In Progress', color: 'teal' },
   COMPLETED: { label: 'Completed', color: 'green' },
-  DELIVERED: { label: 'Delivered', color: 'green' },
+  DELIVERED: { label: 'For Delivery', color: 'green' },
 };
 
 const CARD_STYLE = {
@@ -230,11 +230,15 @@ export default function ClientDetailPage() {
       >
         <StatTile label="Job orders" value={data.totals.jobCount} hint="All time, including pending" />
         <StatTile label="Active" value={stats.active} hint="Scheduled or in progress" />
-        <StatTile label="Delivered" value={stats.delivered} />
+        <StatTile label="For Delivery" value={stats.delivered} />
         <StatTile
-          label="On-time delivery"
+          label="On time"
           value={stats.onTimePct == null ? '—' : `${stats.onTimePct}%`}
-          hint={stats.judged ? `${stats.onTime} of ${stats.judged} delivered on time` : 'No deliveries yet'}
+          hint={
+            stats.judged
+              ? `${stats.onTime} of ${stats.judged} set For Delivery by the date required`
+              : 'None set For Delivery yet'
+          }
         />
         <StatTile label="Total value" value={money(data.totals.totalValue)} hint="Excludes pending jobs" />
       </div>

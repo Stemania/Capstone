@@ -362,6 +362,31 @@ export default function AssignmentDetailPage() {
           </div>
         </div>
 
+        {!!job.materialLines?.length && (
+          <div
+            style={{
+              background: colors.card,
+              border: `1px solid ${colors.cardBorder}`,
+              borderRadius: 14,
+              padding: 14,
+              marginBottom: 16,
+              boxShadow: colors.shadow,
+            }}
+          >
+            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>Materials</div>
+            {job.materialLines.map((m) => (
+              <div key={m.id} style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 4 }}>
+                {m.materialName}
+                {m.gradeOrSpec ? ` · ${m.gradeOrSpec}` : ''}
+                {(m.quantity != null || m.unit) && (
+                  <> — {[m.quantity, m.unit].filter((x) => x != null && x !== '').join(' ')}</>
+                )}
+                {m.status === 'RECEIVED' ? ' · received' : ''}
+              </div>
+            ))}
+          </div>
+        )}
+
         {!!job.rawMaterials?.length && (
           <div
             style={{
@@ -373,7 +398,7 @@ export default function AssignmentDetailPage() {
               boxShadow: colors.shadow,
             }}
           >
-            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>Raw Materials</div>
+            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>Planned (earlier record)</div>
             {job.rawMaterials.map((m, i) => (
               <div key={`${m.name}-${i}`} style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 4 }}>
                 {m.name}

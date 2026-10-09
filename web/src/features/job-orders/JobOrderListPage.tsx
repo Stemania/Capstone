@@ -40,7 +40,7 @@ const PRODUCTION_STATUS_OPTIONS: { value: JobOrderStatus; label: string }[] = [
   { value: 'SCHEDULED', label: 'Scheduled' },
   { value: 'IN_PROGRESS', label: 'In Progress' },
   { value: 'COMPLETED', label: 'Completed' },
-  { value: 'DELIVERED', label: 'Delivered' },
+  { value: 'DELIVERED', label: 'For Delivery' },
 ];
 
 const statusStyle: Record<JobOrderStatus, { label: string; color: PillColor }> = {
@@ -48,7 +48,7 @@ const statusStyle: Record<JobOrderStatus, { label: string; color: PillColor }> =
   SCHEDULED: { label: 'Scheduled', color: 'blue' },
   IN_PROGRESS: { label: 'In Progress', color: 'blue' },
   COMPLETED: { label: 'Completed', color: 'green' },
-  DELIVERED: { label: 'Delivered', color: 'green' },
+  DELIVERED: { label: 'For Delivery', color: 'green' },
 };
 
 function isJobOverdue(job: JobOrder) {
@@ -355,7 +355,7 @@ export default function JobOrderListPage() {
 
   const handleBulkDeliver = async () => {
     if (!selectedCompletable.length) {
-      message.info('Select completed jobs to mark delivered.');
+      message.info('Select completed jobs to set For Delivery.');
       return;
     }
     setDelivering(true);
@@ -365,8 +365,8 @@ export default function JobOrderListPage() {
       }
       message.success(
         selectedCompletable.length === 1
-          ? 'Marked delivered'
-          : `Marked ${selectedCompletable.length} jobs delivered`
+          ? 'Set For Delivery'
+          : `${selectedCompletable.length} jobs set For Delivery`
       );
       setSelectedKeys([]);
       await fetchJobs();
@@ -493,15 +493,15 @@ export default function JobOrderListPage() {
       label: 'Print',
       onClick: () => navigate(`/job-orders/${record.id}/print`),
     });
-    if (record.status === 'COMPLETED') {
+    if (record.status === 'COMPLETED' && isAdmin) {
       items.push({
         key: 'deliver',
         icon: <CheckOutlined />,
-        label: 'Mark delivered',
+        label: 'Set For Delivery',
         onClick: async () => {
           try {
             await jobOrdersApi.deliver(record.id);
-            message.success('Marked delivered');
+            message.success('Set For Delivery');
             fetchJobs();
           } catch (err) {
             message.error(getErrorMessage(err));
@@ -803,15 +803,18 @@ export default function JobOrderListPage() {
                   >
                     Print
                   </Button>
-                  <Button
-                    size="small"
-                    icon={<CheckOutlined />}
-                    loading={delivering}
-                    disabled={!selectedCompletable.length}
-                    onClick={handleBulkDeliver}
-                  >
-                    Deliver{selectedCompletable.length ? ` (${selectedCompletable.length})` : ''}
-                  </Button>
+                  {isAdmin ? (
+                    <Button
+                      size="small"
+                      icon={<CheckOutlined />}
+                      loading={delivering}
+                      disabled={!selectedCompletable.length}
+                      onClick={handleBulkDeliver}
+                    >
+                      Set For Delivery
+                      {selectedCompletable.length ? ` (${selectedCompletable.length})` : ''}
+                    </Button>
+                  ) : null}
                 </>
               )}
             </div>
@@ -934,15 +937,18 @@ export default function JobOrderListPage() {
                 >
                   Print
                 </Button>
-                <Button
-                  size="small"
-                  icon={<CheckOutlined />}
-                  loading={delivering}
-                  disabled={!selectedCompletable.length}
-                  onClick={handleBulkDeliver}
-                >
-                  Mark delivered{selectedCompletable.length ? ` (${selectedCompletable.length})` : ''}
-                </Button>
+                {isAdmin ? (
+                  <Button
+                    size="small"
+                    icon={<CheckOutlined />}
+                    loading={delivering}
+                    disabled={!selectedCompletable.length}
+                    onClick={handleBulkDeliver}
+                  >
+                    Set For Delivery
+                    {selectedCompletable.length ? ` (${selectedCompletable.length})` : ''}
+                  </Button>
+                ) : null}
               </>
             )}
             {selectedKeys.length > 0 && (

@@ -28,7 +28,7 @@ import {
   PrinterOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
-import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
 import { formatShop, shopToday } from '../../utils/shopTime';
 import { jobOrdersApi, workersApi } from '../../api/jobOrders.api';
@@ -57,7 +57,13 @@ import { jobOrdersListPath } from './jobOrderListPaths';
 import JobScheduleColorPicker from './JobScheduleColorPicker';
 import OutsourcedOperationPanel from './OutsourcedOperationPanel';
 import OrderMaterialsModal from '../supplier-orders/OrderMaterialsModal';
-import { JobMaterialsTable, materialArrivalText } from './MaterialOrdersSummary';
+import {
+  EarlierPlannedMaterials,
+  JobMaterialsTable,
+  materialArrivalText,
+  rowsFromPurchases,
+  rowsFromSummary,
+} from './MaterialOrdersSummary';
 import { ReproposeModal } from '../calendar/RescheduleAffectedJobs';
 
 const { Title, Text } = Typography;
@@ -67,7 +73,7 @@ const STATUS_PILL: Record<JobOrderStatus, { label: string; color: PillColor }> =
   SCHEDULED: { label: 'Scheduled', color: 'blue' },
   IN_PROGRESS: { label: 'In Progress', color: 'blue' },
   COMPLETED: { label: 'Completed', color: 'green' },
-  DELIVERED: { label: 'Delivered', color: 'green' },
+  DELIVERED: { label: 'For Delivery', color: 'green' },
 };
 
 const OP_STATUS: Record<OperationStatus, { label: string; color: PillColor }> = {
@@ -121,7 +127,7 @@ const NOTIF_UPDATE_LABEL: Record<string, string> = {
   JOB_RECEIVED: 'Job received',
   JOB_STARTED: 'Job started',
   JOB_COMPLETED: 'Job finished',
-  JOB_DELIVERED: 'Job delivered',
+  JOB_DELIVERED: 'Ready for delivery',
 };
 
 const NOTIF_STATUS_LABEL: Record<string, string> = {
@@ -331,14 +337,12 @@ export default function JobOrderDetailPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [pauseForOp, setPauseForOp] = useState<Operation | null>(null);
   const [delivering, setDelivering] = useState(false);
-  const [markingMaterial, setMarkingMaterial] = useState(false);
   const [notifications, setNotifications] = useState<NotificationLog[] | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
   const [breakdowns, setBreakdowns] = useState<MachineDowntimeRecord[]>([]);
   const [purchaseOpen, setPurchaseOpen] = useState(false);
   const [reproposeOpen, setReproposeOpen] = useState(false);
-  const [stockSavingId, setStockSavingId] = useState<string | null>(null);
   const [invoiceMode, setInvoiceMode] = useState<'record' | 'view' | 'correct' | null>(null);
   const [invoiceSaving, setInvoiceSaving] = useState(false);
   const [invoiceForm] = Form.useForm();
@@ -527,85 +531,6 @@ export default function JobOrderDetailPage() {
     });
   };
 
-  const handleMarkMaterialReceived = async (receivedDate?: string) => {
-    if (!job) return;
-    setMarkingMaterial(true);
-    try {
-      const { data } = await jobOrdersApi.markMaterialReceived(job.id, receivedDate);
-      setJob(data);
-      await fetchPurchases();
-      message.success('All outstanding materials marked received');
-    } catch (err) {
-      message.error(getErrorMessage(err));
-      throw err;
-    } finally {
-      setMarkingMaterial(false);
-    }
-  };
-
-  const openMaterialReceived = () => {
-    let receivedDate = shopToday();
-    Modal.confirm({
-      title: 'Mark material received?',
-      content: (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ marginBottom: 8, fontSize: 13, color: '#475569' }}>
-            Every purchase line still on order will be marked received on this date.
-          </div>
-          <div style={{ marginBottom: 8, fontSize: 13, color: '#475569' }}>Date received</div>
-          <DatePicker
-            style={{ width: '100%' }}
-            defaultValue={shopToday()}
-            format="YYYY-MM-DD"
-            allowClear={false}
-            onChange={(d) => {
-              if (d) receivedDate = d;
-            }}
-          />
-        </div>
-      ),
-      okText: 'Mark received',
-      onOk: () => handleMarkMaterialReceived(receivedDate.format('YYYY-MM-DD')),
-    });
-  };
-
-  const markLineReceived = (p: MaterialPurchase) => {
-    let receivedDate = shopToday();
-    Modal.confirm({
-      title: `Mark “${p.materialName}” received?`,
-      content: (
-        <div style={{ marginTop: 8 }}>
-          <DatePicker
-            style={{ width: '100%' }}
-            defaultValue={shopToday()}
-            format="YYYY-MM-DD"
-            allowClear={false}
-            onChange={(d) => {
-              if (d) receivedDate = d;
-            }}
-          />
-        </div>
-      ),
-      okText: 'Mark received',
-      onOk: async () => {
-        if (!job) return;
-        try {
-          await jobOrdersApi.markPurchaseReceived(
-            job.id,
-            p.id,
-            receivedDate.format('YYYY-MM-DD')
-          );
-          message.success('Line marked received');
-          await fetchPurchases();
-          await fetchJob();
-        } catch (err) {
-          message.error(getErrorMessage(err));
-          throw err;
-        }
-      },
-    });
-  };
-
   const runOpAction = async (op: Operation, action: 'start' | 'resume' | 'complete') => {
     setActionLoading(op.id);
     try {
@@ -697,31 +622,17 @@ export default function JobOrderDetailPage() {
     }
   };
 
-  const toggleFromStock = async (materialId: string, fromStock: boolean) => {
-    if (!job) return;
-    setStockSavingId(materialId);
-    try {
-      const { data } = await jobOrdersApi.setPlannedMaterialFromStock(job.id, materialId, fromStock);
-      setJob(data);
-      message.success(fromStock ? 'Marked From stock: it will not be ordered' : 'Material needs ordering again');
-    } catch (err) {
-      message.error(getErrorMessage(err));
-    } finally {
-      setStockSavingId(null);
-    }
-  };
-
   const handleSetMaterialNotRequired = () => {
     if (!job) return;
     Modal.confirm({
-      title: 'Set material to Not required?',
+      title: 'Set Materials needed to Not required?',
       content:
-        'Use this only when the shop already has the material for this job. The first operation will then be able to start without a purchase.',
-      okText: 'Set not required',
+        'Use this when the client supplies the material or the shop already has it in stock. The first operation can then start without a supplier order.',
+      okText: 'Set Not required',
       onOk: async () => {
         try {
           await jobOrdersApi.update(job.id, { materialStatus: 'NOT_REQUIRED' });
-          message.success('Material set to Not required');
+          message.success('Materials needed set to Not required');
           await fetchJob();
         } catch (err) {
           message.error(getErrorMessage(err));
@@ -736,7 +647,7 @@ export default function JobOrderDetailPage() {
     setDelivering(true);
     try {
       await jobOrdersApi.deliver(job.id);
-      message.success('Marked delivered');
+      message.success('Set For Delivery. The client is notified that it is ready for delivery.');
       await fetchJob();
     } catch (err) {
       message.error(getErrorMessage(err));
@@ -794,14 +705,10 @@ export default function JobOrderDetailPage() {
     dayjs(job.dueDate).isBefore(shopToday(), 'day');
   const isDraft = job.status === 'DRAFT';
   const isInvoicedOrDelivered = Boolean(job.salesInvoice) || job.status === 'DELIVERED';
-  const plannedList = job.plannedMaterials || [];
-  const orderBlockedReason = !plannedList.length
-    ? 'Add the material to the job\u2019s planned materials first'
-    : plannedList.some((m) => m.status === 'TO_ORDER' || m.status === 'PARTLY_ORDERED')
-      ? undefined
-      : plannedList.every((m) => m.fromStock)
-        ? 'Every planned material is taken from stock'
-        : 'All planned materials are on a supplier order';
+  const materialRows = canManage
+    ? rowsFromPurchases(purchases)
+    : rowsFromSummary(job.materialLines || []);
+  const earlierPlanned = job.rawMaterials || [];
   const canCorrectInvoice =
     isOfficeStaff && Boolean(job.salesInvoice) && job.status !== 'DELIVERED' && !job.deliveredAt;
   const isNotStarted = (op: Operation) =>
@@ -886,27 +793,6 @@ export default function JobOrderDetailPage() {
           >
             Print
           </Button>
-          {isOfficeStaff &&
-            job.materialStatus &&
-            job.materialStatus !== 'NOT_REQUIRED' &&
-            job.materialStatus !== 'RECEIVED' && (
-              <Tooltip
-                title={
-                  placedLines.length === 0
-                    ? 'Nothing has been ordered yet. Material on a draft supplier order counts once the order is issued.'
-                    : undefined
-                }
-              >
-                <Button
-                  icon={<CheckOutlined />}
-                  loading={markingMaterial}
-                  disabled={placedLines.length === 0}
-                  onClick={openMaterialReceived}
-                >
-                  Material received
-                </Button>
-              </Tooltip>
-            )}
           {canManage && job.salesInvoice && (
             <Button icon={<FileTextOutlined />} onClick={() => setInvoiceMode('view')}>
               Sales invoice {job.salesInvoice.invoiceNumber}
@@ -917,9 +803,13 @@ export default function JobOrderDetailPage() {
               Record sales invoice
             </Button>
           )}
-          {canManage && job.status === 'COMPLETED' && (
+          {isAdmin && job.status === 'COMPLETED' && (
             <Tooltip
-              title={job.salesInvoice ? undefined : 'Record the sales invoice before delivery'}
+              title={
+                job.salesInvoice
+                  ? 'The client is notified that the job is ready for delivery. On-time is measured on this date.'
+                  : 'Office Staff must record the sales invoice first'
+              }
             >
               <Button
                 type={job.salesInvoice ? 'primary' : 'default'}
@@ -928,7 +818,7 @@ export default function JobOrderDetailPage() {
                 disabled={!job.salesInvoice}
                 onClick={handleDeliver}
               >
-                Deliver
+                Set For Delivery
               </Button>
             </Tooltip>
           )}
@@ -1051,8 +941,8 @@ export default function JobOrderDetailPage() {
                   ? 'Nothing has been ordered for this job. Use Order materials below. '
                   : 'Nothing has been ordered for this job. Office Staff order it from the Materials section. ') +
               (isAdmin
-                ? 'If the shop already has a material, mark it From stock under Materials, or set the whole job to Not required.'
-                : 'If the shop already has a material, ask the Admin to mark it From stock.')
+                ? 'If the client supplies the material or the shop has it in stock, set Materials needed to Not required.'
+                : 'If the client supplies the material or the shop has it in stock, ask the Admin to set Materials needed to Not required.')
             ) : (
               <>
                 <div>
@@ -1071,7 +961,7 @@ export default function JobOrderDetailPage() {
           action={
             placedLines.length === 0 && isAdmin ? (
               <Button size="small" onClick={handleSetMaterialNotRequired}>
-                Set not required
+                Set Not required
               </Button>
             ) : undefined
           }
@@ -1093,68 +983,34 @@ export default function JobOrderDetailPage() {
             >
               <div style={{ fontWeight: 800, fontSize: 14, color: NAVY }}>Materials</div>
               {isOfficeStaff && job.materialStatus !== 'NOT_REQUIRED' ? (
-                <Tooltip title={orderBlockedReason}>
-                  <Button
-                    type="primary"
-                    disabled={Boolean(orderBlockedReason)}
-                    onClick={() => setPurchaseOpen(true)}
-                  >
-                    Order materials
-                  </Button>
-                </Tooltip>
+                <Button type="primary" onClick={() => setPurchaseOpen(true)}>
+                  Order materials
+                </Button>
               ) : null}
             </div>
-            {job.plannedMaterials?.length || (canManage && purchases.length) ? (
+            <div style={{ fontSize: 13, color: MUTED, marginBottom: 10 }}>
+              Materials needed:{' '}
+              <strong style={{ color: NAVY }}>
+                {job.materialStatus === 'NOT_REQUIRED'
+                  ? 'Not required (client-supplied or from stock)'
+                  : 'To order'}
+              </strong>
+            </div>
+            {materialRows.length || job.materialStatus !== 'NOT_REQUIRED' ? (
               <JobMaterialsTable
-                planned={job.plannedMaterials || []}
-                purchases={purchases}
-                showStatus={job.materialStatus !== 'NOT_REQUIRED'}
-                showOrders={canManage && job.materialStatus !== 'NOT_REQUIRED'}
-                renderRowAction={(m) =>
-                  isAdmin &&
-                  (m.fromStock || (m.purchasedQuantity === 0 && m.draftQuantity === 0)) ? (
-                    <div>
-                      <Button
-                        type="link"
-                        size="small"
-                        style={{ padding: 0, fontSize: 11 }}
-                        loading={stockSavingId === m.id}
-                        onClick={() => toggleFromStock(m.id, !m.fromStock)}
-                      >
-                        {m.fromStock ? 'Buy it instead' : 'Use from stock'}
-                      </Button>
-                    </div>
-                  ) : null
-                }
-                renderLineAction={(ln) =>
+                lines={materialRows}
+                renderLineAction={(row) =>
                   isOfficeStaff &&
-                  !ln.dateReceived &&
-                  ln.status !== 'DRAFT' &&
-                  ln.status !== 'CANCELLED' ? (
-                    <Button size="small" onClick={() => markLineReceived(ln)}>
-                      Received
-                    </Button>
+                  row.supplierOrderId &&
+                  row.status === 'ORDERED' ? (
+                    <Tooltip title="Deliveries arrive complete: receive the whole order on its page.">
+                      <Link to={`/supplier-orders/${row.supplierOrderId}`}>Receive order</Link>
+                    </Tooltip>
                   ) : null
                 }
               />
-            ) : job.rawMaterials?.length ? (
-              job.rawMaterials.map((m, i) => (
-                <div
-                  key={`${m.name}-${i}`}
-                  style={{ fontSize: 13, color: MUTED, marginBottom: 6 }}
-                >
-                  <span style={{ color: NAVY, fontWeight: 600 }}>{m.name}</span>
-                  {(m.quantity != null || m.unit) && (
-                    <>
-                      {' '}
-                      — {[m.quantity, m.unit].filter((x) => x != null && x !== '').join(' ')}
-                    </>
-                  )}
-                </div>
-              ))
-            ) : (
-              <Text type="secondary">No planned materials.</Text>
-            )}
+            ) : null}
+            <EarlierPlannedMaterials materials={earlierPlanned} />
           </div>
 
           <div style={cardStyle({ marginBottom: 16 })}>
@@ -1661,8 +1517,8 @@ export default function JobOrderDetailPage() {
             <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 16 }}>
               Reference to the shop&apos;s BIR-registered sales invoice.{' '}
               {canCorrectInvoice
-                ? 'It can be corrected until the job is marked delivered.'
-                : 'It is locked once the job is delivered.'}
+                ? 'It can be corrected until the Admin sets the job For Delivery.'
+                : 'It is locked once the job is set For Delivery.'}
             </Text>
             <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
               <Button onClick={() => setInvoiceMode(null)}>Close</Button>

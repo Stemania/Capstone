@@ -95,7 +95,7 @@ export interface Client {
 export interface Supplier {
   id: string;
   name: string;
-  /** 2–5 uppercase letters, used in PO numbers (BMSC-PO-RIC-00012). */
+  /** 2–5 uppercase letters that start PO numbers (STP26000001). Needed to issue a PO. */
   code?: string | null;
   contactPerson?: string | null;
   phone?: string | null;
@@ -281,18 +281,18 @@ export interface SupplierOrder {
   lines?: MaterialPurchase[];
 }
 
-export interface OutstandingPlannedMaterial {
-  jobOrderId: string;
+/** An open job whose materials are To order, offered in Order materials. */
+export interface OrderingJob {
+  id: string;
   jobNumber: string;
-  jobTitle: string;
-  dueDate?: string | null;
-  plannedMaterialId: string;
-  materialName: string;
-  unit: string;
-  plannedQuantity: number | null;
-  orderedQuantity: number;
-  draftQuantity: number;
-  remainingQuantity: number | null;
+  title: string;
+  clientName: string | null;
+  dueDate: string | null;
+  materialStatus: MaterialStatus;
+  issuedLineCount: number;
+  draftLineCount: number;
+  /** No line on an issued supplier order yet. */
+  notOrderedYet: boolean;
 }
 
 /** A consumable at or below its minimum stock, offered when creating a supplier order. */
@@ -312,17 +312,15 @@ export interface LowStockConsumable {
 }
 
 export interface OutstandingMaterials {
-  materials: OutstandingPlannedMaterial[];
-  jobs: { id: string; jobNumber: string; title: string }[];
+  jobs: OrderingJob[];
   /** Empty when the list is for one job. */
   lowStockConsumables: LowStockConsumable[];
 }
 
-/** A job material (jobOrderId + plannedMaterialId) or a consumable restock (toolId). */
+/** A job material typed when ordering (jobOrderId + materialName) or a consumable restock (toolId). */
 export interface SupplierOrderLineInput {
   jobOrderId?: string;
   toolId?: string;
-  plannedMaterialId?: string | null;
   materialName?: string;
   gradeOrSpec?: string | null;
   quantity: number;
@@ -457,7 +455,7 @@ export interface RawMaterial {
   name: string;
   quantity?: number;
   unit?: string;
-  /** The shop already has it; it is not bought for this job. Set by the Admin. */
+  /** Earlier records only: the shop already had it. */
   fromStock?: boolean;
 }
 
@@ -731,7 +729,10 @@ export interface JobOrder extends MaterialWait {
   quantity?: number | null;
   unitOfMeasure?: string | null;
   amount?: number | null;
+  /** Planned materials from before materials were entered when ordering (read-only). */
   rawMaterials?: RawMaterial[];
+  /** Detail view: the job's ordered material lines, without costs. */
+  materialLines?: JobMaterialLine[];
   materialStatus?: MaterialStatus;
   materialExpectedDate?: string | null;
   materialReceivedDate?: string | null;
@@ -763,6 +764,18 @@ export interface JobOrder extends MaterialWait {
   /** Detail view only. */
   completionEstimate?: CompletionEstimate | null;
   scheduleColor?: string | null;
+}
+
+export interface JobMaterialLine {
+  id: string;
+  materialName: string;
+  gradeOrSpec: string | null;
+  quantity: number | null;
+  unit: string | null;
+  status: MaterialPurchaseStatus;
+  poNumber: string | null;
+  expectedDate: string | null;
+  dateReceived: string | null;
 }
 
 export interface PlannedMaterialSummary {
@@ -816,8 +829,8 @@ export interface MaterialReadiness {
   missingLeadTimeSuppliers: string[];
   lines: MaterialLineArrival[];
   supplierOrders: JobSupplierOrderSummary[];
-  /** Planned materials not yet fully on a placed order. */
-  unorderedMaterials: string[];
+  /** To order, with no line on an issued supplier order yet. */
+  notOrderedYet: boolean;
 }
 
 export type NotificationMilestone =

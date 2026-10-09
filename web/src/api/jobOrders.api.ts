@@ -80,12 +80,6 @@ export const jobOrdersApi = {
   confirmSchedule: (id: string, body: Record<string, unknown>) =>
     apiClient.post<JobOrder>(`/job-orders/${id}/schedule/confirm`, body),
   deliver: (id: string) => apiClient.post<JobOrder>(`/job-orders/${id}/deliver`),
-  markMaterialReceived: (id: string, receivedDate?: string) =>
-    apiClient.post<JobOrder>(`/job-orders/${id}/material-received`, {
-      receivedDate,
-    }),
-  setPlannedMaterialFromStock: (id: string, materialId: string, fromStock: boolean) =>
-    apiClient.patch<JobOrder>(`/job-orders/${id}/planned-materials/${materialId}`, { fromStock }),
   listBreakdowns: (jobId: string) =>
     apiClient.get<MachineDowntimeRecord[]>(`/job-orders/${jobId}/breakdowns`),
   listMaterialPurchases: (jobId: string) =>
@@ -100,11 +94,6 @@ export const jobOrdersApi = {
     apiClient.patch<MaterialPurchase>(
       `/job-orders/${jobId}/material-purchases/${purchaseId}`,
       data
-    ),
-  markPurchaseReceived: (jobId: string, purchaseId: string, receivedDate?: string) =>
-    apiClient.post<MaterialPurchase>(
-      `/job-orders/${jobId}/material-purchases/${purchaseId}/received`,
-      { receivedDate }
     ),
   deleteMaterialPurchase: (jobId: string, purchaseId: string) =>
     apiClient.delete(`/job-orders/${jobId}/material-purchases/${purchaseId}`),
