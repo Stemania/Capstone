@@ -17,6 +17,7 @@ export const NAV_SECTIONS = [
   '/my-assignments',
   '/worker-setup',
   '/attendance',
+  '/settings/shop',
   '/analytics',
   '/reports',
   '/schedule',

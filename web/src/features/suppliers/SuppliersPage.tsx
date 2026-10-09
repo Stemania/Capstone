@@ -56,6 +56,7 @@ export default function SuppliersPage() {
     return rows.filter(
       (r) =>
         r.name.toLowerCase().includes(q) ||
+        (r.code || '').toLowerCase().includes(q) ||
         (r.contactPerson || '').toLowerCase().includes(q) ||
         (r.phone || '').toLowerCase().includes(q)
     );
@@ -72,6 +73,7 @@ export default function SuppliersPage() {
     setEditing(r);
     form.setFieldsValue({
       name: r.name,
+      code: r.code,
       contactPerson: r.contactPerson,
       phone: r.phone,
       email: r.email,
@@ -110,6 +112,7 @@ export default function SuppliersPage() {
         <div>
           <div style={{ fontWeight: 600 }}>
             {r.name}{' '}
+            {r.code ? <Tag color="blue" style={{ marginLeft: 4 }}>{r.code}</Tag> : null}
             {r.isSeed ? <Tag style={{ marginLeft: 4 }}>Seed</Tag> : null}
           </div>
           <div style={{ fontSize: 12, color: '#64748b' }}>{r.contactPerson || '—'}</div>
@@ -231,12 +234,23 @@ export default function SuppliersPage() {
         >
           {sectionLabel('Supplier')}
           <Row gutter={16}>
-            <Col xs={24} md={12}>
+            <Col xs={16} md={9}>
               <Form.Item name="name" label="Name" rules={[{ required: true }]}>
                 <Input />
               </Form.Item>
             </Col>
-            <Col xs={14} md={7}>
+            <Col xs={8} md={4}>
+              <Form.Item
+                name="code"
+                label="Code"
+                tooltip="2 to 5 letters, used in PO numbers (e.g. RIC gives BMSC-PO-RIC-00012)."
+                normalize={(v: string) => (v || '').toUpperCase().replace(/[^A-Z]/g, '')}
+                rules={[{ pattern: /^[A-Z]{2,5}$/, message: '2 to 5 letters' }]}
+              >
+                <Input maxLength={5} placeholder="RIC" />
+              </Form.Item>
+            </Col>
+            <Col xs={14} md={6}>
               <Form.Item
                 name="typicalLeadTimeDays"
                 label="Typical lead time"
@@ -247,7 +261,12 @@ export default function SuppliersPage() {
               </Form.Item>
             </Col>
             <Col xs={10} md={5}>
-              <Form.Item name="active" label="Status" valuePropName="checked">
+              <Form.Item
+                name="active"
+                label="Status"
+                valuePropName="checked"
+                tooltip="Inactive suppliers are hidden from new orders; their history is kept."
+              >
                 <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
               </Form.Item>
             </Col>

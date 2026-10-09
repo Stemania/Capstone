@@ -5,9 +5,10 @@ import { PrinterOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supplierOrdersApi } from '../../api/supplierOrders.api';
 import { getErrorMessage } from '../../api/client';
-import { SHOP_LETTERHEAD } from '../../constants/shopLetterhead';
+import { useShopDetails } from '../../hooks/useShopDetails';
 import type { SupplierOrderPrint } from '../../types';
 import { ReportStamp, displayOrDash } from './ReportChrome';
+import { ApproverSignature, ShopLetterhead } from './ShopLetterhead';
 
 function fmtDate(v?: string | null) {
   if (!v) return '—';
@@ -29,6 +30,7 @@ function qty(v: number) {
 export default function SupplierOrderPrintPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const shop = useShopDetails();
   const [data, setData] = useState<SupplierOrderPrint | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -88,14 +90,7 @@ export default function SupplierOrderPrintPage() {
       </div>
 
       <article className="jo-print-sheet">
-        <header className="jo-print-letterhead">
-          <div className="jo-print-shop-name">{SHOP_LETTERHEAD.legalName}</div>
-          {SHOP_LETTERHEAD.addressLines.map((line) => (
-            <div key={line} className="jo-print-shop-line">
-              {line}
-            </div>
-          ))}
-        </header>
+        <ShopLetterhead details={shop} />
 
         <ReportStamp />
 
@@ -189,11 +184,7 @@ export default function SupplierOrderPrintPage() {
             <div className="jo-print-sig-line" />
             <div>Prepared by</div>
           </div>
-          <div className="jo-print-sig">
-            <div style={{ minHeight: 14 }} />
-            <div className="jo-print-sig-line" />
-            <div>Approved by</div>
-          </div>
+          <ApproverSignature name={shop.poApproverName} title={shop.poApproverTitle} />
         </div>
       </article>
     </div>

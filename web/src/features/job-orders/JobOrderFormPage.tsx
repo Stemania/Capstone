@@ -19,6 +19,8 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { clientsApi, jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
+import { MATERIAL_UNITS } from '../../api/materialCatalog.api';
+import { MaterialNameInput } from '../../components/MaterialInputs';
 import type { Client } from '../../types';
 import { jobOrdersDraftsListPath } from './jobOrderListPaths';
 
@@ -305,7 +307,13 @@ export default function JobOrderFormPage() {
                             name={[name, 'name']}
                             style={{ flex: 2, marginBottom: 0 }}
                           >
-                            <Input placeholder="Material name" />
+                            <MaterialNameInput
+                              onPick={(item) => {
+                                if (!form.getFieldValue(['rawMaterials', name, 'unit'])) {
+                                  form.setFieldValue(['rawMaterials', name, 'unit'], item.defaultUnit);
+                                }
+                              }}
+                            />
                           </Form.Item>
                           <Form.Item
                             {...rest}
@@ -322,12 +330,7 @@ export default function JobOrderFormPage() {
                             <Select
                               allowClear
                               placeholder="Unit"
-                              options={[
-                                { value: 'pcs', label: 'pcs' },
-                                { value: 'lot', label: 'lot' },
-                                { value: 'set', label: 'set' },
-                                { value: 'kg', label: 'kg' },
-                              ]}
+                              options={MATERIAL_UNITS.map((u) => ({ value: u, label: u }))}
                             />
                           </Form.Item>
                           <Button

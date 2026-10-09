@@ -19,6 +19,7 @@ import {
   ShopOutlined,
   ShoppingCartOutlined,
   ClockCircleOutlined,
+  BankOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -76,6 +77,10 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/attendance': {
     title: 'Attendance',
     subtitle: 'Record each worker\u2019s clock-in and clock-out',
+  },
+  '/settings/shop': {
+    title: 'Shop details',
+    subtitle: 'Name, contacts, and approvers printed on purchase orders and job orders',
   },
 };
 
@@ -167,6 +172,7 @@ export default function AppLayout() {
       { key: '/users', icon: <TeamOutlined />, label: 'Users & Roles' },
       { key: '/worker-setup', icon: <SettingOutlined />, label: 'Worker setup' },
       { key: '/attendance', icon: <ClockCircleOutlined />, label: 'Attendance' },
+      { key: '/settings/shop', icon: <BankOutlined />, label: 'Shop details' },
     );
   }
 

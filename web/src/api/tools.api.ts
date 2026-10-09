@@ -26,6 +26,7 @@ export const toolsApi = {
     quantityOnHand?: number;
     minimumStock?: number | null;
     sizeSpec?: string | null;
+    shopTerm?: string | null;
   }) => apiClient.post<Tool>('/tools', data),
   update: (
     id: string,
@@ -35,6 +36,7 @@ export const toolsApi = {
       unit?: string;
       minimumStock?: number | null;
       sizeSpec?: string | null;
+      shopTerm?: string | null;
     }
   ) => apiClient.patch<Tool>(`/tools/${id}`, data),
   scan: (

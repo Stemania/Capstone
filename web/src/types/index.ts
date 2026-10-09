@@ -95,6 +95,8 @@ export interface Client {
 export interface Supplier {
   id: string;
   name: string;
+  /** 2–5 uppercase letters, used in PO numbers (BMSC-PO-RIC-00012). */
+  code?: string | null;
   contactPerson?: string | null;
   phone?: string | null;
   email?: string | null;
@@ -299,6 +301,7 @@ export interface LowStockConsumable {
   name: string;
   code: string;
   sizeSpec: string | null;
+  shopTerm?: string | null;
   unit: string;
   quantityOnHand: number;
   minimumStock: number;
@@ -892,6 +895,8 @@ export interface Tool {
   quantityOnHand: number;
   minimumStock: number | null;
   sizeSpec: string | null;
+  /** The shop's own word for it, e.g. "Liha" for sandpaper. */
+  shopTerm?: string | null;
   lowStock: boolean;
   createdAt?: string;
   myOutstanding?: number | null;

@@ -45,8 +45,9 @@ import { useAuth } from '../../hooks/useAuth';
 import ToolEventsPage from './ToolEventsPage';
 import ToolsAssetsPanel from './ToolsAssetsPanel';
 import RawMaterialsPanel from './RawMaterialsPanel';
+import MaterialCatalogPanel from './MaterialCatalogPanel';
 
-type PageTab = 'tools' | 'consumables' | 'raw-materials';
+type PageTab = 'tools' | 'consumables' | 'raw-materials' | 'catalog';
 type StockFilter = 'low' | 'ok';
 type CountsDrawerTab = 'stocktake' | 'consumption';
 
@@ -133,6 +134,7 @@ export default function ToolsPage() {
         code: editTool.code,
         unit: editTool.unit,
         sizeSpec: editTool.sizeSpec,
+        shopTerm: editTool.shopTerm,
         minimumStock: editTool.minimumStock,
       });
     }
@@ -141,7 +143,10 @@ export default function ToolsPage() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return tools.filter((t) => {
-      if (q && !`${t.name} ${t.code} ${t.sizeSpec || ''}`.toLowerCase().includes(q)) {
+      if (
+        q &&
+        !`${t.name} ${t.shopTerm || ''} ${t.code} ${t.sizeSpec || ''}`.toLowerCase().includes(q)
+      ) {
         return false;
       }
       if (stockFilter.length) {
@@ -162,6 +167,7 @@ export default function ToolsPage() {
     quantityOnHand: number;
     minimumStock?: number | null;
     sizeSpec?: string;
+    shopTerm?: string;
   }) => {
     try {
       setCreating(true);
@@ -183,6 +189,7 @@ export default function ToolsPage() {
     unit: string;
     minimumStock?: number | null;
     sizeSpec?: string;
+    shopTerm?: string;
   }) => {
     if (!editTool) return;
     try {
@@ -256,7 +263,12 @@ export default function ToolsPage() {
       sorter: (a, b) => a.name.localeCompare(b.name),
       render: (_: unknown, r) => (
         <div>
-          <div style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>{r.name}</div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>
+            {r.name}
+            {r.shopTerm ? (
+              <span style={{ fontWeight: 500, color: '#64748b' }}> “{r.shopTerm}”</span>
+            ) : null}
+          </div>
           <div style={{ fontSize: 12, color: '#64748b' }}>{r.code}</div>
         </div>
       ),
@@ -313,6 +325,7 @@ export default function ToolsPage() {
 
   const stockCsvFields = [
     { key: 'name', header: 'Name', value: (r: Tool) => r.name },
+    { key: 'shopTerm', header: 'ShopTerm', value: (r: Tool) => r.shopTerm },
     { key: 'code', header: 'Code', value: (r: Tool) => r.code },
     { key: 'size', header: 'Size', value: (r: Tool) => r.sizeSpec },
     { key: 'unit', header: 'Unit', value: (r: Tool) => r.unit },
@@ -339,6 +352,7 @@ export default function ToolsPage() {
             { label: 'Tools', value: 'tools' },
             { label: 'Consumables', value: 'consumables' },
             { label: 'Raw materials', value: 'raw-materials' },
+            { label: 'Material catalog', value: 'catalog' },
           ]}
         />
       </div>
@@ -347,6 +361,8 @@ export default function ToolsPage() {
 
       {tab === 'raw-materials' && <RawMaterialsPanel />}
 
+      {tab === 'catalog' && <MaterialCatalogPanel canEdit={canEdit} />}
+
       {tab === 'consumables' && (
         <>
           <div className="std-list-page">
@@ -354,7 +370,7 @@ export default function ToolsPage() {
               <div className="std-list-filters">
                 <Input
                   allowClear
-                  placeholder="Search item, code, size…"
+                  placeholder="Search item, shop term, code, size…"
                   prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
@@ -444,7 +460,9 @@ export default function ToolsPage() {
                         <div>
                           <div className="admin-card__title">{r.name}</div>
                           <div className="admin-card__meta">
-                            {[r.sizeSpec, r.code].filter(Boolean).join(' · ')}
+                            {[r.shopTerm && `“${r.shopTerm}”`, r.sizeSpec, r.code]
+                              .filter(Boolean)
+                              .join(' · ')}
                           </div>
                         </div>
                         {canEdit && (
@@ -627,9 +645,22 @@ export default function ToolsPage() {
               initialValues={{ unit: 'pcs', quantityOnHand: 0 }}
             >
               {sectionLabel('Item details')}
-              <Form.Item name="name" label="Name" rules={[{ required: true }]}>
-                <Input placeholder="e.g. Cutting disc" />
-              </Form.Item>
+              <Row gutter={12}>
+                <Col span={14}>
+                  <Form.Item name="name" label="Name" rules={[{ required: true }]}>
+                    <Input placeholder="e.g. Sandpaper" />
+                  </Form.Item>
+                </Col>
+                <Col span={10}>
+                  <Form.Item
+                    name="shopTerm"
+                    label="Shop term"
+                    tooltip="What the shop calls it; searchable."
+                  >
+                    <Input placeholder="e.g. Liha" />
+                  </Form.Item>
+                </Col>
+              </Row>
               <Row gutter={12}>
                 <Col span={14}>
                   <Form.Item name="code" label="Code">
@@ -713,6 +744,14 @@ export default function ToolsPage() {
                 name="name"
                 label="Name"
                 rules={[{ required: true }]}
+                style={{ marginBottom: 14 }}
+              >
+                <Input />
+              </Form.Item>
+              <Form.Item
+                name="shopTerm"
+                label="Shop term"
+                tooltip="What the shop calls it; searchable."
                 style={{ marginBottom: 14 }}
               >
                 <Input />

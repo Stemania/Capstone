@@ -32,6 +32,7 @@ import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import OverdueTag from '../../components/OverdueTag';
 import StatusPill from '../../components/StatusPill';
+import { GradeInput } from '../../components/MaterialInputs';
 import type { MaterialPurchase, SupplierOrder } from '../../types';
 import OrderMaterialsModal from './OrderMaterialsModal';
 import { LINE_STATUS_PILL, ORDER_STATUS_PILL, fmtDay, fmtMoney, fmtQty } from './supplierOrderUi';
@@ -714,9 +715,11 @@ export default function SupplierOrderDetailPage() {
         <div style={{ display: 'grid', gap: 12 }}>
           <div>
             <div style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>Grade / spec</div>
-            <Input
+            <GradeInput
+              placeholder=""
+              materialName={editLine?.materialName}
               value={editValues.gradeOrSpec}
-              onChange={(e) => setEditValues((v) => ({ ...v, gradeOrSpec: e.target.value }))}
+              onChange={(g) => setEditValues((v) => ({ ...v, gradeOrSpec: g }))}
             />
           </div>
           <div>

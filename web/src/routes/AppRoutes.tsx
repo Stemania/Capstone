@@ -20,6 +20,7 @@ import AssignmentDetailPage from '../features/my-assignments/AssignmentDetailPag
 import UsersPage from '../features/users/UsersPage';
 import WorkerSetupPage from '../features/workers/WorkerSetupPage';
 import AttendancePage from '../features/attendance/AttendancePage';
+import ShopDetailsPage from '../features/settings/ShopDetailsPage';
 import ToolsPage from '../features/tool-tracking/ToolsPage';
 import ScanToolPage from '../features/tool-tracking/ScanToolPage';
 import ClientsPage from '../features/clients/ClientsPage';
@@ -157,6 +158,7 @@ export default function AppRoutes() {
                     <Route path="/users/:id" element={<WorkerSetupFromUser />} />
                     <Route path="/worker-setup" element={<WorkerSetupPage />} />
                     <Route path="/attendance" element={<AttendancePage />} />
+                    <Route path="/settings/shop" element={<ShopDetailsPage />} />
                     <Route
                       path="/settings/scoring-weights"
                       element={<Navigate to="/worker-setup" replace />}

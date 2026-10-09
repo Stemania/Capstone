@@ -16,6 +16,7 @@ import type {
   Tool,
 } from '../../types';
 import { fmtQty } from './supplierOrderUi';
+import { GradeInput } from '../../components/MaterialInputs';
 
 const { Text } = Typography;
 
@@ -52,13 +53,22 @@ type ConsumableRow = {
   code: string;
   unit: string;
   sizeSpec: string | null;
+  shopTerm?: string | null;
   lowStock?: LowStockConsumable;
 };
 
 const rowKey = (m: OutstandingPlannedMaterial) => `${m.jobOrderId}:${m.plannedMaterialId}`;
 
 function fromLowStock(c: LowStockConsumable): ConsumableRow {
-  return { toolId: c.toolId, name: c.name, code: c.code, unit: c.unit, sizeSpec: c.sizeSpec, lowStock: c };
+  return {
+    toolId: c.toolId,
+    name: c.name,
+    code: c.code,
+    unit: c.unit,
+    sizeSpec: c.sizeSpec,
+    shopTerm: c.shopTerm,
+    lowStock: c,
+  };
 }
 
 /**
@@ -157,7 +167,14 @@ export default function OrderMaterialsModal({
     if (!tool || consumableRows.some((r) => r.toolId === toolId)) return;
     setConsumableRows((prev) => [
       ...prev,
-      { toolId: tool.id, name: tool.name, code: tool.code, unit: tool.unit, sizeSpec: tool.sizeSpec },
+      {
+        toolId: tool.id,
+        name: tool.name,
+        code: tool.code,
+        unit: tool.unit,
+        sizeSpec: tool.sizeSpec,
+        shopTerm: tool.shopTerm,
+      },
     ]);
     setConsumableEdit(tool.id, { quantity: 1, unitCost: null, gradeOrSpec: tool.sizeSpec || '' });
     setSelectedConsumables((prev) => [...prev, tool.id]);
@@ -267,7 +284,10 @@ export default function OrderMaterialsModal({
           style={{ width: 360 }}
           value={supplierId}
           onChange={setSupplierId}
-          options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+          options={suppliers.map((s) => ({
+            value: s.id,
+            label: s.code ? `${s.name} (${s.code})` : s.name,
+          }))}
           optionRender={(o) => (
             <span style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
               <span>{o.label}</span>
@@ -339,10 +359,12 @@ export default function OrderMaterialsModal({
                 key: 'grade',
                 width: 140,
                 render: (_: unknown, m) => (
-                  <Input
+                  <GradeInput
                     size="small"
+                    placeholder=""
+                    materialName={m.materialName}
                     value={edits[rowKey(m)]?.gradeOrSpec}
-                    onChange={(e) => setEdit(rowKey(m), { gradeOrSpec: e.target.value })}
+                    onChange={(v) => setEdit(rowKey(m), { gradeOrSpec: v })}
                   />
                 ),
               },
@@ -407,7 +429,10 @@ export default function OrderMaterialsModal({
                   onChange={(v: string) => addConsumable(v)}
                   options={consumables
                     .filter((t) => !consumableRows.some((r) => r.toolId === t.id))
-                    .map((t) => ({ value: t.id, label: `${t.name} (${t.code})` }))}
+                    .map((t) => ({
+                      value: t.id,
+                      label: `${t.name}${t.shopTerm ? ` “${t.shopTerm}”` : ''} (${t.code})`,
+                    }))}
                 />
               </div>
               <Table<ConsumableRow>
@@ -429,7 +454,9 @@ export default function OrderMaterialsModal({
                     render: (_: unknown, c) => (
                       <div>
                         <div style={{ fontWeight: 600 }}>{c.name}</div>
-                        <div style={{ fontSize: 11, color: '#64748b' }}>{c.code}</div>
+                        <div style={{ fontSize: 11, color: '#64748b' }}>
+                          {[c.shopTerm && `“${c.shopTerm}”`, c.code].filter(Boolean).join(' · ')}
+                        </div>
                       </div>
                     ),
                   },

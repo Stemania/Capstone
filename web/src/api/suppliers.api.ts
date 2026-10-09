@@ -15,6 +15,7 @@ export const suppliersApi = {
     apiClient.get<SupplierReliability[]>('/suppliers/reliability', { params }),
   create: (data: {
     name: string;
+    code?: string | null;
     contactPerson?: string;
     phone?: string;
     email?: string;
@@ -27,6 +28,7 @@ export const suppliersApi = {
     id: string,
     data: {
       name?: string;
+      code?: string | null;
       contactPerson?: string | null;
       phone?: string | null;
       email?: string | null;
