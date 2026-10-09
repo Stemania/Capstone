@@ -700,7 +700,7 @@ export default function JobOrderListPage() {
         value={listTab}
         onChange={(v) => selectListTab(v as ListTab)}
         options={[
-          { label: 'Job orders', value: 'production' },
+          { label: 'Released', value: 'production' },
           {
             label: (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
