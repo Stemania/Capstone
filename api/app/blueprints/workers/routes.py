@@ -4,12 +4,7 @@ from flask_jwt_extended import jwt_required
 from app.middleware.rbac import require_roles
 from app.models.user import User, UserRole
 from app.services.worker_availability import get_busy_workers
-from app.services.worker_profile_service import (
-    is_checking_operation,
-    machine_skill_holders,
-    operation_skill_holders,
-    query_assignable_workers,
-)
+from app.services.worker_profile_service import machine_skill_holders, query_assignable_workers
 from app.services.worker_suggestion_service import suggest_workers
 
 workers_bp = Blueprint("workers", __name__)
@@ -23,34 +18,17 @@ def list_workers():
     scheduled_start = request.args.get("scheduledStart")
     scheduled_end = request.args.get("scheduledEnd")
     machine_type_id = request.args.get("machineTypeId")
-    operation_type_id = request.args.get("operationTypeId")
-    operation_name = request.args.get("operationName")
-    for_checking = str(request.args.get("forChecking") or "").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
     busy = get_busy_workers(
         start=scheduled_start,
         end=scheduled_end,
         exclude_operation_id=exclude_operation_id,
     )
-    # Admin is Checking-only: never list them for machine ops; for no-machine
-    # ops only when the caller is loading Checking.
-    include_admin = (not machine_type_id) and (
-        for_checking or is_checking_operation(operation_type_id, operation_name)
-    )
-    query = query_assignable_workers(include_admin=include_admin)
-    if machine_type_id:
-        holders = machine_skill_holders(machine_type_id)
-        if holders is not None:
-            query = query.filter(User.id.in_(list(holders)))
-    else:
-        _ot, holders = operation_skill_holders(
-            operation_type_id=operation_type_id, operation_name=operation_name
-        )
-        if holders is not None:
-            query = query.filter(User.id.in_(list(holders)))
+    # Workers and Admins; a machine operation lists only its skill holders once
+    # anyone has that skill recorded.
+    query = query_assignable_workers()
+    holders = machine_skill_holders(machine_type_id)
+    if holders is not None:
+        query = query.filter(User.id.in_(list(holders)))
     workers = query.all()
     result = []
     for w in workers:

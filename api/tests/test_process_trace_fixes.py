@@ -176,6 +176,7 @@ def test_redo_of_checking_adds_no_extra_checking(client, shop):
 def test_redo_unassigned_when_original_worker_gone(client, shop):
     job = _job(shop, status=JobOrderStatus.IN_PROGRESS)
     cutting = _op(job, 1, "Cutting", status=OperationStatus.COMPLETED, worker=shop["worker"])
+    shop["worker"].status = UserStatus.DISABLED
     shop["worker"].active = False
     db.session.commit()
 
@@ -257,7 +258,7 @@ def test_apply_schedule_refuses_window_outside_working_hours(client, shop):
     assert "outside working hours" in res.get_json()["error"]["message"]
 
 
-def test_apply_schedule_refuses_admin_on_non_checking(client, shop):
+def test_apply_schedule_accepts_admin_on_a_machine_operation(client, shop):
     job = _job(shop, status=JobOrderStatus.SCHEDULED)
     op = _op(job, 1, "Welding", worker=shop["worker"])
     lathe = MachineType(code="LATHE_PT", name="Lathe PT")
@@ -281,8 +282,9 @@ def test_apply_schedule_refuses_admin_on_non_checking(client, shop):
         },
         headers=_headers(shop["admin"]),
     )
-    assert res.status_code == 400, res.get_json()
-    assert "Admin can only be assigned to Checking" in res.get_json()["error"]["message"]
+    assert res.status_code == 200, res.get_json()
+    db.session.refresh(op)
+    assert op.assigned_worker_id == shop["admin"].id
 
 
 # ---- Item 3: confirm checks the material floor -----------------------------

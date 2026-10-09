@@ -227,6 +227,43 @@ def _register_cli(app):
         if dry_run:
             print("Dry run: nothing was saved.")
 
+    @app.cli.command("import-employees")
+    @click.option("--file", "file_path", required=True, help="CSV file, e.g. api/data/employees.local.csv")
+    @click.option("--dry-run", is_flag=True, help="Show the changes without saving them.")
+    def import_employees_command(file_path, dry_run):
+        """Create the shop's employees from a git-ignored CSV. Accounts are not
+        activated; the Admin invites each person later. Safe to run twice."""
+        from pathlib import Path
+
+        from app.services.employee_import_service import import_employees
+        from app.utils.errors import AppError
+
+        path = Path(file_path)
+        if not path.is_absolute() and not path.exists():
+            # Also accept paths given from the repository root (api/data/...).
+            repo_root = Path(__file__).resolve().parents[2]
+            if (repo_root / path).exists():
+                path = repo_root / path
+        try:
+            report = import_employees(path, dry_run=dry_run)
+        except AppError as exc:
+            raise click.ClickException(exc.message)
+
+        heading = "Would create" if dry_run else "Created"
+        print(f"{heading} ({len(report.created)}):")
+        for line in report.created or ["nobody"]:
+            print(f"  - {line}")
+        heading = "Would change" if dry_run else "Changed"
+        print(f"{heading} ({len(report.changes)}):")
+        for line in report.changes or ["nothing"]:
+            print(f"  - {line}")
+        print(f"Already up to date: {report.unchanged}")
+        print(f"Not imported or needs a look ({len(report.problems)}):")
+        for line in report.problems or ["none"]:
+            print(f"  - {line}")
+        if dry_run:
+            print("Dry run: nothing was saved.")
+
 
 def utcnow():
     return datetime.now(timezone.utc)

@@ -81,28 +81,9 @@ def _resolve_machine_type_id(op_data):
     return None
 
 
-def _assert_worker_has_operation_skill(worker, operation_type_id=None, operation_name=None):
-    """An operation without a machine refuses a worker who lacks its skill, but
-    only once at least one worker has that skill recorded."""
-    from app.services.worker_profile_service import operation_skill_holders
-
-    ot, holders = operation_skill_holders(
-        operation_type_id=operation_type_id, operation_name=operation_name
-    )
-    if holders is None or worker.id in holders:
-        return
-    raise AppError(
-        f"{worker.full_name} has no {ot.name} skill. "
-        "Add the skill under Worker setup, or assign a qualified worker.",
-        "WORKER_NOT_QUALIFIED",
-        400,
-    )
-
-
 def _assert_worker_has_machine_skill(worker, machine_type_id):
-    """Refuses a worker without the machine skill, but only once an active
-    worker has it recorded. Operations with no machine type are checked by
-    _assert_worker_has_operation_skill."""
+    """Refuses a worker without the machine skill, but only once someone has it
+    recorded. Operations with no machine type take anyone."""
     if not machine_type_id:
         return
     from app.services.worker_profile_service import machine_skill_holders
@@ -131,23 +112,12 @@ def _validate_worker(
     operation_name=None,
     exclude_operation_ids=None,
 ):
-    from app.services.worker_profile_service import (
-        assert_worker_allowed_for_operation,
-        is_assignable_worker,
-    )
+    from app.services.worker_profile_service import is_assignable_worker
 
     worker = User.query.get(worker_id)
     if not is_assignable_worker(worker):
         raise AppError("Invalid worker assignment", "VALIDATION_ERROR", 400)
-    assert_worker_allowed_for_operation(
-        worker,
-        machine_type_id=machine_type_id,
-        operation_type_id=operation_type_id,
-        operation_name=operation_name,
-    )
     _assert_worker_has_machine_skill(worker, machine_type_id)
-    if not machine_type_id:
-        _assert_worker_has_operation_skill(worker, operation_type_id, operation_name)
     from app.services.worker_availability import assert_worker_available
 
     assert_worker_available(

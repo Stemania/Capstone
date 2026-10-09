@@ -187,6 +187,12 @@ class JobOperation(db.Model):
             "assignedWorkerName": (
                 self.assigned_worker.full_name if self.assigned_worker else None
             ),
+            "assignedWorkerNickname": (
+                self.assigned_worker.nickname if self.assigned_worker else None
+            ),
+            "assignedWorkerPhotoVersion": (
+                self.assigned_worker.photo_version if self.assigned_worker else None
+            ),
             "estimatedHours": _num(self.estimated_hours),
             "scheduledStart": self.scheduled_start.isoformat() if self.scheduled_start else None,
             "scheduledEnd": self.scheduled_end.isoformat() if self.scheduled_end else None,

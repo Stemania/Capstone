@@ -186,6 +186,12 @@ def schedule_board(
                 "assignedWorkerName": (
                     op.assigned_worker.full_name if op.assigned_worker else None
                 ),
+                "assignedWorkerNickname": (
+                    op.assigned_worker.nickname if op.assigned_worker else None
+                ),
+                "assignedWorkerPhotoVersion": (
+                    op.assigned_worker.photo_version if op.assigned_worker else None
+                ),
                 "dueDate": job.due_date.isoformat() if job and job.due_date else None,
                 "projectedCompletion": projected.isoformat() if projected else None,
                 "scheduleFlag": schedule_flag,
@@ -247,7 +253,19 @@ def schedule_board(
         query_assignable_workers()
         .all()
     )
-    workers_out = [{"id": w.id, "fullName": w.full_name} for w in workers]
+    workers_out = [
+        {
+            "id": w.id,
+            "fullName": w.full_name,
+            "nickname": w.nickname,
+            "role": w.role.value,
+            # A production worker only sees other people's photos on their own jobs.
+            "photoVersion": (
+                w.photo_version if not for_worker or w.id == worker_id else None
+            ),
+        }
+        for w in workers
+    ]
 
     clients_out = [
         {"id": c.id, "name": c.name}

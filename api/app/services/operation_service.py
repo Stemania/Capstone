@@ -1006,6 +1006,8 @@ def _serialize_affected_operation(op):
         "scheduledStart": op.scheduled_start.isoformat() if op.scheduled_start else None,
         "scheduledEnd": op.scheduled_end.isoformat() if op.scheduled_end else None,
         "assignedWorkerName": worker.full_name if worker else None,
+        "assignedWorkerNickname": worker.nickname if worker else None,
+        "assignedWorkerPhotoVersion": worker.photo_version if worker else None,
     }
 
 
@@ -1193,9 +1195,10 @@ def set_machine_unit_active(unit_id, active: bool):
 
 
 def set_machine_unit_default_operator(unit_id, operator_id):
-    """Set or clear the usual operator for a machine unit (null = shared)."""
+    """Set or clear the usual operator for a machine unit (null = open to all)."""
     from app.models.machine import MachineUnit
-    from app.models.user import User, UserRole
+    from app.models.user import User
+    from app.services.worker_profile_service import is_assignable_worker
 
     unit = MachineUnit.query.get(unit_id)
     if not unit:
@@ -1207,11 +1210,11 @@ def set_machine_unit_default_operator(unit_id, operator_id):
         return unit
 
     user = User.query.get(operator_id)
-    if not user or not user.active:
+    if not user:
         raise AppError("Worker not found", "NOT_FOUND", 404)
-    if user.role != UserRole.PRODUCTION_WORKER:
+    if not is_assignable_worker(user):
         raise AppError(
-            "Default operator must be a production worker",
+            "Default operator must be a production worker or Admin who is not disabled",
             "VALIDATION_ERROR",
             400,
         )

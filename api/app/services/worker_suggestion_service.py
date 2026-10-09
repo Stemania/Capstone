@@ -24,12 +24,10 @@ from app.services.schedule_calendar import (
     utc_to_shop,
 )
 from app.services.worker_availability import _parse_dt, get_busy_workers
+from app.models.user import UserRole
 from app.services.worker_profile_service import (
     NO_MACHINE_SKILL_RECORDED,
-    is_checking_operation,
-    is_skill_tracked_type,
     machine_skill_holders,
-    operation_skill_holders,
     query_assignable_workers,
 )
 
@@ -114,11 +112,12 @@ def suggest_workers(
     operation_name=None,
 ):
     """
-    Score eligible active production workers.
+    Score eligible production workers and Admins.
 
     Filters out:
-      - workers without skill for the target machine type (once an active
-        worker has that skill recorded; until then everyone qualifies)
+      - people without skill for the target machine type (once someone has
+        that skill recorded; until then everyone qualifies). Operations
+        without a machine take anyone.
       - workers busy for the proposed window (overlap), or IN_PROGRESS when no window
       - workers with no working hours in the proposed window (off shift, holiday)
 
@@ -154,28 +153,14 @@ def suggest_workers(
     mt = MachineType.query.get(target_machine_id) if target_machine_id else None
     machine_label = mt.name if mt else None
 
-    # A machine skill filters and scores once an active worker has it
-    # recorded; until then every worker qualifies.
+    # A machine skill filters and scores once someone has it recorded; until
+    # then everyone qualifies.
     machine_holders = machine_skill_holders(target_machine_id)
     skill_by_worker = machine_holders or {}
     no_machine_skill_yet = bool(target_machine_id) and machine_holders is None
+    skill_required = machine_holders is not None
 
-    # No machine: the operation type's own skill filters and scores the same
-    # way, once anyone has it recorded.
-    op_type, op_skill_holders = operation_skill_holders(
-        machine_type_id=target_machine_id,
-        operation_type_id=resolved_op_type_id,
-        operation_name=operation_name,
-    )
-    skill_required = machine_holders is not None or op_skill_holders is not None
-    if op_skill_holders is not None:
-        skill_by_worker = op_skill_holders
-        machine_label = op_type.name
-
-    workers = query_assignable_workers(
-        include_admin=is_checking_operation(resolved_op_type_id, operation_name)
-        and not target_machine_id
-    ).all()
+    workers = query_assignable_workers().all()
 
     if skill_required:
         workers = [w for w in workers if w.id in skill_by_worker]
@@ -206,8 +191,6 @@ def suggest_workers(
         else:
             if no_machine_skill_yet:
                 skill_reason = NO_MACHINE_SKILL_RECORDED
-            elif is_skill_tracked_type(op_type):
-                skill_reason = f"no {op_type.name} skill recorded yet"
             else:
                 skill_reason = "no machine skill required"
             skill_score, skill_default = 1.0, False
@@ -235,31 +218,31 @@ def suggest_workers(
         ]
         reason = build_reason(ordered, machine_label=machine_label, unqualified=False)
 
-        skills_codes = [
-            s.machine_type.code if s.machine_type else s.operation_type.code
-            for s in (worker.skills or [])
-            if s.machine_type or s.operation_type
-        ]
+        skills_codes = [s.machine_type.code for s in (worker.skills or []) if s.machine_type]
         suggestions.append(
             {
                 "workerId": worker.id,
                 "fullName": worker.full_name,
+                "nickname": worker.nickname,
+                "photoVersion": worker.photo_version,
+                "role": worker.role.value,
                 "email": worker.email,
                 "skills": skills_codes,
                 "score": total,
                 "qualified": True,
                 "components": components,
                 "reason": reason,
-                "matchedSkills": (
-                    [mt.code] if mt and skill else [op_type.code] if op_skill_holders and skill else []
-                ),
+                "matchedSkills": [mt.code] if mt and skill else [],
                 "proficiency": skill.proficiency if skill else None,
                 "available": True,
             }
         )
 
+    # Attendance is kept for production workers only.
     missing = _not_clocked_in_for_today_op(
-        [s["workerId"] for s in suggestions], scheduled_start, exclude_operation_id
+        [s["workerId"] for s in suggestions if s["role"] == UserRole.PRODUCTION_WORKER.value],
+        scheduled_start,
+        exclude_operation_id,
     )
     for s in suggestions:
         s["attendanceWarning"] = NOT_CLOCKED_IN if s["workerId"] in missing else None

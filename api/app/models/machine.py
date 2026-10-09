@@ -74,4 +74,6 @@ class MachineUnit(db.Model):
             "machineTypeName": self.machine_type.name if self.machine_type else None,
             "defaultOperatorId": self.default_operator_id,
             "defaultOperatorName": op.full_name if op else None,
+            "defaultOperatorNickname": op.nickname if op else None,
+            "defaultOperatorPhotoVersion": op.photo_version if op else None,
         }

@@ -1,5 +1,5 @@
-"""Shop process: daily break, fabrication sequence, skills for operations
-without a machine, and outsourced operations (Heat Treatment).
+"""Shop process: daily break, fabrication sequence, machine-only skills,
+and outsourced operations (Heat Treatment).
 
 Uses the bmsc_test database from conftest (schema built from the models).
 """
@@ -234,7 +234,7 @@ def test_fitting_sets_assembled_and_finishing_sets_finished(shop):
     )
 
 
-# 3. Skills for operations without a machine
+# 3. Skills are for machines; operations without a machine are open to all
 
 
 def _assign(client, shop, op, worker):
@@ -245,68 +245,39 @@ def _assign(client, shop, op, worker):
     )
 
 
-def test_operation_skill_is_recorded_with_a_level(client, shop):
+def test_skills_are_for_machines_only(client, shop):
     layout = shop["types"]["LAYOUT"]
+    url = f"/api/v1/workers/{shop['ana'].id}/skills"
     res = client.put(
-        f"/api/v1/workers/{shop['ana'].id}/skills",
-        json={
-            "skills": [
-                {"machineTypeId": shop["lathe"].id, "proficiency": 4, "isPrimary": True},
-                {"operationTypeId": layout.id, "proficiency": 5, "isPrimary": False},
-            ]
-        },
+        url,
+        json={"skills": [{"machineTypeId": shop["lathe"].id, "proficiency": 4, "isPrimary": True}]},
         headers=_headers(shop["admin"]),
     )
     assert res.status_code == 200, res.get_json()
     rows = WorkerSkill.query.filter_by(worker_id=shop["ana"].id).all()
-    by_target = {(r.machine_type_id, r.operation_type_id): r.proficiency for r in rows}
-    assert by_target[(None, layout.id)] == 5
+    assert [(r.machine_type_id, r.proficiency) for r in rows] == [(shop["lathe"].id, 4)]
 
     for bad in (
-        {"operationTypeId": shop["types"]["CHECKING"].id, "proficiency": 3},
-        {"operationTypeId": shop["types"]["HEAT_TREATMENT"].id, "proficiency": 3},
+        {"operationTypeId": layout.id, "proficiency": 3},
         {"machineTypeId": shop["lathe"].id, "operationTypeId": layout.id, "proficiency": 3},
-        {"operationTypeId": layout.id, "proficiency": 6},
+        {"proficiency": 3},
+        {"machineTypeId": shop["lathe"].id, "proficiency": 6},
     ):
-        res = client.put(
-            f"/api/v1/workers/{shop['ana'].id}/skills",
-            json={"skills": [bad]},
-            headers=_headers(shop["admin"]),
-        )
+        res = client.put(url, json={"skills": [bad]}, headers=_headers(shop["admin"]))
         assert res.status_code == 400, bad
 
 
-def test_anyone_can_do_an_operation_until_someone_has_the_skill(client, shop):
-    layout = shop["types"]["LAYOUT"]
+def test_every_worker_qualifies_for_operations_without_a_machine(client, shop):
     job = _job(shop)
-    op = _op(job, 1, layout)
+    for seq, code in enumerate(("LAYOUT", "CUTTING", "FITTING", "CHECKING"), start=1):
+        op = _op(job, seq, shop["types"][code])
+        assert _assign(client, shop, op, shop["ben"]).status_code == 200, code
 
-    assert _assign(client, shop, op, shop["ben"]).status_code == 200
-
-    db.session.add(WorkerSkill(worker_id=shop["ana"].id, operation_type_id=layout.id, proficiency=3))
-    db.session.commit()
-    op2 = _op(job, 2, layout)
-    res = _assign(client, shop, op2, shop["ben"])
-    assert res.status_code == 400
-    err = res.get_json()["error"]
-    assert err["code"] == "WORKER_NOT_QUALIFIED"
-    assert "Layout" in err["message"]
-    assert _assign(client, shop, op2, shop["ana"]).status_code == 200
-
-
-def test_suggestions_use_operation_skills_with_fallback(client, shop):
-    layout = shop["types"]["LAYOUT"]
-    body = {"operationTypeId": layout.id, "operationName": "Layout"}
+    body = {"operationTypeId": shop["types"]["LAYOUT"].id, "operationName": "Layout"}
     res = client.post("/api/v1/workers/suggest", json=body, headers=_headers(shop["admin"]))
     assert res.status_code == 200
     names = {s["fullName"] for s in res.get_json()["suggestions"]}
-    assert {"Ana Fitter", "Ben Helper"} <= names
-
-    db.session.add(WorkerSkill(worker_id=shop["ana"].id, operation_type_id=layout.id, proficiency=5))
-    db.session.commit()
-    res = client.post("/api/v1/workers/suggest", json=body, headers=_headers(shop["admin"]))
-    names = [s["fullName"] for s in res.get_json()["suggestions"]]
-    assert names == ["Ana Fitter"]
+    assert {"Ana Fitter", "Ben Helper", "SP Admin"} <= names
 
 
 def _laser(shop):
@@ -324,6 +295,7 @@ def test_anyone_can_run_a_machine_until_an_active_worker_has_the_skill(client, s
     job = _job(shop)
     # A skill held only by an inactive worker does not count.
     gone = _user("sp_gone@test.local", UserRole.PRODUCTION_WORKER, "Gone Worker")
+    gone.status = UserStatus.DISABLED
     gone.active = False
     db.session.add(WorkerSkill(worker_id=gone.id, machine_type_id=laser.id, proficiency=5))
     db.session.commit()

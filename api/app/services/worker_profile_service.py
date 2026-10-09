@@ -4,7 +4,7 @@ from sqlalchemy.orm import joinedload
 
 from app.extensions import db
 from app.models.machine import MachineType
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, UserStatus
 from app.models.worker_profile import WorkerProfile
 from app.models.worker_skill import (
     CalendarExceptionType,
@@ -15,8 +15,8 @@ from app.models.worker_skill import (
 )
 from app.utils.errors import AppError
 
-# Production workers always; Admins only when they have a WorkerProfile
-# (Production In-charge — Checking only; see is_checking_operation).
+# Production workers and Admins can be assigned to any operation, including
+# people not yet activated (they activate before recording work on a phone).
 ASSIGNABLE_ROLES = (UserRole.PRODUCTION_WORKER, UserRole.ADMIN)
 
 
@@ -40,7 +40,7 @@ def _parse_date(value):
 
 
 def is_checking_operation(operation_type_id=None, operation_name=None) -> bool:
-    """True when the operation is Checking (Admin's only assignable work)."""
+    """True when the operation is Checking."""
     if operation_type_id:
         ot = OperationType.query.get(operation_type_id)
         if ot:
@@ -52,62 +52,22 @@ def is_checking_operation(operation_type_id=None, operation_name=None) -> bool:
     return name == "checking"
 
 
-def resolve_operation_type(operation_type_id=None, operation_name=None):
-    if operation_type_id:
-        ot = db.session.get(OperationType, operation_type_id)
-        if ot:
-            return ot
-    if operation_name:
-        name = str(operation_name).strip()
-        return OperationType.query.filter(
-            (OperationType.name.ilike(name))
-            | (OperationType.code.ilike(name.replace(" ", "_")))
-        ).first()
-    return None
-
-
-def is_skill_tracked_type(ot) -> bool:
-    """Operation types that use no machine carry their own worker skill.
-    Checking (Admin's work) and outsourced types are left out."""
-    return bool(
-        ot
-        and not ot.default_machine_type_id
-        and not ot.is_outsourced
-        and (ot.code or "").upper() != "CHECKING"
-    )
-
-
-def operation_skill_holders(machine_type_id=None, operation_type_id=None, operation_name=None):
-    """(operation type, {worker_id: WorkerSkill}) when an operation without a
-    machine is skill-tracked and at least one worker has that skill recorded;
-    otherwise (operation type or None, None) and every worker qualifies."""
-    if machine_type_id:
-        return None, None
-    ot = resolve_operation_type(operation_type_id, operation_name)
-    if not is_skill_tracked_type(ot):
-        return ot, None
-    rows = WorkerSkill.query.filter_by(operation_type_id=ot.id).all()
-    if not rows:
-        return ot, None
-    return ot, {s.worker_id: s for s in rows}
-
-
 NO_MACHINE_SKILL_RECORDED = "No one has this machine skill recorded yet"
 
 
+def _assignable_filter():
+    return db.and_(User.role.in_(ASSIGNABLE_ROLES), User.status != UserStatus.DISABLED)
+
+
 def machine_skill_holders(machine_type_id):
-    """{worker_id: WorkerSkill} for active production workers with the machine
-    skill; None when no active worker has it recorded, so every worker
-    qualifies until the skill is set up."""
+    """{worker_id: WorkerSkill} for assignable people (workers and Admins) with
+    the machine skill; None when nobody has it recorded, so everyone qualifies
+    until the skill is set up (e.g. Laser, Bending)."""
     if not machine_type_id:
         return None
     rows = (
         WorkerSkill.query.join(User, User.id == WorkerSkill.worker_id)
-        .filter(
-            WorkerSkill.machine_type_id == machine_type_id,
-            User.active.is_(True),
-            User.role == UserRole.PRODUCTION_WORKER,
-        )
+        .filter(WorkerSkill.machine_type_id == machine_type_id, _assignable_filter())
         .all()
     )
     return {s.worker_id: s for s in rows} or None
@@ -115,56 +75,16 @@ def machine_skill_holders(machine_type_id):
 
 def is_assignable_worker(user: User | None) -> bool:
     """True if this user can be assigned to a job operation."""
-    if not user or not user.active:
-        return False
-    if user.role == UserRole.PRODUCTION_WORKER:
-        return True
-    if user.role == UserRole.ADMIN and user.worker_profile is not None:
-        return True
-    return False
+    return bool(
+        user and user.role in ASSIGNABLE_ROLES and user.status != UserStatus.DISABLED
+    )
 
 
-def assert_worker_allowed_for_operation(
-    user: User,
-    *,
-    machine_type_id=None,
-    operation_type_id=None,
-    operation_name=None,
-):
-    """Admins may only be assigned to Checking (no machine)."""
-    if user.role != UserRole.ADMIN:
-        return
-    if machine_type_id:
-        raise AppError(
-            "Admin can only be assigned to Checking",
-            "VALIDATION_ERROR",
-            400,
-        )
-    if not is_checking_operation(operation_type_id, operation_name):
-        raise AppError(
-            "Admin can only be assigned to Checking",
-            "VALIDATION_ERROR",
-            400,
-        )
-
-
-def query_assignable_workers(*, include_admin: bool = True):
-    """
-    Active production workers, optionally plus Admins with a worker profile.
-
-    Pass include_admin=False for machine / non-Checking assignment lists so
-    Admin does not appear. Checking and shop calendars keep include_admin=True.
-    """
-    role_filter = User.role == UserRole.PRODUCTION_WORKER
-    if include_admin:
-        role_filter = db.or_(
-            role_filter,
-            db.and_(User.role == UserRole.ADMIN, WorkerProfile.id.isnot(None)),
-        )
+def query_assignable_workers():
+    """Production workers and Admins who are not disabled, by name."""
     return (
         User.query.options(joinedload(User.worker_profile))
-        .outerjoin(WorkerProfile, WorkerProfile.user_id == User.id)
-        .filter(User.active.is_(True), role_filter)
+        .filter(_assignable_filter())
         .order_by(User.full_name)
     )
 
@@ -196,9 +116,8 @@ def list_worker_skills(worker_id):
 def replace_worker_skills(worker_id, skills_payload):
     """
     Bulk replace skills.
-    skills_payload: [{machineTypeId | operationTypeId, proficiency, isPrimary}, ...]
-    operationTypeId is for operation types that use no machine (Layout, Welding...).
-    Empty list clears all skills.
+    skills_payload: [{machineTypeId, proficiency, isPrimary}, ...]
+    Skills are for machine types only. Empty list clears all skills.
     """
     worker = get_worker_or_404(worker_id)
     ensure_worker_profile(worker)
@@ -210,31 +129,21 @@ def replace_worker_skills(worker_id, skills_payload):
     seen = set()
     primary_set = False
     for item in skills_payload:
-        mid = item.get("machineTypeId")
-        oid = item.get("operationTypeId")
-        if bool(mid) == bool(oid):
+        if item.get("operationTypeId"):
             raise AppError(
-                "Each skill needs a machine type or an operation type", "VALIDATION_ERROR", 400
+                "Skills are for machine types only; every worker can do operations "
+                "without a machine",
+                "VALIDATION_ERROR",
+                400,
             )
-        key = ("machine", mid) if mid else ("operation", oid)
-        if key in seen:
+        mid = item.get("machineTypeId")
+        if not mid:
+            raise AppError("Each skill needs a machine type", "VALIDATION_ERROR", 400)
+        if mid in seen:
             raise AppError("Duplicate skill", "VALIDATION_ERROR", 400)
-        seen.add(key)
-        if mid:
-            mt = MachineType.query.get(mid)
-            if not mt:
-                raise AppError("Invalid machineTypeId", "VALIDATION_ERROR", 400)
-        else:
-            ot = db.session.get(OperationType, oid)
-            if not ot:
-                raise AppError("Invalid operationTypeId", "VALIDATION_ERROR", 400)
-            if not is_skill_tracked_type(ot):
-                raise AppError(
-                    f"{ot.name} does not take a worker skill "
-                    "(it uses a machine, is outsourced, or is Checking)",
-                    "VALIDATION_ERROR",
-                    400,
-                )
+        seen.add(mid)
+        if not db.session.get(MachineType, mid):
+            raise AppError("Invalid machineTypeId", "VALIDATION_ERROR", 400)
         try:
             proficiency = int(item.get("proficiency", 3))
         except (TypeError, ValueError):
@@ -249,8 +158,7 @@ def replace_worker_skills(worker_id, skills_payload):
         db.session.add(
             WorkerSkill(
                 worker_id=worker_id,
-                machine_type_id=mid or None,
-                operation_type_id=oid or None,
+                machine_type_id=mid,
                 proficiency=proficiency,
                 is_primary=is_primary,
             )

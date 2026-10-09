@@ -9,18 +9,12 @@ def _uuid():
 
 
 class WorkerSkill(db.Model):
-    """A worker's 1-5 level on a machine type, or on an operation type that uses no machine."""
+    """A worker's 1-5 level on a machine type. Operations without a machine
+    take no skill: every worker qualifies for them."""
 
     __tablename__ = "worker_skills"
     __table_args__ = (
         db.UniqueConstraint("worker_id", "machine_type_id", name="uq_worker_skill_machine"),
-        db.UniqueConstraint(
-            "worker_id", "operation_type_id", name="uq_worker_skill_operation_type"
-        ),
-        db.CheckConstraint(
-            "(machine_type_id IS NULL) <> (operation_type_id IS NULL)",
-            name="ck_worker_skill_one_target",
-        ),
     )
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
@@ -33,13 +27,7 @@ class WorkerSkill(db.Model):
     machine_type_id = db.Column(
         db.String(36),
         db.ForeignKey("machine_types.id"),
-        nullable=True,
-        index=True,
-    )
-    operation_type_id = db.Column(
-        db.String(36),
-        db.ForeignKey("operation_types.id"),
-        nullable=True,
+        nullable=False,
         index=True,
     )
     proficiency = db.Column(db.Integer, nullable=False, default=3)
@@ -47,7 +35,6 @@ class WorkerSkill(db.Model):
 
     worker = db.relationship("User", back_populates="skills")
     machine_type = db.relationship("MachineType", back_populates="worker_skills")
-    operation_type = db.relationship("OperationType")
 
     def to_dict(self):
         return {
@@ -56,9 +43,6 @@ class WorkerSkill(db.Model):
             "machineTypeId": self.machine_type_id,
             "machineTypeCode": self.machine_type.code if self.machine_type else None,
             "machineTypeName": self.machine_type.name if self.machine_type else None,
-            "operationTypeId": self.operation_type_id,
-            "operationTypeCode": self.operation_type.code if self.operation_type else None,
-            "operationTypeName": self.operation_type.name if self.operation_type else None,
             "proficiency": self.proficiency,
             "isPrimary": self.is_primary,
         }

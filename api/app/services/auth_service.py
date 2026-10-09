@@ -77,10 +77,15 @@ def update_user(user, data):
                 409,
             )
 
-    if "email" in data and data["email"] != user.email:
-        if User.query.filter_by(email=data["email"].strip().lower()).first():
-            raise AppError("Email already exists", "CONFLICT", 409)
-        user.email = data["email"].strip().lower()
+    if "email" in data:
+        email = (data["email"] or "").strip().lower() or None
+        if email != user.email:
+            if email and User.query.filter_by(email=email).first():
+                raise AppError("Email already exists", "CONFLICT", 409)
+            user.email = email
+
+    if "nickname" in data:
+        user.nickname = (data["nickname"] or "").strip()[:40] or None
 
     if "mobileNumber" in data:
         mobile = normalize_ph_mobile(data["mobileNumber"], required=False)

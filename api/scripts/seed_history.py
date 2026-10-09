@@ -171,6 +171,8 @@ SENO = "Seno Metals"
 CONSUMABLE_SUPPLIER_CODES = ["RIC", "STP", "RTC"]
 CONSUMABLE_ON_TIME = 0.88
 RNG_SEED = 20260810
+# The demo accounts from `flask seed`; real employees never get seeded history.
+FICTIONAL_EMAIL_DOMAIN = "@bmsc.local"
 
 
 ROUTINGS = [
@@ -412,12 +414,19 @@ def _load_catalog():
         if mt:
             units_by_type[mt.code].append(u)
 
+    # Fictional demo workers only (flask seed's @bmsc.local accounts): imported
+    # employees start with no past performance.
     workers = (
-        User.query.filter_by(role=UserRole.PRODUCTION_WORKER, active=True)
+        User.query.filter(
+            User.role == UserRole.PRODUCTION_WORKER,
+            User.active.is_(True),
+            User.email.like(f"%{FICTIONAL_EMAIL_DOMAIN}"),
+        )
         .order_by(User.full_name)
         .all()
     )
-    skills = WorkerSkill.query.all()
+    worker_ids = {w.id for w in workers}
+    skills = WorkerSkill.query.filter(WorkerSkill.worker_id.in_(worker_ids)).all()
     worker_machine_codes = defaultdict(set)
     machine_workers = defaultdict(list)
     code_by_id = {mt.id: mt.code for mt in machines.values()}
@@ -428,8 +437,9 @@ def _load_catalog():
         worker_machine_codes[sk.worker_id].add(code)
         machine_workers[code].append(sk.worker_id)
 
-    admin = User.query.filter_by(role=UserRole.ADMIN).first()
-    office = User.query.filter_by(role=UserRole.OFFICE_STAFF).first()
+    fictional = User.email.like(f"%{FICTIONAL_EMAIL_DOMAIN}")
+    admin = User.query.filter(User.role == UserRole.ADMIN, fictional).first()
+    office = User.query.filter(User.role == UserRole.OFFICE_STAFF, fictional).first()
     creator = office or admin
     if not creator:
         raise SystemExit("No Admin/Office user found. Run flask seed first.")

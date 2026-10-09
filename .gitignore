@@ -11,6 +11,9 @@ venv/
 !.env.example
 !**/.env.example
 
+# Real people's data (employee imports) — never commit
+api/data/*.local.csv
+
 # Local databases
 *.db
 *.sqlite

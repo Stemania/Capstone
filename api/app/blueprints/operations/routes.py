@@ -18,7 +18,7 @@ operations_bp = Blueprint("operations", __name__)
 
 @operations_bp.route("/mine", methods=["GET"])
 @jwt_required()
-@require_roles(UserRole.PRODUCTION_WORKER)
+@require_roles(UserRole.PRODUCTION_WORKER, UserRole.ADMIN)
 def my_operations():
     ops = op_service.list_my_operations(get_current_user_id())
     return jsonify(

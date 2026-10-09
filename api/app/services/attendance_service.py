@@ -8,7 +8,7 @@ from sqlalchemy.orm import joinedload
 
 from app.extensions import db
 from app.models.attendance import AttendanceRecord
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, UserStatus
 from app.services.schedule_calendar import (
     SHOP_TZ,
     effective_hours_for_date,
@@ -195,7 +195,8 @@ def _row(worker, record, on_date, sched_map, exceptions):
 
 
 def day_sheet(on_date=None):
-    """Every active production worker for one day, plus anyone with a record that day."""
+    """Every production worker who is not disabled (including people not yet
+    activated) for one day, plus anyone with a record that day."""
     on_date = _parse_date(on_date, "date") or shop_now().date()
     records = (
         AttendanceRecord.query.options(joinedload(AttendanceRecord.worker))
@@ -204,7 +205,9 @@ def day_sheet(on_date=None):
     )
     by_worker = {r.worker_id: r for r in records}
     workers = (
-        User.query.filter(User.role == UserRole.PRODUCTION_WORKER, User.active.is_(True))
+        User.query.filter(
+            User.role == UserRole.PRODUCTION_WORKER, User.status != UserStatus.DISABLED
+        )
         .order_by(User.full_name)
         .all()
     )

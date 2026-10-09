@@ -57,6 +57,7 @@ def create_invited_user(
     role: UserRole,
     channel: InvitationChannel,
     created_by_id: str,
+    nickname: str | None = None,
 ) -> tuple[User, UserInvitation, str]:
     email_norm = (email or "").strip().lower()
     if not email_norm or "@" not in email_norm:
@@ -73,6 +74,7 @@ def create_invited_user(
         mobile_number=mobile,
         password_hash=None,
         full_name=full_name.strip(),
+        nickname=(nickname or "").strip()[:40] or None,
         role=role,
         status=UserStatus.INVITED,
         active=False,
@@ -162,7 +164,12 @@ def resend_invitation(user: User, created_by_id: str, channel: InvitationChannel
         .order_by(UserInvitation.created_at.desc())
         .first()
     )
-    ch = channel or (last.channel if last else InvitationChannel.EMAIL)
+    if channel:
+        ch = channel
+    elif last:
+        ch = last.channel
+    else:
+        ch = InvitationChannel.EMAIL if user.email or not user.mobile_number else InvitationChannel.SMS
     return issue_invitation(user, ch, created_by_id, commit=True)
 
 
