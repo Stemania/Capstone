@@ -156,8 +156,15 @@ STOCK_NOTE = f"{TAG} stock count"
 DELIVERY_NOTE = f"{TAG} delivery"
 JOB_ORDER_NOTE = f"{TAG} job materials"
 RESTOCK_ORDER_NOTE = f"{TAG} consumable restock"
-# (name, lead days, on-time share)
-CONSUMABLE_SUPPLIER = ("Metro Hardware", 2, 0.88)
+# Supplier names as set by `flask load-reference-data`.
+RIC = "Railim Industrial Corporation"
+STP = "STP Industrial Inc."
+RTC = "Raitech Industrial Corporation"
+# A former supplier, inactive now; its past orders stay in the history.
+SENO = "Seno Metals"
+# Consumable restocks rotate across the active suppliers (by code).
+CONSUMABLE_SUPPLIER_CODES = ["RIC", "STP", "RTC"]
+CONSUMABLE_ON_TIME = 0.88
 RNG_SEED = 20260810
 
 
@@ -172,6 +179,9 @@ ROUTINGS = [
     ["TURNING", "THREADING", "CHECKING"],
     ["SLOTTING", "DRILLING", "KEYWAY"],
     ["BLANKING", "TURNING", "SURFACE_GRINDING", "HEAT_TREATMENT", "CHECKING"],
+    # Fabrication: cutting on Laser #1, bending on Bending #1.
+    ["LAYOUT", "CUTTING", "BENDING", "WELDING", "CHECKING"],
+    ["CUTTING", "BENDING", "DRILLING", "CHECKING"],
 ]
 
 # Open pipeline: Lathe/Milling dominate absolute hours; KEYWAY/SPLINE/DRILLING
@@ -193,6 +203,8 @@ OPEN_PIPELINE_ROUTINGS = [
     ["TURNING", "FACING", "TEETH_CUTTING", "SLOTTING", "CHECKING"],
     ["BLANKING", "TURNING", "FACING", "SPLINE", "CHECKING"],
     ["BLANKING", "TURNING", "FACING", "THREADING", "DRILLING"],
+    # Fabrication
+    ["LAYOUT", "CUTTING", "BENDING", "FITTING", "CHECKING"],
 ]
 
 JOB_TITLES = [
@@ -238,20 +250,18 @@ LINES_PER_JOB = ([1, 2, 3], [45, 35, 20])
 # Weight for secondary lines, price factor, and target share of deliveries on
 # time (counted per PO, as the reliability score does).
 SUPPLIER_PROFILES = {
-    "STP": {"weight": 55, "price_factor": 1.00, "on_time": 0.85},
-    "Railim": {"weight": 30, "price_factor": 0.97, "on_time": 0.70},
-    "Seno Metals": {"weight": 15, "price_factor": 1.08, "on_time": 0.60},
+    STP: {"weight": 55, "price_factor": 1.00, "on_time": 0.85},
+    RIC: {"weight": 30, "price_factor": 0.97, "on_time": 0.70},
+    SENO: {"weight": 15, "price_factor": 1.08, "on_time": 0.60},
 }
 # Primary supplier per fabrication job, in rotation so each supplier gets
 # enough deliveries for a reliability score.
-PRIMARY_SUPPLIER_ROTATION = [
-    "Railim", "Seno Metals", "STP", "Railim", "Seno Metals", "STP", "Railim", "Seno Metals",
-]
+PRIMARY_SUPPLIER_ROTATION = [RIC, SENO, STP, RIC, SENO, STP, RIC, SENO]
 
 # Fabrication jobs whose materials arrived after the planned start.
 LATE_MATERIAL_SHARE = 0.22
 # Which supplier was late on those jobs: fixed proportions.
-LATE_SUPPLIER_SHARES = {"Railim": 0.50, "Seno Metals": 0.35, "STP": 0.15}
+LATE_SUPPLIER_SHARES = {RIC: 0.50, SENO: 0.35, STP: 0.15}
 
 # Breakdowns, and other stoppages, for late-delivered jobs with no other recorded cause.
 BREAKDOWN_REASONS = [
@@ -922,20 +932,24 @@ def _sample_raw_materials(rng: random.Random) -> list:
 
 
 def _load_suppliers() -> dict:
-    """Seed suppliers by name (STP, Railim, Seno Metals); created if missing."""
+    """Material suppliers by name: RIC and STP from the reference loader, and
+    Seno Metals (inactive, kept for its past orders), created if missing."""
     from app.seed.seed_data import _ensure_suppliers
 
-    by_name = {
-        s.name: s
-        for s in Supplier.query.filter(Supplier.name.in_(list(SUPPLIER_PROFILES))).all()
-    }
-    if len(by_name) < len(SUPPLIER_PROFILES):
-        _ensure_suppliers()
-        by_name = {
-            s.name: s
-            for s in Supplier.query.filter(Supplier.name.in_(list(SUPPLIER_PROFILES))).all()
-        }
-    return by_name
+    by_name = {s.name: s for s in _ensure_suppliers()}
+    seno = Supplier.query.filter(db.func.lower(Supplier.name) == SENO.lower()).first()
+    if seno is None:
+        seno = Supplier(
+            name=SENO,
+            typical_lead_time_days=1,
+            notes="One day after order",
+            active=False,
+            is_seed=True,
+        )
+        db.session.add(seno)
+        db.session.flush()
+    by_name[SENO] = seno
+    return {name: by_name[name] for name in SUPPLIER_PROFILES}
 
 
 def _pick_supplier_name(rng: random.Random) -> str:
@@ -1633,29 +1647,21 @@ def _seed_stock_history(creator, window_start: date, today: date, rng: random.Ra
     }
 
 
-def _consumable_supplier() -> Supplier:
-    name, lead, _ = CONSUMABLE_SUPPLIER
-    supplier = Supplier.query.filter_by(name=name).first()
-    if supplier is None:
-        supplier = Supplier(
-            name=name,
-            typical_lead_time_days=lead,
-            notes="Consumables: discs, inserts, oils, welding wire",
-            active=True,
-            is_seed=True,
-        )
-        db.session.add(supplier)
-        db.session.flush()
-    return supplier
+def _consumable_suppliers() -> list:
+    """The active suppliers consumables are restocked from (RIC, STP, RTC)."""
+    from app.seed.seed_data import _ensure_suppliers
+
+    by_code = {s.code: s for s in _ensure_suppliers()}
+    return [by_code[c] for c in CONSUMABLE_SUPPLIER_CODES if c in by_code]
 
 
 def _receive_restock_orders(tools, deliveries, creator, rng) -> tuple[int, int]:
     """Every consumable delivery arrives on a restock PO, one PO per delivery
-    day, issued about the lead time before (a few arrive late). Each line's
-    RECEIVE event is linked to it, as receiving through the PO does."""
-    supplier = _consumable_supplier()
-    lead = supplier.typical_lead_time_days or 1
-    on_time = CONSUMABLE_SUPPLIER[2]
+    day from the next active supplier in turn, issued about its lead time
+    before (a few arrive late). Each line's RECEIVE event is linked to it, as
+    receiving through the PO does."""
+    suppliers = _consumable_suppliers()
+    on_time = CONSUMABLE_ON_TIME
     unit_costs = {t.id: Decimal(str(round(rng.uniform(25, 450), 2))) for t in tools}
     by_day = defaultdict(list)
     for tool in tools:
@@ -1665,6 +1671,8 @@ def _receive_restock_orders(tools, deliveries, creator, rng) -> tuple[int, int]:
     n_lines = 0
     late = 0
     for k, on in enumerate(sorted(by_day)):
+        supplier = suppliers[k % len(suppliers)]
+        lead = supplier.typical_lead_time_days or 1
         make_late = late + 0.5 < (1 - on_time) * (k + 1) and rng.random() < 0.5
         late += make_late
         if not make_late:
@@ -1739,9 +1747,37 @@ def _wipe_stock_history() -> tuple[int, int]:
     return len(seeded), len(events)
 
 
+def _ensure_fabrication_skills(catalog) -> bool:
+    """Laser and Bending are new machine types; when nobody has the skill
+    yet, give it to two production workers (seed placeholders first)."""
+    added = False
+    workers = sorted(
+        catalog["workers"],
+        key=lambda w: (not (w.full_name or "").startswith("Seed Worker"), w.full_name or ""),
+    )
+    for code in ("LASER", "BENDING"):
+        mt = catalog["machines"].get(code)
+        if mt is None or catalog["machine_workers"].get(code):
+            continue
+        offset = 0 if code == "LASER" else 2
+        for w in workers[offset : offset + 2]:
+            db.session.add(
+                WorkerSkill(worker_id=w.id, machine_type_id=mt.id, proficiency=3, is_primary=False)
+            )
+            print(f"Skill added: {w.full_name} on {mt.name}")
+            added = True
+    db.session.flush()
+    return added
+
+
 def seed_history():
+    from app.services.reference_data_service import load_reference_data
+
     rng = random.Random(RNG_SEED)
+    load_reference_data(commit=False)
     catalog = _load_catalog()
+    if _ensure_fabrication_skills(catalog):
+        catalog = _load_catalog()
     _assert_skill_coverage(catalog)
     tendencies = _build_worker_tendencies(catalog, rng)
     clients = _ensure_clients()
@@ -1803,6 +1839,8 @@ def seed_history():
         job_type, part_cond = _job_type_mix_for_profile(
             client_profile["profile"], rng
         )
+        if "CUTTING" in route:
+            job_type, part_cond = JobType.FABRICATION, PartCondition.RAW_MATERIAL
         title = f"{JOB_TITLE_PREFIX} {rng.choice(JOB_TITLES)} #{idx + 1:02d}"
         po = f"{PO_PREFIX}{job_day.strftime('%Y%m%d')}-{idx + 1:03d}"
 

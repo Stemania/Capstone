@@ -174,6 +174,7 @@ def low_stock_consumables() -> list[dict]:
                 "name": item["name"],
                 "code": item["code"],
                 "sizeSpec": item["sizeSpec"],
+                "shopTerm": item.get("shopTerm"),
                 "unit": item["unit"],
                 "quantityOnHand": item["quantityOnHand"],
                 "minimumStock": item["minimumStock"],
@@ -356,6 +357,13 @@ def issue_order(order: SupplierOrder, actor_id: str, date_issued=None) -> Suppli
     _require_draft(order)
     if not order.active_lines:
         raise AppError("Add at least one line before issuing.", "VALIDATION_ERROR", 400)
+    if order.supplier and not order.supplier.active:
+        raise AppError(
+            f"{order.supplier.name} is inactive. Reactivate it on the Suppliers page "
+            "to issue this order.",
+            "SUPPLIER_INACTIVE",
+            400,
+        )
     lead = order.supplier.typical_lead_time_days if order.supplier else None
     if lead is None:
         raise AppError(
@@ -368,7 +376,7 @@ def issue_order(order: SupplierOrder, actor_id: str, date_issued=None) -> Suppli
     try:
         seq = _next_po_seq()
         order.po_seq = seq
-        order.po_number = format_po_number(seq)
+        order.po_number = format_po_number(seq, order.supplier.code if order.supplier else None)
         order.date_issued = issued
         order.expected_delivery_date = next_shop_working_day(issued + timedelta(days=lead))
         order.issued_by_id = actor_id

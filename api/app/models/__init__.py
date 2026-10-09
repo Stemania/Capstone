@@ -10,6 +10,7 @@ from app.models.job_order import (
     PartCondition,
 )
 from app.models.machine import MachineType, MachineUnit
+from app.models.material_catalog import MaterialCatalogItem
 from app.models.material_purchase import MaterialPurchase
 from app.models.notification import (
     NotificationChannel,
@@ -69,6 +70,7 @@ __all__ = [
     "SupplierOrder",
     "SupplierOrderStatus",
     "MaterialPurchase",
+    "MaterialCatalogItem",
     "SalesInvoice",
     "JobOrder",
     "JobOrderStatus",

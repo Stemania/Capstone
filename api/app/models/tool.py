@@ -50,6 +50,7 @@ class Tool(db.Model):
     )
     minimum_stock = db.Column(db.Numeric(12, 2), nullable=True)
     size_spec = db.Column(db.String(64), nullable=True)
+    shop_term = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
 
     events = db.relationship(
@@ -76,6 +77,7 @@ class Tool(db.Model):
             "quantityOnHand": _num(self.quantity_on_hand),
             "minimumStock": _num(self.minimum_stock),
             "sizeSpec": self.size_spec,
+            "shopTerm": self.shop_term,
             "lowStock": self.low_stock,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }

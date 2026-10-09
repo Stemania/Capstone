@@ -14,11 +14,21 @@ def _uuid():
     return str(uuid.uuid4())
 
 
+SUPPLIER_CODE_PATTERN = r"^[A-Z]{2,5}$"
+
+
 class Supplier(db.Model):
     __tablename__ = "suppliers"
+    __table_args__ = (
+        db.CheckConstraint(
+            "code IS NULL OR code ~ '^[A-Z]{2,5}$'", name="ck_suppliers_code_format"
+        ),
+    )
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
     name = db.Column(db.String(255), nullable=False, index=True)
+    # Short code used in PO numbers (BMSC-PO-<code>-00001).
+    code = db.Column(db.String(5), nullable=True, unique=True)
     contact_person = db.Column(db.String(255), nullable=True)
     phone = db.Column(db.String(64), nullable=True)
     email = db.Column(db.String(255), nullable=True)
@@ -41,6 +51,7 @@ class Supplier(db.Model):
         return {
             "id": self.id,
             "name": self.name,
+            "code": self.code,
             "contactPerson": self.contact_person,
             "phone": self.phone,
             "email": self.email,

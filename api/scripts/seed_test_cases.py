@@ -224,7 +224,8 @@ class Ctx:
         self.ana = by_email["worker4@bmsc.local"]
         self.driller = by_email["worker10@bmsc.local"]
         self.ops = {ot.code: ot for ot in OperationType.query.all()}
-        self.suppliers = {s.name: s for s in Supplier.query.all()}
+        # Active suppliers by code (RIC, STP, RTC) from `flask load-reference-data`.
+        self.suppliers = {s.code: s for s in Supplier.query.filter_by(active=True) if s.code}
         self.clients = _ensure_clients()
         self.today = shop_now().date()
         self.d1 = prev_workday(self.today)
@@ -317,9 +318,9 @@ def work_in_past(op, start_utc):
     operation_service.complete_operation(op, worker, WORKER, end.isoformat())
 
 
-def order_materials(ctx, job, supplier_name, *, issued, received=None):
+def order_materials(ctx, job, supplier_code, *, issued, received=None):
     """Order every planned material from one supplier on its own PO."""
-    supplier = ctx.suppliers[supplier_name]
+    supplier = ctx.suppliers[supplier_code]
     lines = [
         {
             "jobOrderId": job.id,
@@ -371,7 +372,7 @@ def build_fixtures(ctx):
         ],
         due_in=12, amount=24500, quantity=6, unit="pcs",
     )
-    order_materials(ctx, tc12, "Seno Metals", issued=ctx.d2, received=ctx.d1)
+    order_materials(ctx, tc12, "RTC", issued=ctx.d2, received=ctx.d1)
     schedule(tc12)
     ctx.note("TC-12", tc12, "Juan: Start op 1; materials go On hand -> Consumed.")
 
@@ -479,7 +480,7 @@ def build_fixtures(ctx):
         ],
         due_in=20, amount=32000, quantity=4, unit="pcs",
     )
-    po22 = order_materials(ctx, tc22, "Railim", issued=ctx.today)
+    po22 = order_materials(ctx, tc22, "RIC", issued=ctx.today)
     ctx.note("TC-22", tc22, f"Print supplier order {po22.po_number} (Railim).")
 
     # TC-08 / TC-09: materials planned, nothing ordered yet.

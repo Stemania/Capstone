@@ -68,6 +68,7 @@ def create_tool(data):
         quantity_on_hand=qty,
         minimum_stock=minimum,
         size_spec=(data.get("sizeSpec") or None) or None,
+        shop_term=(data.get("shopTerm") or "").strip() or None,
     )
     db.session.add(tool)
     db.session.commit()
@@ -99,6 +100,9 @@ def update_tool(tool_id, data):
 
     if "sizeSpec" in data:
         tool.size_spec = (data.get("sizeSpec") or None) or None
+
+    if "shopTerm" in data:
+        tool.shop_term = (data.get("shopTerm") or "").strip() or None
 
     if "minimumStock" in data:
         min_stock = data.get("minimumStock")

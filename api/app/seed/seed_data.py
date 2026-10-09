@@ -1,7 +1,6 @@
 from datetime import date, time, timedelta
 from decimal import Decimal
 
-from app.constants.machines import MACHINE_CATALOG
 from app.extensions import bcrypt, db
 from app.models import (
     Client,
@@ -11,7 +10,6 @@ from app.models import (
     JobPriority,
     JobType,
     MachineType,
-    MachineUnit,
     MaterialPurchase,
     MaterialStatus,
     OperationStatus,
@@ -30,47 +28,21 @@ from app.models import (
     WorkerSkill,
 )
 from app.models.scoring_weight import DEFAULT_SCORING_WEIGHTS
-from app.models.worker_skill import OPERATION_TYPE_SEED, SKILL_TOKEN_TO_MACHINE
+from app.models.worker_skill import SKILL_TOKEN_TO_MACHINE
 
 
-def _seed_machines():
-    if MachineType.query.first():
-        return {mt.code: mt for mt in MachineType.query.all()}
-    by_code = {}
-    for m in MACHINE_CATALOG:
-        mt = MachineType(code=m["code"], name=m["name"], units=m["units"])
-        db.session.add(mt)
-        db.session.flush()
-        by_code[m["code"]] = mt
-        for i in range(1, m["units"] + 1):
-            db.session.add(
-                MachineUnit(
-                    machine_type_id=mt.id,
-                    label=f"{m['name']} #{i}",
-                    active=True,
-                )
-            )
-    return by_code
+def _load_reference_data():
+    """Suppliers, machines, operation types, material catalog, consumables and
+    shop details come from the same loader used in production."""
+    from app.services.reference_data_service import load_reference_data
 
-
-def _seed_operation_types(machines):
-    if OperationType.query.first():
-        return {ot.code: ot for ot in OperationType.query.all()}
-    by_code = {}
-    for item in OPERATION_TYPE_SEED:
-        mid = machines[item["machine"]].id if item["machine"] and item["machine"] in machines else None
-        ot = OperationType(
-            code=item["code"],
-            name=item["name"],
-            default_machine_type_id=mid,
-            active=True,
-            is_outsourced=bool(item.get("outsourced")),
-            default_turnaround_days=item.get("turnaround_days"),
-        )
-        db.session.add(ot)
-        by_code[item["code"]] = ot
-    db.session.flush()
-    return by_code
+    report = load_reference_data(commit=False)
+    if report.changes:
+        print(f"Reference data: {len(report.changes)} changes.")
+    return (
+        {mt.code: mt for mt in MachineType.query.all()},
+        {ot.code: ot for ot in OperationType.query.all()},
+    )
 
 
 def _default_schedule(worker_id):
@@ -127,7 +99,7 @@ def _inventory_catalog():
         ("Drill bit", "INV-DRILL-12", C, "12mm", "pcs", 18, 6),
         ("End mill", "INV-ENDMILL-10", C, "10mm", "pcs", 16, 5),
         ("End mill", "INV-ENDMILL-12", C, "12mm", "pcs", 14, 5),
-        ("Tonga tip", "INV-TONGA-STD", C, None, "pcs", 40, 12),
+        ("Tungsten carbide tip", "INV-TONGA-STD", C, None, "pcs", 40, 12),
         ("Center drill", "INV-CENTER-A", C, "A", "pcs", 20, 6),
         ("Center drill", "INV-CENTER-B", C, "B", "pcs", 16, 5),
         ("Cutting oil", "INV-OIL-CUT", C, None, "litre", 20, 5),
@@ -205,37 +177,14 @@ def _ensure_inventory_catalog():
 
 
 def _ensure_suppliers():
-    """Client-named steel suppliers; idempotent by name + is_seed."""
+    """The shop's active suppliers (RIC, STP, RTC) from the reference loader,
+    in that order."""
     from app.models.supplier import Supplier
+    from app.services.reference_data_service import SUPPLIERS
 
-    catalog = [
-        ("STP", 5, "Five days after order"),
-        ("Railim", 5, "Five days after order"),
-        ("Seno Metals", 1, "One day after order"),
-    ]
-    created = 0
-    for name, lead, notes in catalog:
-        existing = Supplier.query.filter_by(name=name).first()
-        if existing:
-            if not existing.is_seed:
-                existing.is_seed = True
-            if existing.typical_lead_time_days is None:
-                existing.typical_lead_time_days = lead
-            continue
-        db.session.add(
-            Supplier(
-                name=name,
-                typical_lead_time_days=lead,
-                notes=notes,
-                active=True,
-                is_seed=True,
-            )
-        )
-        created += 1
-    db.session.flush()
-    if created:
-        print(f"Suppliers: seeded {created} (STP, Railim, Seno Metals).")
-    return Supplier.query.filter_by(is_seed=True).order_by(Supplier.name).all()
+    _load_reference_data()
+    by_code = {s.code: s for s in Supplier.query.filter(Supplier.code.isnot(None)).all()}
+    return [by_code[spec["code"]] for spec in SUPPLIERS if spec["code"] in by_code]
 
 
 def _ensure_tool_assets():
@@ -286,8 +235,7 @@ def seed_database():
         db.session.commit()
         return
 
-    machines = _seed_machines()
-    op_types = _seed_operation_types(machines)
+    machines, op_types = _load_reference_data()
 
     admin = User(
         email="admin@bmsc.local",
@@ -317,13 +265,13 @@ def seed_database():
         # --- seed placeholders (flagged) ---
         ("worker5@bmsc.local", "Seed Worker 05", ["lathe", "milling"]),
         ("worker6@bmsc.local", "Seed Worker 06", ["milling", "drilling"]),
-        ("worker7@bmsc.local", "Seed Worker 07", ["grinding", "shaper"]),
+        ("worker7@bmsc.local", "Seed Worker 07", ["grinding", "shaper", "laser"]),
         ("worker8@bmsc.local", "Seed Worker 08", ["lathe", "grinding"]),
         ("worker9@bmsc.local", "Seed Worker 09", ["milling", "shaper"]),
         ("worker10@bmsc.local", "Seed Worker 10", ["drilling", "lathe"]),
-        ("worker11@bmsc.local", "Seed Worker 11", ["milling"]),
-        ("worker12@bmsc.local", "Seed Worker 12", ["lathe"]),
-        ("worker13@bmsc.local", "Seed Worker 13", ["grinding"]),
+        ("worker11@bmsc.local", "Seed Worker 11", ["milling", "bending"]),
+        ("worker12@bmsc.local", "Seed Worker 12", ["lathe", "laser"]),
+        ("worker13@bmsc.local", "Seed Worker 13", ["grinding", "bending"]),
         ("worker14@bmsc.local", "Seed Worker 14", ["shaper", "milling"]),
         ("worker15@bmsc.local", "Seed Worker 15", ["lathe", "drilling", "milling"]),
         ("worker16@bmsc.local", "Seed Worker 16", ["milling", "grinding"]),

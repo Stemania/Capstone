@@ -19,7 +19,11 @@ def _uuid():
     return str(uuid.uuid4())
 
 
-def format_po_number(seq: int) -> str:
+def format_po_number(seq: int, supplier_code: str | None = None) -> str:
+    """BMSC-PO-RIC-00012 when the supplier has a code, else BMSC-PO-00012.
+    The sequence is shop-wide either way."""
+    if supplier_code:
+        return f"{PO_PREFIX}{supplier_code}-{seq:05d}"
     return f"{PO_PREFIX}{seq:05d}"
 
 

@@ -2,14 +2,21 @@
 
 from collections import Counter
 
-# Actual shop floor machines at Brothers Machine Shop (seed source of truth)
+# Actual shop floor machines at Brothers Machine Shop (seed source of truth).
+# Units are labelled "<unit_label> #<n>"; unit_label defaults to the name.
 MACHINE_CATALOG = [
-    {"code": "LATHE", "name": "Lathe", "units": 7},
+    {"code": "LATHE", "name": "Lathe", "units": 8},
     {"code": "MILLING", "name": "Milling", "units": 8},
     {"code": "SHAPER", "name": "Shaper", "units": 1},
     {"code": "GRINDING", "name": "Grinding", "units": 2},
     {"code": "DRILLING", "name": "Drilling", "units": 1},
+    {"code": "BENDING", "name": "Bending Machine", "units": 1, "unit_label": "Bending"},
+    {"code": "LASER", "name": "Laser Machine", "units": 1, "unit_label": "Laser"},
 ]
+
+
+def machine_unit_label(machine: dict, n: int) -> str:
+    return f"{machine.get('unit_label') or machine['name']} #{n}"
 
 VALID_MACHINE_CODES = {m["code"] for m in MACHINE_CATALOG}
 

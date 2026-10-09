@@ -178,8 +178,9 @@ OPERATION_TYPE_SEED = [
     {"code": "HEAT_TREATMENT", "name": "Heat Treatment", "machine": None, "outsourced": True, "turnaround_days": 3},
     {"code": "CHECKING", "name": "Checking", "machine": None},
     {"code": "WELDING", "name": "Welding", "machine": None},
-    {"code": "CUTTING", "name": "Cutting", "machine": None},
-    {"code": "BENDING", "name": "Bending", "machine": None},
+    # The shop's cutting is laser cutting.
+    {"code": "CUTTING", "name": "Cutting", "machine": "LASER"},
+    {"code": "BENDING", "name": "Bending", "machine": "BENDING"},
     {"code": "FORMING", "name": "Forming", "machine": None},
     {"code": "ASSEMBLY", "name": "Assembly", "machine": None},
     {"code": "FINISHING", "name": "Finishing (Bapping)", "machine": None},
@@ -196,4 +197,6 @@ SKILL_TOKEN_TO_MACHINE = {
     "grinding": "GRINDING",
     "drilling": "DRILLING",
     "shaper": "SHAPER",
+    "bending": "BENDING",
+    "laser": "LASER",
 }

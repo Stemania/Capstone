@@ -14,6 +14,7 @@ from scripts.seed_history import (
     LATE_SUPPLIER_SHARES,
     MATERIAL_CATALOG,
     PRIMARY_SUPPLIER_ROTATION,
+    STP,
     SUPPLIER_PROFILES,
     _add_purchase_lines,
     _load_suppliers,
@@ -94,7 +95,7 @@ def test_not_started_job_keeps_future_deliveries_on_order(people):
     job = _job(people, material_status=MaterialStatus.TO_ORDER)
     job.created_at = datetime(2026, 9, 28, 0, 0, tzinfo=timezone.utc)
     op = _add_op(job, "TURNING", people["worker"].id, status=OperationStatus.PENDING)
-    _add_purchase_lines(job, [op], suppliers, TODAY, random.Random(3), "STP")
+    _add_purchase_lines(job, [op], suppliers, TODAY, random.Random(3), STP)
     _settle_purchases([job], {job.id: None}, suppliers, TODAY, random.Random(3))
 
     for ln in job.material_purchases:

@@ -90,6 +90,7 @@ def purchase_suggestions(lookback_days=30):
                 "code": tool.code,
                 "category": tool.category.value,
                 "sizeSpec": tool.size_spec,
+                "shopTerm": tool.shop_term,
                 "unit": tool.unit,
                 "quantityOnHand": _num(on_hand),
                 "minimumStock": _num(minimum),

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
+
 from app.extensions import db
-from app.models.supplier import Supplier
+from app.models.supplier import SUPPLIER_CODE_PATTERN, Supplier
 from app.utils.errors import AppError
 
 
@@ -12,8 +14,24 @@ def list_suppliers(*, active_only=False, search=None):
     if active_only:
         q = q.filter_by(active=True)
     if search:
-        q = q.filter(Supplier.name.ilike(f"%{search}%"))
+        q = q.filter(
+            Supplier.name.ilike(f"%{search}%") | Supplier.code.ilike(f"%{search}%")
+        )
     return q.order_by(Supplier.name).all()
+
+
+def _parse_code(raw, supplier: Supplier):
+    code = (raw or "").strip().upper() or None
+    if code is None:
+        return None
+    if not re.match(SUPPLIER_CODE_PATTERN, code):
+        raise AppError(
+            "Code must be 2 to 5 letters (A-Z), e.g. RIC", "VALIDATION_ERROR", 400
+        )
+    taken = Supplier.query.filter(Supplier.code == code, Supplier.id != supplier.id).first()
+    if taken:
+        raise AppError(f"Code {code} is already used by {taken.name}", "CONFLICT", 409)
+    return code
 
 
 def get_supplier(supplier_id):
@@ -45,6 +63,8 @@ def _apply_fields(supplier: Supplier, data: dict, *, creating: bool):
         if not name:
             raise AppError("Name is required", "VALIDATION_ERROR", 400)
         supplier.name = name
+    if "code" in data:
+        supplier.code = _parse_code(data.get("code"), supplier)
     if "contactPerson" in data or "contact_person" in data:
         supplier.contact_person = (
             data.get("contactPerson") or data.get("contact_person") or None

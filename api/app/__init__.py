@@ -142,7 +142,10 @@ def _register_blueprints(app):
     from app.blueprints.schedule.routes import schedule_bp
     from app.blueprints.attendance.routes import attendance_bp
     from app.blueprints.alerts.routes import alerts_bp
+    from app.blueprints.reference.routes import material_catalog_bp, shop_details_bp
 
+    app.register_blueprint(material_catalog_bp, url_prefix=f"{prefix}/material-catalog")
+    app.register_blueprint(shop_details_bp, url_prefix=f"{prefix}/shop-details")
     app.register_blueprint(alerts_bp, url_prefix=f"{prefix}/alerts")
     app.register_blueprint(notifications_bp, url_prefix=f"{prefix}/notifications")
     app.register_blueprint(schedule_bp, url_prefix=f"{prefix}/schedule")
@@ -203,6 +206,26 @@ def _register_cli(app):
         db.session.add(user)
         db.session.commit()
         print(f"Admin user {email} created.")
+
+    @app.cli.command("load-reference-data")
+    @click.option("--dry-run", is_flag=True, help="Show the changes without saving them.")
+    def load_reference_data_command(dry_run):
+        """Create or update the shop's suppliers, machines, operation types,
+        material catalog, consumables and shop details. Safe in production:
+        never creates accounts or touches job data."""
+        from app.services.reference_data_service import load_reference_data
+
+        report = load_reference_data(dry_run=dry_run)
+        heading = "Would change" if dry_run else "Changed"
+        print(f"{heading} ({len(report.changes)}):")
+        for line in report.changes or ["nothing; reference data is up to date"]:
+            print(f"  - {line}")
+        if report.notes:
+            print("References:")
+            for line in report.notes:
+                print(f"  - {line}")
+        if dry_run:
+            print("Dry run: nothing was saved.")
 
 
 def utcnow():
