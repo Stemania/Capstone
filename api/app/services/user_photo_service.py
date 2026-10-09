@@ -83,14 +83,14 @@ def _shares_a_job(viewer_id, target_id) -> bool:
         db.session.query(JobOperation.job_order_id)
         .join(JobOrder, JobOrder.id == JobOperation.job_order_id)
         .filter(
-            JobOperation.assigned_worker_id == viewer_id,
+            JobOperation.crew_includes(viewer_id),
             JobOrder.status.in_(tuple(PRODUCTION_VISIBLE_STATUSES)),
         )
     )
     return (
         db.session.query(JobOperation.id)
         .filter(
-            JobOperation.assigned_worker_id == target_id,
+            JobOperation.crew_includes(target_id),
             JobOperation.job_order_id.in_(mine),
         )
         .first()

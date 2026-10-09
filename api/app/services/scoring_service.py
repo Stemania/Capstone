@@ -1,7 +1,9 @@
 """Weighted scoring components for worker recommendation.
 
-Fixed shop weights (not editable):
-  skill 0.50 · workload 0.30 · past performance (efficiency) 0.20
+Fixed shop weights (not editable), one set per kind of suggestion:
+  machine lead:   assigned operator 0.40 · skill 0.30 · past performance 0.20 · workload 0.10
+  no machine:     past performance 0.60 · workload 0.40
+  helper:         past performance 0.50 · workload 0.50
 
 Availability is a hard filter in worker_suggestion_service, not a weight.
 """
@@ -18,28 +20,29 @@ from app.services.worker_availability import _parse_dt, _windows_overlap, list_w
 
 logger = logging.getLogger(__name__)
 
-# Single source of truth for suggestion ranking weights.
-FIXED_SCORING_WEIGHTS = {
-    "skill": 0.50,
-    "workload": 0.30,
-    "efficiency": 0.20,  # past performance vs target hours
+# Single source of truth for suggestion ranking weights ("efficiency" is past
+# performance: target hours against hours worked).
+MACHINE_LEAD_WEIGHTS = {
+    "operator": 0.40,
+    "skill": 0.30,
+    "efficiency": 0.20,
+    "workload": 0.10,
+}
+NO_MACHINE_WEIGHTS = {
+    "efficiency": 0.60,
+    "workload": 0.40,
+}
+HELPER_WEIGHTS = {
+    "efficiency": 0.50,
+    "workload": 0.50,
 }
 
-WEIGHT_KEYS = tuple(FIXED_SCORING_WEIGHTS.keys())
 COLD_START_MIN_SAMPLES = 2
 EFFICIENCY_RATIO_CAP = 1.5
 
-# Back-compat alias for imports/tests that still reference the old name.
-DEFAULT_SCORING_WEIGHTS = FIXED_SCORING_WEIGHTS
-
-
-def load_scoring_weights():
-    """Return fixed weights. DB scoring_weights table is unused legacy."""
-    return dict(FIXED_SCORING_WEIGHTS)
-
 
 def validate_weights_sum(weights, tolerance=1e-6):
-    total = sum(float(weights.get(k, 0)) for k in WEIGHT_KEYS)
+    total = sum(float(v) for v in weights.values())
     return abs(total - 1.0) <= tolerance, total
 
 
@@ -196,7 +199,7 @@ def worker_week_load_hours(worker_id, now=None, exclude_operation_id=None, opera
     week_start, week_end = current_week_bounds(now)
     if operations is None:
         operations = JobOperation.query.filter(
-            JobOperation.assigned_worker_id == worker_id,
+            JobOperation.crew_includes(worker_id),
             JobOperation.status.in_(
                 (OperationStatus.SCHEDULED, OperationStatus.IN_PROGRESS)
             ),
@@ -279,21 +282,9 @@ def score_efficiency(completed_pairs):
     return avg, f"past performance from {len(pairs)} completed ops", False
 
 
-def combine_score(weights, components, qualified=True):
-    if not qualified:
-        return 0.0
-    total = 0.0
-    for key in WEIGHT_KEYS:
-        total += float(weights[key]) * float(components[key])
+def combine_score(weights, components):
+    total = sum(float(w) * float(components[key]) for key, w in weights.items())
     return round(max(0.0, min(1.0, total)), 4)
-
-
-def build_reason(parts, machine_label=None, unqualified=False):
-    if unqualified:
-        label = machine_label or "this machine"
-        return f"No {label} skill — cannot operate this machine"
-    chunks = [p for p, _ in parts if p]
-    return ", ".join(chunks) if chunks else "No scoring signals"
 
 
 def _pairs_from_ops(ops):
@@ -317,7 +308,7 @@ def fetch_efficiency_pairs(worker_id, operation_type_id):
     type_pairs = []
     if operation_type_id:
         type_ops = JobOperation.query.filter(
-            JobOperation.assigned_worker_id == worker_id,
+            JobOperation.crew_includes(worker_id),
             JobOperation.operation_type_id == operation_type_id,
             JobOperation.status == OperationStatus.COMPLETED,
             JobOperation.actual_worked_hours.isnot(None),
@@ -330,7 +321,7 @@ def fetch_efficiency_pairs(worker_id, operation_type_id):
     from app.services.analytics_service import not_outsourced_filter
 
     all_ops = JobOperation.query.filter(
-        JobOperation.assigned_worker_id == worker_id,
+        JobOperation.crew_includes(worker_id),
         JobOperation.status == OperationStatus.COMPLETED,
         JobOperation.actual_worked_hours.isnot(None),
         JobOperation.estimated_hours.isnot(None),
@@ -345,9 +336,7 @@ def fetch_efficiency_pairs(worker_id, operation_type_id):
 
 def log_weights_used(weights, context="suggest"):
     logger.info(
-        "scoring weights used (%s): skill=%.4f workload=%.4f efficiency=%.4f",
+        "scoring weights used (%s): %s",
         context,
-        weights["skill"],
-        weights["workload"],
-        weights["efficiency"],
+        " ".join(f"{k}={float(v):.2f}" for k, v in weights.items()),
     )

@@ -50,6 +50,7 @@ def _workers(job: JobOrder) -> list[dict]:
             "operationName": op.operation_name,
             "workerId": op.assigned_worker_id,
             "workerName": op.assigned_worker.full_name if op.assigned_worker else None,
+            "helperIds": op.helper_ids,
         }
         for op in sorted(job.operations or [], key=lambda o: o.sequence_no or 0)
     ]
@@ -202,7 +203,7 @@ def _crosses_break_on_old_rules(op) -> bool:
     if not any(s < end and start < e for s, e in break_intervals_utc(start, end)):
         return False
     hours = op.estimated_hours if op.estimated_hours is not None else DEFAULT_ESTIMATED_HOURS
-    _s, derived_end, _ = place_from_start(op.assigned_worker_id, start, hours)
+    _s, derived_end, _ = place_from_start(op.crew_ids, start, hours)
     return derived_end is None or ensure_utc(derived_end) != end
 
 

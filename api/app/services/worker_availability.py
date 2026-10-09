@@ -35,7 +35,7 @@ def _windows_overlap(a_start, a_end, b_start, b_end):
 
 def list_worker_operations(worker_id, exclude_operation_id=None):
     query = JobOperation.query.filter(
-        JobOperation.assigned_worker_id == worker_id,
+        JobOperation.crew_includes(worker_id),
         JobOperation.status.in_(ACTIVE_OP_STATUSES),
     )
     if exclude_operation_id:
@@ -45,8 +45,8 @@ def list_worker_operations(worker_id, exclude_operation_id=None):
 
 def get_busy_workers(start=None, end=None, exclude_operation_id=None, exclude_operation_ids=None):
     """
-    Map worker_id -> conflicting JobOperation.
-    With a proposed window: overlap on scheduled_start/end.
+    Map worker_id -> conflicting JobOperation, for every crew member (lead and
+    helpers). With a proposed window: overlap on scheduled_start/end.
     Without a window: workers who currently have an IN_PROGRESS operation.
     """
     start = _parse_dt(start)
@@ -67,7 +67,8 @@ def get_busy_workers(start=None, end=None, exclude_operation_id=None, exclude_op
             if op.id in excluded:
                 continue
             if _windows_overlap(start, end, op.scheduled_start, op.scheduled_end):
-                busy[op.assigned_worker_id] = op
+                for wid in op.crew_ids:
+                    busy[wid] = op
         return busy
 
     ops = JobOperation.query.filter(
@@ -77,7 +78,8 @@ def get_busy_workers(start=None, end=None, exclude_operation_id=None, exclude_op
     for op in ops:
         if op.id in excluded:
             continue
-        busy[op.assigned_worker_id] = op
+        for wid in op.crew_ids:
+            busy[wid] = op
     return busy
 
 
@@ -87,8 +89,11 @@ def assert_worker_available(
     end=None,
     exclude_operation_id=None,
     exclude_operation_ids=None,
+    crew_ids=None,
 ):
-    """Refuse an assignment whose window overlaps the worker's other work.
+    """Refuse an assignment whose window overlaps the worker's other work
+    (as lead or helper). ``crew_ids`` is the whole crew of the operation being
+    assigned, whose shared hours give its working periods.
 
     Without a window there is nothing to clash with: a worker busy on another
     job right now can still be planned for later work.
@@ -96,7 +101,7 @@ def assert_worker_available(
     from app.services.schedule_calendar import (
         derive_working_segments,
         load_calendar_exceptions,
-        load_worker_schedule_maps,
+        load_crew_schedule_map,
         utc_to_shop,
     )
     from app.services.schedule_service import operation_working_segments
@@ -110,10 +115,10 @@ def assert_worker_available(
         excluded.add(exclude_operation_id)
     exceptions = load_calendar_exceptions(utc_to_shop(start).date(), utc_to_shop(end).date())
     mine = derive_working_segments(
-        start, end, load_worker_schedule_maps(worker_id), exceptions
+        start, end, load_crew_schedule_map(crew_ids or [worker_id]), exceptions
     ) or [(start, end)]
     others = JobOperation.query.filter(
-        JobOperation.assigned_worker_id == worker_id,
+        JobOperation.crew_includes(worker_id),
         JobOperation.status.in_(ACTIVE_OP_STATUSES),
         JobOperation.scheduled_start.isnot(None),
         JobOperation.scheduled_end.isnot(None),
@@ -124,8 +129,13 @@ def assert_worker_available(
         theirs = operation_working_segments(op) or [(op.scheduled_start, op.scheduled_end)]
         if any(_windows_overlap(s, e, os, oe) for s, e in mine for os, oe in theirs):
             label = op.operation_name or "another operation"
+            from app.extensions import db
+            from app.models.user import User
+
+            person = db.session.get(User, worker_id)
+            who = person.full_name if person else "Worker"
             raise AppError(
-                f"Worker is unavailable — schedule conflicts with '{label}'",
+                f"{who} is unavailable — schedule conflicts with '{label}'",
                 "CONFLICT",
                 409,
             )

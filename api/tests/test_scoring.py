@@ -6,7 +6,9 @@ from types import SimpleNamespace
 from app.models.scoring_weight import ScoringWeight
 from app.services.schedule_calendar import shop_local_to_utc
 from app.services.scoring_service import (
-    FIXED_SCORING_WEIGHTS,
+    HELPER_WEIGHTS,
+    MACHINE_LEAD_WEIGHTS,
+    NO_MACHINE_WEIGHTS,
     score_availability,
     score_efficiency,
     score_skill,
@@ -31,13 +33,15 @@ def _mon_sat_schedules():
 
 
 def test_fixed_weights_sum_to_one():
-    ok, total = validate_weights_sum(FIXED_SCORING_WEIGHTS)
-    assert ok
-    assert abs(total - 1.0) < 1e-9
-    assert set(FIXED_SCORING_WEIGHTS) == {"skill", "workload", "efficiency"}
-    assert FIXED_SCORING_WEIGHTS["skill"] == 0.5
-    assert FIXED_SCORING_WEIGHTS["workload"] == 0.3
-    assert FIXED_SCORING_WEIGHTS["efficiency"] == 0.2
+    for weights in (MACHINE_LEAD_WEIGHTS, NO_MACHINE_WEIGHTS, HELPER_WEIGHTS):
+        ok, total = validate_weights_sum(weights)
+        assert ok, weights
+        assert abs(total - 1.0) < 1e-9
+    assert MACHINE_LEAD_WEIGHTS == {
+        "operator": 0.4, "skill": 0.3, "efficiency": 0.2, "workload": 0.1
+    }
+    assert NO_MACHINE_WEIGHTS == {"efficiency": 0.6, "workload": 0.4}
+    assert HELPER_WEIGHTS == {"efficiency": 0.5, "workload": 0.5}
 
 
 def test_score_skill_proficiency_and_primary():

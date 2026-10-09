@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from flask import g, has_app_context
@@ -397,6 +398,40 @@ event.listen(Session, "do_orm_execute", _clear_on_bulk_write)
 
 def load_worker_schedule_maps(worker_id):
     return dict(load_worker_schedule_maps_many([worker_id]).get(worker_id, {}))
+
+
+def crew_schedule_map(maps):
+    """The hours a whole crew works together: per weekday, working only when
+    every member works, from the latest start to the earliest end. One map is
+    returned unchanged. A member with no schedule rows adds no limit, as a
+    lone worker without rows falls back to the shop's hours."""
+    maps = [m for m in (maps or []) if m]
+    if not maps:
+        return {}
+    if len(maps) == 1:
+        return dict(maps[0])
+    out = {}
+    for dow in range(7):
+        days = [m.get(dow) for m in maps]
+        if not all(d and d.is_working and d.start_time and d.end_time for d in days):
+            out[dow] = SimpleNamespace(is_working=False, start_time=None, end_time=None)
+            continue
+        start = max(d.start_time for d in days)
+        end = min(d.end_time for d in days)
+        out[dow] = SimpleNamespace(
+            is_working=start < end, start_time=start if start < end else None,
+            end_time=end if start < end else None,
+        )
+    return out
+
+
+def load_crew_schedule_map(worker_ids):
+    """Shared working hours of a crew (lead first). Empty for no workers."""
+    ids = [w for w in (worker_ids or []) if w]
+    if not ids:
+        return {}
+    by_worker = load_worker_schedule_maps_many(ids)
+    return crew_schedule_map([by_worker.get(w, {}) for w in ids])
 
 
 def load_worker_schedule_maps_many(worker_ids):

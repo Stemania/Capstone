@@ -40,7 +40,7 @@ from app.services.schedule_calendar import (
     intersect_intervals,
     shop_working_hours,
     load_calendar_exceptions,
-    load_worker_schedule_maps,
+    load_crew_schedule_map,
     shop_available_hours,
     shop_local_to_utc,
     shop_now,
@@ -241,7 +241,7 @@ def _worker_period_figures(worker_id, period_from: date, period_to: date) -> dic
     end_utc = shop_local_to_utc(period_to + timedelta(days=1), time(0, 0))
     filters = [
         *_completed_in_period_filters(start_utc, end_utc),
-        JobOperation.assigned_worker_id == worker_id,
+        JobOperation.crew_includes(worker_id),
     ]
     finished, redo, worked = (
         db.session.query(
@@ -404,12 +404,30 @@ def _rework_hours_by(column, start_utc, end_utc):
     )
 
 
+def _rework_hours_by_crew_member(start_utc, end_utc):
+    crew = JobOperation.crew_members_subquery()
+    filters = _completed_in_period_filters(start_utc, end_utc) + [
+        JobOperation.rework_of_operation_id.isnot(None),
+    ]
+    return dict(
+        db.session.query(
+            crew.c.worker_id,
+            func.coalesce(func.sum(JobOperation.actual_worked_hours), 0),
+        )
+        .join(JobOperation, JobOperation.id == crew.c.operation_id)
+        .filter(*filters)
+        .group_by(crew.c.worker_id)
+        .all()
+    )
+
+
 def efficiency_by_worker(from_s=None, to_s=None, min_ops=None):
     period_from, period_to, start_utc, end_utc = _parse_period(from_s, to_s)
     min_ops = DEFAULT_MIN_OPS if min_ops is None else int(min_ops)
     if min_ops < 1:
         raise AppError("minOps must be >= 1", "VALIDATION_ERROR", 400)
     excluded = count_excluded_null_estimate(start_utc, end_utc)
+    crew = JobOperation.crew_members_subquery()
 
     rows = (
         db.session.query(
@@ -430,7 +448,8 @@ def efficiency_by_worker(from_s=None, to_s=None, min_ops=None):
                 )
             ).label("on_est"),
         )
-        .join(JobOperation, JobOperation.assigned_worker_id == User.id)
+        .join(crew, crew.c.worker_id == User.id)
+        .join(JobOperation, JobOperation.id == crew.c.operation_id)
         .filter(
             *_completed_in_period_filters(start_utc, end_utc),
             JobOperation.estimated_hours.isnot(None),
@@ -442,7 +461,7 @@ def efficiency_by_worker(from_s=None, to_s=None, min_ops=None):
         .order_by(func.avg(JobOperation.variance_pct).asc())
         .all()
     )
-    rework = _rework_hours_by(JobOperation.assigned_worker_id, start_utc, end_utc)
+    rework = _rework_hours_by_crew_member(start_utc, end_utc)
 
     payload = _period_meta(period_from, period_to, excluded)
     payload["minimumOperationCount"] = min_ops
@@ -665,11 +684,11 @@ def efficiency_by_machine(from_s=None, to_s=None, min_ops=None):
     busy_by_unit = defaultdict(float)
     schedules = {}
     for op in util_ops:
-        wid = op.assigned_worker_id
-        if wid not in schedules:
-            schedules[wid] = load_worker_schedule_maps(wid)
+        crew_key = tuple(op.crew_ids)
+        if crew_key not in schedules:
+            schedules[crew_key] = load_crew_schedule_map(crew_key)
         busy_by_unit[op.machine_unit_id] += worked_busy_hours(
-            op.time_logs, schedules[wid], exceptions, start_utc, end_utc
+            op.time_logs, schedules[crew_key], exceptions, start_utc, end_utc
         )
 
     def _variance_fields(st):

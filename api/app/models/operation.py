@@ -31,8 +31,35 @@ class ReworkReasonCategory(enum.Enum):
     OTHER = "OTHER"
 
 
+MAX_HELPERS = 2
+
+
+class OperationHelper(db.Model):
+    """A helper on an operation's crew. The lead is JobOperation.assigned_worker."""
+
+    __tablename__ = "operation_helpers"
+    __table_args__ = (
+        db.CheckConstraint("position IN (1, 2)", name="ck_operation_helper_position"),
+    )
+
+    operation_id = db.Column(
+        db.String(36), db.ForeignKey("operations.id", ondelete="CASCADE"), primary_key=True
+    )
+    worker_id = db.Column(
+        db.String(36), db.ForeignKey("users.id"), primary_key=True, index=True
+    )
+    position = db.Column(db.SmallInteger, nullable=False, default=1)
+
+    operation = db.relationship("JobOperation", back_populates="helpers")
+    worker = db.relationship("User", foreign_keys=[worker_id], lazy="joined")
+
+
 class JobOperation(db.Model):
-    """Shop-floor operation step within a job order (table: operations)."""
+    """Shop-floor operation step within a job order (table: operations).
+
+    The crew is the lead (assigned_worker) plus up to two helpers. Target hours
+    are elapsed time for the whole crew, and every member is booked for the
+    operation's working periods."""
 
     __tablename__ = "operations"
     __table_args__ = (
@@ -108,6 +135,13 @@ class JobOperation(db.Model):
     assigned_worker = db.relationship(
         "User", back_populates="assigned_operations", foreign_keys=[assigned_worker_id]
     )
+    helpers = db.relationship(
+        "OperationHelper",
+        back_populates="operation",
+        cascade="all, delete-orphan",
+        order_by="OperationHelper.position",
+        lazy="selectin",
+    )
     rework_of = db.relationship(
         "JobOperation",
         remote_side=[id],
@@ -120,6 +154,72 @@ class JobOperation(db.Model):
         cascade="all, delete-orphan",
         order_by="OperationTimeLog.event_at",
     )
+
+    @classmethod
+    def crew_members_subquery(cls):
+        """One row per (operation_id, worker_id) for every crew member, so
+        per-worker figures credit the lead and each helper."""
+        leads = db.select(
+            cls.id.label("operation_id"), cls.assigned_worker_id.label("worker_id")
+        ).where(cls.assigned_worker_id.isnot(None))
+        helpers = db.select(
+            OperationHelper.operation_id.label("operation_id"),
+            OperationHelper.worker_id.label("worker_id"),
+        )
+        return db.union_all(leads, helpers).subquery("crew_members")
+
+    @classmethod
+    def crew_includes(cls, worker_id):
+        """SQL filter: the worker is the lead or a helper."""
+        return db.or_(
+            cls.assigned_worker_id == worker_id,
+            cls.helpers.any(OperationHelper.worker_id == worker_id),
+        )
+
+    @property
+    def helper_ids(self) -> list[str]:
+        return [h.worker_id for h in (self.helpers or [])]
+
+    @property
+    def crew_ids(self) -> list[str]:
+        """Lead first, then helpers; empty when nobody is assigned."""
+        if not self.assigned_worker_id:
+            return []
+        return [self.assigned_worker_id, *self.helper_ids]
+
+    @property
+    def crew_size(self) -> int:
+        return len(self.crew_ids)
+
+    def set_helpers(self, worker_ids) -> None:
+        """Replace the helpers, keeping the given order."""
+        wanted = [w for w in (worker_ids or []) if w]
+        keep = {h.worker_id: h for h in (self.helpers or [])}
+        self.helpers = []
+        for pos, wid in enumerate(wanted, start=1):
+            row = keep.get(wid) or OperationHelper(worker_id=wid)
+            row.position = pos
+            self.helpers.append(row)
+
+    def crew_dicts(self, show_photo=None) -> list[dict]:
+        """[{id, fullName, nickname, photoVersion, isLead}], lead first.
+        ``show_photo(user_id)`` hides photos a viewer may not see."""
+        people = []
+        if self.assigned_worker:
+            people.append((self.assigned_worker, True))
+        people += [(h.worker, False) for h in (self.helpers or []) if h.worker]
+        return [
+            {
+                "id": u.id,
+                "fullName": u.full_name,
+                "nickname": u.nickname,
+                "photoVersion": (
+                    u.photo_version if show_photo is None or show_photo(u.id) else None
+                ),
+                "isLead": lead,
+            }
+            for u, lead in people
+        ]
 
     @property
     def is_outsourced(self) -> bool:
@@ -193,6 +293,15 @@ class JobOperation(db.Model):
             "assignedWorkerPhotoVersion": (
                 self.assigned_worker.photo_version if self.assigned_worker else None
             ),
+            "helperIds": self.helper_ids,
+            "crew": self.crew_dicts(),
+            "crewSize": self.crew_size,
+            # For information: hours worked by the crew together (elapsed x size).
+            "laborHours": (
+                _num(self.actual_worked_hours) * self.crew_size
+                if self.actual_worked_hours is not None and self.crew_size
+                else None
+            ),
             "estimatedHours": _num(self.estimated_hours),
             "scheduledStart": self.scheduled_start.isoformat() if self.scheduled_start else None,
             "scheduledEnd": self.scheduled_end.isoformat() if self.scheduled_end else None,
@@ -253,19 +362,22 @@ class JobOperation(db.Model):
         if not self.scheduled_start or not self.scheduled_end or not self.assigned_worker_id:
             return []
         from app.services.schedule_calendar import (
+            crew_schedule_map,
             derive_working_segments,
             load_calendar_exceptions,
-            load_worker_schedule_maps,
+            load_worker_schedule_maps_many,
             serialize_segments,
             utc_to_shop,
         )
 
         start = self.scheduled_start
         end = self.scheduled_end
-        if schedule_by_worker is not None:
-            schedule_by_dow = schedule_by_worker.get(self.assigned_worker_id) or {}
+        crew = self.crew_ids
+        if schedule_by_worker is not None and all(w in schedule_by_worker for w in crew):
+            maps = schedule_by_worker
         else:
-            schedule_by_dow = load_worker_schedule_maps(self.assigned_worker_id)
+            maps = load_worker_schedule_maps_many(crew)
+        schedule_by_dow = crew_schedule_map([maps.get(w) or {} for w in crew])
         if calendar_exceptions is not None:
             exceptions = calendar_exceptions
         else:

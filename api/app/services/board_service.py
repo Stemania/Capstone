@@ -102,7 +102,7 @@ def schedule_board(
     if machine_type_id:
         q = q.filter(JobOperation.machine_type_id == machine_type_id)
     if worker_id:
-        q = q.filter(JobOperation.assigned_worker_id == worker_id)
+        q = q.filter(JobOperation.crew_includes(worker_id))
     if client_id:
         q = q.filter(JobOrder.client_id == client_id)
 
@@ -192,6 +192,8 @@ def schedule_board(
                 "assignedWorkerPhotoVersion": (
                     op.assigned_worker.photo_version if op.assigned_worker else None
                 ),
+                "helperIds": op.helper_ids,
+                "crew": op.crew_dicts(),
                 "dueDate": job.due_date.isoformat() if job and job.due_date else None,
                 "projectedCompletion": projected.isoformat() if projected else None,
                 "scheduleFlag": schedule_flag,

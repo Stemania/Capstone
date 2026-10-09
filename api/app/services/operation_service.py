@@ -60,7 +60,7 @@ def list_my_operations(worker_id):
         )
         .join(JobOrder, JobOperation.job_order_id == JobOrder.id)
         .filter(
-            JobOperation.assigned_worker_id == worker_id,
+            JobOperation.crew_includes(worker_id),
             JobOrder.status.in_(tuple(PRODUCTION_VISIBLE_STATUSES)),
         )
         .order_by(JobOperation.sequence_no.asc())
@@ -69,10 +69,10 @@ def list_my_operations(worker_id):
 
 
 def _assert_worker_owns(operation, user_id, user_role):
-    # Assignment-gated for every role (including Admin): only the assignee
-    # may start/pause/resume/complete. Checked first so a worker whose
-    # operation was reassigned is told so, not just "Access denied".
-    if operation.assigned_worker_id != user_id:
+    # Crew-gated for every role (including Admin): only the lead or a helper
+    # may start/pause/resume/complete. Checked first so a worker who was taken
+    # off the crew is told so, not just "Access denied".
+    if user_id not in operation.crew_ids:
         name = operation.operation_name or "This operation"
         assignee = operation.assigned_worker
         raise AppError(
@@ -254,7 +254,7 @@ def start_operation(operation, user_id, user_role, timestamp, received_at=None):
             operation.actual_start = ts
         _append_log(
             operation,
-            operation.assigned_worker_id or user_id,
+            user_id,
             OperationTimeEvent.START,
             ts,
             received_at=received_at,
@@ -310,7 +310,7 @@ def pause_operation(
     try:
         _append_log(
             operation,
-            operation.assigned_worker_id or user_id,
+            user_id,
             OperationTimeEvent.PAUSE,
             ts,
             reason=pause_reason,
@@ -353,7 +353,7 @@ def resume_operation(operation, user_id, user_role, timestamp=None, received_at=
     try:
         _append_log(
             operation,
-            operation.assigned_worker_id or user_id,
+            user_id,
             OperationTimeEvent.RESUME,
             ts,
             received_at=received_at,
@@ -395,7 +395,7 @@ def complete_operation(operation, user_id, user_role, timestamp, received_at=Non
         operation.actual_end = ts
         _append_log(
             operation,
-            operation.assigned_worker_id or user_id,
+            user_id,
             OperationTimeEvent.COMPLETE,
             ts,
             received_at=received_at,
@@ -525,6 +525,7 @@ def send_out_operation(operation, user_role, sent_out_date, sent_to):
         operation.scheduled_start = ts
         operation.scheduled_end = ts + timedelta(days=int(turnaround))
         operation.assigned_worker_id = None
+        operation.set_helpers([])
         operation.machine_unit_id = None
         job.status = derive_job_status(job)
         db.session.commit()
@@ -673,6 +674,8 @@ def create_rework_operation(operation, user_id, user_role, reason, category=None
             rework_reason=note,
             rework_reason_category=cat,
         )
+        if redo_worker:
+            follow.set_helpers(_redo_helpers(operation))
         job.operations.append(follow)
         db.session.flush()
 
@@ -703,6 +706,17 @@ def create_rework_operation(operation, user_id, user_role, reason, category=None
 
 
 _STARTED_STATUSES = (OperationStatus.IN_PROGRESS, OperationStatus.COMPLETED)
+
+
+def _redo_helpers(original):
+    """The original helpers who can still be assigned join the redo."""
+    from app.extensions import db
+    from app.models.user import User
+    from app.services.worker_profile_service import is_assignable_worker
+
+    return [
+        wid for wid in original.helper_ids if is_assignable_worker(db.session.get(User, wid))
+    ]
 
 
 def _default_redo_worker(original):
@@ -775,9 +789,9 @@ def _resolve_downtime_link(unit_id, operation_id, job_order_id, reporter_id, rep
             "VALIDATION_ERROR",
             400,
         )
-    if reporter_role == UserRole.PRODUCTION_WORKER.value and op.assigned_worker_id != reporter_id:
+    if reporter_role == UserRole.PRODUCTION_WORKER.value and reporter_id not in op.crew_ids:
         raise AppError(
-            "You can only report a breakdown from an operation assigned to you.",
+            "You can only report a breakdown from an operation you are on the crew of.",
             "FORBIDDEN",
             403,
         )
@@ -797,9 +811,11 @@ def _pause_running_operations_on_unit(machine_unit_id, reported_by_id, ts, recei
         ):
             continue
         pause_at = max(ts, _ensure_utc(last.event_at))
+        # A crew member who reports it paused it; an Admin or Office report
+        # pauses it on the lead's behalf.
         _append_log(
             op,
-            op.assigned_worker_id or reported_by_id,
+            reported_by_id if reported_by_id in op.crew_ids else (op.assigned_worker_id or reported_by_id),
             OperationTimeEvent.PAUSE,
             pause_at,
             reason=OperationPauseReason.MACHINE_DOWN,
@@ -1008,6 +1024,7 @@ def _serialize_affected_operation(op):
         "assignedWorkerName": worker.full_name if worker else None,
         "assignedWorkerNickname": worker.nickname if worker else None,
         "assignedWorkerPhotoVersion": worker.photo_version if worker else None,
+        "crew": op.crew_dicts(),
     }
 
 

@@ -19,7 +19,13 @@ from app.models.notification import (
     NotificationStatus,
 )
 from app.models.offline_action import OfflineActionReceipt
-from app.models.operation import JobOperation, Operation, OperationStatus, ReworkReasonCategory
+from app.models.operation import (
+    JobOperation,
+    Operation,
+    OperationHelper,
+    OperationStatus,
+    ReworkReasonCategory,
+)
 from app.models.operation_time import (
     DowntimeCategory,
     MachineDowntime,
@@ -79,6 +85,7 @@ __all__ = [
     "MaterialStatus",
     "PartCondition",
     "JobOperation",
+    "OperationHelper",
     "Operation",
     "OperationStatus",
     "ReworkReasonCategory",

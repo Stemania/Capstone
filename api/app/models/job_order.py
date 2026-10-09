@@ -228,7 +228,7 @@ class JobOrder(db.Model):
             utc_to_shop,
         )
 
-        worker_ids = {op.assigned_worker_id for op in ops if op.assigned_worker_id}
+        worker_ids = {wid for op in ops for wid in op.crew_ids}
         schedule_by_worker = load_worker_schedule_maps_many(worker_ids)
 
         starts = [op.scheduled_start for op in ops if op.scheduled_start]
@@ -480,6 +480,7 @@ class JobOrder(db.Model):
                 if next_op and next_op.assigned_worker
                 else None
             ),
+            "nextOperationCrew": next_op.crew_dicts() if next_op else [],
         }
         from app.services.material_purchase_service import material_wait_fields
 

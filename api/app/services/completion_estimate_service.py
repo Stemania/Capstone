@@ -41,7 +41,7 @@ from app.services.schedule_calendar import (
     hours_excluding_break,
     intersect_intervals,
     load_calendar_exceptions,
-    load_worker_schedule_maps,
+    load_crew_schedule_map,
     place_duration,
     utc_to_shop,
 )
@@ -125,8 +125,9 @@ def ratio_for(op, ratios: dict) -> dict:
     }
 
 
-def _worker_windows(worker_id, start, end):
-    schedule = load_worker_schedule_maps(worker_id) if worker_id else {}
+def _worker_windows(crew_ids, start, end):
+    """Working windows shared by the whole crew."""
+    schedule = load_crew_schedule_map(crew_ids) if crew_ids else {}
     if not schedule:
         schedule = default_shop_schedule_by_dow()
     exceptions = load_calendar_exceptions(utc_to_shop(start).date(), utc_to_shop(end).date())
@@ -148,7 +149,7 @@ def hours_worked_so_far(op, now: datetime) -> float:
                 total += hours_excluding_break(open_at, at) * 3600.0
             open_at = None
     if open_at and now > open_at:
-        windows = _worker_windows(op.assigned_worker_id, open_at, now)
+        windows = _worker_windows(op.crew_ids, open_at, now)
         total += sum((e - s).total_seconds() for s, e in intersect_intervals([(open_at, now)], windows))
     return total / 3600.0
 
@@ -202,7 +203,7 @@ def predict_job(job, now: datetime | None = None, ratios: dict | None = None) ->
         start = end = cursor
         if hours_left > 0:
             horizon = cursor + timedelta(days=SCHEDULE_HORIZON_DAYS)
-            windows = _worker_windows(op.assigned_worker_id, cursor, horizon)
+            windows = _worker_windows(op.crew_ids, cursor, horizon)
             start, end, _ = place_duration(windows, timedelta(hours=hours_left), cursor, horizon)
             if start is None:
                 return None

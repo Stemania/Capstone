@@ -373,7 +373,7 @@ def calendar_exception_delete_impact(exc_id):
         derive_working_segments,
         intersect_intervals,
         load_calendar_exceptions,
-        load_worker_schedule_maps,
+        load_crew_schedule_map,
         subtract_intervals,
     )
 
@@ -413,12 +413,12 @@ def calendar_exception_delete_impact(exc_id):
     day_utc = [(day_start_utc, day_end_utc)]
 
     for op in ops:
-        wid = op.assigned_worker_id
-        if wid:
-            if wid not in schedule_cache:
-                loaded = load_worker_schedule_maps(wid)
-                schedule_cache[wid] = loaded if loaded else default_sched
-            sched = schedule_cache[wid]
+        crew_key = tuple(op.crew_ids)
+        if crew_key:
+            if crew_key not in schedule_cache:
+                loaded = load_crew_schedule_map(crew_key)
+                schedule_cache[crew_key] = loaded if loaded else default_sched
+            sched = schedule_cache[crew_key]
         else:
             sched = default_sched
 

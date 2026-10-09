@@ -62,7 +62,7 @@ def worker_work_history(worker_id, *, from_s=None, to_s=None, page=1, per_page=2
         joinedload(JobOperation.machine_unit),
         joinedload(JobOperation.operation_type),
     ).filter(
-        JobOperation.assigned_worker_id == worker_id,
+        JobOperation.crew_includes(worker_id),
         JobOperation.status == OperationStatus.COMPLETED,
     )
     if start_utc is not None:
@@ -142,6 +142,10 @@ def worker_work_history(worker_id, *, from_s=None, to_s=None, page=1, per_page=2
                 "actualHours": round(act, 2) if act is not None else None,
                 "differenceHours": diff,
                 "isRework": bool(op.rework_of_operation_id),
+                "crewSize": op.crew_size,
+                "isCrew": op.crew_size > 1,
+                "crewRole": "LEAD" if op.assigned_worker_id == worker_id else "HELPER",
+                "crew": op.crew_dicts(),
             }
         )
 

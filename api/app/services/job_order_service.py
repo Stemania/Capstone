@@ -131,6 +131,68 @@ def _validate_worker(
     return worker
 
 
+def _parse_helper_ids(value) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, (list, tuple)):
+        raise AppError("helperIds must be a list", "VALIDATION_ERROR", 400)
+    return [str(v) for v in value if v]
+
+
+def _validate_helpers(
+    lead_id,
+    helper_ids,
+    start=None,
+    end=None,
+    exclude_operation_id=None,
+    *,
+    operation_type_id=None,
+    operation_name=None,
+    outsourced=False,
+    exclude_operation_ids=None,
+) -> list[str]:
+    """Helpers: up to two, distinct, not the lead, assignable and free. They
+    need no machine skill. Checking and outsourced work take no helpers."""
+    from app.models.operation import MAX_HELPERS
+    from app.services.worker_availability import assert_worker_available
+    from app.services.worker_profile_service import is_assignable_worker, is_checking_operation
+
+    helper_ids = _parse_helper_ids(helper_ids)
+    if not helper_ids:
+        return []
+    if outsourced:
+        raise AppError("Outsourced operations have no crew.", "VALIDATION_ERROR", 400)
+    if is_checking_operation(operation_type_id, operation_name):
+        raise AppError(
+            "Checking is done by one Admin alone; it takes no helpers.",
+            "CHECKING_NO_HELPERS",
+            400,
+        )
+    if not lead_id:
+        raise AppError("Choose the lead worker before adding helpers.", "VALIDATION_ERROR", 400)
+    if len(helper_ids) > MAX_HELPERS:
+        raise AppError(
+            f"An operation has at most {MAX_HELPERS} helpers.", "TOO_MANY_HELPERS", 400
+        )
+    if len(set(helper_ids)) != len(helper_ids) or lead_id in helper_ids:
+        raise AppError(
+            "Each crew member can appear only once.", "VALIDATION_ERROR", 400
+        )
+    crew = [lead_id, *helper_ids]
+    for wid in helper_ids:
+        if not is_assignable_worker(User.query.get(wid)):
+            raise AppError("Invalid helper assignment", "VALIDATION_ERROR", 400)
+        assert_worker_available(
+            wid,
+            start=start,
+            end=end,
+            exclude_operation_id=exclude_operation_id,
+            exclude_operation_ids=exclude_operation_ids,
+            crew_ids=crew,
+        )
+    return helper_ids
+
+
 def derive_job_status(job: JobOrder) -> JobOrderStatus:
     if job.status == JobOrderStatus.DELIVERED or job.delivered_at:
         return JobOrderStatus.DELIVERED
@@ -257,7 +319,7 @@ def check_job_access(job_order, user_id, user_role):
     if user_role == UserRole.PRODUCTION_WORKER.value:
         if job_order.status == JobOrderStatus.DRAFT:
             raise AppError("Access denied", "FORBIDDEN", 403)
-        has_op = any(op.assigned_worker_id == user_id for op in (job_order.operations or []))
+        has_op = any(user_id in op.crew_ids for op in (job_order.operations or []))
         if not has_op:
             raise AppError("Access denied", "FORBIDDEN", 403)
         return True
@@ -292,7 +354,7 @@ def list_job_orders(user_id, user_role, status=None, scope=None, awaiting_materi
     if user_role == UserRole.PRODUCTION_WORKER.value:
         query = query.filter(
             JobOrder.status.in_(tuple(PRODUCTION_VISIBLE_STATUSES)),
-            JobOrder.operations.any(JobOperation.assigned_worker_id == user_id),
+            JobOrder.operations.any(JobOperation.crew_includes(user_id)),
         )
     elif scope == "drafts":
         query = query.filter_by(status=JobOrderStatus.DRAFT)
@@ -388,6 +450,13 @@ def _build_operation(job_id, op_data, seq_fallback):
             operation_type_id=op_type_id,
             operation_name=name,
         )
+    helper_ids = _validate_helpers(
+        worker_id,
+        op_data.get("helperIds"),
+        operation_type_id=op_type_id,
+        operation_name=name,
+        outsourced=outsourced,
+    )
     status_raw = op_data.get("status", "PENDING")
     try:
         status = OperationStatus(status_raw)
@@ -412,7 +481,9 @@ def _build_operation(job_id, op_data, seq_fallback):
         "rework_of_operation_id": op_data.get("reworkOfOperationId"),
         "notes": op_data.get("notes"),
     }
-    return JobOperation(**kwargs)
+    op = JobOperation(**kwargs)
+    op.set_helpers(helper_ids)
+    return op
 
 
 _DERIVED_MATERIAL_STATUSES = (MaterialStatus.ORDERED, MaterialStatus.RECEIVED)
@@ -726,7 +797,7 @@ def _derive_scheduled_ends(job: JobOrder) -> None:
         if not op.scheduled_start or not op.assigned_worker_id:
             continue
         hours = op.estimated_hours if op.estimated_hours is not None else DEFAULT_ESTIMATED_HOURS
-        _start, end, _segments = place_from_start(op.assigned_worker_id, op.scheduled_start, hours)
+        _start, end, _segments = place_from_start(op.crew_ids, op.scheduled_start, hours)
         if end is not None:
             op.scheduled_end = end
 
@@ -964,7 +1035,9 @@ def delete_job_order(job):
         raise
 
 
-def assign_operation_worker(operation, worker_id):
+def assign_operation_worker(operation, worker_id, helper_ids=None):
+    """Set the lead and, when ``helper_ids`` is given, the helpers. Without it
+    the current helpers stay (less the new lead)."""
     if operation.is_outsourced:
         raise AppError(
             "This operation is done outside the shop and has no worker.",
@@ -986,8 +1059,20 @@ def assign_operation_worker(operation, worker_id):
         operation_type_id=operation.operation_type_id,
         operation_name=operation.operation_name,
     )
+    if helper_ids is None:
+        helper_ids = [h for h in operation.helper_ids if h != worker_id]
+    helper_ids = _validate_helpers(
+        worker_id,
+        helper_ids,
+        start=operation.scheduled_start,
+        end=operation.scheduled_end,
+        exclude_operation_id=operation.id,
+        operation_type_id=operation.operation_type_id,
+        operation_name=operation.operation_name,
+    )
     try:
         operation.assigned_worker_id = worker_id
+        operation.set_helpers(helper_ids)
         if operation.status == OperationStatus.PENDING:
             operation.status = OperationStatus.SCHEDULED
         operation.job_order.status = derive_job_status(operation.job_order)
@@ -1079,10 +1164,20 @@ def apply_released_schedule(job, operations):
                     "VALIDATION_ERROR",
                     400,
                 )
+            if "helperIds" in data:
+                helper_ids = data.get("helperIds")
+            else:
+                helper_ids = [h for h in op.helper_ids if h != worker_id]
             try:
                 _validate_worker(
                     worker_id,
                     machine_type_id=op.machine_type_id,
+                    operation_type_id=op.operation_type_id,
+                    operation_name=op.operation_name,
+                )
+                helper_ids = _validate_helpers(
+                    worker_id,
+                    helper_ids,
                     operation_type_id=op.operation_type_id,
                     operation_name=op.operation_name,
                 )
@@ -1092,6 +1187,7 @@ def apply_released_schedule(job, operations):
             op.scheduled_start = start
             op.machine_unit_id = unit_id or op.machine_unit_id
             op.assigned_worker_id = worker_id
+            op.set_helpers(helper_ids)
             if op.status == OperationStatus.PENDING and worker_id:
                 op.status = OperationStatus.SCHEDULED
 

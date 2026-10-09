@@ -58,7 +58,7 @@ def schedule_patches(monkeypatch):
     lathe_id = "lathe-type-1"
 
     monkeypatch.setattr(
-        "app.services.schedule_service.load_worker_schedule_maps",
+        "app.services.schedule_service.load_crew_schedule_map",
         lambda worker_id: schedule_by_dow,
     )
     monkeypatch.setattr(
@@ -98,7 +98,7 @@ def test_six_hour_op_from_1400_finishes_next_day_no_outside_hours_warning(monkey
     schedule_by_dow = _mon_sat_schedule_by_dow()
     worker_id = "worker-1"
     monkeypatch.setattr(
-        "app.services.schedule_service.load_worker_schedule_maps",
+        "app.services.schedule_service.load_crew_schedule_map",
         lambda wid: schedule_by_dow,
     )
     monkeypatch.setattr(
@@ -174,7 +174,7 @@ def test_overnight_gap_not_counted_as_machine_busy(schedule_patches, monkeypatch
 
     schedule_by_dow = schedule_patches["schedule_by_dow"]
     monkeypatch.setattr(
-        "app.services.schedule_service.load_worker_schedule_maps",
+        "app.services.schedule_service.load_crew_schedule_map",
         lambda wid: schedule_by_dow,
     )
     monkeypatch.setattr(
@@ -188,6 +188,7 @@ def test_overnight_gap_not_counted_as_machine_busy(schedule_patches, monkeypatch
     op = SimpleNamespace(
         status=OperationStatus.SCHEDULED,
         assigned_worker_id="worker-1",
+        crew_ids=["worker-1"],
         machine_unit_id=unit_id,
         scheduled_start=start,
         scheduled_end=end,
@@ -230,7 +231,7 @@ def test_overnight_gap_not_counted_as_machine_busy(schedule_patches, monkeypatch
 def test_manual_window_outside_hours_still_warns(monkeypatch):
     schedule_by_dow = _mon_sat_schedule_by_dow()
     monkeypatch.setattr(
-        "app.services.schedule_service.load_worker_schedule_maps",
+        "app.services.schedule_service.load_crew_schedule_map",
         lambda wid: schedule_by_dow,
     )
     monkeypatch.setattr(
@@ -819,7 +820,7 @@ def test_not_required_material_unconstrained(schedule_patches):
 def _calendar_patches(monkeypatch, exceptions):
     schedule_by_dow = _mon_sat_schedule_by_dow()
     monkeypatch.setattr(
-        "app.services.schedule_service.load_worker_schedule_maps",
+        "app.services.schedule_service.load_crew_schedule_map",
         lambda wid: schedule_by_dow,
     )
     monkeypatch.setattr(

@@ -16,7 +16,7 @@ from app.services.schedule_calendar import (
     horizon_end_utc,
     intersect_intervals,
     load_calendar_exceptions,
-    load_worker_schedule_maps,
+    load_crew_schedule_map,
     merge_intervals,
     place_duration,
     place_unbroken,
@@ -146,20 +146,30 @@ def _busy_intervals_for_operation(op: JobOperation) -> list[tuple[datetime, date
     start, end = envelope
     if not op.assigned_worker_id:
         return [(start, end)]
-    schedule_by_dow = load_worker_schedule_maps(op.assigned_worker_id)
+    schedule_by_dow = load_crew_schedule_map(op.crew_ids)
     exceptions = load_calendar_exceptions(
         utc_to_shop(start).date(), utc_to_shop(end).date()
     )
     return derive_working_segments(start, end, schedule_by_dow, exceptions)
 
 
+def _crew(op: dict) -> list:
+    """Lead first, then helpers, for a normalized operation dict."""
+    lead = op.get("assignedWorkerId")
+    if not lead:
+        return []
+    return [lead, *[h for h in (op.get("helperIds") or []) if h and h != lead]]
+
+
 def _segments_for_worker_envelope(
-    worker_id,
+    worker_ids,
     start: datetime,
     end: datetime,
     exceptions_by_date=None,
 ) -> list[tuple[datetime, datetime]]:
-    schedule_by_dow = load_worker_schedule_maps(worker_id) if worker_id else {}
+    if isinstance(worker_ids, str):
+        worker_ids = [worker_ids]
+    schedule_by_dow = load_crew_schedule_map(worker_ids)
     if exceptions_by_date is None:
         exceptions_by_date = load_calendar_exceptions(
             utc_to_shop(start).date(), utc_to_shop(end).date()
@@ -189,9 +199,8 @@ def _load_external_bookings(exclude_job_id=None, exclude_operation_ids=None):
     worker_busy = {}
     machine_busy = {}
     for op, intervals in _external_booking_records(exclude_job_id, exclude_operation_ids):
-        if op.assigned_worker_id:
-            worker_busy.setdefault(op.assigned_worker_id, []).extend(intervals)
-            worker_busy.setdefault(str(op.assigned_worker_id), []).extend(intervals)
+        for wid in op.crew_ids:
+            worker_busy.setdefault(wid, []).extend(intervals)
         if op.machine_unit_id:
             machine_busy.setdefault(op.machine_unit_id, []).extend(intervals)
             machine_busy.setdefault(str(op.machine_unit_id), []).extend(intervals)
@@ -281,6 +290,7 @@ def _normalize_operation(op_data, seq_fallback: int) -> dict:
             "machineTypeId": op_data.machine_type_id,
             "machineUnitId": op_data.machine_unit_id,
             "assignedWorkerId": op_data.assigned_worker_id,
+            "helperIds": op_data.helper_ids,
             "estimatedHours": float(est),
             "estimatedHoursDefaulted": defaulted,
             "status": op_data.status.value if op_data.status else "PENDING",
@@ -305,6 +315,7 @@ def _normalize_operation(op_data, seq_fallback: int) -> dict:
         "machineTypeId": op_data.get("machineTypeId"),
         "machineUnitId": op_data.get("machineUnitId"),
         "assignedWorkerId": op_data.get("assignedWorkerId"),
+        "helperIds": [h for h in (op_data.get("helperIds") or []) if h],
         "estimatedHours": float(est),
         "estimatedHoursDefaulted": defaulted,
         "status": op_data.get("status", "PENDING"),
@@ -323,7 +334,7 @@ def _outsourced_window(op: dict, start: datetime, message=None) -> dict:
     """Away from the shop for its turnaround in calendar days; no worker or machine."""
     end = start + timedelta(days=int(op["turnaroundDays"] or 1))
     return _result_from_slot(
-        {**op, "assignedWorkerId": None},
+        {**op, "assignedWorkerId": None, "helperIds": []},
         start.isoformat(),
         end.isoformat(),
         None,
@@ -392,7 +403,7 @@ def _result_from_slot(
     if op.get("outsourced"):
         segments = [(start_dt, end_dt)]
     elif wid:
-        segments = _segments_for_worker_envelope(wid, start_dt, end_dt, exceptions_by_date)
+        segments = _segments_for_worker_envelope(_crew(op), start_dt, end_dt, exceptions_by_date)
     else:
         segments = []
     return {
@@ -400,6 +411,7 @@ def _result_from_slot(
         "sequenceNo": op["sequenceNo"],
         "operationName": op.get("operationName"),
         "assignedWorkerId": wid,
+        "helperIds": list(op.get("helperIds") or []),
         "machineTypeId": op.get("machineTypeId"),
         "machineUnitId": machine_unit_id,
         "machineUnitLabel": machine_unit_label,
@@ -423,6 +435,7 @@ def _failure_result(op, message, *, placeable_hours=None, required_hours=None):
         "sequenceNo": op["sequenceNo"],
         "operationName": op.get("operationName"),
         "assignedWorkerId": op.get("assignedWorkerId"),
+        "helperIds": list(op.get("helperIds") or []),
         "machineTypeId": op.get("machineTypeId"),
         "machineUnitId": None,
         "estimatedHours": op["estimatedHours"],
@@ -445,18 +458,18 @@ def _worker_windows_and_busy(
     in_job_busy,
     exceptions_by_date,
 ):
-    """(working windows, booked periods) for one worker within the horizon."""
-    schedule_by_dow = load_worker_schedule_maps(worker_id)
+    """(shared working windows, booked periods) for a worker or a crew (lead
+    first) within the horizon: the crew works when every member works, and is
+    booked whenever any member is."""
+    ids = [worker_id] if isinstance(worker_id, str) else [w for w in worker_id if w]
+    schedule_by_dow = load_crew_schedule_map(ids)
     working = build_worker_working_windows(
         schedule_by_dow, exceptions_by_date, anchor_utc, end_utc
     )
-    busy = merge_intervals(
-        worker_busy.get(worker_id, [])
-        + worker_busy.get(str(worker_id), [])
-        + in_job_busy.get(worker_id, [])
-        + in_job_busy.get(str(worker_id), [])
-    )
-    return working, busy
+    booked = []
+    for wid in ids:
+        booked += worker_busy.get(wid, []) + in_job_busy.get(wid, [])
+    return working, merge_intervals(booked)
 
 
 def _busy_seconds_in_horizon(intervals, anchor_utc, end_utc) -> float:
@@ -467,6 +480,14 @@ def _busy_seconds_in_horizon(intervals, anchor_utc, end_utc) -> float:
         if e > s:
             total += (e - s).total_seconds()
     return total
+
+
+def _crew_label(op: dict) -> str:
+    """'Ana' or 'The crew (Ana, Ben)' for messages."""
+    crew = _crew(op)
+    if len(crew) <= 1:
+        return _worker_label(crew[0]) if crew else "The assigned worker"
+    return f"The crew ({', '.join(_worker_label(w) for w in crew)})"
 
 
 def _worker_label(worker_id) -> str:
@@ -495,9 +516,12 @@ def _find_earliest_slot(
     units_by_type,
     preferred_unit_id=None,
     preferred_worker_id=None,
+    helper_ids=None,
 ):
     """
-    Earliest feasible (worker, unit) assignment.
+    Earliest feasible (worker, unit) assignment. ``worker_ids`` are candidate
+    leads; ``helper_ids`` join every candidate, so the slot is free for the
+    whole crew (and inside the hours they all work).
     Rank: earliest start → least occupied machine → prefer unit whose default
     operator is the assigned worker → keep preferred worker → label.
     """
@@ -506,13 +530,17 @@ def _find_earliest_slot(
     worker_ids = [w for w in (worker_ids or []) if w]
     if not worker_ids:
         return None, None, None, None, 0.0
+    helper_ids = [h for h in (helper_ids or []) if h]
+
+    def crew_of(wid):
+        return [wid, *[h for h in helper_ids if h != wid]]
 
     if not machine_type_id:
         best = None
         max_placeable = 0.0
         for wid in worker_ids:
             working, busy = _worker_windows_and_busy(
-                wid,
+                crew_of(wid),
                 anchor_utc,
                 end_utc,
                 worker_busy,
@@ -550,7 +578,7 @@ def _find_earliest_slot(
 
     for wid in worker_ids:
         working, worker_booked = _worker_windows_and_busy(
-            wid,
+            crew_of(wid),
             anchor_utc,
             end_utc,
             worker_busy,
@@ -610,16 +638,19 @@ def _fmt_shop(dt: datetime) -> str:
     return utc_to_shop(dt).strftime("%a %b %d, %H:%M")
 
 
-def place_from_start(worker_id, start, hours):
+def place_from_start(worker_ids, start, hours):
     """
-    Working time for an operation starting at ``start``, or at the worker's next
-    working time after it, and running ``hours`` across working hours, overtime
-    and holidays. Returns (start, end, segments); (None, None, []) when the
-    worker has no such time within the horizon.
+    Working time for an operation starting at ``start``, or at the crew's next
+    shared working time after it, and running ``hours`` across working hours,
+    overtime and holidays. ``worker_ids`` is one worker id or the crew, lead
+    first. Returns (start, end, segments); (None, None, []) when there is no
+    such time within the horizon.
     """
     start = ensure_utc(start)
     horizon = horizon_end_utc(start)
-    schedule_by_dow = load_worker_schedule_maps(worker_id) if worker_id else {}
+    if isinstance(worker_ids, str):
+        worker_ids = [worker_ids]
+    schedule_by_dow = load_crew_schedule_map(worker_ids)
     exceptions = load_calendar_exceptions(utc_to_shop(start).date(), utc_to_shop(horizon).date())
     windows = build_worker_working_windows(schedule_by_dow, exceptions, start, horizon)
     placed_start, placed_end, _ = place_duration(
@@ -638,11 +669,11 @@ def _window_from_start(op: dict, requested_start) -> dict:
     if not op.get("assignedWorkerId"):
         return _failure_result(op, MISSING_WORKER_MESSAGE, required_hours=op["estimatedHours"])
     requested = _parse_iso(requested_start)
-    start, end, _ = place_from_start(op["assignedWorkerId"], requested, op["estimatedHours"])
+    start, end, _ = place_from_start(_crew(op), requested, op["estimatedHours"])
     if start is None:
         return _failure_result(
             op,
-            f"{_worker_label(op['assignedWorkerId'])} has no working time for "
+            f"{_crew_label(op)} has no working time for "
             f"{op['estimatedHours']:.1f}h within {SCHEDULE_HORIZON_DAYS} days of the chosen start",
             required_hours=op["estimatedHours"],
         )
@@ -669,7 +700,7 @@ def _lock_existing_window(op: dict) -> dict | None:
 
 
 def _record_in_job_busy(op_result, op, in_job_worker_busy, in_job_machine_busy):
-    wid = op_result.get("assignedWorkerId") or op.get("assignedWorkerId")
+    crew = _crew(op_result) or _crew(op)
     uid = op_result.get("machineUnitId")
     segments = [
         (
@@ -678,7 +709,7 @@ def _record_in_job_busy(op_result, op, in_job_worker_busy, in_job_machine_busy):
         )
         for s in (op_result.get("segments") or [])
     ]
-    if wid and segments:
+    for wid in crew if segments else []:
         in_job_worker_busy.setdefault(wid, []).extend(segments)
     if uid and segments:
         in_job_machine_busy.setdefault(uid, []).extend(segments)
@@ -815,11 +846,12 @@ def propose_schedule(
             units_by_type,
             preferred_unit_id=preferred_unit,
             preferred_worker_id=assigned_worker,
+            helper_ids=op.get("helperIds"),
         )
 
         required = float(op["estimatedHours"])
         if not start or not end:
-            worker_label = _worker_label(assigned_worker)
+            worker_label = _crew_label(op)
             candidates = list(units_by_type.get(op.get("machineTypeId"), []))
             if preferred_unit:
                 candidates = [u for u in candidates if str(u.id) == str(preferred_unit)]
@@ -844,9 +876,10 @@ def propose_schedule(
                     f"(all machine units busy; 0.0h placeable of {required:.1f}h required)"
                 )
             else:
+                together = " together" if len(_crew(op)) > 1 else ""
                 msg = (
                     f"could not schedule within {SCHEDULE_HORIZON_DAYS} days: "
-                    f"{worker_label} has {placeable:.1f}h free of {required:.1f}h required. "
+                    f"{worker_label} has {placeable:.1f}h free{together} of {required:.1f}h required. "
                     "Assign another worker or free up their time"
                 )
             if down_notes and not all_down:
@@ -946,7 +979,7 @@ def validate_schedule(operations, due_date=None):
         wid = op.get("assignedWorkerId")
         segments = []
         if wid:
-            schedule_by_dow = load_worker_schedule_maps(wid)
+            schedule_by_dow = load_crew_schedule_map(_crew(op))
             shop_start = utc_to_shop(start)
             shop_end = utc_to_shop(end)
             exceptions = load_calendar_exceptions(shop_start.date(), shop_end.date())
@@ -1030,25 +1063,30 @@ def validate_schedule(operations, due_date=None):
                         )
                         break
 
-            for seg_start, seg_end in segments:
-                for other_start, other_end, other_seq in intervals_by_worker.get(wid, []):
-                    if seg_start < other_end and other_start < seg_end:
-                        warnings.append(
-                            {
-                                "sequenceNo": op["sequenceNo"],
-                                "code": "WORKER_CONFLICT",
-                                "message": (
-                                    f"Worker double-booked on operations {other_seq} and {op['sequenceNo']}"
-                                ),
-                            }
-                        )
-                        break
-                else:
-                    continue
-                break
-            intervals_by_worker.setdefault(wid, []).extend(
-                (s, e, op["sequenceNo"]) for s, e in segments
+            clash_seq = next(
+                (
+                    other_seq
+                    for member in _crew(op)
+                    for seg_start, seg_end in segments
+                    for other_start, other_end, other_seq in intervals_by_worker.get(member, [])
+                    if seg_start < other_end and other_start < seg_end
+                ),
+                None,
             )
+            if clash_seq is not None:
+                warnings.append(
+                    {
+                        "sequenceNo": op["sequenceNo"],
+                        "code": "WORKER_CONFLICT",
+                        "message": (
+                            f"Worker double-booked on operations {clash_seq} and {op['sequenceNo']}"
+                        ),
+                    }
+                )
+            for member in _crew(op):
+                intervals_by_worker.setdefault(member, []).extend(
+                    (s, e, op["sequenceNo"]) for s, e in segments
+                )
 
         uid = op.get("machineUnitId")
         if uid:
@@ -1158,7 +1196,8 @@ def schedule_problems(
             continue
 
         worker_id = op.get("assignedWorkerId")
-        schedule_by_dow = load_worker_schedule_maps(worker_id) if worker_id else {}
+        crew = _crew(op)
+        schedule_by_dow = load_crew_schedule_map(crew)
         exceptions = load_calendar_exceptions(utc_to_shop(start).date(), utc_to_shop(end).date())
 
         if _frozen_result(op):
@@ -1198,7 +1237,7 @@ def schedule_problems(
         segments = derive_working_segments(start, end, schedule_by_dow, exceptions)
         if not segments or segments[0][0] != start or segments[-1][1] != end:
             day = start if not segments or segments[0][0] != start else end
-            who = _worker_label(worker_id) if worker_id else "the worker"
+            who = _crew_label(op) if worker_id else "the worker"
             add(
                 op,
                 "OUTSIDE_WORKING_HOURS",
@@ -1207,35 +1246,36 @@ def schedule_problems(
             )
         busy = segments or [(start, end)]
 
-        if worker_id:
+        # Every crew member is booked for the operation's working periods.
+        for member in crew:
             clash = next(
-                (o for o, segs in placed if o.get("assignedWorkerId") == worker_id and _overlaps(busy, segs)),
+                (o for o, segs in placed if member in _crew(o) and _overlaps(busy, segs)),
                 None,
             )
             if clash:
                 add(
                     op,
                     "WORKER_CONFLICT",
-                    f"{_worker_label(worker_id)} is booked on {label(clash)} at the same time",
+                    f"{_worker_label(member)} is booked on {label(clash)} at the same time",
                 )
-            else:
-                other = next(
-                    (
-                        (o, segs)
-                        for o, segs in external
-                        if o.assigned_worker_id == worker_id and _overlaps(busy, segs)
-                    ),
-                    None,
+                continue
+            other = next(
+                (
+                    (o, segs)
+                    for o, segs in external
+                    if member in o.crew_ids and _overlaps(busy, segs)
+                ),
+                None,
+            )
+            if other:
+                o, segs = other
+                add(
+                    op,
+                    "WORKER_CONFLICT",
+                    f"{_worker_label(member)} is already booked on "
+                    f"{o.job_order.job_number} #{o.sequence_no} {o.operation_name} "
+                    f"({_fmt_shop(segs[0][0])})",
                 )
-                if other:
-                    o, segs = other
-                    add(
-                        op,
-                        "WORKER_CONFLICT",
-                        f"{_worker_label(worker_id)} is already booked on "
-                        f"{o.job_order.job_number} #{o.sequence_no} {o.operation_name} "
-                        f"({_fmt_shop(segs[0][0])})",
-                    )
 
         unit_id = op.get("machineUnitId")
         if unit_id:

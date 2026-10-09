@@ -37,7 +37,9 @@ def assign_operation(operation_id):
     worker_id = data.get("assignedWorkerId")
     if not worker_id:
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "assignedWorkerId required"}}), 400
-    operation = jo_service.assign_operation_worker(operation, worker_id)
+    operation = jo_service.assign_operation_worker(
+        operation, worker_id, data.get("helperIds") if "helperIds" in data else None
+    )
     return jsonify(operation.to_dict())
 
 

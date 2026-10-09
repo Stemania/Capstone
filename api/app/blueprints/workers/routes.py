@@ -75,5 +75,7 @@ def suggest():
         machine_type_id=machine_type_id,
         operation_type_id=operation_type_id,
         operation_name=operation_name,
+        lead_id=data.get("leadId"),
+        exclude_worker_ids=data.get("excludeWorkerIds") or [],
     )
     return jsonify(result)

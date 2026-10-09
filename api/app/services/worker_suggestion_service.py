@@ -1,36 +1,58 @@
-"""Rank production workers with fixed weighted scoring components.
+"""Rank people for an operation's crew with fixed weights.
 
-Availability is a filter (not a weight): unqualified, busy, and off-shift
-workers (per schedule + work calendar) are omitted from the shortlist entirely.
+Availability is a filter, not a weight: people booked in the window, off
+shift, or on a holiday are left out. Three kinds of suggestion:
+
+  Machine operation, lead: each (worker, machine unit) pair scores
+      0.40 x assigned operator of that unit (1 or 0)
+    + 0.30 x machine skill level / 5
+    + 0.20 x past performance
+    + 0.10 x current workload
+  and each worker is shown with their best unit. A unit with an assigned
+  operator is offered to that operator; units with none (or whose operator
+  can't take the work) are open to anyone qualified.
+
+  Operation without a machine, lead: 0.60 x past performance + 0.40 x workload.
+
+  Helper (after the lead is chosen, lead excluded, no skill needed):
+  0.50 x past performance + 0.50 x workload.
 """
 
-from app.models.machine import MachineType
+from app.models.machine import MachineType, MachineUnit
+from app.models.operation import JobOperation, OperationStatus
+from app.models.user import UserRole
 from app.models.worker_skill import OperationType
-from app.services.scoring_service import (
-    build_reason,
-    combine_score,
-    fetch_efficiency_pairs,
-    load_scoring_weights,
-    log_weights_used,
-    score_efficiency,
-    score_skill,
-    score_workload,
-    worker_week_load_hours,
-)
 from app.services.schedule_calendar import (
     derive_working_segments,
     load_calendar_exceptions,
     load_worker_schedule_maps_many,
     utc_to_shop,
 )
-from app.services.worker_availability import _parse_dt, get_busy_workers
-from app.models.user import UserRole
+from app.services.scoring_service import (
+    HELPER_WEIGHTS,
+    MACHINE_LEAD_WEIGHTS,
+    NO_MACHINE_WEIGHTS,
+    combine_score,
+    fetch_efficiency_pairs,
+    log_weights_used,
+    score_efficiency,
+    score_workload,
+    worker_week_load_hours,
+)
+from app.services.worker_availability import _parse_dt, _windows_overlap, get_busy_workers
 from app.services.worker_profile_service import (
     NO_MACHINE_SKILL_RECORDED,
     is_checking_operation,
     machine_skill_holders,
     query_assignable_workers,
 )
+
+MODE_MACHINE_LEAD = "MACHINE_LEAD"
+MODE_NO_MACHINE = "NO_MACHINE"
+MODE_HELPER = "HELPER"
+
+NOT_CLOCKED_IN = "Not clocked in today"
+NO_SKILL_DATA_SCORE = 0.5
 
 
 def _working_during(workers, scheduled_start, scheduled_end):
@@ -48,13 +70,9 @@ def _working_during(workers, scheduled_start, scheduled_end):
     ]
 
 
-NOT_CLOCKED_IN = "Not clocked in today"
-
-
 def _not_clocked_in_for_today_op(worker_ids, scheduled_start, operation_id):
     """Workers past their start time without a clock-in, when the operation
     starts today. Its start is the proposed window, else the saved schedule."""
-    from app.models.operation import JobOperation
     from app.services.attendance_service import not_clocked_in_today
     from app.services.schedule_calendar import shop_now
 
@@ -67,39 +85,183 @@ def _not_clocked_in_for_today_op(worker_ids, scheduled_start, operation_id):
     return not_clocked_in_today(worker_ids)
 
 
-def _resolve_machine_type_id(
-    *,
-    machine_type_id=None,
-    operation_type_id=None,
-    operation_name=None,
-):
+def _find_operation_type(operation_name):
+    return OperationType.query.filter(
+        (OperationType.name.ilike(operation_name))
+        | (OperationType.code.ilike(str(operation_name).replace(" ", "_")))
+    ).first()
+
+
+def _resolve_machine_type_id(*, machine_type_id=None, operation_type_id=None, operation_name=None):
     if machine_type_id:
         return machine_type_id
-    if operation_type_id:
-        ot = OperationType.query.get(operation_type_id)
-        if ot and ot.default_machine_type_id:
-            return ot.default_machine_type_id
-    if operation_name:
-        ot = OperationType.query.filter(
-            (OperationType.name.ilike(operation_name))
-            | (OperationType.code.ilike(str(operation_name).replace(" ", "_")))
-        ).first()
-        if ot and ot.default_machine_type_id:
-            return ot.default_machine_type_id
-    return None
+    ot = OperationType.query.get(operation_type_id) if operation_type_id else None
+    if ot is None and operation_name:
+        ot = _find_operation_type(operation_name)
+    return ot.default_machine_type_id if ot and ot.default_machine_type_id else None
 
 
 def _resolve_operation_type_id(*, operation_type_id=None, operation_name=None):
     if operation_type_id:
         return operation_type_id
     if operation_name:
-        ot = OperationType.query.filter(
-            (OperationType.name.ilike(operation_name))
-            | (OperationType.code.ilike(str(operation_name).replace(" ", "_")))
-        ).first()
+        ot = _find_operation_type(operation_name)
         if ot:
             return ot.id
     return None
+
+
+def _usable_units(machine_type_id, scheduled_start, scheduled_end, exclude_operation_id):
+    """Active units of the type that are not broken down and, when a window is
+    proposed, not booked by another operation in it."""
+    from app.services.operation_service import open_downtimes_by_unit
+
+    units = (
+        MachineUnit.query.filter_by(machine_type_id=machine_type_id, active=True)
+        .order_by(MachineUnit.label)
+        .all()
+    )
+    down = open_downtimes_by_unit()
+    units = [u for u in units if u.id not in down]
+    start, end = _parse_dt(scheduled_start), _parse_dt(scheduled_end)
+    if not units or not start or not end or end <= start:
+        return units
+    booked = JobOperation.query.filter(
+        JobOperation.machine_unit_id.in_([u.id for u in units]),
+        JobOperation.status.in_(
+            (OperationStatus.SCHEDULED, OperationStatus.IN_PROGRESS, OperationStatus.REWORK)
+        ),
+        JobOperation.scheduled_start.isnot(None),
+        JobOperation.scheduled_end.isnot(None),
+    ).all()
+    taken = {
+        op.machine_unit_id
+        for op in booked
+        if op.id != exclude_operation_id
+        and _windows_overlap(start, end, op.scheduled_start, op.scheduled_end)
+    }
+    return [u for u in units if u.id not in taken]
+
+
+def _available_people(
+    *, for_checking, scheduled_start, scheduled_end, exclude_operation_id, exclude_ids=()
+):
+    workers = query_assignable_workers(for_checking=for_checking).all()
+    excluded = set(exclude_ids or ())
+    busy = get_busy_workers(
+        start=scheduled_start, end=scheduled_end, exclude_operation_id=exclude_operation_id
+    )
+    workers = [w for w in workers if w.id not in busy and w.id not in excluded]
+    return _working_during(workers, scheduled_start, scheduled_end)
+
+
+def _performance_and_load(workers, operation_type_id, exclude_operation_id):
+    """{worker id: (efficiency score, reason, workload score, reason)}."""
+    load = {
+        w.id: worker_week_load_hours(w.id, exclude_operation_id=exclude_operation_id)
+        for w in workers
+    }
+    peers = list(load.values())
+    out = {}
+    for w in workers:
+        eff, eff_reason, _ = score_efficiency(fetch_efficiency_pairs(w.id, operation_type_id))
+        work, work_reason, _ = score_workload(load[w.id], peers)
+        out[w.id] = (eff, eff_reason, work, work_reason)
+    return out
+
+
+def _person(worker):
+    return {
+        "workerId": worker.id,
+        "fullName": worker.full_name,
+        "nickname": worker.nickname,
+        "photoVersion": worker.photo_version,
+        "role": worker.role.value,
+        "email": worker.email,
+        "skills": [s.machine_type.code for s in (worker.skills or []) if s.machine_type],
+        "qualified": True,
+        "available": True,
+        "machineUnitId": None,
+        "machineUnitLabel": None,
+        "isUnitOperator": False,
+        "proficiency": None,
+        "matchedSkills": [],
+    }
+
+
+def _machine_lead_suggestions(workers, machine, units, perf):
+    holders = machine_skill_holders(machine.id)
+    no_skill_yet = holders is None
+    if not no_skill_yet:
+        workers = [w for w in workers if w.id in holders]
+    available_ids = {w.id for w in workers}
+    out = []
+    for w in workers:
+        skill = None if no_skill_yet else holders.get(w.id)
+        skill_score = (
+            NO_SKILL_DATA_SCORE if skill is None else min(1.0, float(skill.proficiency) / 5.0)
+        )
+        skill_text = (
+            NO_MACHINE_SKILL_RECORDED if skill is None else f"skill {int(skill.proficiency)}/5"
+        )
+        # Their own unit, or any unit whose operator is not free for this work.
+        own_or_open = [
+            u
+            for u in units
+            if u.default_operator_id == w.id
+            or not u.default_operator_id
+            or u.default_operator_id not in available_ids
+        ]
+        eff, eff_reason, work, work_reason = perf[w.id]
+        best = None
+        for unit in own_or_open or [None]:
+            is_operator = bool(unit and unit.default_operator_id == w.id)
+            components = {
+                "operator": 1.0 if is_operator else 0.0,
+                "skill": round(skill_score, 4),
+                "efficiency": round(eff, 4),
+                "workload": round(work, 4),
+            }
+            score = combine_score(MACHINE_LEAD_WEIGHTS, components)
+            if best is None or score > best[0]:
+                best = (score, unit, is_operator, components)
+        score, unit, is_operator, components = best
+        if unit is None:
+            unit_text = f"No free {machine.name} unit"
+        elif is_operator:
+            unit_text = f"Assigned operator of {unit.label}"
+        elif not unit.default_operator_id:
+            unit_text = f"{unit.label} has no assigned operator"
+        else:
+            unit_text = f"{unit.label}, whose operator is not free"
+        row = _person(w)
+        row.update(
+            score=score,
+            components=components,
+            reason=", ".join([unit_text, skill_text, work_reason, eff_reason]),
+            machineUnitId=unit.id if unit else None,
+            machineUnitLabel=unit.label if unit else None,
+            isUnitOperator=is_operator,
+            proficiency=skill.proficiency if skill else None,
+            matchedSkills=[machine.code] if skill else [],
+        )
+        out.append(row)
+    return out
+
+
+def _weighted_suggestions(workers, weights, perf):
+    out = []
+    for w in workers:
+        eff, eff_reason, work, work_reason = perf[w.id]
+        components = {"efficiency": round(eff, 4), "workload": round(work, 4)}
+        row = _person(w)
+        row.update(
+            score=combine_score(weights, components),
+            components=components,
+            reason=", ".join([eff_reason, work_reason]),
+        )
+        out.append(row)
+    return out
 
 
 def suggest_workers(
@@ -111,20 +273,14 @@ def suggest_workers(
     machine_type_id=None,
     operation_type_id=None,
     operation_name=None,
+    lead_id=None,
+    exclude_worker_ids=None,
 ):
-    """
-    Score eligible production workers and Admins.
+    """Suggestions for the lead, or for helpers when ``lead_id`` is given.
 
-    Filters out:
-      - people without skill for the target machine type (once someone has
-        that skill recorded; until then everyone qualifies). Operations
-        without a machine take anyone, except Checking, which takes Admins only.
-      - workers busy for the proposed window (overlap), or IN_PROGRESS when no window
-      - workers with no working hours in the proposed window (off shift, holiday)
-
-    Returns {"weights": {...}, "suggestions": [...]} — only eligible workers.
+    Returns {"mode", "weights", "suggestions"}; only available people appear.
     """
-    del exclude_job_id  # reserved for future earliest-fit; unused in scoring
+    del exclude_job_id
 
     if operations and not operation_name:
         if isinstance(operations, str):
@@ -143,103 +299,37 @@ def suggest_workers(
         operation_type_id=operation_type_id,
         operation_name=operation_name,
     )
-    resolved_op_type_id = _resolve_operation_type_id(
-        operation_type_id=operation_type_id,
-        operation_name=operation_name,
+    op_type_id = _resolve_operation_type_id(
+        operation_type_id=operation_type_id, operation_name=operation_name
     )
+    checking = is_checking_operation(op_type_id, operation_name)
 
-    weights = load_scoring_weights()
-    log_weights_used(weights, context="suggest")
+    if lead_id:
+        mode, weights = MODE_HELPER, HELPER_WEIGHTS
+    elif target_machine_id:
+        mode, weights = MODE_MACHINE_LEAD, MACHINE_LEAD_WEIGHTS
+    else:
+        mode, weights = MODE_NO_MACHINE, NO_MACHINE_WEIGHTS
+    log_weights_used(weights, context=f"suggest {mode}")
 
-    mt = MachineType.query.get(target_machine_id) if target_machine_id else None
-    machine_label = mt.name if mt else None
+    if mode == MODE_HELPER and checking:
+        return {"mode": mode, "weights": dict(weights), "suggestions": []}
 
-    # A machine skill filters and scores once someone has it recorded; until
-    # then everyone qualifies.
-    machine_holders = machine_skill_holders(target_machine_id)
-    skill_by_worker = machine_holders or {}
-    no_machine_skill_yet = bool(target_machine_id) and machine_holders is None
-    skill_required = machine_holders is not None
-
-    workers = query_assignable_workers(
-        for_checking=is_checking_operation(resolved_op_type_id, operation_name)
-    ).all()
-
-    if skill_required:
-        workers = [w for w in workers if w.id in skill_by_worker]
-
-    busy_workers = get_busy_workers(
-        start=scheduled_start,
-        end=scheduled_end,
+    workers = _available_people(
+        for_checking=checking and mode != MODE_HELPER,
+        scheduled_start=scheduled_start,
+        scheduled_end=scheduled_end,
         exclude_operation_id=exclude_operation_id,
+        exclude_ids=[lead_id, *(exclude_worker_ids or [])] if lead_id else (),
     )
-    workers = [w for w in workers if w.id not in busy_workers]
-    workers = _working_during(workers, scheduled_start, scheduled_end)
+    perf = _performance_and_load(workers, op_type_id, exclude_operation_id)
 
-    peer_ids = [w.id for w in workers]
-    load_by_worker = {
-        wid: worker_week_load_hours(wid, exclude_operation_id=exclude_operation_id)
-        for wid in peer_ids
-    }
-    peer_hours = list(load_by_worker.values())
-
-    suggestions = []
-    for worker in workers:
-        skill = skill_by_worker.get(worker.id) if skill_required else None
-        if skill_required:
-            skill_score, skill_reason, skill_default = score_skill(
-                proficiency=skill.proficiency if skill else None,
-                is_primary=bool(skill and skill.is_primary),
-            )
-        else:
-            if no_machine_skill_yet:
-                skill_reason = NO_MACHINE_SKILL_RECORDED
-            else:
-                skill_reason = "no machine skill required"
-            skill_score, skill_default = 1.0, False
-
-        hours = load_by_worker.get(worker.id, 0.0)
-        work_score, work_reason, work_default = score_workload(hours, peer_hours)
-
-        eff_pairs = fetch_efficiency_pairs(worker.id, resolved_op_type_id)
-        eff_score, eff_reason, eff_default = score_efficiency(eff_pairs)
-
-        components = {
-            "skill": round(skill_score, 4),
-            "workload": round(work_score, 4),
-            "efficiency": round(eff_score, 4),
-        }
-        total = combine_score(weights, components, qualified=True)
-
-        reason_parts = [
-            (skill_reason, skill_default),
-            (work_reason, work_default),
-            (eff_reason, eff_default),
-        ]
-        ordered = [p for p in reason_parts if not p[1]] + [
-            p for p in reason_parts if p[1]
-        ]
-        reason = build_reason(ordered, machine_label=machine_label, unqualified=False)
-
-        skills_codes = [s.machine_type.code for s in (worker.skills or []) if s.machine_type]
-        suggestions.append(
-            {
-                "workerId": worker.id,
-                "fullName": worker.full_name,
-                "nickname": worker.nickname,
-                "photoVersion": worker.photo_version,
-                "role": worker.role.value,
-                "email": worker.email,
-                "skills": skills_codes,
-                "score": total,
-                "qualified": True,
-                "components": components,
-                "reason": reason,
-                "matchedSkills": [mt.code] if mt and skill else [],
-                "proficiency": skill.proficiency if skill else None,
-                "available": True,
-            }
-        )
+    machine = MachineType.query.get(target_machine_id) if mode == MODE_MACHINE_LEAD else None
+    if machine is not None:
+        units = _usable_units(machine.id, scheduled_start, scheduled_end, exclude_operation_id)
+        suggestions = _machine_lead_suggestions(workers, machine, units, perf)
+    else:
+        suggestions = _weighted_suggestions(workers, weights, perf)
 
     # Attendance is kept for production workers only.
     missing = _not_clocked_in_for_today_op(
@@ -250,11 +340,5 @@ def suggest_workers(
     for s in suggestions:
         s["attendanceWarning"] = NOT_CLOCKED_IN if s["workerId"] in missing else None
 
-    suggestions.sort(
-        key=lambda s: (
-            s["score"],
-            s.get("proficiency") or 0,
-        ),
-        reverse=True,
-    )
-    return {"weights": weights, "suggestions": suggestions}
+    suggestions.sort(key=lambda s: (-s["score"], -(s.get("proficiency") or 0), s["fullName"]))
+    return {"mode": mode, "weights": dict(weights), "suggestions": suggestions}
