@@ -134,6 +134,44 @@ def test_second_run_changes_nothing(app):
     }
 
 
+def test_rerun_keeps_supplier_status_changed_by_the_shop(app):
+    seno = Supplier(name="Seno Metals", typical_lead_time_days=1, active=True)
+    metro = Supplier(name="Metro Hardware", typical_lead_time_days=2, active=True)
+    db.session.add_all([seno, metro])
+    db.session.commit()
+
+    load_reference_data()
+    assert not db.session.get(Supplier, seno.id).active
+    assert not db.session.get(Supplier, metro.id).active
+    assert db.session.get(Supplier, seno.id).reference_loaded_at is not None
+
+    # The shop reactivates Seno Metals and pauses Raitech.
+    db.session.get(Supplier, seno.id).active = True
+    Supplier.query.filter_by(code="RTC").one().active = False
+    db.session.commit()
+
+    report = load_reference_data()
+    assert report.changes == []
+    assert db.session.get(Supplier, seno.id).active
+    assert not db.session.get(Supplier, metro.id).active
+    assert not Supplier.query.filter_by(code="RTC").one().active
+    assert any("Seno Metals" in n and "(active" in n for n in report.notes)
+
+
+def test_first_update_of_an_existing_supplier_sets_its_status(app):
+    railim = Supplier(name="Railim", typical_lead_time_days=5, active=False)
+    db.session.add(railim)
+    db.session.commit()
+
+    load_reference_data(dry_run=True)
+    assert db.session.get(Supplier, railim.id).reference_loaded_at is None
+
+    load_reference_data()
+    railim = db.session.get(Supplier, railim.id)
+    assert railim.code == "RIC" and railim.active
+    assert railim.reference_loaded_at is not None
+
+
 def test_cli_runs_in_production_without_accounts_or_job_data(app):
     app.config["ENV"] = "production"
     runner = app.test_cli_runner()

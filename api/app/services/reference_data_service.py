@@ -8,6 +8,7 @@ their IDs and history are kept; nothing is deleted.
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import func
@@ -52,7 +53,8 @@ SUPPLIERS = [
     },
 ]
 
-# Hidden from new orders; history kept; Office Staff can reactivate them.
+# Set inactive (hidden from new orders, history kept) the first time the
+# loader handles them; a later reactivation survives re-runs.
 INACTIVE_SUPPLIERS = ["Seno Metals", "Metro Hardware"]
 
 DUPLICATE_SUFFIX = " (duplicate)"
@@ -139,6 +141,17 @@ def _set(obj, attr, value, report, label):
         report.change(f"{label}: {attr} {current!r} -> {value!r}")
 
 
+def _set_active_once(supplier, active, report, label):
+    """Set active status only the first time the loader handles a supplier,
+    so a later reactivation (or deactivation) by the shop is kept."""
+    if supplier.reference_loaded_at is not None:
+        return
+    if bool(supplier.active) != active:
+        supplier.active = active
+        report.change(f"{label}: marked {'active' if active else 'inactive'}")
+    supplier.reference_loaded_at = datetime.now(timezone.utc)
+
+
 def _load_suppliers(report):
     for spec in SUPPLIERS:
         names = [spec["name"], *spec["aliases"]]
@@ -157,6 +170,7 @@ def _load_suppliers(report):
                 typical_lead_time_days=spec["typical_lead_time_days"],
                 address=spec["address"],
                 active=True,
+                reference_loaded_at=datetime.now(timezone.utc),
             )
             db.session.add(supplier)
             db.session.flush()
@@ -176,29 +190,24 @@ def _load_suppliers(report):
             label = f"Supplier {dup.name!r}"
             if dup.code == spec["code"]:
                 _set(dup, "code", None, report, label)
-            if dup.active:
-                dup.active = False
-                report.change(f"{label}: marked inactive (duplicate of {spec['code']})")
+            _set_active_once(dup, False, report, f"{label} (duplicate of {spec['code']})")
             if not dup.name.endswith(DUPLICATE_SUFFIX):
                 _set(dup, "name", dup.name + DUPLICATE_SUFFIX, report, label)
-            report.note(
-                f"Duplicate supplier {dup.name!r} kept inactive: {_refs_text(refs[dup.id])}"
-            )
+            report.note(f"Duplicate supplier {dup.name!r}: {_refs_text(refs[dup.id])}")
         db.session.flush()
 
         label = f"Supplier {spec['code']}"
         for attr in ("name", "code", "contact_person", "typical_lead_time_days", "address"):
             _set(supplier, attr, spec[attr], report, label)
-        _set(supplier, "active", True, report, label)
+        _set_active_once(supplier, True, report, label)
         report.note(f"Supplier {spec['code']} {spec['name']!r}: {_refs_text(refs[supplier.id])}")
 
     for name in INACTIVE_SUPPLIERS:
         for supplier in Supplier.query.filter(_ci(Supplier.name, name)).all():
-            if supplier.active:
-                supplier.active = False
-                report.change(f"Supplier {supplier.name!r}: marked inactive")
+            _set_active_once(supplier, False, report, f"Supplier {supplier.name!r}")
+            status = "active" if supplier.active else "inactive"
             report.note(
-                f"Inactive supplier {supplier.name!r} (history kept): "
+                f"Retired supplier {supplier.name!r} ({status}, history kept): "
                 f"{_refs_text(supplier_references(supplier))}"
             )
     db.session.flush()

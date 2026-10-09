@@ -37,6 +37,9 @@ class Supplier(db.Model):
     notes = db.Column(db.Text, nullable=True)
     active = db.Column(db.Boolean, nullable=False, default=True, index=True)
     is_seed = db.Column(db.Boolean, nullable=False, default=False)
+    # Set when `flask load-reference-data` first creates or updates the
+    # supplier; after that the loader leaves its active status alone.
+    reference_loaded_at = db.Column(db.DateTime(timezone=True), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
     updated_at = db.Column(
         db.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
