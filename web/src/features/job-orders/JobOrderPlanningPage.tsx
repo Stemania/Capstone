@@ -301,12 +301,16 @@ export default function JobOrderPlanningPage() {
   const loadRowWorkers = async (
     rowIndex: number,
     machineTypeId?: string | null,
-    clearInvalidAssignment = true
+    clearInvalidAssignment = true,
+    operationTypeId?: string | null
   ) => {
     const seq = (workerFetchSeq.current[rowIndex] || 0) + 1;
     workerFetchSeq.current[rowIndex] = seq;
     try {
-      const { data } = await workersApi.list(machineTypeId ? { machineTypeId } : undefined);
+      const { data } = await workersApi.list({
+        machineTypeId: machineTypeId || undefined,
+        operationTypeId: operationTypeId || undefined,
+      });
       if (workerFetchSeq.current[rowIndex] !== seq) return;
       setRowWorkers((prev) => ({ ...prev, [rowIndex]: data }));
       rowDataRef.current[rowIndex] = {
@@ -501,7 +505,7 @@ export default function JobOrderPlanningPage() {
         const types = typesRes.data || [];
         rows.forEach((row, index) => {
           if (isOutsourcedType(types.find((t) => t.id === row.operationTypeId))) return;
-          void loadRowWorkers(index, row.machineTypeId, false);
+          void loadRowWorkers(index, row.machineTypeId, false, row.operationTypeId);
           void loadSuggestions(index, row, { preserveExisting: true });
         });
       } catch (err) {
@@ -549,7 +553,7 @@ export default function JobOrderPlanningPage() {
       assignedWorkerId: undefined,
       turnaroundDays: null,
     });
-    void loadRowWorkers(index, machineTypeId);
+    void loadRowWorkers(index, machineTypeId, true, typeId);
     void loadSuggestions(index, {
       ...operations[index],
       operationTypeId: typeId,
@@ -569,7 +573,7 @@ export default function JobOrderPlanningPage() {
       return;
     }
     patchRow(index, { machineTypeId, assignedWorkerId: undefined });
-    void loadRowWorkers(index, machineTypeId);
+    void loadRowWorkers(index, machineTypeId, true, row?.operationTypeId);
     void loadSuggestions(index, {
       ...operations[index],
       machineTypeId,
@@ -900,16 +904,21 @@ export default function JobOrderPlanningPage() {
           return <Select style={{ width: '100%' }} placeholder="Outside shop" disabled />;
         }
         const qualifiedWorkers = rowWorkers[index] || [];
-        const rowMachineId =
-          record.machineTypeId ||
-          operationTypes.find((t) => t.id === record.operationTypeId)?.defaultMachineTypeId;
+        const rowType = operationTypes.find((t) => t.id === record.operationTypeId);
+        const rowMachineId = record.machineTypeId || rowType?.defaultMachineTypeId;
         return (
           <Select
             allowClear
             showSearch
             optionFilterProp="search"
             style={{ width: '100%' }}
-            placeholder={rowMachineId ? 'Qualified workers' : 'Assign worker'}
+            placeholder={
+              isCheckingType(rowType, record.operationName)
+                ? 'Admins only'
+                : rowMachineId
+                  ? 'Qualified workers'
+                  : 'Assign worker'
+            }
             value={record.assignedWorkerId}
             disabled={readOnly}
             options={workerOptions(qualifiedWorkers)}

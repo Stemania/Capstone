@@ -269,9 +269,13 @@ def test_skills_are_for_machines_only(client, shop):
 
 def test_every_worker_qualifies_for_operations_without_a_machine(client, shop):
     job = _job(shop)
-    for seq, code in enumerate(("LAYOUT", "CUTTING", "FITTING", "CHECKING"), start=1):
+    for seq, code in enumerate(("LAYOUT", "CUTTING", "FITTING"), start=1):
         op = _op(job, seq, shop["types"][code])
         assert _assign(client, shop, op, shop["ben"]).status_code == 200, code
+    # Except Checking: the Administrator's final quality control.
+    checking = _op(job, 4, shop["types"]["CHECKING"])
+    assert _assign(client, shop, checking, shop["ben"]).status_code == 400
+    assert _assign(client, shop, checking, shop["admin"]).status_code == 200
 
     body = {"operationTypeId": shop["types"]["LAYOUT"].id, "operationName": "Layout"}
     res = client.post("/api/v1/workers/suggest", json=body, headers=_headers(shop["admin"]))

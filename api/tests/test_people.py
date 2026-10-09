@@ -440,6 +440,54 @@ def test_operation_type_skills_are_rejected(client, shop):
 # 5. Admins can be assigned
 
 
+def test_checking_stays_with_admins(client, shop):
+    checking = shop["types"]["CHECKING"]
+    admin_headers = _headers(shop["admin"])
+    op = _op(_job(shop), 1, checking)
+
+    res = _assign(client, shop, op, shop["ben"])
+    assert res.status_code == 400
+    assert res.get_json()["error"]["code"] == "CHECKING_ADMIN_ONLY"
+    assert _assign(client, shop, op, shop["admin"]).status_code == 200
+
+    body = {"operationTypeId": checking.id, "operationName": "Checking"}
+    res = client.post("/api/v1/workers/suggest", json=body, headers=admin_headers)
+    assert {s["fullName"] for s in res.get_json()["suggestions"]} == {"Pia Admin"}
+
+    listed = client.get(
+        f"/api/v1/workers?operationTypeId={checking.id}", headers=admin_headers
+    ).get_json()
+    assert {w["role"] for w in listed} == {"ADMIN"}
+    listed = client.get("/api/v1/workers?operationName=Checking", headers=admin_headers).get_json()
+    assert {w["role"] for w in listed} == {"ADMIN"}
+
+    # Saving a draft with a worker on Checking is refused too.
+    draft = _job(shop, status=JobOrderStatus.DRAFT)
+    res = client.patch(
+        f"/api/v1/job-orders/{draft.id}",
+        json={
+            "operations": [
+                {
+                    "operationTypeId": checking.id,
+                    "operationName": "Checking",
+                    "assignedWorkerId": shop["ana"].id,
+                    "estimatedHours": 1,
+                }
+            ]
+        },
+        headers=admin_headers,
+    )
+    assert res.status_code == 400
+    assert res.get_json()["error"]["code"] == "CHECKING_ADMIN_ONLY"
+
+
+def test_imported_admin_can_do_checking(client, shop, tmp_path):
+    import_employees(_csv(tmp_path, "Ivy Inspector,II,ADMIN,,\n"))
+    ivy = User.query.filter_by(full_name="Ivy Inspector").one()
+    op = _op(_job(shop), 1, shop["types"]["CHECKING"])
+    assert _assign(client, shop, op, ivy).status_code == 200
+
+
 def test_admin_is_suggested_and_on_the_board(client, shop):
     body = {"operationTypeId": shop["types"]["LAYOUT"].id, "operationName": "Layout"}
     res = client.post("/api/v1/workers/suggest", json=body, headers=_headers(shop["admin"]))

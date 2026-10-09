@@ -15,9 +15,11 @@ from app.models.worker_skill import (
 )
 from app.utils.errors import AppError
 
-# Production workers and Admins can be assigned to any operation, including
-# people not yet activated (they activate before recording work on a phone).
+# Production workers and Admins can be assigned, including people not yet
+# activated (they activate before recording work on a phone). Checking is the
+# exception: it is the Administrator's final quality control, so Admins only.
 ASSIGNABLE_ROLES = (UserRole.PRODUCTION_WORKER, UserRole.ADMIN)
+CHECKING_ROLES = (UserRole.ADMIN,)
 
 
 def _parse_time(value):
@@ -80,13 +82,22 @@ def is_assignable_worker(user: User | None) -> bool:
     )
 
 
-def query_assignable_workers():
-    """Production workers and Admins who are not disabled, by name."""
-    return (
-        User.query.options(joinedload(User.worker_profile))
-        .filter(_assignable_filter())
-        .order_by(User.full_name)
-    )
+def assert_may_do_checking(user: User, operation_type_id=None, operation_name=None) -> None:
+    if user.role not in CHECKING_ROLES and is_checking_operation(operation_type_id, operation_name):
+        raise AppError(
+            "Checking is the Administrator's final quality control. Assign an Admin.",
+            "CHECKING_ADMIN_ONLY",
+            400,
+        )
+
+
+def query_assignable_workers(for_checking: bool = False):
+    """Production workers and Admins who are not disabled, by name; only
+    Admins for Checking."""
+    query = User.query.options(joinedload(User.worker_profile)).filter(_assignable_filter())
+    if for_checking:
+        query = query.filter(User.role.in_(CHECKING_ROLES))
+    return query.order_by(User.full_name)
 
 
 def ensure_worker_profile(user):

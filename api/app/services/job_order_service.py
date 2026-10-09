@@ -112,11 +112,12 @@ def _validate_worker(
     operation_name=None,
     exclude_operation_ids=None,
 ):
-    from app.services.worker_profile_service import is_assignable_worker
+    from app.services.worker_profile_service import assert_may_do_checking, is_assignable_worker
 
     worker = User.query.get(worker_id)
     if not is_assignable_worker(worker):
         raise AppError("Invalid worker assignment", "VALIDATION_ERROR", 400)
+    assert_may_do_checking(worker, operation_type_id, operation_name)
     _assert_worker_has_machine_skill(worker, machine_type_id)
     from app.services.worker_availability import assert_worker_available
 

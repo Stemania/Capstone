@@ -27,6 +27,7 @@ from app.services.worker_availability import _parse_dt, get_busy_workers
 from app.models.user import UserRole
 from app.services.worker_profile_service import (
     NO_MACHINE_SKILL_RECORDED,
+    is_checking_operation,
     machine_skill_holders,
     query_assignable_workers,
 )
@@ -117,7 +118,7 @@ def suggest_workers(
     Filters out:
       - people without skill for the target machine type (once someone has
         that skill recorded; until then everyone qualifies). Operations
-        without a machine take anyone.
+        without a machine take anyone, except Checking, which takes Admins only.
       - workers busy for the proposed window (overlap), or IN_PROGRESS when no window
       - workers with no working hours in the proposed window (off shift, holiday)
 
@@ -160,7 +161,9 @@ def suggest_workers(
     no_machine_skill_yet = bool(target_machine_id) and machine_holders is None
     skill_required = machine_holders is not None
 
-    workers = query_assignable_workers().all()
+    workers = query_assignable_workers(
+        for_checking=is_checking_operation(resolved_op_type_id, operation_name)
+    ).all()
 
     if skill_required:
         workers = [w for w in workers if w.id in skill_by_worker]

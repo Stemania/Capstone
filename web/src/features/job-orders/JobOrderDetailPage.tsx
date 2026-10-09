@@ -267,6 +267,7 @@ function OperationWorkerSelect({ op, onAssigned }: { op: Operation; onAssigned: 
     try {
       const { data } = await workersApi.list({
         machineTypeId: op.machineTypeId || undefined,
+        operationTypeId: op.operationTypeId || undefined,
         operationName: op.operationName,
       });
       setWorkers(data);
