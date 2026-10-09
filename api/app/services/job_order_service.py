@@ -139,16 +139,15 @@ def _assert_worker_has_operation_skill(worker, operation_type_id=None, operation
 
 
 def _assert_worker_has_machine_skill(worker, machine_type_id):
-    """Operations with no machine type are checked by _assert_worker_has_operation_skill."""
+    """Refuses a worker without the machine skill, but only once an active
+    worker has it recorded. Operations with no machine type are checked by
+    _assert_worker_has_operation_skill."""
     if not machine_type_id:
         return
-    from app.models.worker_skill import WorkerSkill
+    from app.services.worker_profile_service import machine_skill_holders
 
-    has_skill = (
-        WorkerSkill.query.filter_by(worker_id=worker.id, machine_type_id=machine_type_id).first()
-        is not None
-    )
-    if has_skill:
+    holders = machine_skill_holders(machine_type_id)
+    if holders is None or worker.id in holders:
         return
     machine = db.session.get(MachineType, machine_type_id)
     machine_name = machine.name if machine else "this machine type"

@@ -92,6 +92,27 @@ def operation_skill_holders(machine_type_id=None, operation_type_id=None, operat
     return ot, {s.worker_id: s for s in rows}
 
 
+NO_MACHINE_SKILL_RECORDED = "No one has this machine skill recorded yet"
+
+
+def machine_skill_holders(machine_type_id):
+    """{worker_id: WorkerSkill} for active production workers with the machine
+    skill; None when no active worker has it recorded, so every worker
+    qualifies until the skill is set up."""
+    if not machine_type_id:
+        return None
+    rows = (
+        WorkerSkill.query.join(User, User.id == WorkerSkill.worker_id)
+        .filter(
+            WorkerSkill.machine_type_id == machine_type_id,
+            User.active.is_(True),
+            User.role == UserRole.PRODUCTION_WORKER,
+        )
+        .all()
+    )
+    return {s.worker_id: s for s in rows} or None
+
+
 def is_assignable_worker(user: User | None) -> bool:
     """True if this user can be assigned to a job operation."""
     if not user or not user.active:

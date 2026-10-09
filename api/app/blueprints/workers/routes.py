@@ -3,10 +3,10 @@ from flask_jwt_extended import jwt_required
 
 from app.middleware.rbac import require_roles
 from app.models.user import User, UserRole
-from app.models.worker_skill import WorkerSkill
 from app.services.worker_availability import get_busy_workers
 from app.services.worker_profile_service import (
     is_checking_operation,
+    machine_skill_holders,
     operation_skill_holders,
     query_assignable_workers,
 )
@@ -42,9 +42,9 @@ def list_workers():
     )
     query = query_assignable_workers(include_admin=include_admin)
     if machine_type_id:
-        query = query.join(WorkerSkill, WorkerSkill.worker_id == User.id).filter(
-            WorkerSkill.machine_type_id == machine_type_id
-        )
+        holders = machine_skill_holders(machine_type_id)
+        if holders is not None:
+            query = query.filter(User.id.in_(list(holders)))
     else:
         _ot, holders = operation_skill_holders(
             operation_type_id=operation_type_id, operation_name=operation_name

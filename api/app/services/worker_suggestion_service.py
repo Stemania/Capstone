@@ -5,7 +5,7 @@ workers (per schedule + work calendar) are omitted from the shortlist entirely.
 """
 
 from app.models.machine import MachineType
-from app.models.worker_skill import OperationType, WorkerSkill
+from app.models.worker_skill import OperationType
 from app.services.scoring_service import (
     build_reason,
     combine_score,
@@ -25,8 +25,10 @@ from app.services.schedule_calendar import (
 )
 from app.services.worker_availability import _parse_dt, get_busy_workers
 from app.services.worker_profile_service import (
+    NO_MACHINE_SKILL_RECORDED,
     is_checking_operation,
     is_skill_tracked_type,
+    machine_skill_holders,
     operation_skill_holders,
     query_assignable_workers,
 )
@@ -115,7 +117,8 @@ def suggest_workers(
     Score eligible active production workers.
 
     Filters out:
-      - workers without skill for the target machine type (when a machine is required)
+      - workers without skill for the target machine type (once an active
+        worker has that skill recorded; until then everyone qualifies)
       - workers busy for the proposed window (overlap), or IN_PROGRESS when no window
       - workers with no working hours in the proposed window (off shift, holiday)
 
@@ -151,10 +154,11 @@ def suggest_workers(
     mt = MachineType.query.get(target_machine_id) if target_machine_id else None
     machine_label = mt.name if mt else None
 
-    skill_by_worker = {}
-    if target_machine_id:
-        for skill in WorkerSkill.query.filter_by(machine_type_id=target_machine_id).all():
-            skill_by_worker[skill.worker_id] = skill
+    # A machine skill filters and scores once an active worker has it
+    # recorded; until then every worker qualifies.
+    machine_holders = machine_skill_holders(target_machine_id)
+    skill_by_worker = machine_holders or {}
+    no_machine_skill_yet = bool(target_machine_id) and machine_holders is None
 
     # No machine: the operation type's own skill filters and scores the same
     # way, once anyone has it recorded.
@@ -163,7 +167,7 @@ def suggest_workers(
         operation_type_id=resolved_op_type_id,
         operation_name=operation_name,
     )
-    skill_required = bool(target_machine_id) or op_skill_holders is not None
+    skill_required = machine_holders is not None or op_skill_holders is not None
     if op_skill_holders is not None:
         skill_by_worker = op_skill_holders
         machine_label = op_type.name
@@ -200,15 +204,13 @@ def suggest_workers(
                 is_primary=bool(skill and skill.is_primary),
             )
         else:
-            skill_score, skill_reason, skill_default = (
-                1.0,
-                (
-                    f"no {op_type.name} skill recorded yet"
-                    if is_skill_tracked_type(op_type)
-                    else "no machine skill required"
-                ),
-                False,
-            )
+            if no_machine_skill_yet:
+                skill_reason = NO_MACHINE_SKILL_RECORDED
+            elif is_skill_tracked_type(op_type):
+                skill_reason = f"no {op_type.name} skill recorded yet"
+            else:
+                skill_reason = "no machine skill required"
+            skill_score, skill_default = 1.0, False
 
         hours = load_by_worker.get(worker.id, 0.0)
         work_score, work_reason, work_default = score_workload(hours, peer_hours)

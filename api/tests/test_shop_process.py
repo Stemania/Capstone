@@ -309,6 +309,61 @@ def test_suggestions_use_operation_skills_with_fallback(client, shop):
     assert names == ["Ana Fitter"]
 
 
+def _laser(shop):
+    laser = MachineType(code="LASER", name="Laser Machine", units=1)
+    db.session.add(laser)
+    db.session.flush()
+    cutting = OperationType(code="LASER_CUT", name="Laser cutting", default_machine_type_id=laser.id)
+    db.session.add(cutting)
+    db.session.commit()
+    return laser, cutting
+
+
+def test_anyone_can_run_a_machine_until_an_active_worker_has_the_skill(client, shop):
+    laser, cutting = _laser(shop)
+    job = _job(shop)
+    # A skill held only by an inactive worker does not count.
+    gone = _user("sp_gone@test.local", UserRole.PRODUCTION_WORKER, "Gone Worker")
+    gone.active = False
+    db.session.add(WorkerSkill(worker_id=gone.id, machine_type_id=laser.id, proficiency=5))
+    db.session.commit()
+
+    assert _assign(client, shop, _op(job, 1, cutting), shop["ben"]).status_code == 200
+
+    db.session.add(WorkerSkill(worker_id=shop["ana"].id, machine_type_id=laser.id, proficiency=3))
+    db.session.commit()
+    op2 = _op(job, 2, cutting)
+    res = _assign(client, shop, op2, shop["ben"])
+    assert res.status_code == 400
+    err = res.get_json()["error"]
+    assert err["code"] == "WORKER_NOT_QUALIFIED"
+    assert "Laser Machine" in err["message"]
+    assert _assign(client, shop, op2, shop["ana"]).status_code == 200
+
+
+def test_machine_suggestions_and_worker_list_fall_back_to_everyone(client, shop):
+    laser, cutting = _laser(shop)
+    body = {"operationTypeId": cutting.id, "machineTypeId": laser.id}
+    headers = _headers(shop["admin"])
+
+    res = client.post("/api/v1/workers/suggest", json=body, headers=headers)
+    assert res.status_code == 200
+    suggestions = res.get_json()["suggestions"]
+    assert {"Ana Fitter", "Ben Helper"} <= {s["fullName"] for s in suggestions}
+    assert all("No one has this machine skill recorded yet" in s["reason"] for s in suggestions)
+    listed = client.get(f"/api/v1/workers?machineTypeId={laser.id}", headers=headers).get_json()
+    assert {"Ana Fitter", "Ben Helper"} <= {w["fullName"] for w in listed}
+
+    db.session.add(WorkerSkill(worker_id=shop["ana"].id, machine_type_id=laser.id, proficiency=4))
+    db.session.commit()
+    res = client.post("/api/v1/workers/suggest", json=body, headers=headers)
+    suggestions = res.get_json()["suggestions"]
+    assert [s["fullName"] for s in suggestions] == ["Ana Fitter"]
+    assert "No one has" not in suggestions[0]["reason"]
+    listed = client.get(f"/api/v1/workers?machineTypeId={laser.id}", headers=headers).get_json()
+    assert [w["fullName"] for w in listed] == ["Ana Fitter"]
+
+
 # 4. Outsourced operations
 
 
