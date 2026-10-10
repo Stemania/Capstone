@@ -954,7 +954,7 @@ export default function JobOrderListPage() {
         <Alert
           type="error"
           showIcon
-          message="Job orders could not be loaded"
+          title="Job orders could not be loaded"
           description={error}
           action={
             <Button type="primary" onClick={() => fetchJobs(listTab)}>
@@ -1093,13 +1093,13 @@ export default function JobOrderListPage() {
           className="sched-f-drawer"
           rootClassName="sched-f-drawer"
           placement="bottom"
-          height="auto"
+          size="auto"
           open={filtersOpen}
           onClose={() => setFiltersOpen(false)}
           closable={false}
           title={null}
           styles={{
-            content: {
+            section: {
               padding: 0,
               borderRadius: '16px 16px 0 0',
               overflow: 'hidden',

@@ -54,7 +54,7 @@ export default function ShopDetailsPage() {
 
   return (
     <div style={{ maxWidth: 880 }}>
-      {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />}
+      {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />}
       <Card style={{ borderRadius: 12 }}>
         <Form form={form} layout="vertical" onFinish={onSave} requiredMark="optional">
           {sectionLabel('Letterhead')}

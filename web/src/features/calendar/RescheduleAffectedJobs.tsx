@@ -216,7 +216,7 @@ export function ReproposeModal({
           <Spin />
         </div>
       ) : error ? (
-        <Alert type="error" showIcon message={error} />
+        <Alert type="error" showIcon title={error} />
       ) : (
         <>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 10, fontSize: 13 }}>
@@ -254,7 +254,7 @@ export function ReproposeModal({
               type="error"
               showIcon
               style={{ marginBottom: 10 }}
-              message="This schedule can't be confirmed yet"
+              title="This schedule can't be confirmed yet"
               description={
                 <ul style={{ margin: 0, paddingLeft: 18 }}>
                   {problems.map((p, i) => (

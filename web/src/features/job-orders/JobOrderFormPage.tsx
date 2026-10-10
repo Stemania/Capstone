@@ -43,6 +43,7 @@ export default function JobOrderFormPage() {
   const [jobNumber, setJobNumber] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobOrderStatus | null>(null);
   const [materialsTouched, setMaterialsTouched] = useState(false);
+  const [loadedValues, setLoadedValues] = useState<Record<string, unknown> | null>(null);
   const { isAdmin } = useAuth();
   const released = jobStatus != null && jobStatus !== 'DRAFT';
   const backTo = !id
@@ -78,7 +79,7 @@ export default function JobOrderFormPage() {
         setJobNumber(data.jobNumber || data.id.slice(0, 8).toUpperCase());
         setJobStatus(data.status);
         setMaterialsTouched(true);
-        form.setFieldsValue({
+        setLoadedValues({
           clientId: data.clientId,
           title: data.title,
           description: data.description,
@@ -100,7 +101,14 @@ export default function JobOrderFormPage() {
     return () => {
       cancelled = true;
     };
-  }, [form, id, isEdit]);
+  }, [id, isEdit]);
+
+  // The <Form> only mounts once loading ends, so fill it after that render.
+  useEffect(() => {
+    if (loading || !loadedValues) return;
+    form.setFieldsValue(loadedValues);
+    setLoadedValues(null);
+  }, [form, loading, loadedValues]);
 
   const saveJob = async () => {
     let values: {

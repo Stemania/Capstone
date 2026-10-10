@@ -31,6 +31,7 @@ import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { operationsApi } from '../../api/operations.api';
 import { usersApi } from '../../api/users.api';
+import { useAuth } from '../../hooks/useAuth';
 import { PersonChip, crewNames } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
 import { getErrorMessage } from '../../api/client';
@@ -349,6 +350,7 @@ function MachineUnitCard({
 
 export default function MachinesPage() {
   const navigate = useNavigate();
+  const isAdmin = useAuth().user?.role === 'ADMIN';
   const [units, setUnits] = useState<MachineUnitStatus[]>([]);
   const [machineTypes, setMachineTypes] = useState<MachineInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -398,6 +400,7 @@ export default function MachinesPage() {
   }, []);
 
   useEffect(() => {
+    if (!isAdmin) return;
     (async () => {
       try {
         const { data } = await usersApi.list();
@@ -413,7 +416,7 @@ export default function MachinesPage() {
         /* operator picker best-effort */
       }
     })();
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     if (!units.some((u) => u.down)) return;

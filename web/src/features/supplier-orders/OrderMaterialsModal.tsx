@@ -364,7 +364,7 @@ export default function OrderMaterialsModal({
               type="info"
               showIcon
               style={{ marginBottom: 8 }}
-              message={
+              title={
                 jobId
                   ? "This job's materials are Not required, so nothing is ordered for it."
                   : 'No open job has materials To order.'
@@ -632,7 +632,7 @@ export default function OrderMaterialsModal({
           ) : null}
         </>
       ) : (
-        <Alert type="info" showIcon message="Choose a supplier first." />
+        <Alert type="info" showIcon title="Choose a supplier first." />
       )}
       </div>
 

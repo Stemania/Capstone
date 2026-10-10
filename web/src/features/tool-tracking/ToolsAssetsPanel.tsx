@@ -449,7 +449,7 @@ export default function ToolsAssetsPanel() {
         title="Borrow and return history"
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
-        width={720}
+        size={720}
         destroyOnHidden
       >
         <Space style={{ marginBottom: 12 }} wrap>
@@ -493,7 +493,7 @@ export default function ToolsAssetsPanel() {
         title="Tool event log"
         open={eventsOpen}
         onClose={() => setEventsOpen(false)}
-        width={720}
+        size={720}
         destroyOnHidden
       >
         <ToolEventsPage category="TOOL" />

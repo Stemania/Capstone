@@ -133,9 +133,9 @@ export default function ResetPasswordPage() {
             </div>
           )}
 
-          {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
+          {error && <Alert type="error" title={error} showIcon style={{ marginBottom: 16 }} />}
           {info && !tokenTerminal && (
-            <Alert type="info" message={info} showIcon style={{ marginBottom: 16 }} />
+            <Alert type="info" title={info} showIcon style={{ marginBottom: 16 }} />
           )}
 
           {showCodeForm && (
@@ -181,7 +181,7 @@ export default function ResetPasswordPage() {
                 type="info"
                 showIcon
                 style={{ marginBottom: 16 }}
-                message="Password requirements"
+                title="Password requirements"
                 description={PASSWORD_RULES}
               />
               <Form.Item

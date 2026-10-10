@@ -311,7 +311,7 @@ export default function AnalyticsForecastPage() {
               type="warning"
               showIcon
               style={{ marginBottom: 12 }}
-              message="No scheduled operations in this time window"
+              title="No scheduled operations in this time window"
               description="Expected workload is zero until open operations have scheduled times."
             />
           ) : null}

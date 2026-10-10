@@ -177,7 +177,7 @@ export default function AccountSecurityPage() {
               type="info"
               showIcon
               className="acct-sec__notice"
-              message="Updating your password clears PIN unlock on every device."
+              title="Updating your password clears PIN unlock on every device."
             />
             <Form
               form={passwordForm}

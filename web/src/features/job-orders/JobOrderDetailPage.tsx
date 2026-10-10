@@ -314,7 +314,7 @@ function OperationWorkerSelect({ op, onAssigned }: { op: Operation; onAssigned: 
       disabled={saving}
       showSearch
       optionFilterProp="search"
-      onDropdownVisibleChange={(open) => {
+      onOpenChange={(open) => {
         if (open) void loadWorkers();
       }}
       onChange={async (workerId: string) => {
@@ -880,7 +880,7 @@ export default function JobOrderDetailPage() {
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
-          message="Needs re-plan"
+          title="Needs re-plan"
           description={
             <>
               {job.needsReplanReason && <div>{job.needsReplanReason}</div>}
@@ -895,7 +895,7 @@ export default function JobOrderDetailPage() {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message={
+          title={
             job.materialDelay.kind === 'MATERIAL'
               ? 'Schedule moved later because of materials'
               : 'Rescheduled because the planned start date had passed'
@@ -931,7 +931,7 @@ export default function JobOrderDetailPage() {
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
-          message={
+          title={
             placedLines.length === 0
               ? 'The first operation cannot start: no materials have been ordered'
               : 'The first operation cannot start until all materials are received'

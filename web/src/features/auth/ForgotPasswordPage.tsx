@@ -41,13 +41,13 @@ export default function ForgotPasswordPage() {
             the account exists.
           </p>
 
-          {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
+          {error && <Alert type="error" title={error} showIcon style={{ marginBottom: 16 }} />}
 
           {submitted ? (
             <Alert
               type="success"
               showIcon
-              message="Check your inbox or phone"
+              title="Check your inbox or phone"
               description="If an account exists for that email or mobile, you will receive reset instructions shortly."
               style={{ marginBottom: 16 }}
             />

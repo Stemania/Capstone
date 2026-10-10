@@ -296,7 +296,7 @@ export default function RawMaterialsPanel() {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="Raw materials are bought for specific job orders, not kept as general stock. On hand means delivered and waiting for its job to start; lines become consumed automatically when the job's first operation starts."
+        title="Raw materials are bought for specific job orders, not kept as general stock. On hand means delivered and waiting for its job to start; lines become consumed automatically when the job's first operation starts."
         action={
           <Link to="/analytics/suppliers">
             <Button size="small" type="link" icon={<LinkOutlined />}>

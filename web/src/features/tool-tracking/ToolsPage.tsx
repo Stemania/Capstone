@@ -434,7 +434,7 @@ export default function ToolsPage() {
                 type="warning"
                 showIcon
                 style={{ marginBottom: 12 }}
-                message={`${lowCount} item${lowCount === 1 ? '' : 's'} at or below reorder level`}
+                title={`${lowCount} item${lowCount === 1 ? '' : 's'} at or below reorder level`}
                 action={
                   <Button size="small" onClick={() => setStockFilter(['low'])}>
                     Show low stock only
@@ -512,7 +512,7 @@ export default function ToolsPage() {
             title="Stocktake & consumption"
             open={countsOpen}
             onClose={() => setCountsOpen(false)}
-            width={isPhone ? '100%' : 880}
+            size={isPhone ? '100%' : 880}
             destroyOnHidden
           >
             <Segmented
@@ -605,7 +605,7 @@ export default function ToolsPage() {
             title="Consumable event log"
             open={eventsOpen}
             onClose={() => setEventsOpen(false)}
-            width={isPhone ? '100%' : 720}
+            size={isPhone ? '100%' : 720}
             destroyOnHidden
           >
             <ToolEventsPage category="CONSUMABLE" />

@@ -614,7 +614,7 @@ export default function SupplierOrderDetailPage() {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message="Notes or VAT changed"
+          title="Notes or VAT changed"
           action={
             <Button
               size="small"
@@ -637,7 +637,7 @@ export default function SupplierOrderDetailPage() {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message={
+          title={
             order.status === 'PARTIALLY_RECEIVED'
               ? 'Part of this order was received earlier. Complete it with Receive order.'
               : 'Lines are locked after issue. To change the order, cancel it and issue a new one. Deliveries arrive complete: Receive order receives every line on one date.'

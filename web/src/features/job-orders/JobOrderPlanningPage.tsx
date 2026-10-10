@@ -971,7 +971,7 @@ export default function JobOrderPlanningPage() {
   }
 
   if (!job) {
-    return <Alert type="error" message={error || 'Job order not found'} />;
+    return <Alert type="error" title={error || 'Job order not found'} />;
   }
 
   const readOnly = !isPlanningStatus(job.status);
@@ -1216,7 +1216,7 @@ export default function JobOrderPlanningPage() {
         <JobOrderFlowSteps current={wizardStep} onStepClick={goToStep} locked={readOnly} />
       </div>
 
-      {error && <Alert type="error" message={error} style={{ marginBottom: 16 }} showIcon />}
+      {error && <Alert type="error" title={error} style={{ marginBottom: 16 }} showIcon />}
 
       <JobInfoCard job={job} />
 
@@ -1468,14 +1468,14 @@ export default function JobOrderPlanningPage() {
         {scheduleOps ? (
           <>
             {scheduleNotice && (
-              <Alert type="info" showIcon style={{ marginBottom: 12 }} message={scheduleNotice} />
+              <Alert type="info" showIcon style={{ marginBottom: 12 }} title={scheduleNotice} />
             )}
             {scheduleMeta?.materialNotBefore && (
               <Alert
                 type="info"
                 showIcon
                 style={{ marginBottom: 12 }}
-                message={`Earliest start ${formatShop(scheduleMeta.materialNotBefore, 'MMM D, YYYY')} — ${
+                title={`Earliest start ${formatShop(scheduleMeta.materialNotBefore, 'MMM D, YYYY')} — ${
                   scheduleMeta.materialConstraintReason || 'waiting for material'
                 }`}
               />
@@ -1527,7 +1527,7 @@ export default function JobOrderPlanningPage() {
             type="info"
             showIcon
             style={{ marginTop: 12 }}
-            message="Go back to Operations and use “View proposed schedule” to generate a first draft."
+            title="Go back to Operations and use “View proposed schedule” to generate a first draft."
           />
         )}
 
@@ -1536,7 +1536,7 @@ export default function JobOrderPlanningPage() {
             type="error"
             showIcon
             style={{ marginTop: 12 }}
-            message="This schedule can't be confirmed yet"
+            title="This schedule can't be confirmed yet"
             description={
               <ul style={{ margin: 0, paddingLeft: 18 }}>
                 {confirmBlockers.map((reason, i) => (

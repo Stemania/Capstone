@@ -838,13 +838,13 @@ function AdminOfficeScheduleBoard() {
         className="sched-f-drawer"
         rootClassName="sched-f-drawer"
         placement="bottom"
-        height="auto"
+        size="auto"
         open={filtersOpen}
         onClose={() => setFiltersOpen(false)}
         closable={false}
         title={null}
         styles={{
-          content: {
+          section: {
             padding: 0,
             borderRadius: '16px 16px 0 0',
             overflow: 'hidden',

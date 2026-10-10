@@ -108,11 +108,11 @@ export default function LoginPage() {
               type="warning"
               showIcon
               style={{ marginBottom: 16 }}
-              message="Needs a connection"
+              title="Needs a connection"
               description="Signing in needs a connection. Actions waiting on this phone are kept and sent after you sign in."
             />
           )}
-          {error && <Alert type="error" message={error} style={{ marginBottom: 16 }} showIcon />}
+          {error && <Alert type="error" title={error} style={{ marginBottom: 16 }} showIcon />}
 
           {pinMode ? (
             <PinKeypad
