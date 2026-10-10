@@ -34,7 +34,7 @@ function qty(v: number) {
 }
 
 function itemDescription(row: SupplierOrderPrint['rows'][number]) {
-  if (row.isConsumable || !row.gradeOrSpec) return row.materialName;
+  if (!row.gradeOrSpec) return row.materialName;
   return `${row.materialName} – ${row.gradeOrSpec}`;
 }
 
