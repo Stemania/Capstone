@@ -1,3 +1,4 @@
+import { OPERATION_BAR_COLOR } from '../../theme/statuses';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Tooltip } from 'antd';
 import type { Dayjs } from 'dayjs';
@@ -52,13 +53,7 @@ export type TimelineRow = {
   noMachine?: boolean;
 };
 
-const STATUS_COLOR: Record<string, string> = {
-  SCHEDULED: '#2563eb',
-  IN_PROGRESS: '#0d9488',
-  COMPLETED: '#64748b',
-  REWORK: '#d97706',
-  PENDING: '#94a3b8',
-};
+const STATUS_COLOR = OPERATION_BAR_COLOR;
 
 const OTHER_JOB_COLOR = '#e2e8f0';
 const THIS_JOB_COLOR = '#2563eb';

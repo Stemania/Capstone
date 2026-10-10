@@ -90,6 +90,23 @@ export const SCHEDULE_FLAG_TONE: Record<string, Tone> = {
   RED: 'red',
 };
 
+/** Bar fills that keep white 12px text at WCAG AA (4.5:1). */
+export const TONE_BAR_FILL: Record<Tone, string> = {
+  slate: '#64748b',
+  blue: '#2563eb',
+  indigo: '#4f46e5',
+  green: '#15803d',
+  teal: '#0f766e',
+  amber: '#b45309',
+  red: '#b91c1c',
+  grey: '#71717a',
+};
+
+/** Gantt bar fill per operation status, from OPERATION_STATUS. */
+export const OPERATION_BAR_COLOR: Record<string, string> = Object.fromEntries(
+  Object.entries(OPERATION_STATUS).map(([k, d]) => [k, TONE_BAR_FILL[d.tone]]),
+);
+
 export function statusDef(map: Record<string, StatusDef>, code: string | null | undefined): StatusDef {
   return (code && map[code]) || { label: code ? code.replace(/_/g, ' ').toLowerCase() : '—', tone: 'slate' };
 }

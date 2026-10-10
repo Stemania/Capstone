@@ -1,5 +1,5 @@
 import { formatShop, shopToday } from '../../utils/shopTime';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
   DatePicker,
   Input,
@@ -8,15 +8,16 @@ import {
   Form,
   Typography,
   Dropdown,
-  Spin,
+  Skeleton,
   message,
   Button,
   Checkbox,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
-  SearchOutlined,
   MoreOutlined,
+  PlayCircleOutlined,
+  PauseCircleOutlined,
   WarningOutlined,
   UserOutlined,
   DownOutlined,
@@ -35,6 +36,19 @@ import { personLabel } from '../../utils/people';
 import { getErrorMessage } from '../../api/client';
 import { DOWNTIME_REASONS } from '../../constants/downtimeReasons';
 import type { MachineInfo, MachineUnitStatus, User } from '../../types';
+import MachineTypeIcon from '../../components/MachineTypeIcon';
+import InfoTip from '../../components/InfoTip';
+import {
+  EmptyState,
+  FilterBar,
+  FilterSelect,
+  IdChip,
+  Page,
+  StatCard,
+  StatGrid,
+  StatusPill,
+} from '../../components/ui';
+import { MACHINE_STATUS } from '../../theme/statuses';
 
 type CardStatus = 'running' | 'idle' | 'breakdown' | 'retired';
 type StatusFilter = CardStatus;
@@ -108,6 +122,7 @@ function cardFooter(unit: MachineUnitStatus, nowMs: number): { text: string; bre
   if (unit.nextOperation) {
     const op = unit.nextOperation;
     const when = op.scheduledStart ? formatWhen(op.scheduledStart) : 'Unscheduled';
+    if (status === 'idle') return { text: `Next · ${when}` };
     return { text: `Next: ${op.operationName}${op.jobNumber ? ` · ${op.jobNumber}` : ''} · ${when}` };
   }
   if (unit.affectedCount > 0) {
@@ -157,14 +172,6 @@ function MachineUnitCard({
   const target = status === 'retired' ? null : cardNavigateTarget(unit);
   const cur = unit.currentOperation;
   const typeLabel = unit.machineTypeName || unit.machineTypeCode || 'Machine';
-  const statusLabel =
-    status === 'running'
-      ? 'Running'
-      : status === 'breakdown'
-        ? 'Breakdown'
-        : status === 'retired'
-          ? 'Removed'
-          : 'Idle';
 
   const menuItems: MenuProps['items'] = [];
   if (status === 'retired') {
@@ -244,13 +251,15 @@ function MachineUnitCard({
       role={target ? 'button' : undefined}
       tabIndex={target ? 0 : undefined}
     >
-      <header className="machine-card__banner">
-        <div className="machine-card__banner-text">
+      <header className="machine-card__head">
+        <span className="machine-card__type-icon">
+          <MachineTypeIcon name={unit.machineTypeName} code={unit.machineTypeCode} />
+        </span>
+        <div className="machine-card__head-text">
           <div className="machine-card__label">{unit.label}</div>
           <div className="machine-card__type">{typeLabel}</div>
-          <div className="machine-card__status-line">{statusLabel}</div>
         </div>
-        <div className="machine-card__banner-deco" aria-hidden />
+        <StatusPill status={status} map={MACHINE_STATUS} compact dot />
       </header>
 
       <div className="machine-card__body">
@@ -261,24 +270,12 @@ function MachineUnitCard({
               fullName={unit.defaultOperatorName}
               nickname={unit.defaultOperatorNickname}
               photoVersion={unit.defaultOperatorPhotoVersion}
-              size={28}
+              size={24}
               strong
             />
           ) : (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span
-                aria-hidden="true"
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: '50%',
-                  background: '#e8ecf1',
-                  color: '#5b6b7f',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
+            <span className="machine-card__open">
+              <span aria-hidden="true" className="machine-card__open-icon">
                 <TeamOutlined />
               </span>
               Open to all
@@ -292,7 +289,11 @@ function MachineUnitCard({
         ) : status === 'running' && cur ? (
           <>
             <div className="machine-card__op">{cur.operationName}</div>
-            {cur.jobNumber && <div className="machine-card__job">{cur.jobNumber}</div>}
+            {cur.jobNumber && (
+              <div className="machine-card__job">
+                <IdChip>{cur.jobNumber}</IdChip>
+              </div>
+            )}
             {cur.assignedWorkerName && (
               <div className="machine-card__worker">
                 <UserOutlined />
@@ -315,7 +316,9 @@ function MachineUnitCard({
           <>
             <div className="machine-card__op">{unit.nextOperation.operationName}</div>
             {unit.nextOperation.jobNumber && (
-              <div className="machine-card__job">{unit.nextOperation.jobNumber}</div>
+              <div className="machine-card__job">
+                <IdChip>{unit.nextOperation.jobNumber}</IdChip>
+              </div>
             )}
           </>
         ) : status !== 'idle' ? null : (
@@ -619,73 +622,140 @@ export default function MachinesPage() {
     setCollapsedTypes((prev) => ({ ...prev, [typeId]: !prev[typeId] }));
   };
 
-  return (
-    <div className="std-list-page">
-      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-        Shop floor status at a glance. Report a temporary breakdown, or add/remove units when
-        machines are replaced.
-      </Typography.Text>
+  const toggleStatus = (s: StatusFilter) => {
+    setStatusFilter((prev) => (prev.length === 1 && prev[0] === s ? [] : [s]));
+  };
 
-      <div className="std-list-toolbar">
-        <div className="std-list-filters">
-          <Input
-            allowClear
-            prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-            placeholder="Search machine, job, worker…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="std-list-search"
-          />
-          <Select
-            mode="multiple"
-            allowClear
-            maxTagCount="responsive"
-            placeholder="Status"
-            className="std-list-filter std-list-filter--sm"
-            value={statusFilter}
-            onChange={setStatusFilter}
-            options={[
-              { value: 'running', label: 'Running' },
-              { value: 'idle', label: 'Idle' },
-              { value: 'breakdown', label: 'Breakdown' },
-              ...(showRemoved ? [{ value: 'retired' as const, label: 'Removed' }] : []),
-            ]}
-          />
-          <Checkbox
-            checked={showRemoved}
-            onChange={(e) => setShowRemoved(e.target.checked)}
-            style={{ whiteSpace: 'nowrap' }}
-          >
-            Show removed
-          </Checkbox>
-        </div>
-        <div className="std-list-actions">
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              addForm.resetFields();
-              setAddOpen(true);
-            }}
-            style={{ fontWeight: 700 }}
-          >
-            Add machine
-          </Button>
-        </div>
+  const counts = useMemo(() => {
+    const c = { total: 0, running: 0, idle: 0, breakdown: 0, pending: 0 };
+    for (const u of units) {
+      const s = cardStatus(u);
+      if (s === 'retired') continue;
+      c.total += 1;
+      c[s] += 1;
+      if (s === 'breakdown') c.pending += u.affectedCount || 0;
+    }
+    return c;
+  }, [units]);
+
+  return (
+    <Page className="machines-page">
+      <StatGrid min={180}>
+        <StatCard
+          icon={<ClusterOutlined />}
+          tone="slate"
+          label="On the floor"
+          value={counts.total}
+          loading={loading}
+          onClick={() => setStatusFilter([])}
+          active={statusFilter.length === 0}
+        />
+        <StatCard
+          icon={<PlayCircleOutlined />}
+          tone="indigo"
+          label="Running"
+          value={counts.running}
+          loading={loading}
+          onClick={() => toggleStatus('running')}
+          active={statusFilter.length === 1 && statusFilter[0] === 'running'}
+        />
+        <StatCard
+          icon={<PauseCircleOutlined />}
+          tone="slate"
+          label="Idle"
+          value={counts.idle}
+          loading={loading}
+          onClick={() => toggleStatus('idle')}
+          active={statusFilter.length === 1 && statusFilter[0] === 'idle'}
+        />
+        <StatCard
+          icon={<WarningOutlined />}
+          tone="red"
+          label="Breakdown"
+          value={counts.breakdown}
+          valueTone={counts.breakdown > 0 ? 'red' : undefined}
+          hint={counts.pending > 0 ? `${counts.pending} op${counts.pending === 1 ? '' : 's'} to reschedule` : undefined}
+          loading={loading}
+          onClick={() => toggleStatus('breakdown')}
+          active={statusFilter.length === 1 && statusFilter[0] === 'breakdown'}
+        />
+      </StatGrid>
+
+      <div className="ui-card machines-page__toolbar">
+        <FilterBar
+          search={{ value: search, onChange: setSearch, placeholder: 'Search machine, job, worker…' }}
+          filters={
+            <>
+              <FilterSelect<StatusFilter[]>
+                label="Status"
+                mode="multiple"
+                allowClear
+                maxTagCount="responsive"
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={[
+                  { value: 'running', label: 'Running' },
+                  { value: 'idle', label: 'Idle' },
+                  { value: 'breakdown', label: 'Breakdown' },
+                  ...(showRemoved ? [{ value: 'retired' as const, label: 'Removed' }] : []),
+                ]}
+              />
+              <Checkbox
+                checked={showRemoved}
+                onChange={(e) => setShowRemoved(e.target.checked)}
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                Show removed
+              </Checkbox>
+              <InfoTip
+                label="About machines"
+                content="Shop floor status at a glance. Report a temporary breakdown, or add/remove units when machines are replaced. Click a machine to open its current or next job."
+              />
+            </>
+          }
+          actions={
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                addForm.resetFields();
+                setAddOpen(true);
+              }}
+            >
+              Add machine
+            </Button>
+          }
+        />
       </div>
 
       {loading ? (
-        <div className="page-spinner">
-          <Spin size="large" />
+        <div className="machines-board__grid" aria-busy>
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="machine-card machine-card--skeleton">
+              <Skeleton active avatar={{ shape: 'square', size: 36 }} paragraph={{ rows: 2 }} title={false} />
+            </div>
+          ))}
         </div>
       ) : groups.length === 0 ? (
-        <div className="machines-board__empty">No machines match your filters yet</div>
+        <div className="ui-card">
+          <EmptyState
+            icon={<ClusterOutlined />}
+            title="No machines match your filters"
+            description="Clear the search or status filter to see every machine."
+          />
+        </div>
       ) : (
         <div className="machines-board__groups">
           {groups.map((group) => {
             const collapsed = collapsedTypes[group.typeId] ?? false;
+            const first = group.units[0];
+            const small = group.units.length < 4;
             return (
-              <section key={group.typeId}>
+              <section
+                key={group.typeId}
+                className={`machines-board__group${small ? ' machines-board__group--small' : ''}`}
+                style={small ? ({ '--cols': group.units.length } as CSSProperties) : undefined}
+              >
                 <button
                   type="button"
                   className="machines-board__section-header"
@@ -697,9 +767,10 @@ export default function MachinesPage() {
                   ) : (
                     <DownOutlined className="machines-board__section-chevron" />
                   )}
-                  <span className="machines-board__section-title">
-                    {group.typeName} · {group.units.length} unit
-                    {group.units.length === 1 ? '' : 's'}
+                  <MachineTypeIcon name={first?.machineTypeName} code={first?.machineTypeCode} size={16} />
+                  <span className="machines-board__section-title">{group.typeName}</span>
+                  <span className="machines-board__section-count ui-tabular">
+                    {group.units.length} unit{group.units.length === 1 ? '' : 's'}
                   </span>
                 </button>
                 {!collapsed && (
@@ -964,6 +1035,6 @@ export default function MachinesPage() {
           </Form.Item>
         </Form>
       </Modal>
-    </div>
+    </Page>
   );
 }

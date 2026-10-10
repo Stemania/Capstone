@@ -1,3 +1,6 @@
+import { OPERATION_BAR_COLOR, OPERATION_STATUS, TONE_BAR_FILL } from '../../theme/statuses';
+import { Legend, StatCard, StatGrid, type LegendItem } from '../../components/ui';
+import InfoTip from '../../components/InfoTip';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Badge,
@@ -6,7 +9,7 @@ import {
   Grid,
   Select,
   Segmented,
-  Spin,
+  Skeleton,
   Switch,
   Tooltip,
   Typography,
@@ -18,6 +21,10 @@ import {
   AimOutlined,
   FilterOutlined,
   CloseOutlined,
+  CalendarOutlined,
+  DashboardOutlined,
+  WarningOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useNavigate } from 'react-router-dom';
@@ -68,13 +75,21 @@ const { Text } = Typography;
 type ViewMode = TimelineViewMode;
 type RowMode = 'machine' | 'worker';
 
-const STATUS_COLOR: Record<string, string> = {
-  SCHEDULED: '#2563eb',
-  IN_PROGRESS: '#0d9488',
-  COMPLETED: '#64748b',
-  REWORK: '#d97706',
-  PENDING: '#94a3b8',
-};
+const STATUS_COLOR = OPERATION_BAR_COLOR;
+
+const SCHEDULE_LEGEND: LegendItem[] = [
+  ...(['PENDING', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'REWORK'] as const).map((k) => ({
+    label: OPERATION_STATUS[k].label,
+    color: OPERATION_BAR_COLOR[k],
+  })),
+  { label: 'Waiting for materials', pattern: `${MATERIAL_WAIT_BAR_IMAGE}, ${OPERATION_BAR_COLOR.SCHEDULED}` },
+  { label: 'At risk of missing date', color: '#fff', border: `2px solid ${TONE_BAR_FILL.red}` },
+  {
+    label: 'Machine breakdown',
+    pattern: 'repeating-linear-gradient(-45deg, #E8C5CB, #E8C5CB 3px, #F5E6E9 3px, #F5E6E9 6px)',
+    border: '1px solid #C45A6A',
+  },
+];
 
 function statusLabel(s: string) {
   if (s === 'REWORK') return 'Redo';
@@ -444,13 +459,12 @@ function AdminOfficeScheduleBoard() {
 
   const board = (
     <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: isMobile ? 10 : 12,
-        minHeight: 0,
-        minWidth: 0,
-      }}
+      className={isPhoneBoard ? undefined : 'ui-page sched-page'}
+      style={
+        isPhoneBoard
+          ? { display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, minWidth: 0 }
+          : undefined
+      }
     >
       {isPhoneBoard ? (
         <div className="sched-m">
@@ -545,126 +559,75 @@ function AdminOfficeScheduleBoard() {
           ) : null}
         </div>
       ) : (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: isMobile ? 'column' : 'row',
-          flexWrap: 'wrap',
-          gap: 10,
-          alignItems: isMobile ? 'stretch' : 'center',
-          justifyContent: 'flex-start',
-        }}
-      >
-        {isMobile ? (
-          <Button icon={<FilterOutlined />} onClick={() => setFiltersOpen(true)} block>
-            Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}
-          </Button>
-        ) : (
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 8,
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              width: '100%',
-            }}
-          >
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-              {filterSelects}
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center' }}>
-              {filterToggles}
-            </div>
-          </div>
-        )}
-      </div>
+        <StatGrid min={200}>
+          <StatCard
+            icon={<CalendarOutlined />}
+            tone="blue"
+            label="JO scheduled"
+            value={summary?.jobsScheduled ?? '—'}
+            loading={loading && !data}
+            hint={
+              summary?.jobsScheduled
+                ? `${summary.operationsScheduled} operation${
+                    summary.operationsScheduled === 1 ? '' : 's'
+                  } on the board`
+                : 'No job orders in this period'
+            }
+          />
+          <StatCard
+            icon={<DashboardOutlined />}
+            tone="amber"
+            label="Near full capacity"
+            value={nearFull.length ? nearFull.map((m) => m.machineTypeCode).join(', ') : 'None'}
+            loading={loading && !data}
+            hint={
+              nearFull.length
+                ? nearFull.map((m) => `${m.machineTypeCode} ${m.projectedLoadPct ?? '—'}%`).join(' · ')
+                : 'None at 80% load or more'
+            }
+          />
+          <StatCard
+            icon={<WarningOutlined />}
+            tone="red"
+            label="Jobs at risk"
+            value={atRiskCount}
+            valueTone={atRiskCount > 0 ? 'red' : undefined}
+            loading={loading && !data}
+            hint={
+              atRiskCount
+                ? (summary?.jobsAtRisk || [])
+                    .slice(0, 4)
+                    .map((j) => j.jobNumber || j.jobTitle)
+                    .join(', ') + (atRiskCount > 4 ? '…' : '')
+                : 'None past date required'
+            }
+          />
+          <StatCard
+            icon={<InboxOutlined />}
+            tone="amber"
+            label="Waiting for materials"
+            value={waitingJobs.length}
+            loading={loading && !data}
+            hint={
+              waitingJobs.length
+                ? waitingJobs.slice(0, 4).join(', ') + (waitingJobs.length > 4 ? '…' : '')
+                : 'All jobs have materials'
+            }
+          />
+        </StatGrid>
       )}
 
+      <div className={isPhoneBoard ? 'sched-page__phone-board' : 'ui-card sched-page__card'}>
       {!isPhoneBoard ? (
-        <div
-          className={isMobile ? 'sched-m__kpis' : undefined}
-          style={
-            isMobile
-              ? undefined
-              : {
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                  gap: 10,
-                  width: '100%',
-                }
-          }
-        >
-          <SummaryChip
-            label="JO scheduled"
-            value={String(summary?.jobsScheduled ?? '—')}
-            hint={
-              isMobile
-                ? undefined
-                : summary?.jobsScheduled
-                  ? `${summary.operationsScheduled} operation${
-                      summary.operationsScheduled === 1 ? '' : 's'
-                    } on the board`
-                  : 'No job orders in this period'
-            }
-            compact={isMobile}
-            fit={isMobile}
-          />
-          <SummaryChip
-            label={isMobile ? 'Near full' : 'Near full capacity'}
-            value={
-              summary?.machinesNearFullCapacity?.length
-                ? summary.machinesNearFullCapacity.map((m) => m.machineTypeCode).join(', ')
-                : 'None'
-            }
-            hint={
-              isMobile
-                ? undefined
-                : summary?.machinesNearFullCapacity?.length
-                  ? summary.machinesNearFullCapacity
-                      .map((m) => `${m.machineTypeCode} ${m.projectedLoadPct ?? '—'}%`)
-                      .join(' · ')
-                  : 'No machine types at or above 80% in this period'
-            }
-            compact={isMobile}
-            fit={isMobile}
-          />
-          <SummaryChip
-            label={isMobile ? 'At risk' : 'Jobs at risk'}
-            value={String(summary?.jobsAtRisk?.length ?? 0)}
-            hint={
-              isMobile
-                ? undefined
-                : summary?.jobsAtRisk?.length
-                  ? summary.jobsAtRisk
-                      .slice(0, 4)
-                      .map((j) => j.jobNumber || j.jobTitle)
-                      .join(', ') + (summary.jobsAtRisk.length > 4 ? '…' : '')
-                  : 'No jobs past their date required'
-            }
-            danger={(summary?.jobsAtRisk?.length || 0) > 0}
-            compact={isMobile}
-            fit={isMobile}
-          />
-          <SummaryChip
-            label={isMobile ? 'No material' : 'Waiting for materials'}
-            value={String(waitingJobs.length)}
-            hint={
-              isMobile
-                ? undefined
-                : waitingJobs.length
-                  ? waitingJobs.slice(0, 4).join(', ') + (waitingJobs.length > 4 ? '…' : '')
-                  : 'Every job on the board has its materials'
-            }
-            compact={isMobile}
-            fit={isMobile}
-          />
+        <div className="sched-page__filters">
+          <div className="sched-page__filters-left">{filterSelects}</div>
+          <div className="sched-page__filters-right">{filterToggles}</div>
         </div>
       ) : null}
 
       {loading && !data ? (
-        <div style={{ padding: 48, textAlign: 'center' }}>
-          <Spin size="large" />
+        <div className="sched-page__loading" aria-busy>
+          <Skeleton active paragraph={{ rows: 8 }} title={false} />
         </div>
       ) : (
         <ScheduleExpandShell
@@ -852,7 +815,7 @@ function AdminOfficeScheduleBoard() {
               onOpenJob={openJob}
             />
           </div>
-          <div style={{ padding: '8px 12px', fontSize: 11, color: '#94a3b8' }}>
+          <div className="sched-page__note">
             {viewMode === 'week' && weekLayout
               ? `${WORKING_HOURS_NOTE} Scroll sideways for more days.`
               : `${HOUR_START}:00–${HOUR_END}:00. Scroll sideways for more days.`}
@@ -860,6 +823,16 @@ function AdminOfficeScheduleBoard() {
           </div>
         </ScheduleExpandShell>
       )}
+      {!isPhoneBoard ? (
+        <div className="sched-page__legend">
+          <Legend items={SCHEDULE_LEGEND} />
+          <InfoTip
+            label="About bar colours"
+            content="Bars take the job's own colour when one is set on the job; otherwise they show the operation status. Click a bar to open its job order."
+          />
+        </div>
+      ) : null}
+      </div>
 
       <Drawer
         className="sched-f-drawer"
@@ -1004,69 +977,6 @@ function AdminOfficeScheduleBoard() {
   );
 
   return board;
-}
-
-function SummaryChip({
-  label,
-  value,
-  hint,
-  danger,
-  compact,
-  fit,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  danger?: boolean;
-  compact?: boolean;
-  fit?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        background: '#fff',
-        border: `1px solid ${BORDER}`,
-        borderRadius: 8,
-        padding: fit ? '8px 6px' : compact ? '10px 14px' : '10px 12px',
-        minWidth: fit ? 0 : compact ? 140 : undefined,
-        maxWidth: fit ? '100%' : undefined,
-        overflow: 'hidden',
-        boxSizing: 'border-box',
-      }}
-    >
-      <div
-        style={{
-          fontSize: fit ? 10 : 11,
-          fontWeight: 600,
-          color: '#64748b',
-          marginBottom: 4,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontSize: fit ? 15 : compact ? 18 : 16,
-          fontWeight: 700,
-          color: danger ? '#7A1528' : NAVY,
-          lineHeight: 1.2,
-          overflow: 'hidden',
-          display: fit ? '-webkit-box' : undefined,
-          WebkitLineClamp: fit ? 2 : undefined,
-          WebkitBoxOrient: fit ? 'vertical' : undefined,
-          wordBreak: fit ? 'break-word' : undefined,
-        }}
-      >
-        {value}
-      </div>
-      {hint ? (
-        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{hint}</div>
-      ) : null}
-    </div>
-  );
 }
 
 type BoardRowsProps = {

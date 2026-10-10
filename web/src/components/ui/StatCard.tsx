@@ -39,7 +39,11 @@ export default function StatCard({
         ) : (
           <span className={`ui-stat__value${valueTone ? ` tone-text--${valueTone}` : ''}`}>{value}</span>
         )}
-        {hint ? <span className="ui-stat__hint">{hint}</span> : null}
+        {hint ? (
+          <span className="ui-stat__hint" title={typeof hint === 'string' ? hint : undefined}>
+            {hint}
+          </span>
+        ) : null}
       </span>
     </>
   );

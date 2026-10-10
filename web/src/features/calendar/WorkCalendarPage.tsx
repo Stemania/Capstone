@@ -32,6 +32,7 @@ import {
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import RescheduleAffectedJobs from './RescheduleAffectedJobs';
+import { Legend } from '../../components/ui';
 
 const TYPE_LABEL: Record<CalendarExceptionType, string> = {
   OVERTIME: 'Overtime',
@@ -413,7 +414,7 @@ export default function WorkCalendarPage() {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   return (
-    <div className="work-calendar-page">
+    <div className="work-calendar-page ui-page">
       <div
         ref={shellRef}
         className="work-calendar__shell"
@@ -439,15 +440,18 @@ export default function WorkCalendarPage() {
             </Button>
           </div>
           <div className="work-calendar__legend">
-            <span>
-              <i className="work-calendar__dot work-calendar__dot--ot" /> Overtime
-            </span>
-            <span>
-              <i className="work-calendar__dot work-calendar__dot--special" /> Special day
-            </span>
-            <span>
-              <i className="work-calendar__dot work-calendar__dot--holiday" /> Holiday
-            </span>
+            <Legend
+              items={[
+                { label: 'Overtime', tone: 'blue' },
+                { label: 'Special day', tone: 'teal' },
+                { label: 'Holiday', tone: 'red' },
+                {
+                  label: 'Day off',
+                  pattern: 'repeating-linear-gradient(-45deg, #f8fafc, #f8fafc 3px, #e2e8f0 3px, #e2e8f0 6px)',
+                  border: '1px solid #cbd5e1',
+                },
+              ]}
+            />
             {shopBreak ? (
               <Button size="small" onClick={openBreak} disabled={!isAdmin}>
                 Break {shopBreak.breakStart}–{shopBreak.breakEnd}

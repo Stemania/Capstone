@@ -1,3 +1,4 @@
+import { OPERATION_BAR_COLOR } from '../../theme/statuses';
 import { useEffect, useMemo, useState } from 'react';
 import { Segmented, Spin, message } from 'antd';
 import { AimOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
@@ -22,13 +23,7 @@ import { SHOP_TZ } from '../../utils/shopTime';
 
 type ViewMode = 'day' | 'week';
 
-const STATUS_COLOR: Record<string, string> = {
-  SCHEDULED: '#2563eb',
-  IN_PROGRESS: '#0d9488',
-  COMPLETED: '#64748b',
-  REWORK: '#d97706',
-  PENDING: '#94a3b8',
-};
+const STATUS_COLOR = OPERATION_BAR_COLOR;
 
 const PX_PER_MIN = 1.15;
 const HOUR_GUTTER = 52;
