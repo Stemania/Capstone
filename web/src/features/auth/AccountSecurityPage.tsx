@@ -59,7 +59,7 @@ export default function AccountSecurityPage() {
   const deviceId = getOrCreateDeviceId();
 
   const homePath =
-    user?.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/schedule';
+    user?.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/dashboard';
 
   const goBack = () => {
     if (window.history.length > 1) {

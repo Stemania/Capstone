@@ -1,3 +1,4 @@
+import { chart, chartPalette } from '../../theme/tokens';
 import { useEffect, useMemo, useState } from 'react';
 import { Segmented, Spin, Table, Typography, message } from 'antd';
 import {
@@ -30,10 +31,10 @@ const { Text } = Typography;
 type View = 'month' | 'client' | 'jobType';
 
 const AXIS = { fontSize: 13, fill: '#334155' };
-const GRID = '#e2e8f0';
-const FULL = '#0f1c2e';
-const PARTIAL = '#1d4ed8';
-const JOB_TYPE = '#334155';
+const GRID = chart.grid;
+const FULL = chartPalette[0];
+const PARTIAL = chartPalette[1];
+const JOB_TYPE = chartPalette[3];
 
 const JOB_TYPE_LABEL: Record<string, string> = {
   FABRICATION: 'Fabrication',
@@ -182,7 +183,7 @@ function MonthView({ rows }: { rows: MonthRow[] }) {
   return (
     <>
       <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
-        Solid navy = full month in period. Hatched blue = partial month (working-day count on the
+        Solid blue = full month in period. Hatched teal = partial month (working-day count on the
         label).
       </div>
       <div style={{ ...CHART_BOX, padding: '16px 8px 8px', height: 320 }}>

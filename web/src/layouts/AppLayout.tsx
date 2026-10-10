@@ -20,6 +20,7 @@ import {
   UnorderedListOutlined,
   SafetyCertificateOutlined,
   DownOutlined,
+  DashboardOutlined,
 } from '@ant-design/icons';
 import { useEffect, useState, type ReactNode } from 'react';
 import { operationsApi } from '../api/operations.api';
@@ -32,6 +33,7 @@ import NotificationBell from '../components/NotificationBell';
 import { PersonAvatar } from '../components/PersonAvatar';
 import { Breadcrumbs, type Crumb } from '../components/ui/PageHeader';
 import { layout } from '../theme/tokens';
+import { formatShop, shopNow } from '../utils/shopTime';
 import './appShell.css';
 
 const { Header, Sider, Content } = Layout;
@@ -43,7 +45,10 @@ type NavGroup = { label: string; items: NavItem[] };
 const NAV: NavGroup[] = [
   {
     label: 'Overview',
-    items: [{ key: '/schedule', icon: <CalendarOutlined />, label: 'Schedule' }],
+    items: [
+      { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
+      { key: '/schedule', icon: <CalendarOutlined />, label: 'Schedule' },
+    ],
   },
   {
     label: 'Production',
@@ -152,6 +157,15 @@ function Brand({ collapsed }: { collapsed: boolean }) {
   );
 }
 
+function greeting() {
+  const h = shopNow().hour();
+  return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+}
+
+function firstName(nickname?: string | null, fullName?: string | null) {
+  return nickname?.trim() || fullName?.trim().split(/\s+/)[0] || 'there';
+}
+
 function roleLabel(role?: string) {
   if (role === 'ADMIN') return 'Administrator';
   if (role === 'OFFICE_STAFF') return 'Office Staff';
@@ -209,7 +223,10 @@ export default function AppLayout() {
   const section = getNavSection(location.pathname);
   const allKeys = groups.flatMap((g) => g.items.map((it) => it.key));
   const selectedKey = allKeys.find((k) => k === section) || '';
-  const meta = routeMeta(location.pathname, section);
+  const meta =
+    section === '/dashboard'
+      ? { title: `${greeting()}, ${firstName(user?.nickname, user?.fullName)}`, subtitle: formatShop(shopNow(), 'dddd, MMMM D, YYYY') }
+      : routeMeta(location.pathname, section);
   const iconOnly = collapsed && !isCompact;
 
   const menuItems: MenuProps['items'] = groups.map((g) => ({

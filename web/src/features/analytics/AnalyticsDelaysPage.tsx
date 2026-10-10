@@ -1,3 +1,4 @@
+import { chartPalette } from '../../theme/tokens';
 import { useEffect, useState } from 'react';
 import { Spin, Table, Tag, Typography, message } from 'antd';
 import dayjs from 'dayjs';
@@ -33,10 +34,10 @@ import { formatInt, useAnalyticsPeriod } from './analyticsPeriod';
 
 const { Text } = Typography;
 const AXIS = { fontSize: 13, fill: '#334155' };
-const HOURS = '#0f1c2e';
-const OPEN = '#b45309';
-const CLOSED = '#0f1c2e';
-const CUMULATIVE = '#b45309';
+const HOURS = chartPalette[0];
+const OPEN = chartPalette[2];
+const CLOSED = chartPalette[0];
+const CUMULATIVE = chartPalette[2];
 
 const CAUSE_TYPE_LABEL: Record<string, string> = {
   PAUSE: 'Pause',
@@ -277,7 +278,7 @@ export default function AnalyticsDelaysPage() {
             <>
               Only units that broke down in this period.{' '}
               <span style={{ color: OPEN, fontWeight: 600 }}>Amber</span> = still down.{' '}
-              <span style={{ color: CLOSED, fontWeight: 600 }}>Navy</span> = back in use.
+              <span style={{ color: CLOSED, fontWeight: 600 }}>Blue</span> = back in use.
             </>
           }
           onExport={() =>

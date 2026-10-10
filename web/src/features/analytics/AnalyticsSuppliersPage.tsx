@@ -12,6 +12,7 @@ import {
   YAxis,
 } from 'recharts';
 import { analyticsApi } from '../../api/analytics.api';
+import { chartPalette } from '../../theme/tokens';
 import { getErrorMessage } from '../../api/client';
 import { suppliersApi } from '../../api/suppliers.api';
 import type { AnalyticsPurchasing, SupplierReliability } from '../../types';
@@ -27,7 +28,7 @@ import { formatInt, formatMoney, useAnalyticsPeriod } from './analyticsPeriod';
 
 const { Text } = Typography;
 const AXIS = { fontSize: 13, fill: '#334155' };
-const BAR = '#0f1c2e';
+const BAR = chartPalette[0];
 const STATED = '#94a3b8';
 
 type MaterialSort = 'count' | 'spend';

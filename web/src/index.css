@@ -3916,14 +3916,25 @@ button.admin-card {
   margin-bottom: 16px;
 }
 
+.analytics-page__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 10px var(--card-pad);
+  margin-bottom: 16px;
+}
+
 .analytics-card {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 14px 16px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  padding: 14px var(--card-pad);
 }
 
 .analytics-card__head {
@@ -3935,9 +3946,17 @@ button.admin-card {
   margin-bottom: 10px;
 }
 
+.analytics-card__titles.ant-typography,
 .analytics-card__titles {
   min-width: 0;
   flex: 1 1 auto;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--c-text);
 }
 
 .analytics-card__tools {
@@ -4085,4 +4104,92 @@ button.admin-card {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+/* Dashboard */
+.dashboard-page__charts {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 1100px) {
+  .dashboard-page__charts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.dashboard-page__chart {
+  height: 240px;
+}
+
+.dashboard-page__donut {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-height: 240px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.dashboard-page__donut-chart {
+  position: relative;
+  width: 168px;
+  height: 168px;
+  flex-shrink: 0;
+}
+
+.dashboard-page__donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.dashboard-page__donut-total {
+  font-size: var(--fs-kpi, 24px);
+  font-weight: 700;
+  color: var(--c-text);
+  line-height: 1.1;
+}
+
+.dashboard-page__donut-label {
+  font-size: var(--fs-xs);
+  color: var(--c-text-muted);
+}
+
+.dashboard-page__donut-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 140px;
+}
+
+.dashboard-page__donut-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+}
+
+.dashboard-page__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dashboard-page__legend-name {
+  flex: 1;
+  color: var(--c-text-2);
+}
+
+.dashboard-page__legend-value {
+  font-weight: 700;
+  color: var(--c-text);
 }

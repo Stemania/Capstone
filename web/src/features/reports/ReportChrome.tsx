@@ -1,11 +1,7 @@
 import { shopNow } from '../../utils/shopTime';
-import { Button, Space, Typography } from 'antd';
-import { ArrowLeftOutlined, PrinterOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { Button, Space } from 'antd';
+import { PrinterOutlined } from '@ant-design/icons';
 import type { ReactNode } from 'react';
-
-const NAVY = '#0f1c2e';
-const { Title, Text } = Typography;
 
 /** Shared print toolbar + generation stamp (hidden when printing). */
 export function ReportToolbar({
@@ -19,34 +15,20 @@ export function ReportToolbar({
   periodTo?: string;
   extra?: ReactNode;
 }) {
-  const navigate = useNavigate();
   const generatedAt = shopNow().format('YYYY-MM-DD HH:mm');
   return (
-    <div className="report-toolbar no-print">
+    <div className="report-toolbar no-print" aria-label={`${title} toolbar`}>
       <div className="report-header">
-        <Space wrap align="center" size={12}>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/analytics/reports')}>
-            Back
-          </Button>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>
-              Reports
-            </Text>
-            <Title level={4} style={{ margin: 0, color: NAVY }}>
-              {title}
-            </Title>
-          </div>
-        </Space>
+        <div className="report-meta">
+          Generated {generatedAt}
+          {periodFrom && periodTo ? ` · Period ${periodFrom} → ${periodTo}` : ''}
+        </div>
         <Space wrap size={8}>
           {extra}
           <Button type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>
             Print
           </Button>
         </Space>
-      </div>
-      <div className="report-meta">
-        Generated {generatedAt}
-        {periodFrom && periodTo ? ` · Period ${periodFrom} → ${periodTo}` : ''}
       </div>
     </div>
   );

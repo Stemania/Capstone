@@ -1,3 +1,4 @@
+import { chartPalette } from '../../theme/tokens';
 import { useEffect, useMemo, useState } from 'react';
 import { Segmented, Spin, Table, Typography, message } from 'antd';
 import {
@@ -40,9 +41,9 @@ const { Text } = Typography;
 type View = 'worker' | 'operationType' | 'machine';
 
 const AXIS = { fontSize: 12, fill: '#334155' };
-const FAST = '#1d4ed8';
-const SLOW = '#b45309';
-const UTIL = '#0f1c2e';
+const FAST = chartPalette[0];
+const SLOW = chartPalette[2];
+const UTIL = chartPalette[0];
 
 export default function PerformanceSection({ span }: { span?: AnalyticsSpan }) {
   const { params } = useAnalyticsPeriod();

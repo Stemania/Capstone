@@ -32,6 +32,7 @@ import SupplierOrderPrintPage from '../features/reports/SupplierOrderPrintPage';
 import MachinesPage from '../features/machines/MachinesPage';
 import WorkCalendarPage from '../features/calendar/WorkCalendarPage';
 import ScheduleBoardPage from '../features/schedule/ScheduleBoardPage';
+import DashboardPage from '../features/dashboard/DashboardPage';
 import ReportsHubPage from '../features/reports/ReportsHubPage';
 import EfficiencyReportPage from '../features/reports/EfficiencyReportPage';
 import InventoryReportPage from '../features/reports/InventoryReportPage';
@@ -124,6 +125,7 @@ export default function AppRoutes() {
                   <Route path="/schedule" element={<ScheduleBoardPage />} />
 
                   <Route element={<ProtectedRoute roles={['ADMIN', 'OFFICE_STAFF']} />}>
+                    <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/job-orders" element={<JobOrderListPage />} />
                     <Route element={<ProtectedRoute roles={['OFFICE_STAFF']} />}>
                       <Route path="/job-orders/new" element={<JobOrderFormPage />} />

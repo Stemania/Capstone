@@ -37,7 +37,7 @@ export default function LoginPage() {
   }, []);
 
   if (!loading && user) {
-    const dest = user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/schedule';
+    const dest = user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/dashboard';
     return <Navigate to={dest} replace />;
   }
 

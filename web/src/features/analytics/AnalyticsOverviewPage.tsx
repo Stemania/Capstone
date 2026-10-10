@@ -12,6 +12,7 @@ import {
   YAxis,
 } from 'recharts';
 import { analyticsApi } from '../../api/analytics.api';
+import { chart } from '../../theme/tokens';
 import { getErrorMessage } from '../../api/client';
 import type { AnalyticsOverview, AnalyticsTrend } from '../../types';
 import { exportCsv } from '../../utils/csvExport';
@@ -26,7 +27,7 @@ import {
 } from './analyticsPeriod';
 
 const AXIS = { fontSize: 13, fill: '#334155' };
-const GRID = '#e2e8f0';
+const GRID = chart.grid;
 
 export default function AnalyticsOverviewPage() {
   const { params } = useAnalyticsPeriod();

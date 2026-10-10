@@ -19,6 +19,7 @@ export const NAV_SECTIONS = [
   '/attendance',
   '/settings/shop',
   '/analytics',
+  '/dashboard',
   '/schedule',
   '/machines',
   '/work-calendar',

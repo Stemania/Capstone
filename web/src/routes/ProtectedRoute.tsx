@@ -26,7 +26,7 @@ export function ProtectedRoute({ roles }: ProtectedRouteProps) {
   }
 
   if (roles && !roles.includes(user.role)) {
-    const fallback = user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/schedule';
+    const fallback = user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/dashboard';
     markDenied(`${location.pathname}${location.search}`);
     return <Navigate to={fallback} replace />;
   }

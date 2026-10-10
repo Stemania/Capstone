@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react';
 import { Button, Tooltip, Typography } from 'antd';
 import { DownOutlined, DownloadOutlined, UpOutlined } from '@ant-design/icons';
+import InfoTip from '../../components/InfoTip';
 
-const { Title, Paragraph } = Typography;
+const { Title } = Typography;
 
 /** Width of a card on the 12-column grid (wide screens only; narrow screens stack). */
 export type AnalyticsSpan = 4 | 5 | 6 | 7 | 8 | 12;
@@ -33,12 +34,9 @@ export function AnalyticsSection({
   return (
     <section className={`analytics-card analytics-span-${span}`}>
       <div className="analytics-card__head">
-        <Title
-          level={5}
-          className="analytics-card__titles"
-          style={{ margin: 0, color: '#0f1c2e', fontSize: 15 }}
-        >
+        <Title level={5} className="analytics-card__titles">
           {title}
+          {description ? <InfoTip content={description} label={`About ${title}`} /> : null}
         </Title>
         <div className="analytics-card__tools">
           {controls}
@@ -56,15 +54,6 @@ export function AnalyticsSection({
           ) : null}
         </div>
       </div>
-      {description ? (
-        <Paragraph
-          type="secondary"
-          ellipsis={{ rows: 2, tooltip: { title: description, placement: 'topLeft' } }}
-          style={{ fontSize: 12, margin: '-4px 0 10px' }}
-        >
-          {description}
-        </Paragraph>
-      ) : null}
       <div className="analytics-card__body">{children}</div>
     </section>
   );
@@ -95,7 +84,5 @@ export function withoutAllZero<T>(rows: T[], values: (row: T) => (number | null 
 }
 
 export const CHART_BOX = {
-  background: '#fff',
-  border: '1px solid #e2e8f0',
-  borderRadius: 8,
+  background: 'transparent',
 } as const;

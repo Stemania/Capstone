@@ -1,6 +1,7 @@
 import { shopToday } from '../../utils/shopTime';
 import { Suspense, useMemo, useState } from 'react';
-import { DatePicker, Segmented, Spin } from 'antd';
+import { DatePicker } from 'antd';
+import { PageSkeleton, TabBar } from '../../components/ui';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import {
@@ -41,45 +42,29 @@ export default function AnalyticsLayout() {
 
   return (
     <AnalyticsPeriodProvider range={range} setRange={setRange}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div
-          className="admin-h-scroll no-print"
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 12,
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <Segmented
-            options={tabs.map((t) => ({ label: t.label, value: t.value }))}
+      <div className="ui-page ui-page--stack analytics-page">
+        <div className="ui-card analytics-page__toolbar no-print">
+          <TabBar<string>
+            items={tabs.map((t) => ({ label: t.label, value: t.value }))}
             value={active}
-            onChange={(v) => navigate(String(v))}
-            size="large"
+            onChange={(v) => navigate(v)}
           />
           {!onReports && (
             <DatePicker.RangePicker
               value={range}
               allowClear={false}
-              format="YYYY-MM-DD"
+              format="MMM D, YYYY"
+              aria-label="Period"
               onChange={(vals) => {
                 if (vals?.[0] && vals?.[1]) {
                   setRange([vals[0].startOf('day'), vals[1].endOf('day')]);
                 }
               }}
               disabledDate={(d) => d.isAfter(shopToday(), 'day')}
-              size="large"
             />
           )}
         </div>
-        <Suspense
-          fallback={
-            <div style={{ padding: 48, textAlign: 'center' }}>
-              <Spin size="large" />
-            </div>
-          }
-        >
+        <Suspense fallback={<PageSkeleton />}>
           <Outlet />
         </Suspense>
       </div>

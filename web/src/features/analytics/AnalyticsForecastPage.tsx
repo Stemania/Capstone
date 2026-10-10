@@ -1,3 +1,4 @@
+import { chart, chartPalette } from '../../theme/tokens';
 import { formatShop } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Spin, Table, Typography, message } from 'antd';
@@ -37,9 +38,9 @@ import { formatInt, formatMoney, formatNum, useAnalyticsPeriod } from './analyti
 const { Text } = Typography;
 
 const AXIS = { fontSize: 13, fill: '#334155' };
-const GRID = '#e2e8f0';
-const NORMAL = '#0f1c2e';
-const CONSTRAINT = '#b45309';
+const GRID = chart.grid;
+const NORMAL = chartPalette[0];
+const CONSTRAINT = chartPalette[2];
 
 const JOB_TYPE_LABEL: Record<string, string> = {
   FABRICATION: 'Fabrication',

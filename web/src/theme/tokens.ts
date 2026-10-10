@@ -76,15 +76,15 @@ export const layout = {
 
 export const motion = { fast: '150ms cubic-bezier(0.2, 0, 0, 1)' } as const;
 
-/** Same order in every chart so a series keeps its colour across pages. */
+/** Same order in every chart so a series keeps its colour across pages. Each is ≥3:1 on white. */
 export const chartPalette = [
   '#2563eb',
-  '#14b8a6',
-  '#f59e0b',
+  '#0d9488',
+  '#d97706',
   '#6366f1',
-  '#ef4444',
-  '#0ea5e9',
-  '#84cc16',
+  '#dc2626',
+  '#0284c7',
+  '#65a30d',
   '#64748b',
 ] as const;
 

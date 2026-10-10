@@ -103,7 +103,7 @@ export default function SetPasswordPage() {
       } else if (data.user.role === 'PRODUCTION_WORKER') {
         sessionStorage.setItem('bmsc_offer_pin', '1');
       }
-      navigate(data.user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/schedule', {
+      navigate(data.user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/dashboard', {
         replace: true,
       });
     } catch (err) {

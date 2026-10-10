@@ -1,4 +1,6 @@
 import { Typography } from 'antd';
+import InfoTip from '../../components/InfoTip';
+import { StatCard } from '../../components/ui';
 
 const { Text } = Typography;
 
@@ -16,7 +18,7 @@ export function AnalyticsPeriodNote({
 }) {
   const excluded = excludedOperationCount;
   return (
-    <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 16 }}>
+    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
       Period {from} → {to}.{' '}
       {excluded === 0
         ? 'All finished operations in this period had a target time.'
@@ -31,6 +33,9 @@ export function AnalyticsPeriodNote({
   );
 }
 
+/** Longer explanations go behind the (i) so the tile stays one line. */
+const HINT_MAX = 48;
+
 export function SummaryCard({
   label,
   value,
@@ -40,25 +45,21 @@ export function SummaryCard({
   value: string;
   hint?: string;
 }) {
+  const long = !!hint && hint.length > HINT_MAX;
   return (
-    <div
-      style={{
-        background: '#fff',
-        border: '1px solid #e2e8f0',
-        borderRadius: 8,
-        padding: '14px 16px',
-        minWidth: 0,
-      }}
-    >
-      <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginBottom: 6 }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: '#0f1c2e', lineHeight: 1.2 }}>
-        {value}
-      </div>
-      {hint ? (
-        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>{hint}</div>
-      ) : null}
-    </div>
+    <StatCard
+      label={
+        long ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            {label}
+            <InfoTip content={hint} label={`About ${label}`} />
+          </span>
+        ) : (
+          label
+        )
+      }
+      value={value}
+      hint={long ? undefined : hint}
+    />
   );
 }

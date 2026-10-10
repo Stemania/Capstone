@@ -12,6 +12,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import type { JobOrder } from '../../types';
+import InfoTip from '../../components/InfoTip';
 
 const REPORTS = [
   {
@@ -61,8 +62,12 @@ function JobOrderPrintoutCard() {
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <FileTextOutlined style={{ fontSize: 22, marginTop: 2 }} />
         <div style={{ flex: '1 1 260px' }}>
-          <Typography.Title level={5} style={{ margin: 0 }}>
+          <Typography.Title level={5} style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             Job order printout
+            <InfoTip
+              label="About reports"
+              content="Read-only reports for Admin and Office. Job order printouts are also available from each job order (Production may print those as well)."
+            />
           </Typography.Title>
           <Typography.Text type="secondary">
             The shop&apos;s job order form with operations, materials and signatures. Pick a job
@@ -106,11 +111,6 @@ export default function ReportsHubPage() {
   const reports = REPORTS.filter((r) => isAdmin || !r.adminOnly);
   return (
     <div>
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 20 }}>
-        Read-only reports for Admin and Office. Job order printouts are also available from each
-        job order (Production may print those as well).
-      </Typography.Paragraph>
-
       <JobOrderPrintoutCard />
 
       <Row gutter={[16, 16]}>
