@@ -1,5 +1,6 @@
 import apiClient from './client';
 import type {
+  DeliveryMode,
   OutstandingMaterials,
   SupplierOrder,
   SupplierOrderLineInput,
@@ -20,8 +21,16 @@ export const supplierOrdersApi = {
   /** Adds lines to the supplier's open draft, starting one if there is none. */
   addDraftLines: (supplierId: string, lines: SupplierOrderLineInput[]) =>
     apiClient.post<SupplierOrder>('/supplier-orders/draft-lines', { supplierId, lines }),
-  update: (id: string, data: { notes?: string | null; vatRate?: number | null }) =>
-    apiClient.patch<SupplierOrder>(`/supplier-orders/${id}`, data),
+  /** Notes and VAT on a draft; terms of payment and mode of delivery until cancelled. */
+  update: (
+    id: string,
+    data: {
+      notes?: string | null;
+      vatRate?: number | null;
+      termsOfPayment?: string;
+      deliveryMode?: DeliveryMode;
+    }
+  ) => apiClient.patch<SupplierOrder>(`/supplier-orders/${id}`, data),
   issue: (id: string, dateIssued?: string) =>
     apiClient.post<SupplierOrder>(`/supplier-orders/${id}/issue`, { dateIssued }),
   changeExpectedDelivery: (id: string, expectedDeliveryDate: string, note: string) =>

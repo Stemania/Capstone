@@ -16,16 +16,5 @@ export const DEFAULT_SHOP_DETAILS: ShopDetails = {
   joApproverTitle: 'Production Head',
 };
 
-/** "Tel. (043) 4303524 · Mobile 0926… / 0915… · email" */
-export function shopContactLine(d: ShopDetails): string {
-  return [
-    d.telephone && `Tel. ${d.telephone}`,
-    d.mobileNumbers && `Mobile ${d.mobileNumbers}`,
-    d.email,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-}
-
 /** Matches api analytics_service.DEFAULT_MIN_OPS */
 export const ANALYTICS_DEFAULT_MIN_OPS = 5;

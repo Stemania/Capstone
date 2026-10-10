@@ -331,7 +331,7 @@ def test_printout_combines_same_material_lines(client, shop):
     bar = next(r for r in data["rows"] if r["materialName"] == "Round bar 50mm")
     assert bar["quantity"] == 10
     assert bar["lineCount"] == 2
-    assert sorted(bar["jobNumbers"]) == sorted([shop["job_a"].job_number, shop["job_b"].job_number])
+    assert "jobNumbers" not in bar
     assert bar["amount"] == 2500
     assert data["subtotal"] == 3400
     assert data["vatAmount"] == 408

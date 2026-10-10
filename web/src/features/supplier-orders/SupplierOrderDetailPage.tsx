@@ -8,6 +8,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Select,
   Space,
   Spin,
   Table,
@@ -32,9 +33,14 @@ import { useAuth } from '../../hooks/useAuth';
 import OverdueTag from '../../components/OverdueTag';
 import StatusPill from '../../components/StatusPill';
 import { GradeInput } from '../../components/MaterialInputs';
-import type { MaterialPurchase, SupplierOrder } from '../../types';
+import type { DeliveryMode, MaterialPurchase, SupplierOrder } from '../../types';
 import OrderMaterialsModal from './OrderMaterialsModal';
 import { LINE_STATUS_PILL, ORDER_STATUS_PILL, fmtDay, fmtMoney, fmtQty } from './supplierOrderUi';
+
+const DELIVERY_MODE_OPTIONS: { value: DeliveryMode; label: string }[] = [
+  { value: 'PICKUP', label: 'Pick-up' },
+  { value: 'DELIVERY', label: 'Delivery' },
+];
 
 function askDate(title: string, intro: string, okText: string, onOk: (d: string) => Promise<void>) {
   let picked: Dayjs = shopToday();
@@ -75,6 +81,7 @@ export default function SupplierOrderDetailPage() {
   }>({ quantity: null, unitCost: null, gradeOrSpec: '' });
   const [notes, setNotes] = useState('');
   const [vatRate, setVatRate] = useState<number | null>(null);
+  const [terms, setTerms] = useState('');
   const [dateOpen, setDateOpen] = useState(false);
   const [newDate, setNewDate] = useState<Dayjs | null>(null);
   const [dateNote, setDateNote] = useState('');
@@ -86,6 +93,7 @@ export default function SupplierOrderDetailPage() {
       setOrder(data);
       setNotes(data.notes || '');
       setVatRate(data.vatRate ?? null);
+      setTerms(data.termsOfPayment || 'PDC');
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
@@ -131,6 +139,36 @@ export default function SupplierOrderDetailPage() {
   const pill = ORDER_STATUS_PILL[order.status];
   const editableDraft = isDraft && isOfficeStaff;
   const receivableByMe = receivable && isOfficeStaff;
+  const cancelled = order.status === 'CANCELLED';
+  const printTermsEditable = isOfficeStaff && !cancelled;
+
+  /** Saves only the printed terms, leaving unsaved notes and VAT as typed. */
+  const savePrintTerms = async (patch: { termsOfPayment?: string; deliveryMode?: DeliveryMode }) => {
+    setBusy(true);
+    try {
+      const { data } = await supplierOrdersApi.update(order.id, patch);
+      setOrder((prev) =>
+        prev
+          ? { ...prev, termsOfPayment: data.termsOfPayment, deliveryMode: data.deliveryMode }
+          : data
+      );
+      setTerms(data.termsOfPayment || 'PDC');
+      message.success('Saved');
+    } catch (err) {
+      message.error(getErrorMessage(err));
+      setTerms(order.termsOfPayment || 'PDC');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const commitTerms = () => {
+    const next = terms.trim();
+    if (!next) {
+      setTerms(order.termsOfPayment || 'PDC');
+      return;
+    }
+    if (next !== (order.termsOfPayment || 'PDC')) void savePrintTerms({ termsOfPayment: next });
+  };
   const draftDirty =
     editableDraft && ((order.notes || '') !== notes || (order.vatRate ?? null) !== vatRate);
 
@@ -381,10 +419,18 @@ export default function SupplierOrderDetailPage() {
               Receive order
             </Button>
           ) : null}
-          <Tooltip title={isDraft ? 'Issue the order before printing' : undefined}>
+          <Tooltip
+            title={
+              isDraft
+                ? 'Issue the order before printing'
+                : cancelled
+                  ? 'A cancelled order cannot be printed'
+                  : undefined
+            }
+          >
             <Button
               icon={<PrinterOutlined />}
-              disabled={isDraft}
+              disabled={isDraft || cancelled}
               onClick={() => navigate(`/supplier-orders/${order.id}/print`)}
             >
               Print PO
@@ -480,6 +526,41 @@ export default function SupplierOrderDetailPage() {
               `${order.vatRate}%`
             ) : (
               'None'
+            ),
+          },
+          {
+            key: 'terms',
+            label: 'Terms of payment',
+            children: printTermsEditable ? (
+              <Input
+                size="small"
+                maxLength={100}
+                value={terms}
+                disabled={busy}
+                onChange={(e) => setTerms(e.target.value)}
+                onBlur={commitTerms}
+                onPressEnter={commitTerms}
+                style={{ width: 180 }}
+              />
+            ) : (
+              order.termsOfPayment || 'PDC'
+            ),
+          },
+          {
+            key: 'mode',
+            label: 'Mode of delivery',
+            children: printTermsEditable ? (
+              <Select<DeliveryMode>
+                size="small"
+                value={order.deliveryMode || 'DELIVERY'}
+                disabled={busy}
+                onChange={(v) => void savePrintTerms({ deliveryMode: v })}
+                options={DELIVERY_MODE_OPTIONS}
+                style={{ width: 140 }}
+              />
+            ) : (
+              DELIVERY_MODE_OPTIONS.find((o) => o.value === (order.deliveryMode || 'DELIVERY'))
+                ?.label
             ),
           },
           {

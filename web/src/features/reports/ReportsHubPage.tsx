@@ -65,8 +65,8 @@ function JobOrderPrintoutCard() {
             Job order printout
           </Typography.Title>
           <Typography.Text type="secondary">
-            Letterhead layout with operations and signature blocks. Pick a job order to open its
-            printout.
+            The shop&apos;s job order form with operations, materials and signatures. Pick a job
+            order to open its printout.
           </Typography.Text>
         </div>
         <div style={{ display: 'flex', gap: 8, flex: '1 1 360px', flexWrap: 'wrap' }}>

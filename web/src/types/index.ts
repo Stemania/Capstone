@@ -226,6 +226,8 @@ export interface SupplierReliability {
 
 export type MaterialPurchaseStatus = 'DRAFT' | 'ORDERED' | 'RECEIVED' | 'CONSUMED' | 'CANCELLED';
 
+export type DeliveryMode = 'PICKUP' | 'DELIVERY';
+
 export type SupplierOrderStatus =
   | 'DRAFT'
   | 'ISSUED'
@@ -268,6 +270,9 @@ export interface SupplierOrder {
   receivedDate?: string | null;
   notes?: string | null;
   vatRate?: number | null;
+  /** Printed on the PO; "PDC" unless changed. */
+  termsOfPayment?: string;
+  deliveryMode?: DeliveryMode;
   preparedById: string;
   preparedByName?: string | null;
   issuedById?: string | null;
@@ -344,8 +349,6 @@ export interface SupplierOrderPrint {
     unit: string;
     unitCost: number;
     quantity: number;
-    /** Empty for consumable restock rows. */
-    jobNumbers: string[];
     isConsumable?: boolean;
     lineCount: number;
     amount: number;
@@ -799,6 +802,7 @@ export interface JobMaterialLine {
   unit: string | null;
   status: MaterialPurchaseStatus;
   poNumber: string | null;
+  supplierName?: string | null;
   expectedDate: string | null;
   dateReceived: string | null;
 }

@@ -15,6 +15,7 @@ from app.models.job_order import JobOrder, JobOrderStatus, MaterialStatus
 from app.models.material_purchase import MaterialPurchase
 from app.models.supplier import Supplier
 from app.models.supplier_order import (
+    DELIVERY_MODES,
     SupplierOrder,
     SupplierOrderStatus,
     format_po_number,
@@ -291,7 +292,31 @@ def add_lines_to_draft(supplier_id, lines: list, actor_id: str):
 
 
 def update_draft(order: SupplierOrder, data: dict) -> SupplierOrder:
-    _require_draft(order)
+    """Notes and VAT change only on a draft. Terms of payment and mode of
+    delivery only print on the PO, so they stay editable until it is cancelled."""
+    if "termsOfPayment" in data or "deliveryMode" in data:
+        if order.status == SupplierOrderStatus.CANCELLED:
+            raise AppError("This supplier order was cancelled.", "ORDER_CLOSED", 409)
+        if "termsOfPayment" in data:
+            terms = (data.get("termsOfPayment") or "").strip()
+            if not terms:
+                raise AppError(
+                    "Enter the terms of payment, for example PDC.", "VALIDATION_ERROR", 400
+                )
+            if len(terms) > 100:
+                raise AppError(
+                    "Terms of payment must be 100 characters or fewer.", "VALIDATION_ERROR", 400
+                )
+            order.terms_of_payment = terms
+        if "deliveryMode" in data:
+            mode = str(data.get("deliveryMode") or "").upper()
+            if mode not in DELIVERY_MODES:
+                raise AppError(
+                    "Mode of delivery must be PICKUP or DELIVERY.", "VALIDATION_ERROR", 400
+                )
+            order.delivery_mode = mode
+    if "notes" in data or "vatRate" in data:
+        _require_draft(order)
     if "notes" in data:
         order.notes = (data.get("notes") or "").strip() or None
     if "vatRate" in data:
@@ -576,10 +601,16 @@ def _money(v: Decimal) -> Decimal:
 def print_data(order: SupplierOrder) -> dict:
     """The printed PO. Lines with the same material, grade and unit print as one
     row; the system keeps them separate per job. Consumable restock lines print
-    alongside, without a job number. A draft has no PO number yet, so it cannot
-    be printed."""
+    alongside. Job numbers stay off the printout. Only an issued order prints:
+    a draft has no PO number yet and a cancelled order is void."""
     if order.status == SupplierOrderStatus.DRAFT:
         raise AppError("Issue the order before printing.", "ORDER_NOT_ISSUED", 409)
+    if order.status == SupplierOrderStatus.CANCELLED:
+        raise AppError(
+            "This supplier order was cancelled, so it cannot be printed.",
+            "ORDER_CANCELLED",
+            409,
+        )
     groups: "OrderedDict[tuple, dict]" = OrderedDict()
     for ln in order.active_lines:
         key = (
@@ -597,16 +628,12 @@ def print_data(order: SupplierOrder) -> dict:
                 "isConsumable": ln.is_consumable,
                 "amount": Decimal("0"),
                 "quantity": Decimal("0"),
-                "jobNumbers": [],
                 "lineCount": 0,
             }
         qty = Decimal(str(ln.quantity or 0))
         row["quantity"] += qty
         row["amount"] += qty * Decimal(str(ln.unit_cost or 0))
         row["lineCount"] += 1
-        jn = ln.job_order.job_number if ln.job_order else None
-        if jn and jn not in row["jobNumbers"]:
-            row["jobNumbers"].append(jn)
 
     rows = []
     subtotal = Decimal("0")

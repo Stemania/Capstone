@@ -3303,107 +3303,291 @@ button.admin-card {
   background: #fff7ed !important;
 }
 
-.jo-print-page {
+/* Shop template printouts (PO, job order): Letter, Times New Roman */
+@page shop-letter {
+  size: letter;
+  margin: 0.35in 0.5in;
+}
+
+.shop-print-page {
   background: #e2e8f0;
   min-height: 100vh;
+  padding-bottom: 24px;
 }
 
-.jo-print-sheet {
+.shop-print-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+}
+
+.shop-print-sheet {
+  page: shop-letter;
+  display: flex;
+  flex-direction: column;
+  width: 8.5in;
+  min-height: 11in;
+  margin: 0 auto;
+  padding: 0.35in 0.5in;
+  box-sizing: border-box;
   background: #fff;
-  max-width: 210mm;
-  margin: 0 auto 24px;
-  padding: 14mm 14mm 12mm;
-  color: #0f172a;
-  font-size: 11px;
-  line-height: 1.35;
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+  color: #000;
+  font-family: 'Times New Roman', Times, serif;
+  font-size: 11pt;
+  line-height: 1.25;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
-.jo-print-letterhead {
+.shop-print-header__row {
+  display: flex;
+  align-items: center;
+  gap: 0.1in;
+  min-height: 0.9in;
+}
+
+.shop-print-logo {
+  width: 0.92in;
+  height: 0.9in;
+  object-fit: contain;
+  flex: none;
+}
+
+.shop-print-header__text {
+  flex: 1;
+  min-width: 0;
   text-align: center;
-  border-bottom: 2px solid #0f1c2e;
-  padding-bottom: 8px;
-  margin-bottom: 8px;
 }
 
-.jo-print-shop-name {
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.jo-print-shop-line {
-  font-size: 10px;
-  color: #334155;
-}
-
-.jo-print-title {
-  font-size: 13px;
-  font-weight: 800;
-  margin: 6px 0 8px;
-  text-align: center;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.jo-print-meta {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 3px 16px;
-  margin-bottom: 8px;
-}
-
-.jo-print-block {
-  margin-bottom: 6px;
-}
-
-.jo-print-h2 {
-  font-size: 11px;
+.shop-print-name {
+  color: #f1c232;
+  font-size: 15pt;
   font-weight: 700;
-  margin: 10px 0 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  border-bottom: 1px solid #cbd5e1;
-  padding-bottom: 2px;
 }
 
-.jo-print-table {
+.shop-print-tagline {
+  color: #695d46;
+  font-size: 10pt;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.shop-print-bar {
+  display: flex;
+  height: 0.08in;
+  margin: 0.06in 0;
+}
+
+.shop-print-bar__seg {
+  flex: 1;
+  border: 0.5pt solid #000;
+}
+
+.shop-print-bar__seg--gold {
+  background: #f1c232;
+}
+
+.shop-print-bar__seg--black {
+  background: #000;
+}
+
+.shop-print-footer {
+  order: 3;
+  margin-top: auto;
+  text-align: center;
+  font-size: 9pt;
+  font-weight: 700;
+}
+
+.shop-print-address,
+.shop-print-sep {
+  color: #f1c232;
+}
+
+.shop-print-contacts {
+  color: #695d46;
+}
+
+.shop-print-frame {
   width: 100%;
   border-collapse: collapse;
-  font-size: 10px;
-  margin-bottom: 6px;
 }
 
-.jo-print-table th,
-.jo-print-table td {
-  border: 1px solid #cbd5e1;
+.shop-print-frame > thead > tr > td,
+.shop-print-frame > tfoot > tr > td,
+.shop-print-frame > tbody > tr > td {
+  padding: 0;
+  border: 0;
+}
+
+.shop-print-header-space,
+.shop-print-footer-space {
+  height: 0;
+}
+
+.shop-print-body {
+  padding: 0.15in 0.5in 0.2in;
+}
+
+.shop-print-body--wide {
+  padding-left: 0.1in;
+  padding-right: 0.1in;
+}
+
+.shop-print-doc-head {
+  text-align: right;
+  margin-bottom: 0.15in;
+}
+
+.shop-print-doc-title {
+  font-size: 16pt;
+  font-weight: 700;
+  text-decoration: underline;
+  margin: 0 0 4px;
+}
+
+.shop-print-doc-ref {
+  font-size: 12pt;
+}
+
+.shop-print-label {
+  font-weight: 700;
+}
+
+.shop-print-party {
+  margin-bottom: 0.15in;
+}
+
+.shop-print-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 0.3in;
+  margin-bottom: 0.12in;
+}
+
+.shop-print-fields .shop-print-fields__full {
+  grid-column: 1 / -1;
+}
+
+.shop-print-section {
+  font-size: 11pt;
+  font-weight: 700;
+  margin: 0.14in 0 4px;
+  break-after: avoid;
+}
+
+.shop-print-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.1in;
+}
+
+.shop-print-table th,
+.shop-print-table td {
+  border: 0.75pt solid #000;
   padding: 3px 5px;
-  text-align: left;
   vertical-align: top;
 }
 
-.jo-print-table th {
-  background: #f8fafc;
+.shop-print-table th {
+  font-weight: 700;
+  text-align: center;
+}
+
+.shop-print-table tr {
+  break-inside: avoid;
+}
+
+.shop-print-table--compact {
+  font-size: 9.5pt;
+}
+
+.shop-print-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.shop-print-table .mid {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.shop-print-table .total td {
   font-weight: 700;
 }
 
-.jo-print-signatures {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 16px;
-  margin-top: 28px;
+.shop-print-table .blank td {
+  height: 1.35em;
 }
 
-.jo-print-sig {
-  text-align: center;
-  font-size: 10px;
+.shop-print-terms {
+  list-style: none;
+  padding: 0;
+  margin: 0.15in 0 0;
 }
 
-.jo-print-sig-line {
-  border-bottom: 1px solid #0f172a;
-  height: 28px;
-  margin-bottom: 4px;
+.shop-print-terms li::before {
+  content: '\2022\00a0\00a0';
+}
+
+.shop-print-signatures {
+  display: flex;
+  gap: 0.6in;
+  margin-top: 0.35in;
+  break-inside: avoid;
+}
+
+.shop-print-signature {
+  min-width: 2.4in;
+}
+
+.shop-print-signature__space {
+  height: 0.45in;
+}
+
+.shop-print-signature__name {
+  font-weight: 700;
+}
+
+@media print {
+  .shop-print-page {
+    background: #fff !important;
+    min-height: 0;
+    padding: 0;
+  }
+
+  .shop-print-sheet {
+    display: block;
+    width: auto;
+    min-height: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  .shop-print-header,
+  .shop-print-footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    background: #fff;
+  }
+
+  .shop-print-header {
+    top: 0;
+  }
+
+  .shop-print-footer {
+    bottom: 0;
+  }
+
+  .shop-print-header-space {
+    height: 1.15in;
+  }
+
+  .shop-print-footer-space {
+    height: 0.65in;
+  }
 }
 
 @media print {
@@ -3420,17 +3604,6 @@ button.admin-card {
 
   body {
     background: #fff !important;
-  }
-
-  .jo-print-page {
-    background: #fff !important;
-  }
-
-  .jo-print-sheet {
-    box-shadow: none !important;
-    margin: 0 !important;
-    max-width: none !important;
-    padding: 0 !important;
   }
 
   .report-page .ant-card,

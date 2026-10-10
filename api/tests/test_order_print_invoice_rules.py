@@ -134,6 +134,83 @@ def test_draft_order_cannot_be_printed_until_issued(client, shop):
     assert res.get_json()["order"]["poNumber"] == "OPS31000001"
 
 
+def _issued_order(client, shop, job=None):
+    job = job or _job(shop, to_order=True)
+    order = _add_lines(
+        client,
+        shop,
+        [{"jobOrderId": job.id, "materialName": "Round bar 50mm", "quantity": 4, "unitCost": 250}],
+    ).get_json()
+    res = client.post(
+        f"/api/v1/supplier-orders/{order['id']}/issue",
+        json={"dateIssued": "2031-03-02"},
+        headers=_headers(shop["office"]),
+    )
+    assert res.status_code == 200, res.get_json()
+    return res.get_json()
+
+
+def test_terms_and_delivery_mode_default_and_stay_editable_after_issue(client, shop):
+    order = _issued_order(client, shop)
+    assert order["termsOfPayment"] == "PDC"
+    assert order["deliveryMode"] == "DELIVERY"
+    headers = _headers(shop["office"])
+
+    res = client.patch(
+        f"/api/v1/supplier-orders/{order['id']}",
+        json={"termsOfPayment": "30 days", "deliveryMode": "pickup"},
+        headers=headers,
+    )
+    assert res.status_code == 200, res.get_json()
+    printed = client.get(f"/api/v1/supplier-orders/{order['id']}/print", headers=headers).get_json()
+    assert printed["order"]["termsOfPayment"] == "30 days"
+    assert printed["order"]["deliveryMode"] == "PICKUP"
+
+    # Notes and VAT stay locked after issue.
+    res = client.patch(
+        f"/api/v1/supplier-orders/{order['id']}", json={"vatRate": 12}, headers=headers
+    )
+    assert res.status_code == 409
+    assert res.get_json()["error"]["code"] == "ORDER_LOCKED"
+
+
+def test_delivery_mode_and_terms_are_validated(client, shop):
+    order = _issued_order(client, shop)
+    headers = _headers(shop["office"])
+    res = client.patch(
+        f"/api/v1/supplier-orders/{order['id']}", json={"deliveryMode": "COURIER"}, headers=headers
+    )
+    assert res.status_code == 400
+    res = client.patch(
+        f"/api/v1/supplier-orders/{order['id']}", json={"termsOfPayment": "  "}, headers=headers
+    )
+    assert res.status_code == 400
+
+
+def test_cancelled_order_cannot_be_printed(client, shop):
+    order = _issued_order(client, shop)
+    headers = _headers(shop["office"])
+    res = client.post(f"/api/v1/supplier-orders/{order['id']}/cancel", headers=headers)
+    assert res.status_code == 200, res.get_json()
+    res = client.get(f"/api/v1/supplier-orders/{order['id']}/print", headers=headers)
+    assert res.status_code == 409
+    assert res.get_json()["error"]["code"] == "ORDER_CANCELLED"
+    res = client.patch(
+        f"/api/v1/supplier-orders/{order['id']}", json={"termsOfPayment": "COD"}, headers=headers
+    )
+    assert res.status_code == 409
+
+
+def test_job_material_lines_name_the_supplier(client, shop):
+    job = _job(shop, to_order=True)
+    _issued_order(client, shop, job)
+    res = client.get(f"/api/v1/job-orders/{job.id}", headers=_headers(shop["admin"]))
+    assert res.status_code == 200, res.get_json()
+    lines = res.get_json()["materialLines"]
+    assert [ln["supplierName"] for ln in lines] == ["OPI Steel"]
+    assert lines[0]["poNumber"] == "OPS31000001"
+
+
 # --- 4. Sales invoice: a recorded reference ---
 
 

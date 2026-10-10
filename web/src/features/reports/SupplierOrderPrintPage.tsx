@@ -7,24 +7,47 @@ import { supplierOrdersApi } from '../../api/supplierOrders.api';
 import { getErrorMessage } from '../../api/client';
 import { useShopDetails } from '../../hooks/useShopDetails';
 import type { SupplierOrderPrint } from '../../types';
-import { ReportStamp, displayOrDash } from './ReportChrome';
-import { ApproverSignature, ShopLetterhead } from './ShopLetterhead';
+import { PrintDocument, SignatureBlock } from './PrintTemplate';
+
+/** The template has room for this many item rows; shorter orders keep the blank rows. */
+const FORM_ROWS = 10;
+
+const DELIVERY_MODE_LABEL: Record<string, string> = {
+  PICKUP: 'Pick-up',
+  DELIVERY: 'Delivery',
+};
 
 function fmtDate(v?: string | null) {
-  if (!v) return '—';
-  return formatShop(v, 'MMM D, YYYY');
+  return v ? formatShop(v, 'MMMM D, YYYY') : '';
 }
 
 function money(v?: number | null) {
-  if (v == null) return '—';
-  return `₱${Number(v).toLocaleString(undefined, {
+  if (v == null) return '';
+  return `₱${Number(v).toLocaleString('en-PH', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 }
 
 function qty(v: number) {
-  return Number(v).toLocaleString(undefined, { maximumFractionDigits: 4 });
+  return Number(v).toLocaleString('en-PH', { maximumFractionDigits: 4 });
+}
+
+function itemDescription(row: SupplierOrderPrint['rows'][number]) {
+  if (row.isConsumable || !row.gradeOrSpec) return row.materialName;
+  return `${row.materialName} – ${row.gradeOrSpec}`;
+}
+
+function SummaryRow({ label, amount, total }: { label: string; amount: number; total?: boolean }) {
+  return (
+    <tr className={total ? 'total' : undefined}>
+      <td className="shop-print-label">{label}</td>
+      <td />
+      <td />
+      <td />
+      <td className="num">{money(amount)}</td>
+    </tr>
+  );
 }
 
 export default function SupplierOrderPrintPage() {
@@ -74,119 +97,100 @@ export default function SupplierOrderPrintPage() {
   }
 
   const { order, supplier } = data;
-  const supplierContact = supplier
-    ? [supplier.contactPerson, supplier.phone, supplier.email].filter(Boolean).join(' · ')
-    : '';
+  const blankRows = Math.max(FORM_ROWS - data.rows.length, 0);
 
   return (
-    <div className="jo-print-page">
-      <div className="no-print" style={{ padding: '12px 16px', display: 'flex', gap: 8 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>
-          Back
-        </Button>
-        <Button type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>
-          Print
-        </Button>
+    <PrintDocument
+      shop={shop}
+      toolbar={
+        <>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>
+            Back
+          </Button>
+          <Button type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>
+            Print
+          </Button>
+        </>
+      }
+    >
+      <div className="shop-print-doc-head">
+        <h1 className="shop-print-doc-title">PURCHASE ORDER</h1>
+        <div className="shop-print-doc-ref">PO # {order.poNumber}</div>
+        <div className="shop-print-doc-ref">
+          <span className="shop-print-label">DATE</span> {fmtDate(order.dateIssued)}
+        </div>
       </div>
 
-      <article className="jo-print-sheet">
-        <ShopLetterhead details={shop} />
-
-        <ReportStamp />
-
-        <h1 className="jo-print-title">Purchase Order</h1>
-
-        <div className="jo-print-meta">
-          <div>
-            <strong>PO #</strong> {displayOrDash(order.poNumber)}
-          </div>
-          <div>
-            <strong>Date issued</strong> {fmtDate(order.dateIssued)}
-          </div>
-          <div>
-            <strong>Supplier</strong> {displayOrDash(supplier?.name)}
-          </div>
-          <div>
-            <strong>Expected delivery</strong> {fmtDate(order.expectedDeliveryDate)}
-          </div>
-          <div>
-            <strong>Address</strong> {displayOrDash(supplier?.address)}
-          </div>
-          <div>
-            <strong>Contact</strong> {displayOrDash(supplierContact)}
-          </div>
+      <div className="shop-print-party">
+        <div>
+          <span className="shop-print-label">Supplier Name:</span> {supplier?.name}
         </div>
-
-        <h2 className="jo-print-h2">Items</h2>
-        <table className="jo-print-table">
-          <thead>
-            <tr>
-              <th style={{ width: 32 }}>#</th>
-              <th>Material</th>
-              <th style={{ width: 130 }}>Grade / spec</th>
-              <th style={{ width: 100, textAlign: 'right' }}>Qty</th>
-              <th style={{ width: 110, textAlign: 'right' }}>Unit cost</th>
-              <th style={{ width: 120, textAlign: 'right' }}>Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map((r, i) => (
-              <tr key={`${r.materialName}-${r.gradeOrSpec}-${r.unit}-${r.unitCost}`}>
-                <td>{i + 1}</td>
-                <td>
-                  <div style={{ fontWeight: 600 }}>{r.materialName}</div>
-                  <div style={{ fontSize: 11, color: '#64748b' }}>
-                    {r.jobNumbers.length ? `For ${r.jobNumbers.join(', ')}` : 'Consumable restock'}
-                  </div>
-                </td>
-                <td>{displayOrDash(r.gradeOrSpec)}</td>
-                <td style={{ textAlign: 'right' }}>
-                  {qty(r.quantity)} {r.unit}
-                </td>
-                <td style={{ textAlign: 'right' }}>{money(r.unitCost)}</td>
-                <td style={{ textAlign: 'right' }}>{money(r.amount)}</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={5} style={{ textAlign: 'right' }}>
-                <strong>Subtotal</strong>
-              </td>
-              <td style={{ textAlign: 'right' }}>{money(data.subtotal)}</td>
-            </tr>
-            {data.vatRate ? (
-              <tr>
-                <td colSpan={5} style={{ textAlign: 'right' }}>
-                  <strong>VAT ({data.vatRate}%)</strong>
-                </td>
-                <td style={{ textAlign: 'right' }}>{money(data.vatAmount)}</td>
-              </tr>
-            ) : null}
-            <tr>
-              <td colSpan={5} style={{ textAlign: 'right' }}>
-                <strong>Total</strong>
-              </td>
-              <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(data.total)}</td>
-            </tr>
-          </tfoot>
-        </table>
-
-        {order.notes ? (
-          <div style={{ marginTop: 12, fontSize: 12, whiteSpace: 'pre-wrap' }}>
-            <strong>Notes:</strong> {order.notes}
-          </div>
-        ) : null}
-
-        <div className="jo-print-signatures">
-          <div className="jo-print-sig">
-            <div style={{ minHeight: 14 }}>{displayOrDash(order.preparedByName)}</div>
-            <div className="jo-print-sig-line" />
-            <div>Prepared by</div>
-          </div>
-          <ApproverSignature name={shop.poApproverName} title={shop.poApproverTitle} />
+        <div>
+          <span className="shop-print-label">Address:</span> {supplier?.address}
         </div>
-      </article>
-    </div>
+      </div>
+
+      <table className="shop-print-table">
+        <colgroup>
+          <col style={{ width: '44.8%' }} />
+          <col style={{ width: '7.4%' }} />
+          <col style={{ width: '8.1%' }} />
+          <col style={{ width: '19.85%' }} />
+          <col style={{ width: '19.85%' }} />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>ITEM DESCRIPTION</th>
+            <th>QTY</th>
+            <th>UOM</th>
+            <th>UNIT PRICE</th>
+            <th>AMOUNT</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.rows.map((r) => (
+            <tr key={`${r.isConsumable}-${r.materialName}-${r.gradeOrSpec}-${r.unit}`}>
+              <td>{itemDescription(r)}</td>
+              <td className="mid">{qty(r.quantity)}</td>
+              <td className="mid">{r.unit}</td>
+              <td className="num">{money(r.unitCost)}</td>
+              <td className="num">{money(r.amount)}</td>
+            </tr>
+          ))}
+          {Array.from({ length: blankRows }, (_, i) => (
+            <tr key={`blank-${i}`} className="blank">
+              <td />
+              <td />
+              <td />
+              <td />
+              <td />
+            </tr>
+          ))}
+          {data.vatRate ? (
+            <>
+              <SummaryRow label="SUBTOTAL" amount={data.subtotal} />
+              <SummaryRow label={`VAT (${data.vatRate}%)`} amount={data.vatAmount} />
+            </>
+          ) : null}
+          <SummaryRow label="TOTAL" amount={data.total} total />
+        </tbody>
+      </table>
+
+      <ul className="shop-print-terms">
+        <li>Terms of Payment: {order.termsOfPayment || 'PDC'}</li>
+        <li>
+          Mode of Delivery:{' '}
+          {DELIVERY_MODE_LABEL[order.deliveryMode || 'DELIVERY'] || order.deliveryMode}
+        </li>
+      </ul>
+
+      <div className="shop-print-signatures">
+        <SignatureBlock
+          label="Approved by:"
+          name={shop.poApproverName}
+          title={shop.poApproverTitle}
+        />
+      </div>
+    </PrintDocument>
   );
 }

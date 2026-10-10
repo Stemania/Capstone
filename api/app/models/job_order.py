@@ -374,6 +374,7 @@ class JobOrder(db.Model):
                 "unit": p.unit,
                 "status": p.status,
                 "poNumber": p.supplier_order.po_number if p.supplier_order else None,
+                "supplierName": p.supplier.name if p.supplier else None,
                 "expectedDate": (
                     p.current_expected_date.isoformat() if p.current_expected_date else None
                 ),

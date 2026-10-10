@@ -30,6 +30,11 @@ def format_legacy_po_number(seq: int) -> str:
     return f"{PO_PREFIX}{seq:05d}"
 
 
+DEFAULT_TERMS_OF_PAYMENT = "PDC"
+DELIVERY_MODES = ("PICKUP", "DELIVERY")
+DEFAULT_DELIVERY_MODE = "DELIVERY"
+
+
 class SupplierOrderStatus(enum.Enum):
     DRAFT = "DRAFT"
     ISSUED = "ISSUED"
@@ -66,6 +71,9 @@ class SupplierOrder(db.Model):
             unique=True,
             postgresql_where=db.text("po_year IS NOT NULL"),
         ),
+        db.CheckConstraint(
+            "delivery_mode IN ('PICKUP', 'DELIVERY')", name="ck_supplier_orders_delivery_mode"
+        ),
     )
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
@@ -90,6 +98,14 @@ class SupplierOrder(db.Model):
     received_date = db.Column(db.Date, nullable=True)
     notes = db.Column(db.Text, nullable=True)
     vat_rate = db.Column(db.Numeric(5, 2), nullable=True)
+    terms_of_payment = db.Column(
+        db.String(100), nullable=False, default=DEFAULT_TERMS_OF_PAYMENT,
+        server_default=DEFAULT_TERMS_OF_PAYMENT,
+    )
+    delivery_mode = db.Column(
+        db.String(16), nullable=False, default=DEFAULT_DELIVERY_MODE,
+        server_default=DEFAULT_DELIVERY_MODE,
+    )
     prepared_by_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=False)
     issued_by_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
@@ -142,6 +158,8 @@ class SupplierOrder(db.Model):
             "receivedDate": self.received_date.isoformat() if self.received_date else None,
             "notes": self.notes,
             "vatRate": float(self.vat_rate) if self.vat_rate is not None else None,
+            "termsOfPayment": self.terms_of_payment or DEFAULT_TERMS_OF_PAYMENT,
+            "deliveryMode": self.delivery_mode or DEFAULT_DELIVERY_MODE,
             "preparedById": self.prepared_by_id,
             "preparedByName": self.prepared_by.full_name if self.prepared_by else None,
             "issuedById": self.issued_by_id,

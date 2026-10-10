@@ -79,7 +79,8 @@ def test_one_order_holds_job_materials_and_consumables(client, shop):
         f"/api/v1/supplier-orders/{order['id']}/print", headers=_headers(shop["admin"])
     ).get_json()
     consumable_rows = [r for r in printed["rows"] if r["isConsumable"]]
-    assert len(consumable_rows) == 1 and consumable_rows[0]["jobNumbers"] == []
+    assert len(consumable_rows) == 1
+    assert all("jobNumbers" not in r for r in printed["rows"])
 
 
 def test_consumable_line_received_through_po_adds_stock_once(client, shop):
