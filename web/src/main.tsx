@@ -3,21 +3,17 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ConfigProvider } from 'antd';
 import AppRoutes from './routes/AppRoutes';
-import { ADMIN_SEED_TOKENS, adminThemeComponents } from './theme/adminTheme';
-import { antThemeToken } from './theme/tokens';
+import { officeTheme } from './theme/antTheme';
+import EmptyState from './components/ui/EmptyState';
 import './index.css';
+import './theme/theme.css';
+import './components/ui/ui.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ConfigProvider
-      theme={{
-        token: {
-          ...antThemeToken,
-          borderRadius: 8,
-          ...ADMIN_SEED_TOKENS,
-        },
-        components: adminThemeComponents,
-      }}
+      theme={officeTheme}
+      renderEmpty={(name) => <EmptyState compact title={name === 'Select' ? 'No matches' : 'Nothing here yet'} />}
     >
       <AppRoutes />
     </ConfigProvider>

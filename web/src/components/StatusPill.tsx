@@ -1,41 +1,51 @@
 import type { ReactNode } from 'react';
+import type { Tone } from '../theme/tokens';
+import { statusDef, type StatusDef } from '../theme/statuses';
 
-export type PillColor = 'blue' | 'green' | 'amber' | 'red' | 'gray' | 'teal';
+/** Older colour names some screens still pass. */
+export type PillColor = 'blue' | 'green' | 'amber' | 'red' | 'gray' | 'teal' | 'indigo' | 'slate' | 'grey';
 
-const styles: Record<PillColor, { color: string; bg: string }> = {
-  blue: { color: '#2563eb', bg: 'rgba(37,99,235,0.12)' },
-  green: { color: '#16a34a', bg: 'rgba(22,163,74,0.12)' },
-  amber: { color: '#d97706', bg: 'rgba(217,119,6,0.12)' },
-  red: { color: '#7A1528', bg: 'rgba(122,21,40,0.12)' },
-  gray: { color: '#64748b', bg: '#f1f5f9' },
-  teal: { color: '#0d9488', bg: 'rgba(13,148,136,0.12)' },
+const LEGACY_TONE: Record<PillColor, Tone> = {
+  blue: 'blue',
+  green: 'green',
+  amber: 'amber',
+  red: 'red',
+  gray: 'slate',
+  grey: 'grey',
+  slate: 'slate',
+  teal: 'teal',
+  indigo: 'indigo',
 };
 
-export default function StatusPill({
-  color,
-  children,
-  compact = false,
-}: {
-  color: PillColor;
-  children: ReactNode;
+type Props = {
+  children?: ReactNode;
   compact?: boolean;
-}) {
-  const s = styles[color];
+  /** Small dot before the label. */
+  dot?: boolean;
+  title?: string;
+} & (
+  | { tone: Tone; color?: never; status?: never; map?: never }
+  | { color: PillColor; tone?: never; status?: never; map?: never }
+  | { status: string | null | undefined; map: Record<string, StatusDef>; tone?: never; color?: never }
+);
+
+export default function StatusPill(props: Props) {
+  const { compact = false, dot = false, title } = props;
+  let tone: Tone;
+  let label: ReactNode = props.children;
+  if ('map' in props && props.map) {
+    const def = statusDef(props.map, props.status);
+    tone = def.tone;
+    label = props.children ?? def.label;
+  } else if ('tone' in props && props.tone) {
+    tone = props.tone;
+  } else {
+    tone = LEGACY_TONE[(props as { color: PillColor }).color] ?? 'slate';
+  }
   return (
-    <span
-      style={{
-        display: 'inline-block',
-        fontSize: 11,
-        fontWeight: 700,
-        padding: compact ? '3px 8px' : '3px 10px',
-        borderRadius: 999,
-        background: s.bg,
-        color: s.color,
-        whiteSpace: 'nowrap',
-        lineHeight: 1.25,
-      }}
-    >
-      {children}
+    <span className={`ui-pill ui-pill--${tone}${compact ? ' ui-pill--compact' : ''}`} title={title}>
+      {dot ? <span className="ui-pill__dot" aria-hidden /> : null}
+      {label}
     </span>
   );
 }

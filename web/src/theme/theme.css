@@ -1,0 +1,269 @@
+/* Design tokens as CSS custom properties. Mirrors theme/tokens.ts. */
+:root {
+  --c-navy: #0f172a;
+  --c-navy-raised: #1e293b;
+  --c-sidebar-text: #cbd5e1;
+  --c-sidebar-muted: #7c8aa0;
+  --c-sidebar-active: rgba(59, 130, 246, 0.2);
+  --c-gold: #f1c232;
+  --c-gold-soft: #fdf5d6;
+
+  --c-primary: #2563eb;
+  --c-primary-hover: #1d4ed8;
+  --c-primary-soft: #eff6ff;
+
+  --c-page: #f3f5f9;
+  --c-surface: #ffffff;
+  --c-surface-muted: #f8fafc;
+  --c-surface-sunken: #eef2f7;
+  --c-border: #e3e8ef;
+  --c-border-strong: #cbd5e1;
+
+  --c-text: #0f172a;
+  --c-text-2: #475569;
+  --c-text-muted: #5a6a80;
+  --c-text-disabled: #94a3b8;
+
+  --tone-slate-fg: #334155; --tone-slate-bg: #eef2f7; --tone-slate-bd: #d5dce6; --tone-slate-solid: #64748b;
+  --tone-blue-fg: #1d4ed8; --tone-blue-bg: #eaf1ff; --tone-blue-bd: #c7d8fe; --tone-blue-solid: #2563eb;
+  --tone-indigo-fg: #4338ca; --tone-indigo-bg: #eef0ff; --tone-indigo-bd: #d2d6fb; --tone-indigo-solid: #6366f1;
+  --tone-green-fg: #15803d; --tone-green-bg: #eafaf0; --tone-green-bd: #c2ecd1; --tone-green-solid: #16a34a;
+  --tone-teal-fg: #0f766e; --tone-teal-bg: #e7f8f6; --tone-teal-bd: #bfe9e3; --tone-teal-solid: #0d9488;
+  --tone-amber-fg: #a16207; --tone-amber-bg: #fdf6e3; --tone-amber-bd: #f3e1a8; --tone-amber-solid: #f59e0b;
+  --tone-red-fg: #b91c1c; --tone-red-bg: #fdeeee; --tone-red-bd: #f7caca; --tone-red-solid: #dc2626;
+  --tone-grey-fg: #52525b; --tone-grey-bg: #f1f1f3; --tone-grey-bd: #dcdce0; --tone-grey-solid: #a1a1aa;
+
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', 'Consolas', 'SFMono-Regular', Menlo, monospace;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 14px;
+  --fs-md: 15px;
+  --fs-lg: 16px;
+  --fs-title: 20px;
+  --fs-kpi: 24px;
+
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-raised: 0 2px 6px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+
+  --sidebar-w: 232px;
+  --sidebar-w-collapsed: 72px;
+  --topbar-h: 60px;
+  --page-pad: 24px;
+  --card-pad: 16px;
+
+  --ease: 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+body {
+  background: var(--c-page);
+  color: var(--c-text);
+  font-size: var(--fs-base);
+}
+
+/* Numbers line up in tables, KPIs and timers. */
+.ant-table,
+.ant-statistic,
+.ui-stat__value,
+.ui-tabular,
+input[type='number'],
+.ant-input-number-input {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Visible keyboard focus on everything clickable. */
+:where(a, button, [role='button'], [role='tab'], [role='menuitem'], [tabindex]):focus-visible,
+.ant-btn:focus-visible,
+.ant-segmented-item:has(input:focus-visible),
+.ant-menu-item:focus-visible {
+  outline: 2px solid var(--c-primary) !important;
+  outline-offset: 2px;
+  border-radius: var(--r-md);
+}
+
+.ant-menu-dark .ant-menu-item:focus-visible {
+  outline-color: var(--c-gold) !important;
+}
+
+/* Calm, quick press and hover feedback. */
+.ant-btn,
+.ant-segmented-item,
+.ant-menu-item,
+.ui-card--hover,
+.ant-table-row > td {
+  transition-duration: 150ms !important;
+}
+
+.ant-btn:not(:disabled):active {
+  transform: translateY(0.5px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}
+
+/* Disabled inputs read as "locked", not as empty fields. */
+.ant-input-disabled,
+.ant-input-number-disabled,
+.ant-select-disabled .ant-select-selector,
+.ant-picker-disabled,
+.ant-input-affix-wrapper-disabled {
+  background: var(--c-surface-muted) !important;
+  color: var(--c-text-2) !important;
+  border-style: dashed !important;
+}
+
+.ant-input-number-disabled .ant-input-number-input,
+.ant-select-disabled .ant-select-selection-item {
+  color: var(--c-text-2) !important;
+}
+
+/* Status-coloured text for inline numbers (attendance counts, etc.). */
+.tone-text--slate { color: var(--tone-slate-fg); }
+.tone-text--blue { color: var(--tone-blue-fg); }
+.tone-text--indigo { color: var(--tone-indigo-fg); }
+.tone-text--green { color: var(--tone-green-fg); }
+.tone-text--teal { color: var(--tone-teal-fg); }
+.tone-text--amber { color: var(--tone-amber-fg); }
+.tone-text--red { color: var(--tone-red-fg); }
+.tone-text--grey { color: var(--tone-grey-fg); }
+
+/* Faint blueprint grid used behind empty states. */
+.blueprint-grid {
+  background-color: var(--c-surface-muted);
+  background-image:
+    linear-gradient(rgba(37, 99, 235, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37, 99, 235, 0.06) 1px, transparent 1px),
+    linear-gradient(rgba(37, 99, 235, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37, 99, 235, 0.03) 1px, transparent 1px);
+  background-size: 48px 48px, 48px 48px, 12px 12px, 12px 12px;
+  background-position: -1px -1px;
+}
+
+/* One tab style everywhere: pill tabs (Ant Segmented, themed in antTheme.ts). */
+.ant-segmented {
+  padding: 0;
+  background: transparent;
+}
+
+.ant-segmented .ant-segmented-group {
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.ant-segmented .ant-segmented-item {
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  box-shadow: inset 0 0 0 1px var(--c-border);
+  background: var(--c-surface);
+}
+
+.ant-segmented .ant-segmented-item-label {
+  min-height: 30px;
+  line-height: 30px;
+  padding: 0 14px;
+}
+
+.ant-segmented .ant-segmented-item-selected,
+.ant-segmented .ant-segmented-thumb {
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+.ant-segmented .ant-segmented-item-selected {
+  color: #fff;
+  background: var(--c-primary);
+}
+
+.ant-segmented.ant-segmented-sm .ant-segmented-item-label {
+  min-height: 26px;
+  line-height: 26px;
+  padding: 0 10px;
+  font-size: var(--fs-xs);
+}
+
+.ant-segmented.ant-segmented-lg .ant-segmented-item-label {
+  min-height: 34px;
+  line-height: 34px;
+  padding: 0 16px;
+  font-size: var(--fs-base);
+}
+
+/* Ant underline tabs adopt the same pill look. */
+.ant-tabs-top > .ant-tabs-nav::before {
+  border-bottom: none !important;
+}
+
+.ant-tabs-top > .ant-tabs-nav .ant-tabs-ink-bar {
+  display: none;
+}
+
+.ant-tabs .ant-tabs-tab {
+  padding: 0 14px !important;
+  min-height: 30px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--c-border);
+  background: var(--c-surface);
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+}
+
+.ant-tabs .ant-tabs-tab + .ant-tabs-tab {
+  margin-left: 4px !important;
+}
+
+.ant-tabs .ant-tabs-tab.ant-tabs-tab-active {
+  background: var(--c-primary);
+  box-shadow: none;
+}
+
+.ant-tabs .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #fff !important;
+}
+
+/* Cards: white, 12px, one soft border, the lightest shadow. */
+.ant-card {
+  border-color: var(--c-border);
+  box-shadow: var(--shadow-card);
+}
+
+.ant-card .ant-card {
+  box-shadow: none;
+}
+
+/* Modals and drawers: same header, spacing and footer order everywhere. */
+.ant-modal .ant-modal-title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+}
+
+.ant-modal-footer,
+.ant-drawer-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ant-modal-footer > .ant-btn + .ant-btn {
+  margin-inline-start: 0 !important;
+}
+
+.ant-drawer .ant-drawer-header {
+  border-bottom: 1px solid var(--c-border);
+}
+
+.ant-drawer .ant-drawer-title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+}

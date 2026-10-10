@@ -1,4 +1,4 @@
-import { ConfigProvider, Popover, theme as antdTheme } from 'antd';
+import { ConfigProvider, Popover } from 'antd';
 import {
   LogoutOutlined,
   UnorderedListOutlined,
@@ -12,7 +12,8 @@ import { createContext, useContext, useState, type ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { confirmLogout } from '../utils/confirmLogout';
-import { WORKER_SEED_TOKENS } from '../theme/adminTheme';
+import { workerTheme } from '../theme/antTheme';
+import { colors as tokenColors, tones } from '../theme/tokens';
 import PinOfferModal from '../features/auth/PinOfferModal';
 import KeepAliveOutlet from '../navigation/KeepAliveOutlet';
 import { useNavMemory } from '../navigation/navMemory';
@@ -42,23 +43,23 @@ export interface WorkerPalette {
 }
 
 const lightPalette: WorkerPalette = {
-  bg: '#f1f5f9',
-  card: '#ffffff',
-  cardBorder: '#e2e8f0',
-  navBg: '#ffffff',
-  headerBg: '#0f1c2e',
-  headerText: '#ffffff',
-  accent: '#2563eb',
+  bg: tokenColors.page,
+  card: tokenColors.surface,
+  cardBorder: tokenColors.border,
+  navBg: tokenColors.surface,
+  headerBg: tokenColors.navy,
+  headerText: tokenColors.textOnColor,
+  accent: tokenColors.primary,
   accentSoft: '#3b82f6',
-  green: '#16a34a',
-  greenSoft: 'rgba(22,163,74,0.12)',
-  amber: '#d97706',
-  red: '#7A1528',
-  text: '#0f172a',
-  textSecondary: '#64748b',
-  chipBg: '#f1f5f9',
-  shadow: '0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04)',
-  inputBg: '#ffffff',
+  green: tones.green.fg,
+  greenSoft: tones.green.bg,
+  amber: tones.amber.fg,
+  red: tones.red.fg,
+  text: tokenColors.text,
+  textSecondary: tokenColors.textMuted,
+  chipBg: tokenColors.surfaceSunken,
+  shadow: '0 1px 2px rgba(15,23,42,0.04)',
+  inputBg: tokenColors.surface,
 };
 
 interface WorkerThemeValue {
@@ -364,27 +365,7 @@ export default function WorkerLayout() {
 
   return (
     <WorkerThemeContext.Provider value={{ colors, logout }}>
-      <ConfigProvider
-        theme={{
-          algorithm: antdTheme.defaultAlgorithm,
-          token: {
-            colorPrimary: colors.accent,
-            colorError: colors.red,
-            colorBgContainer: colors.card,
-            borderRadius: 12,
-            fontFamily:
-              "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif",
-            fontWeightStrong: 700,
-            // Keep shop-floor tap targets and type at full Ant Design size
-            // (root ConfigProvider uses denser admin tokens).
-            ...WORKER_SEED_TOKENS,
-            // Gloved shop-floor taps: every Ant control is at least 48px tall.
-            controlHeight: 48,
-            controlHeightLG: 52,
-            controlHeightSM: 48,
-          },
-        }}
-      >
+      <ConfigProvider theme={workerTheme}>
         <div
           style={{
             height: '100%',

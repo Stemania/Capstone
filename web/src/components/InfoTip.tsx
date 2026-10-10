@@ -12,29 +12,8 @@ type Props = {
 /** Compact click-to-open info; use instead of always-visible Alert banners. */
 export default function InfoTip({ title, content, label = 'More info' }: Props) {
   return (
-    <Popover
-      trigger="click"
-      title={title}
-      content={<div style={{ maxWidth: 300, fontSize: 13, lineHeight: 1.45 }}>{content}</div>}
-    >
-      <button
-        type="button"
-        aria-label={label}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          margin: 0,
-          padding: 2,
-          border: 'none',
-          background: 'transparent',
-          color: '#1677ff',
-          cursor: 'pointer',
-          fontSize: 16,
-          lineHeight: 1,
-          verticalAlign: 'middle',
-        }}
-      >
+    <Popover trigger="click" title={title} content={<div className="ui-infotip__body">{content}</div>}>
+      <button type="button" aria-label={label} title={label} className="ui-infotip">
         <InfoCircleOutlined />
       </button>
     </Popover>
