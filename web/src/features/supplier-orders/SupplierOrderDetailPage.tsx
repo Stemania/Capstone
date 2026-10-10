@@ -10,7 +10,6 @@ import {
   Modal,
   Select,
   Space,
-  Spin,
   Table,
   Tooltip,
   message,
@@ -31,7 +30,7 @@ import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import OverdueTag from '../../components/OverdueTag';
 import StatusPill from '../../components/StatusPill';
-import { IdChip } from '../../components/ui';
+import { IdChip, PageSkeleton } from '../../components/ui';
 import { GradeInput } from '../../components/MaterialInputs';
 import type { DeliveryMode, MaterialPurchase, SupplierOrder } from '../../types';
 import OrderMaterialsModal from './OrderMaterialsModal';
@@ -126,9 +125,7 @@ export default function SupplierOrderDetailPage() {
 
   if (loading) {
     return (
-      <div style={{ padding: 48, textAlign: 'center' }}>
-        <Spin size="large" />
-      </div>
+      <PageSkeleton variant="detail" />
     );
   }
   if (!order) return <div style={{ padding: 24 }}>Supplier order not found.</div>;

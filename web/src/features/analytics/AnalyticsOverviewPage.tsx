@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Spin, message } from 'antd';
+import { message } from 'antd';
 import {
   CartesianGrid,
   ComposedChart,
@@ -25,6 +25,7 @@ import {
   formatPct,
   useAnalyticsPeriod,
 } from './analyticsPeriod';
+import { PageSkeleton } from '../../components/ui';
 
 const AXIS = { fontSize: 13, fill: '#334155' };
 const GRID = chart.grid;
@@ -61,9 +62,7 @@ export default function AnalyticsOverviewPage() {
 
   if (loading && !overview) {
     return (
-      <div style={{ padding: 48, textAlign: 'center' }}>
-        <Spin size="large" />
-      </div>
+      <PageSkeleton variant="cards" />
     );
   }
 

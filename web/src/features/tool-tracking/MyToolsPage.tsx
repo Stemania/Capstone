@@ -1,6 +1,7 @@
 import { formatShop } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Spin, Empty, Input, Segmented, message } from 'antd';
+import { Button, Spin, Input, Segmented, message } from 'antd';
+import { EmptyState } from '../../components/ui';
 import { DownOutlined, RightOutlined, SearchOutlined, ToolOutlined } from '@ant-design/icons';
 import { toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
@@ -143,7 +144,11 @@ export default function MyToolsPage() {
           </div>
         ) : tab === 'borrowed' ? (
           filteredHeld.length === 0 ? (
-            <Empty description="No tool units currently out with you" style={{ marginTop: 40 }} />
+            <EmptyState
+              icon={<ToolOutlined />}
+              title="No tool units out with you"
+              description="Scan a tool's QR code to borrow it."
+            />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {filteredHeld.map((unit) => (
@@ -196,7 +201,7 @@ export default function MyToolsPage() {
             </div>
           )
         ) : filteredTypes.length === 0 ? (
-          <Empty description="No tools match your search" style={{ marginTop: 40 }} />
+          <EmptyState icon={<SearchOutlined />} title="No tools match your search" />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {filteredTypes.map((type) => {

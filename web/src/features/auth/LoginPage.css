@@ -37,7 +37,7 @@
   width: 100%;
   max-width: 420px;
   background: #fff;
-  border-radius: 0;
+  border-radius: 12px;
   overflow: hidden;
   box-shadow:
     0 4px 6px rgba(15, 23, 42, 0.04),
@@ -96,8 +96,8 @@
 .login-card .ant-input,
 .login-card .ant-input-affix-wrapper,
 .login-card .ant-input-affix-wrapper-lg {
-  border-radius: 0 !important;
-  border-color: #e2e8f0 !important;
+  border-radius: 8px !important;
+  border-color: #cbd5e1 !important;
 }
 
 .login-card .ant-input-affix-wrapper .ant-input {
@@ -106,25 +106,30 @@
 
 .login-card .ant-btn:not(.ant-btn-link),
 .login-card .ant-otp-input {
-  border-radius: 0 !important;
+  border-radius: 8px !important;
 }
 
 .login-card .ant-input:focus,
 .login-card .ant-input-focused,
 .login-card .ant-input-affix-wrapper-focused {
   border-color: #2563eb !important;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12) !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25) !important;
 }
 
 .login-card__submit {
-  height: 46px !important;
+  height: 48px !important;
   margin-top: 4px;
   font-weight: 700 !important;
-  border-radius: 0 !important;
+  border-radius: 8px !important;
   background: #2563eb !important;
   border: none !important;
 }
 
 .login-card__submit:hover {
   background: #1d4ed8 !important;
+}
+
+.login-card__submit:focus-visible {
+  outline: 2px solid #1d4ed8 !important;
+  outline-offset: 2px;
 }

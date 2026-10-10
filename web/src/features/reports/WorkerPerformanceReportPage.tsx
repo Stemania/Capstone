@@ -1,6 +1,6 @@
 import { shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
-import { DatePicker, Spin, Table, message } from 'antd';
+import { DatePicker, Table, message } from 'antd';
 import { analyticsApi } from '../../api/analytics.api';
 import { workersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
@@ -16,6 +16,7 @@ import {
   type AnalyticsRange,
 } from '../analytics/analyticsPeriod';
 import { ReportSection, ReportStamp, ReportToolbar } from './ReportChrome';
+import { PageSkeleton } from '../../components/ui';
 
 function skillLabel(s: WorkerSkill) {
   const name = s.machineTypeName || s.machineTypeCode || s.machineTypeId;
@@ -117,9 +118,7 @@ export default function WorkerPerformanceReportPage() {
       <ReportStamp periodFrom={params.from} periodTo={params.to} />
 
       {loading && !byWorker ? (
-        <div style={{ padding: 48, textAlign: 'center' }}>
-          <Spin size="large" />
-        </div>
+        <PageSkeleton variant="block" />
       ) : (
         <ReportSection
           title="By worker"

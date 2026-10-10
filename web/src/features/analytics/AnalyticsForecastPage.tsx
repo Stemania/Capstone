@@ -1,7 +1,7 @@
 import { chart, chartPalette } from '../../theme/tokens';
 import { formatShop } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Spin, Table, Typography, message } from 'antd';
+import { Alert, Table, Typography, message } from 'antd';
 import {
   Bar,
   BarChart,
@@ -34,6 +34,7 @@ import {
   withoutAllZero,
 } from './AnalyticsSection';
 import { formatInt, formatMoney, formatNum, useAnalyticsPeriod } from './analyticsPeriod';
+import { PageSkeleton } from '../../components/ui';
 
 const { Text } = Typography;
 
@@ -165,9 +166,7 @@ export default function AnalyticsForecastPage() {
 
   if (loading && !forecast) {
     return (
-      <div style={{ padding: 48, textAlign: 'center' }}>
-        <Spin size="large" />
-      </div>
+      <PageSkeleton variant="cards" />
     );
   }
   if (!forecast) return null;

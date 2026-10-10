@@ -1,6 +1,6 @@
 import { formatShop } from '../../utils/shopTime';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Button, Spin, Table, Typography, message } from 'antd';
+import { Button, Table, Typography, message } from 'antd';
 import {
   ArrowLeftOutlined,
   BellOutlined,
@@ -13,6 +13,7 @@ import { clientsApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import type { ClientDetail } from '../../types';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
+import { PageSkeleton } from '../../components/ui';
 
 const { Text } = Typography;
 
@@ -135,9 +136,7 @@ export default function ClientDetailPage() {
 
   if (loading && !data) {
     return (
-      <div style={{ padding: 48, textAlign: 'center' }}>
-        <Spin size="large" />
-      </div>
+      <PageSkeleton variant="detail" />
     );
   }
   if (!data) {

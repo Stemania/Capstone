@@ -1,6 +1,8 @@
 import { formatShop } from '../../utils/shopTime';
 import { useEffect, useState } from 'react';
-import { DatePicker, Empty, Spin, Table, Tag, Tooltip, Typography, message } from 'antd';
+import { DatePicker, Skeleton, Table, Tag, Tooltip, Typography, message } from 'antd';
+import { WarningOutlined } from '@ant-design/icons';
+import { EmptyState } from '../../components/ui';
 import { type Dayjs } from 'dayjs';
 import { workerProfileApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
@@ -44,15 +46,18 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
   }, [workerId, range, page]);
 
   if (loading && !data) {
-    return (
-      <div style={{ padding: 32, textAlign: 'center' }}>
-        <Spin />
-      </div>
-    );
+    return <Skeleton active paragraph={{ rows: 6 }} title={false} />;
   }
 
   if (!data) {
-    return <Empty description="Could not load history" />;
+    return (
+      <EmptyState
+        compact
+        icon={<WarningOutlined />}
+        title="Could not load history"
+        description="Pick the worker again to retry."
+      />
+    );
   }
 
   const s = data.summary;

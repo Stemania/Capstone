@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Segmented, Spin, Table, Typography, message } from 'antd';
+import { Segmented, Table, Typography, message } from 'antd';
 import {
   Bar,
   BarChart,
@@ -25,6 +25,7 @@ import {
   withoutAllZero,
 } from './AnalyticsSection';
 import { formatInt, formatMoney, useAnalyticsPeriod } from './analyticsPeriod';
+import { PageSkeleton } from '../../components/ui';
 
 const { Text } = Typography;
 const AXIS = { fontSize: 13, fill: '#334155' };
@@ -67,9 +68,7 @@ export default function AnalyticsSuppliersPage() {
 
   if (loading && !data) {
     return (
-      <div style={{ padding: 48, textAlign: 'center' }}>
-        <Spin size="large" />
-      </div>
+      <PageSkeleton variant="cards" />
     );
   }
   if (!data) return null;

@@ -1,6 +1,6 @@
 import { formatShop, shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
-import { Spin, Empty, Input, Segmented } from 'antd';
+import { Empty, Input, Segmented } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -15,6 +15,7 @@ import { overlayOperations, type OverlaidOperation } from '../../offline/overlay
 import SyncChip from '../../offline/SyncChip';
 import { CrewChips } from '../../components/PersonAvatar';
 import type { MyWorkSummary, Operation } from '../../types';
+import { PageSkeleton } from '../../components/ui';
 
 function opStatusBadge(
   op: OverlaidOperation,
@@ -201,9 +202,7 @@ export default function MyAssignmentsPage() {
         />
 
         {loading ? (
-          <div className="page-spinner">
-            <Spin size="large" />
-          </div>
+          <PageSkeleton variant="cards" />
         ) : error ? (
           <p style={{ color: colors.red }}>{error}</p>
         ) : filtered.length === 0 ? (

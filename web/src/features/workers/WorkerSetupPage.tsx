@@ -22,7 +22,7 @@ import PhotoUploadControl from '../../components/PhotoUploadControl';
 import { personLabel } from '../../utils/people';
 import WorkerHistoryPanel from './WorkerHistoryPanel';
 import InfoTip from '../../components/InfoTip';
-import { LevelBar, TabBar } from '../../components/ui';
+import { LevelBar, TabBar, PageSkeleton } from '../../components/ui';
 
 const { Text } = Typography;
 
@@ -422,9 +422,7 @@ export default function WorkerSetupPage() {
           {!workerId ? (
             <Text type="secondary">Select a worker to edit skills, hours, or history.</Text>
           ) : detailLoading ? (
-            <div style={{ padding: 48, textAlign: 'center' }}>
-              <Spin size="large" />
-            </div>
+            <PageSkeleton variant="block" />
           ) : (
             <>
               <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14 }}>

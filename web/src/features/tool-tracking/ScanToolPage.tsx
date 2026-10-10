@@ -428,6 +428,7 @@ export default function ScanToolPage() {
           loading={lookingUp || submitting}
           disabled={!manualCode.trim()}
           onClick={() => void handleManual()}
+          style={{ height: 48, fontWeight: 700 }}
         >
           Continue
         </Button>

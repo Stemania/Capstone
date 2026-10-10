@@ -9,7 +9,6 @@ import {
   Row,
   Select,
   TimePicker,
-  Spin,
   message,
   DatePicker,
 } from 'antd';
@@ -32,7 +31,7 @@ import {
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import RescheduleAffectedJobs from './RescheduleAffectedJobs';
-import { Legend } from '../../components/ui';
+import { Legend, PageSkeleton } from '../../components/ui';
 
 const TYPE_LABEL: Record<CalendarExceptionType, string> = {
   OVERTIME: 'Overtime',
@@ -465,9 +464,7 @@ export default function WorkCalendarPage() {
 
         <div className="work-calendar__body">
           {loading ? (
-            <div className="work-calendar__loading">
-              <Spin size="large" />
-            </div>
+            <PageSkeleton variant="block" />
           ) : (
             <div
               className="work-calendar__grid"

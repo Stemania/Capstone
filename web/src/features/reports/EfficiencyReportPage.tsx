@@ -1,6 +1,6 @@
 import { shopToday } from '../../utils/shopTime';
 import { useEffect, useState } from 'react';
-import { DatePicker, Spin, Table, message } from 'antd';
+import { DatePicker, Table, message } from 'antd';
 import { analyticsApi } from '../../api/analytics.api';
 import { getErrorMessage } from '../../api/client';
 import type {
@@ -19,6 +19,7 @@ import {
   type AnalyticsRange,
 } from '../analytics/analyticsPeriod';
 import { ReportKpi, ReportSection, ReportStamp, ReportToolbar } from './ReportChrome';
+import { PageSkeleton } from '../../components/ui';
 
 export default function EfficiencyReportPage() {
   const [range, setRange] = useState<AnalyticsRange>(defaultAnalyticsRange);
@@ -95,9 +96,7 @@ export default function EfficiencyReportPage() {
       <ReportStamp periodFrom={params.from} periodTo={params.to} />
 
       {loading && !meta ? (
-        <div style={{ padding: 48, textAlign: 'center' }}>
-          <Spin size="large" />
-        </div>
+        <PageSkeleton variant="block" />
       ) : (
         <>
           <p className="report-note">

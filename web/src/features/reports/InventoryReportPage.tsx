@@ -1,6 +1,6 @@
 import { shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
-import { Button, DatePicker, Spin, Table, message } from 'antd';
+import { Button, DatePicker, Table, message } from 'antd';
 import { DownloadOutlined } from '@ant-design/icons';
 import { downloadCsv, rowsToCsv } from '../../utils/csvExport';
 import { inventoryApi, toolsApi } from '../../api/tools.api';
@@ -18,6 +18,7 @@ import {
   type AnalyticsRange,
 } from '../analytics/analyticsPeriod';
 import { ReportSection, ReportStamp, ReportToolbar, displayOrDash } from './ReportChrome';
+import { PageSkeleton } from '../../components/ui';
 
 export default function InventoryReportPage() {
   const [range, setRange] = useState<AnalyticsRange>(defaultAnalyticsRange);
@@ -143,9 +144,7 @@ export default function InventoryReportPage() {
       <ReportStamp periodFrom={params.from} periodTo={params.to} />
 
       {loading && !tools.length ? (
-        <div style={{ padding: 48, textAlign: 'center' }}>
-          <Spin size="large" />
-        </div>
+        <PageSkeleton variant="block" />
       ) : (
         <>
           <ReportSection title="Current stock" note="Low-stock rows are highlighted.">

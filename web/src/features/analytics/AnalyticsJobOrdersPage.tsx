@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Spin, Table, Typography, message } from 'antd';
+import { Table, Typography, message } from 'antd';
 import { analyticsApi } from '../../api/analytics.api';
 import { getErrorMessage } from '../../api/client';
 import type { AnalyticsJobOrders } from '../../types';
@@ -8,6 +8,7 @@ import { SummaryCard } from './AnalyticsChrome';
 import { AnalyticsGrid, AnalyticsSection } from './AnalyticsSection';
 import SalesSection from './SalesSection';
 import { formatInt, formatMoney, formatPct, useAnalyticsPeriod } from './analyticsPeriod';
+import { PageSkeleton } from '../../components/ui';
 
 const { Text } = Typography;
 
@@ -45,9 +46,7 @@ export default function AnalyticsJobOrdersPage() {
 
   if (!data) {
     return (
-      <div style={{ padding: 48, textAlign: 'center' }}>
-        <Spin size="large" />
-      </div>
+      <PageSkeleton variant="cards" />
     );
   }
 

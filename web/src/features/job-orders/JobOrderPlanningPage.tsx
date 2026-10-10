@@ -6,7 +6,6 @@ import {
   Typography,
   Alert,
   Tag,
-  Spin,
   Table,
   Tooltip,
   Space,
@@ -55,6 +54,7 @@ import type {
   User,
   WorkerSuggestion,
 } from '../../types';
+import { PageSkeleton } from '../../components/ui';
 
 const { Title, Text } = Typography;
 
@@ -966,9 +966,7 @@ export default function JobOrderPlanningPage() {
 
   if (loading) {
     return (
-      <div className="page-spinner">
-        <Spin size="large" />
-      </div>
+      <PageSkeleton variant="detail" />
     );
   }
 

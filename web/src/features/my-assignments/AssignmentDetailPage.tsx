@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Modal, Spin, message } from 'antd';
+import { Button, Modal, message } from 'antd';
 import { CheckCircleFilled, FileTextOutlined, WarningOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
@@ -16,6 +16,7 @@ import { CrewChips } from '../../components/PersonAvatar';
 import { DOWNTIME_REASONS, type DowntimeCategory } from '../../constants/downtimeReasons';
 import { SHOP_TZ, formatShop, shopToday } from '../../utils/shopTime';
 import type { JobOrder, Operation, OperationPauseReason, PartCondition } from '../../types';
+import { PageSkeleton } from '../../components/ui';
 
 const PAUSE_REASONS: { value: OperationPauseReason; label: string }[] = [
   { value: 'END_OF_SHIFT', label: 'End of shift' },
@@ -233,9 +234,7 @@ export default function AssignmentDetailPage() {
     return (
       <div>
         <WorkerPageHeader title="Job Details" onBack={() => navigate('/my-assignments')} />
-        <div className="page-spinner">
-          <Spin size="large" />
-        </div>
+        <PageSkeleton variant="detail" />
       </div>
     );
   }

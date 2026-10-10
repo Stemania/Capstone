@@ -7,7 +7,6 @@ import {
   DatePicker,
   Select,
   Alert,
-  Spin,
   Row,
   Col,
   Space,
@@ -20,7 +19,7 @@ import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import type { Client, JobOrderStatus } from '../../types';
 import { jobOrdersDraftsListPath } from './jobOrderListPaths';
-import { IdChip, Page, SectionCard } from '../../components/ui';
+import { IdChip, Page, SectionCard, PageSkeleton } from '../../components/ui';
 
 const { TextArea } = Input;
 
@@ -156,9 +155,7 @@ export default function JobOrderFormPage() {
 
   if (loading) {
     return (
-      <div className="page-spinner">
-        <Spin size="large" />
-      </div>
+      <PageSkeleton variant="detail" />
     );
   }
 

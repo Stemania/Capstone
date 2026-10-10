@@ -1,7 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useParams } from 'react-router-dom';
 import { OfflineProvider } from '../offline/OfflineProvider';
-import { Spin } from 'antd';
 import { AuthProvider, useAuth } from '../hooks/useAuth';
 import { ProtectedRoute } from './ProtectedRoute';
 import RoleAwareLayout from './RoleAwareLayout';
@@ -38,6 +37,7 @@ import EfficiencyReportPage from '../features/reports/EfficiencyReportPage';
 import InventoryReportPage from '../features/reports/InventoryReportPage';
 import WorkerPerformanceReportPage from '../features/reports/WorkerPerformanceReportPage';
 import JobOrderPrintPage from '../features/reports/JobOrderPrintPage';
+import { PageSkeleton } from '../components/ui';
 const AnalyticsLayout = lazy(() => import('../features/analytics/AnalyticsLayout'));
 const AnalyticsOverviewPage = lazy(() => import('../features/analytics/AnalyticsOverviewPage'));
 const AnalyticsDelaysPage = lazy(() => import('../features/analytics/AnalyticsDelaysPage'));
@@ -75,9 +75,7 @@ function AnalyticsSuspense({ children }: { children: React.ReactNode }) {
   return (
     <Suspense
       fallback={
-        <div style={{ padding: 48, textAlign: 'center' }}>
-          <Spin size="large" />
-        </div>
+        <PageSkeleton variant="cards" />
       }
     >
       {children}

@@ -37,7 +37,7 @@ import { notificationsApi } from '../../api/notifications.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import StatusPill from '../../components/StatusPill';
-import { IdChip } from '../../components/ui';
+import { IdChip, PageSkeleton } from '../../components/ui';
 import { JOB_FLAG, JOB_STATUS, OPERATION_STATUS, type StatusDef } from '../../theme/statuses';
 import { colors, tones } from '../../theme/tokens';
 import MaterialWaitTag from '../../components/MaterialWaitTag';
@@ -693,9 +693,7 @@ export default function JobOrderDetailPage() {
 
   if (loading && !job) {
     return (
-      <div style={{ padding: 48, textAlign: 'center' }}>
-        <Spin size="large" />
-      </div>
+      <PageSkeleton variant="detail" />
     );
   }
 

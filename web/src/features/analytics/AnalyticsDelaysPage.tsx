@@ -1,6 +1,6 @@
 import { chartPalette } from '../../theme/tokens';
 import { useEffect, useState } from 'react';
-import { Spin, Table, Tag, Typography, message } from 'antd';
+import { Table, Tag, Typography, message } from 'antd';
 import dayjs from 'dayjs';
 import { Link } from 'react-router-dom';
 import { SHOP_TZ, formatShop } from '../../utils/shopTime';
@@ -31,6 +31,7 @@ import {
   withoutAllZero,
 } from './AnalyticsSection';
 import { formatInt, useAnalyticsPeriod } from './analyticsPeriod';
+import { PageSkeleton } from '../../components/ui';
 
 const { Text } = Typography;
 const AXIS = { fontSize: 13, fill: '#334155' };
@@ -97,9 +98,7 @@ export default function AnalyticsDelaysPage() {
 
   if (loading && !data) {
     return (
-      <div style={{ padding: 48, textAlign: 'center' }}>
-        <Spin size="large" />
-      </div>
+      <PageSkeleton variant="cards" />
     );
   }
   if (!data) return null;
