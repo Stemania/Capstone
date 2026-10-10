@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Button, Segmented, Table, message } from 'antd';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, Table, message } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -7,6 +7,7 @@ import { supplierOrdersApi } from '../../api/supplierOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill from '../../components/StatusPill';
 import OverdueTag from '../../components/OverdueTag';
+import { IdChip, TabBar } from '../../components/ui';
 import { useAuth } from '../../hooks/useAuth';
 import { useOverdueCheck } from '../../hooks/useOverdueCheck';
 import type { SupplierOrder, SupplierOrderStatus } from '../../types';
@@ -34,6 +35,8 @@ export default function SupplierOrdersPage() {
   const [newOpen, setNewOpen] = useState(false);
   useOverdueCheck();
 
+  const [all, setAll] = useState<SupplierOrder[] | null>(null);
+
   const fetchRows = useCallback(async () => {
     setLoading(true);
     try {
@@ -41,12 +44,24 @@ export default function SupplierOrdersPage() {
         filter === 'ALL' ? undefined : { status: filter }
       );
       setRows(data);
+      if (filter === 'ALL') setAll(data);
+      else supplierOrdersApi.list().then((res) => setAll(res.data)).catch(() => undefined);
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
   }, [filter]);
+
+  const counts = useMemo(() => {
+    if (!all) return null;
+    const c: Record<string, number> = { ALL: all.length, OVERDUE: 0 };
+    for (const o of all) {
+      c[o.status] = (c[o.status] || 0) + 1;
+      if (o.daysOverdue && o.daysOverdue > 0) c.OVERDUE += 1;
+    }
+    return c;
+  }, [all]);
 
   useEffect(() => {
     void fetchRows();
@@ -58,11 +73,7 @@ export default function SupplierOrdersPage() {
       key: 'po',
       width: 150,
       render: (_: unknown, r) =>
-        r.poNumber ? (
-          <span style={{ fontWeight: 600 }}>{r.poNumber}</span>
-        ) : (
-          <span style={{ color: '#64748b' }}>Not issued</span>
-        ),
+        r.poNumber ? <IdChip>{r.poNumber}</IdChip> : <span className="tone-text--slate">Not issued</span>,
     },
     { title: 'Supplier', dataIndex: 'supplierName', width: 200, ellipsis: true },
     {
@@ -120,7 +131,15 @@ export default function SupplierOrdersPage() {
           justifyContent: 'space-between',
         }}
       >
-        <Segmented<Filter> options={FILTERS} value={filter} onChange={setFilter} />
+        <TabBar<Filter>
+          value={filter}
+          onChange={setFilter}
+          items={FILTERS.map((f) => ({
+            ...f,
+            count: counts ? counts[f.value] || 0 : null,
+            countTone: f.value === 'OVERDUE' && counts?.OVERDUE ? 'red' : undefined,
+          }))}
+        />
         {isOfficeStaff && (
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setNewOpen(true)}>
             New supplier order

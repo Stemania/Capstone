@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Table,
   Button,
   Modal,
   Form,
@@ -18,6 +17,7 @@ import { suppliersApi } from '../../api/suppliers.api';
 import { getErrorMessage } from '../../api/client';
 import type { Supplier } from '../../types';
 import StatusPill from '../../components/StatusPill';
+import { DataTable, EmptyState, FilterBar } from '../../components/ui';
 import { useAuth } from '../../hooks/useAuth';
 
 function sectionLabel(text: string) {
@@ -157,38 +157,31 @@ export default function SuppliersPage() {
 
   return (
     <div>
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 12,
-          marginBottom: 16,
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
-      >
-        <Input
-          allowClear
-          placeholder="Search suppliers"
-          prefix={<ShopOutlined />}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ maxWidth: 320 }}
-        />
-        {canEdit && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            Add supplier
-          </Button>
-        )}
-      </div>
+      <FilterBar
+        search={{ value: search, onChange: setSearch, placeholder: 'Search name, code, contact, phone…' }}
+        actions={
+          canEdit ? (
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+              Add supplier
+            </Button>
+          ) : null
+        }
+      />
 
-      <Table
-        className="std-list-table"
+      <DataTable<Supplier>
         rowKey="id"
         loading={loading}
         dataSource={filtered}
         columns={columns}
-        pagination={{ pageSize: 20 }}
+        locale={{
+          emptyText: (
+            <EmptyState
+              compact
+              icon={<ShopOutlined />}
+              title={search ? 'No suppliers match your search' : 'No suppliers yet'}
+            />
+          ),
+        }}
       />
 
       <Modal

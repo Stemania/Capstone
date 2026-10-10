@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Alert, Table, Button, Select, Dropdown, Input, Space, Spin, message, Drawer, Badge, Segmented, Modal, Tooltip } from 'antd';
+import { Alert, Table, Button, Select, Dropdown, Input, Space, Spin, message, Drawer, Badge, Modal, Tooltip } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
   PlusOutlined,
@@ -21,7 +21,9 @@ import dayjs from 'dayjs';
 import { formatShopDate, scheduleFlagStyle, formatShop, shopToday } from '../../utils/shopTime';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
-import StatusPill, { type PillColor } from '../../components/StatusPill';
+import StatusPill from '../../components/StatusPill';
+import { IdChip, TabBar } from '../../components/ui';
+import { JOB_FLAG, JOB_STATUS } from '../../theme/statuses';
 import MaterialDelayTag from '../../components/MaterialDelayTag';
 import NeedsReplanTag from '../../components/NeedsReplanTag';
 import MaterialWaitTag from '../../components/MaterialWaitTag';
@@ -44,14 +46,6 @@ const PRODUCTION_STATUS_OPTIONS: { value: JobOrderStatus; label: string }[] = [
   { value: 'DELIVERED', label: 'For Delivery' },
 ];
 
-const statusStyle: Record<JobOrderStatus, { label: string; color: PillColor }> = {
-  DRAFT: { label: 'Pending', color: 'gray' },
-  SCHEDULED: { label: 'Scheduled', color: 'blue' },
-  IN_PROGRESS: { label: 'In Progress', color: 'blue' },
-  COMPLETED: { label: 'Completed', color: 'green' },
-  DELIVERED: { label: 'For Delivery', color: 'green' },
-};
-
 function isJobOverdue(job: JobOrder) {
   return (
     job.status !== 'COMPLETED' &&
@@ -62,11 +56,10 @@ function isJobOverdue(job: JobOrder) {
 
 function JobStatusBadge({ job }: { job: JobOrder }) {
   const overdue = isJobOverdue(job);
-  const st = statusStyle[job.status] || statusStyle.SCHEDULED;
   const pill = overdue ? (
-    <StatusPill color="red" compact>Overdue</StatusPill>
+    <StatusPill tone={JOB_FLAG.overdue.tone} compact>{JOB_FLAG.overdue.label}</StatusPill>
   ) : (
-    <StatusPill color={st.color} compact>{st.label}</StatusPill>
+    <StatusPill status={job.status} map={JOB_STATUS} compact />
   );
   const delayed = !!job.materialDelay && job.status === 'SCHEDULED';
   if (!job.waitingForMaterials && !delayed && !job.needsReplan) return pill;
@@ -243,6 +236,7 @@ export default function JobOrderListPage() {
     tabFromSearch(searchParams.get('tab'))
   );
   const [draftCount, setDraftCount] = useState(0);
+  const [releasedCount, setReleasedCount] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<JobOrderStatus[]>([]);
   const [clientFilter, setClientFilter] = useState<string[]>([]);
   const [awaitingMaterialOnly, setAwaitingMaterialOnly] = useState(false);
@@ -289,6 +283,7 @@ export default function JobOrderListPage() {
       });
       setJobs(data);
       if (tab === 'drafts') setDraftCount(data.length);
+      else if (!awaitingMaterialOnly) setReleasedCount(data.length);
     } catch (err) {
       setJobs([]);
       setError(getErrorMessage(err));
@@ -519,14 +514,10 @@ export default function JobOrderListPage() {
       title: 'Job #',
       dataIndex: 'jobNumber',
       key: 'jobNumber',
-      width: 108,
+      width: 136,
       sorter: (a, b) =>
         (a.jobNumber || a.id).localeCompare(b.jobNumber || b.id, undefined, { numeric: true }),
-      render: (n: string, record) => (
-        <span style={{ fontWeight: 600, color: '#64748b', fontSize: 12 }}>
-          {n || record.id.slice(0, 8).toUpperCase()}
-        </span>
-      ),
+      render: (n: string, record) => <IdChip>{n || record.id.slice(0, 8).toUpperCase()}</IdChip>,
     },
     {
       title: 'Title',
@@ -542,7 +533,7 @@ export default function JobOrderListPage() {
       title: 'Client',
       dataIndex: 'clientName',
       key: 'clientName',
-      width: 168,
+      width: 160,
       ellipsis: true,
       sorter: (a, b) => (a.clientName || '').localeCompare(b.clientName || ''),
       render: (v: string | undefined) => (
@@ -550,10 +541,10 @@ export default function JobOrderListPage() {
       ),
     },
     {
-      title: 'Last Modified Date',
+      title: 'Last modified',
       dataIndex: 'updatedAt',
       key: 'updatedAt',
-      width: 148,
+      width: 124,
       sorter: (a, b) =>
         dayjs(a.updatedAt || a.createdAt).valueOf() - dayjs(b.updatedAt || b.createdAt).valueOf(),
       render: (_: string | null | undefined, record) => {
@@ -675,10 +666,10 @@ export default function JobOrderListPage() {
       ),
     },
     {
-      title: 'Last Modified Date',
+      title: 'Last modified',
       dataIndex: 'updatedAt',
       key: 'updatedAt',
-      width: 148,
+      width: 124,
       sorter: (a, b) =>
         dayjs(a.updatedAt || a.createdAt).valueOf() - dayjs(b.updatedAt || b.createdAt).valueOf(),
       render: (_: string | null | undefined, record) => {
@@ -697,20 +688,17 @@ export default function JobOrderListPage() {
 
   const listTabs = (isAdmin || isOfficeStaff) ? (
     <div style={{ marginBottom: isPhone ? 10 : 14 }}>
-      <Segmented
+      <TabBar<ListTab>
         block={isPhone}
         value={listTab}
-        onChange={(v) => selectListTab(v as ListTab)}
-        options={[
-          { label: 'Released', value: 'production' },
+        onChange={selectListTab}
+        items={[
+          { label: 'Released', value: 'production', count: releasedCount },
           {
-            label: (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {isAdmin ? 'To plan' : 'Pending'}
-                {draftCount > 0 ? <Badge count={draftCount} size="small" /> : null}
-              </span>
-            ),
+            label: isAdmin ? 'To plan' : 'Pending',
             value: 'drafts',
+            count: draftCount,
+            countTone: draftCount > 0 ? 'red' : undefined,
           },
         ]}
       />

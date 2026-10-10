@@ -7,7 +7,7 @@ export const ORDER_STATUS_PILL: Record<SupplierOrderStatus, { label: string; col
   ISSUED: { label: 'Issued', color: 'blue' },
   PARTIALLY_RECEIVED: { label: 'Partly received', color: 'amber' },
   RECEIVED: { label: 'Received', color: 'green' },
-  CANCELLED: { label: 'Cancelled', color: 'red' },
+  CANCELLED: { label: 'Cancelled', color: 'grey' },
 };
 
 export const LINE_STATUS_PILL: Record<string, { label: string; color: PillColor }> = {
@@ -15,7 +15,7 @@ export const LINE_STATUS_PILL: Record<string, { label: string; color: PillColor 
   ORDERED: { label: 'Ordered', color: 'amber' },
   RECEIVED: { label: 'Received', color: 'green' },
   CONSUMED: { label: 'Consumed', color: 'gray' },
-  CANCELLED: { label: 'Cancelled', color: 'red' },
+  CANCELLED: { label: 'Cancelled', color: 'grey' },
 };
 
 export function fmtMoney(n?: number | null) {

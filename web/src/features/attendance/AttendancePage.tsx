@@ -7,16 +7,18 @@ import {
   Form,
   Input,
   Modal,
-  Segmented,
   Select,
-  Table,
   TimePicker,
   message,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import {
+  CheckCircleOutlined,
   ClockCircleOutlined,
+  CloseCircleOutlined,
+  CoffeeOutlined,
   DeleteOutlined,
+  FieldTimeOutlined,
   DownloadOutlined,
   EditOutlined,
   LeftOutlined,
@@ -28,24 +30,15 @@ import {
 import dayjs, { type Dayjs } from 'dayjs';
 import { attendanceApi } from '../../api/attendance.api';
 import { getErrorMessage } from '../../api/client';
-import StatusPill, { type PillColor } from '../../components/StatusPill';
+import StatusPill from '../../components/StatusPill';
+import { DataTable, EmptyState, StatCard, StatGrid, TabBar } from '../../components/ui';
+import { ATTENDANCE_STATUS } from '../../theme/statuses';
 import { downloadCsv } from '../../utils/csvExport';
 import type {
   AttendanceDaySheet,
   AttendanceHistory,
   AttendanceRow,
-  AttendanceStatus,
 } from '../../types';
-
-const STATUS: Record<AttendanceStatus, { label: string; color: PillColor }> = {
-  PRESENT: { label: 'Present', color: 'green' },
-  CLOCKED_IN: { label: 'Still clocked in', color: 'blue' },
-  INCOMPLETE: { label: 'Incomplete', color: 'amber' },
-  ABSENT: { label: 'Absent', color: 'red' },
-  NOT_IN: { label: 'Not in yet', color: 'amber' },
-  NOT_YET: { label: 'Not yet', color: 'gray' },
-  OFF: { label: 'Day off', color: 'gray' },
-};
 
 type ModalMode = 'in' | 'out' | 'edit';
 
@@ -80,35 +73,15 @@ function defaultTime(day: string, scheduled: string | null, fallback: string) {
 }
 
 function StatusCell({ row }: { row: AttendanceRow }) {
-  const s = STATUS[row.status];
   return (
     <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
-      <StatusPill color={s.color} compact>
-        {s.label}
-      </StatusPill>
+      <StatusPill status={row.status} map={ATTENDANCE_STATUS} compact />
       {row.lateMinutes > 0 && (
-        <StatusPill color="amber" compact>
+        <StatusPill tone={ATTENDANCE_STATUS.LATE.tone} compact>
           Late {fmtHours(row.lateMinutes / 60)}
         </StatusPill>
       )}
     </span>
-  );
-}
-
-function SummaryTile({ label, value, color }: { label: string; value: string | number; color?: string }) {
-  return (
-    <div
-      style={{
-        background: '#fff',
-        border: '1px solid #e2e8f0',
-        borderRadius: 8,
-        padding: '10px 16px',
-        minWidth: 120,
-      }}
-    >
-      <div style={{ fontSize: 12, color: '#64748b' }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: color || '#0f172a' }}>{value}</div>
-    </div>
   );
 }
 
@@ -285,7 +258,12 @@ export default function AttendancePage() {
     return (
       <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
         {!rec && !isFuture(row.date) && (
-          <Button size="small" type="primary" icon={<LoginOutlined />} onClick={() => openModal('in', row)}>
+          <Button
+            size="small"
+            type={row.status === 'OFF' ? 'text' : 'default'}
+            icon={<LoginOutlined />}
+            onClick={() => openModal('in', row)}
+          >
             Clock in
           </Button>
         )}
@@ -321,6 +299,8 @@ export default function AttendancePage() {
     {
       title: 'Worker',
       dataIndex: 'workerName',
+      width: 200,
+      ellipsis: true,
       render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span>,
     },
     { title: 'Scheduled', key: 'shift', width: 170, render: (_: unknown, r) => fmtShift(r) },
@@ -345,7 +325,14 @@ export default function AttendancePage() {
       ellipsis: true,
       render: (_: unknown, r) => r.record?.note || '',
     },
-    { title: '', key: 'actions', width: 150, align: 'right', render: (_: unknown, r) => actionsCell(r) },
+    {
+      title: '',
+      key: 'actions',
+      width: 150,
+      align: 'right',
+      fixed: 'right',
+      render: (_: unknown, r) => actionsCell(r),
+    },
   ];
 
   const historyColumns: TableColumnsType<AttendanceRow> = [
@@ -373,10 +360,10 @@ export default function AttendancePage() {
           justifyContent: 'space-between',
         }}
       >
-        <Segmented
+        <TabBar<'day' | 'history'>
           value={view}
-          onChange={(v) => setView(v as 'day' | 'history')}
-          options={[
+          onChange={setView}
+          items={[
             { label: 'Daily sheet', value: 'day' },
             { label: 'Worker history', value: 'history' },
           ]}
@@ -438,50 +425,78 @@ export default function AttendancePage() {
 
       {view === 'day' ? (
         <>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-            <SummaryTile
-              label="Present"
-              value={(counts.PRESENT || 0) + (counts.CLOCKED_IN || 0) + (counts.INCOMPLETE || 0)}
-              color="#16a34a"
-            />
-            {isToday ? (
-              <SummaryTile label="Still clocked in" value={counts.CLOCKED_IN || 0} color="#2563eb" />
-            ) : (
-              <SummaryTile label="Incomplete" value={counts.INCOMPLETE || 0} color="#d97706" />
-            )}
-            <SummaryTile label="Late" value={sheet?.lateCount || 0} color="#d97706" />
-            <SummaryTile
-              label={isToday ? 'Absent / not in yet' : 'Absent'}
-              value={(counts.ABSENT || 0) + (counts.NOT_IN || 0)}
-              color="#7A1528"
-            />
-            <SummaryTile label="Day off" value={counts.OFF || 0} color="#64748b" />
+          <div style={{ marginBottom: 16 }}>
+            <StatGrid min={170}>
+              <StatCard
+                icon={<CheckCircleOutlined />}
+                tone="green"
+                label="Present"
+                value={(counts.PRESENT || 0) + (counts.CLOCKED_IN || 0) + (counts.INCOMPLETE || 0)}
+                loading={loading && !sheet}
+              />
+              {isToday ? (
+                <StatCard
+                  icon={<LoginOutlined />}
+                  tone="blue"
+                  label="Still clocked in"
+                  value={counts.CLOCKED_IN || 0}
+                  loading={loading && !sheet}
+                />
+              ) : (
+                <StatCard
+                  icon={<FieldTimeOutlined />}
+                  tone="amber"
+                  label="Incomplete"
+                  value={counts.INCOMPLETE || 0}
+                  loading={loading && !sheet}
+                />
+              )}
+              <StatCard
+                icon={<ClockCircleOutlined />}
+                tone="amber"
+                label="Late"
+                value={sheet?.lateCount || 0}
+                loading={loading && !sheet}
+              />
+              <StatCard
+                icon={<CloseCircleOutlined />}
+                tone="red"
+                label={isToday ? 'Absent / not in yet' : 'Absent'}
+                value={(counts.ABSENT || 0) + (counts.NOT_IN || 0)}
+                loading={loading && !sheet}
+              />
+              <StatCard
+                icon={<CoffeeOutlined />}
+                tone="grey"
+                label="Day off"
+                value={counts.OFF || 0}
+                loading={loading && !sheet}
+              />
+            </StatGrid>
           </div>
-          <Table
-            className="std-list-table"
+          <DataTable<AttendanceRow>
             rowKey="workerId"
             loading={loading}
             dataSource={sheet?.rows || []}
             columns={dayColumns}
             pagination={false}
-            scroll={{ x: 1080 }}
+            scroll={{ x: 1180 }}
           />
         </>
       ) : !historyWorker ? (
-        <div style={{ color: '#64748b', padding: '32px 0', textAlign: 'center' }}>
-          Select a worker to see their attendance.
-        </div>
+        <EmptyState icon={<ClockCircleOutlined />} title="Select a worker to see their attendance." />
       ) : (
         <>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-            <SummaryTile label="Days present" value={history?.summary.daysPresent ?? 0} color="#16a34a" />
-            <SummaryTile label="Days absent" value={history?.summary.daysAbsent ?? 0} color="#7A1528" />
-            <SummaryTile label="Days late" value={history?.summary.daysLate ?? 0} color="#d97706" />
-            <SummaryTile label="Hours present" value={fmtHours(history?.summary.hoursPresent ?? 0)} />
-            <SummaryTile label="Hours worked" value={fmtHours(history?.summary.hoursWorked ?? 0)} />
+          <div style={{ marginBottom: 16 }}>
+            <StatGrid min={170}>
+              <StatCard icon={<CheckCircleOutlined />} tone="green" label="Days present" value={history?.summary.daysPresent ?? 0} />
+              <StatCard icon={<CloseCircleOutlined />} tone="red" label="Days absent" value={history?.summary.daysAbsent ?? 0} />
+              <StatCard icon={<ClockCircleOutlined />} tone="amber" label="Days late" value={history?.summary.daysLate ?? 0} />
+              <StatCard icon={<FieldTimeOutlined />} tone="blue" label="Hours present" value={fmtHours(history?.summary.hoursPresent ?? 0)} />
+              <StatCard icon={<FieldTimeOutlined />} tone="indigo" label="Hours worked" value={fmtHours(history?.summary.hoursWorked ?? 0)} />
+            </StatGrid>
           </div>
-          <Table
-            className="std-list-table"
+          <DataTable<AttendanceRow>
             rowKey="date"
             loading={historyLoading}
             dataSource={history?.rows || []}

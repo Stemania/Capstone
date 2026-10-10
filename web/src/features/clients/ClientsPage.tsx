@@ -6,7 +6,6 @@ import {
   Form,
   Input,
   Switch,
-  Typography,
   Space,
   Select,
   Dropdown,
@@ -261,10 +260,6 @@ export default function ClientsPage() {
 
   return (
     <div className="std-list-page">
-      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-        Register client contact details for job update messages.
-      </Typography.Text>
-
       <div className="std-list-toolbar">
         <div className="std-list-filters">
           <Input
