@@ -338,7 +338,10 @@ def build_worker_working_windows(
     anchor_utc: datetime,
     end_utc: datetime,
 ) -> list[tuple[datetime, datetime]]:
-    """Expand worker schedule + calendar exceptions into UTC working intervals."""
+    """Expand worker schedule + calendar exceptions into UTC working intervals.
+    No working hours set means no working time, even on overtime days."""
+    if not has_working_hours(schedule_by_dow):
+        return []
     anchor_shop = utc_to_shop(anchor_utc)
     end_shop = utc_to_shop(end_utc)
     windows = []
@@ -400,13 +403,20 @@ def load_worker_schedule_maps(worker_id):
     return dict(load_worker_schedule_maps_many([worker_id]).get(worker_id, {}))
 
 
+def has_working_hours(schedule_by_dow) -> bool:
+    return any(
+        d and d.is_working and d.start_time and d.end_time
+        for d in (schedule_by_dow or {}).values()
+    )
+
+
 def crew_schedule_map(maps):
     """The hours a whole crew works together: per weekday, working only when
     every member works, from the latest start to the earliest end. One map is
-    returned unchanged. A member with no schedule rows adds no limit, as a
-    lone worker without rows falls back to the shop's hours."""
-    maps = [m for m in (maps or []) if m]
-    if not maps:
+    returned unchanged. A member with no working hours makes the whole crew
+    unavailable (an empty map)."""
+    maps = list(maps or [])
+    if not maps or not all(has_working_hours(m) for m in maps):
         return {}
     if len(maps) == 1:
         return dict(maps[0])

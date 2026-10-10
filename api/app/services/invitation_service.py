@@ -14,7 +14,6 @@ from flask_jwt_extended import create_access_token, create_refresh_token
 from app.extensions import bcrypt, db
 from app.models.user import User, UserRole, UserStatus
 from app.models.user_security import InvitationChannel, UserInvitation
-from app.models.worker_profile import WorkerProfile
 from app.services.audit_service import write_audit_event
 from app.services.notification_providers import build_email_provider, build_sms_provider
 from app.utils.errors import AppError
@@ -82,23 +81,9 @@ def create_invited_user(
     db.session.add(user)
     db.session.flush()
 
-    if role == UserRole.PRODUCTION_WORKER:
-        db.session.add(WorkerProfile(user_id=user.id))
-        from datetime import time
+    from app.services.worker_profile_service import ensure_worker_profile
 
-        from app.models.worker_skill import WorkerSchedule
-
-        for dow in range(7):
-            working = dow < 6
-            db.session.add(
-                WorkerSchedule(
-                    worker_id=user.id,
-                    day_of_week=dow,
-                    start_time=time(8, 0) if working else None,
-                    end_time=time(17, 0) if working else None,
-                    is_working=working,
-                )
-            )
+    ensure_worker_profile(user)
 
     invitation, raw_secret = issue_invitation(user, channel, created_by_id, commit=False)
     db.session.commit()

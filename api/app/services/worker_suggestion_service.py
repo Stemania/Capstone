@@ -125,14 +125,21 @@ def _usable_units(machine_type_id, scheduled_start, scheduled_end, exclude_opera
     start, end = _parse_dt(scheduled_start), _parse_dt(scheduled_end)
     if not units or not start or not end or end <= start:
         return units
-    booked = JobOperation.query.filter(
-        JobOperation.machine_unit_id.in_([u.id for u in units]),
-        JobOperation.status.in_(
-            (OperationStatus.SCHEDULED, OperationStatus.IN_PROGRESS, OperationStatus.REWORK)
-        ),
-        JobOperation.scheduled_start.isnot(None),
-        JobOperation.scheduled_end.isnot(None),
-    ).all()
+    from app.models.job_order import JobOrder, JobOrderStatus
+
+    booked = (
+        JobOperation.query.join(JobOrder, JobOperation.job_order_id == JobOrder.id)
+        .filter(
+            JobOperation.machine_unit_id.in_([u.id for u in units]),
+            JobOperation.status.in_(
+                (OperationStatus.SCHEDULED, OperationStatus.IN_PROGRESS, OperationStatus.REWORK)
+            ),
+            JobOrder.status != JobOrderStatus.DRAFT,
+            JobOperation.scheduled_start.isnot(None),
+            JobOperation.scheduled_end.isnot(None),
+        )
+        .all()
+    )
     taken = {
         op.machine_unit_id
         for op in booked

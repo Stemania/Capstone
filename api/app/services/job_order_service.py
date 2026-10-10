@@ -781,6 +781,41 @@ def _release_missing_items(job: JobOrder) -> list[str]:
     return missing
 
 
+def _crew_without_hours_items(job: JobOrder) -> list[str]:
+    """'#1 Turning: <Name> has no working hours set; …' for each crew member of
+    an unstarted operation who has no working hours."""
+    from app.services.schedule_service import no_hours_messages
+
+    items = []
+    for op in sorted(job.operations or [], key=lambda o: o.sequence_no or 0):
+        if op.is_outsourced or op.status in _STARTED_OPERATION_STATUSES:
+            continue
+        label = op.operation_name or f"Operation {op.sequence_no}"
+        items += [f"#{op.sequence_no} {label}: {m}" for m in no_hours_messages(op.crew_ids)]
+    return items
+
+
+def lock_schedule(refresh=True) -> None:
+    """Hold the schedule lock until this transaction ends, so schedule checks and
+    saves run one at a time. ``refresh`` drops cached rows so the checks see
+    what other transactions saved; call it before changing anything."""
+    from sqlalchemy import text
+
+    from app.constants.scheduling import SCHEDULE_LOCK_KEY
+
+    if db.session.get_bind().dialect.name != "postgresql":
+        return
+    db.session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": SCHEDULE_LOCK_KEY})
+    if refresh:
+        db.session.expire_all()
+
+
+def _next_quarter_hour() -> datetime:
+    """Next quarter hour, so a fresh proposal isn't already in the past when confirmed."""
+    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    return now + timedelta(minutes=15 - now.minute % 15)
+
+
 def _material_floor_utc(job: JobOrder):
     from app.services.material_purchase_service import scheduling_material_floor
     from app.services.schedule_service import resolve_material_not_before_utc
@@ -873,12 +908,7 @@ def propose_for_job(job: JobOrder, data: dict) -> dict:
                 else:
                     replaced_past_start = earliest.isoformat()
 
-    if data.get("anchor"):
-        anchor = _parse_datetime(data["anchor"])
-    else:
-        # Next quarter hour, so a fresh proposal isn't already in the past when confirmed.
-        now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-        anchor = now + timedelta(minutes=15 - now.minute % 15)
+    anchor = _parse_datetime(data["anchor"]) if data.get("anchor") else _next_quarter_hour()
     result = propose_schedule(
         ops,
         job.due_date,
@@ -937,7 +967,10 @@ def confirm_job_schedule(job, data=None, actor_role=None):
     from app.services.notification_service import safe_notify_job_milestone
 
     data = data or {}
+    # Confirmations run one at a time: every check below sees the others' bookings.
+    lock_schedule()
     if job.status != JobOrderStatus.DRAFT:
+        db.session.rollback()
         raise AppError(
             "Only pending jobs can have their schedule confirmed",
             "INVALID_TRANSITION",
@@ -951,7 +984,7 @@ def confirm_job_schedule(job, data=None, actor_role=None):
             db.session.flush()
             db.session.expire(job, ["operations"])
 
-        missing = _release_missing_items(job)
+        missing = _release_missing_items(job) + _crew_without_hours_items(job)
         if missing:
             raise AppError(
                 "Cannot confirm the schedule yet — " + "; ".join(missing),
@@ -1112,6 +1145,7 @@ def apply_released_schedule(job, operations):
     if not operations:
         raise AppError("operations is required", "VALIDATION_ERROR", 400)
 
+    lock_schedule()
     by_id = {op.id: op for op in job.operations}
     try:
         for data in operations:
@@ -1190,6 +1224,7 @@ def apply_released_schedule(job, operations):
         _assert_schedule_has_no_problems(job, "This schedule can't be applied:")
 
         job.status = derive_job_status(job)
+        job.needs_replan_reason = None
         db.session.commit()
         return get_job_order(job.id, job.created_by_id, UserRole.ADMIN.value)
     except AppError:
@@ -1198,3 +1233,95 @@ def apply_released_schedule(job, operations):
     except Exception:
         db.session.rollback()
         raise
+
+
+def replan_after_redo(job_id, redo_id) -> bool:
+    """Schedule a new redo on a released job right away: it goes directly after
+    its original, the operations after it move later only as needed, every
+    worker stays, nothing moves earlier and started work never moves. When it
+    can't be placed within the horizon nothing moves; the job is marked Needs
+    re-plan and the Admin is told. Commits; True when the redo was placed."""
+    import logging
+
+    from app.services.schedule_service import propose_schedule, schedule_problems
+
+    try:
+        lock_schedule()
+        job = db.session.get(JobOrder, job_id)
+        redo = db.session.get(JobOperation, redo_id)
+        if job is None or redo is None or job.status == JobOrderStatus.DRAFT:
+            db.session.rollback()
+            return False
+        reason = _place_redo(job, redo, propose_schedule, schedule_problems)
+        if reason is None:
+            job.needs_replan_reason = None
+            db.session.commit()
+            return True
+    except Exception:
+        db.session.rollback()
+        logging.getLogger(__name__).exception("Re-plan after redo failed for job %s", job_id)
+        reason = "the redo could not be placed automatically"
+    _mark_needs_replan(job_id, reason)
+    return False
+
+
+def _place_redo(job, redo, propose_schedule, schedule_problems) -> str | None:
+    """Apply the re-plan to the job's unstarted operations; the reason it can't
+    be placed instead (nothing changed then)."""
+    from app.services.schedule_calendar import ensure_utc
+
+    ops = sorted(job.operations, key=lambda o: o.sequence_no or 0)
+    proposal = propose_schedule(
+        ops,
+        job.due_date,
+        exclude_job_id=job.id,
+        anchor_utc=_next_quarter_hour(),
+        lock_before_sequence=redo.sequence_no,
+        never_earlier=True,
+    )
+    rows = proposal["operations"]
+    failed = [r for r in rows if not r.get("scheduled")]
+    if failed:
+        return "; ".join(
+            f"#{r['sequenceNo']} {r.get('operationName') or 'Operation'}: {r.get('message')}"
+            for r in failed
+        )
+    by_id = {op.id: op for op in ops}
+    for row in rows:
+        op = by_id.get(row.get("id"))
+        if op is None or op.status in _STARTED_OPERATION_STATUSES or op.actual_start is not None:
+            continue
+        start = _parse_datetime(row["scheduledStart"])
+        if op.scheduled_start and ensure_utc(start) < ensure_utc(op.scheduled_start):
+            db.session.rollback()
+            return f"#{op.sequence_no} {op.operation_name} would have moved earlier"
+        op.scheduled_start = start
+        op.scheduled_end = _parse_datetime(row["scheduledEnd"])
+        if row.get("machineUnitId"):
+            op.machine_unit_id = row["machineUnitId"]
+        if op.status == OperationStatus.PENDING and op.assigned_worker_id:
+            op.status = OperationStatus.SCHEDULED
+    db.session.flush()
+    problems = schedule_problems(ops, exclude_job_id=job.id)
+    if problems:
+        db.session.rollback()
+        return "; ".join(p["message"] for p in problems)
+    return None
+
+
+def _mark_needs_replan(job_id, reason: str) -> None:
+    from app.models.staff_alert import StaffAlertKind
+    from app.services.staff_alert_service import raise_alert
+
+    job = db.session.get(JobOrder, job_id)
+    if job is None:
+        return
+    job.needs_replan_reason = reason
+    raise_alert(
+        roles=[UserRole.ADMIN],
+        kind=StaffAlertKind.NEEDS_REPLAN,
+        title=f"{job.job_number} needs re-plan",
+        message=f"A redo could not be scheduled: {reason}",
+        job_order_id=job.id,
+    )
+    db.session.commit()

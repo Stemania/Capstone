@@ -263,6 +263,8 @@ def test_apply_schedule_accepts_admin_on_a_machine_operation(client, shop):
     lathe = MachineType(code="LATHE_PT", name="Lathe PT")
     db.session.add(lathe)
     db.session.flush()
+    unit = MachineUnit(machine_type_id=lathe.id, label="Lathe PT #1", active=True)
+    db.session.add(unit)
     op.machine_type_id = lathe.id
     db.session.commit()
     day = date.today() + timedelta(days=3)
@@ -276,6 +278,7 @@ def test_apply_schedule_accepts_admin_on_a_machine_operation(client, shop):
                     "scheduledStart": shop_local_to_utc(day, time(9, 0)).isoformat(),
                     "scheduledEnd": shop_local_to_utc(day, time(10, 0)).isoformat(),
                     "assignedWorkerId": shop["admin"].id,
+                    "machineUnitId": unit.id,
                 }
             ]
         },

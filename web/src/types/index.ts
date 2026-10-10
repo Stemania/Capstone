@@ -500,7 +500,7 @@ export interface MaterialWait {
   materialWaitReason?: string | null;
 }
 
-export type StaffAlertKind = 'MATERIAL_DELAY' | 'SINGLE_UNIT_DOWN' | (string & {});
+export type StaffAlertKind = 'MATERIAL_DELAY' | 'SINGLE_UNIT_DOWN' | 'NEEDS_REPLAN' | (string & {});
 
 /** One entry in the header bell. */
 export interface StaffAlert {
@@ -768,6 +768,9 @@ export interface JobOrder extends MaterialWait {
   supplierReference?: string | null;
   materialReadiness?: MaterialReadiness;
   materialDelay?: MaterialDelay | null;
+  /** A change (such as a redo) could not be scheduled automatically. */
+  needsReplan?: boolean;
+  needsReplanReason?: string | null;
   plannedMaterials?: PlannedMaterialSummary[];
   createdById?: string;
   createdByName?: string | null;

@@ -118,6 +118,7 @@ def test_rework_creates_new_operation_leaves_original(monkeypatch):
     monkeypatch.setattr(svc, "check_job_access", lambda *a, **k: True)
     monkeypatch.setattr(svc, "derive_job_status", lambda j: JobOrderStatus.SCHEDULED)
     monkeypatch.setattr(svc.db, "session", MagicMock())
+    monkeypatch.setattr("app.services.job_order_service.replan_after_redo", lambda *a: True)
 
     follow = create_rework_operation(
         original, "admin-1", UserRole.ADMIN.value, "surface finish fail", "SURFACE_FINISH"
@@ -159,6 +160,7 @@ def test_open_machine_downtime_blocks_unit_in_scheduler(monkeypatch):
     assert end > start
 
     fake_query = MagicMock()
+    fake_query.join.return_value = fake_query
     fake_query.filter.return_value = fake_query
     fake_query.all.return_value = []
     monkeypatch.setattr(
@@ -166,6 +168,7 @@ def test_open_machine_downtime_blocks_unit_in_scheduler(monkeypatch):
         "JobOperation",
         SimpleNamespace(
             status=SimpleNamespace(in_=lambda *a, **k: True),
+            job_order_id=None,
             query=fake_query,
         ),
     )

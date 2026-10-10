@@ -178,6 +178,9 @@ class JobOrder(db.Model):
     # Staff were told the job is at risk of missing its required date; cleared
     # once it is back on time, so the next change raises a new alert.
     at_risk_alerted = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
+    # Set when a change (such as a redo) could not be scheduled automatically;
+    # the Admin re-plans the job, which clears it.
+    needs_replan_reason = db.Column(db.Text, nullable=True)
     created_by_id = db.Column(
         db.String(36), db.ForeignKey("users.id"), nullable=False
     )
@@ -482,6 +485,8 @@ class JobOrder(db.Model):
                 else None
             ),
             "nextOperationCrew": next_op.crew_dicts() if next_op else [],
+            "needsReplan": bool(self.needs_replan_reason),
+            "needsReplanReason": self.needs_replan_reason,
         }
         from app.services.material_purchase_service import material_wait_fields
 

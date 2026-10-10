@@ -5,6 +5,7 @@ materials, edits, and a load run.
 Uses the bmsc_test database from conftest (schema built from the models).
 """
 
+import threading
 import time as clock
 from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal
@@ -17,7 +18,9 @@ from app.models.client import Client
 from app.models.job_order import JobOrder, JobOrderStatus, JobType, MaterialStatus, PartCondition
 from app.models.machine import MachineType, MachineUnit
 from app.models.operation import JobOperation, OperationStatus
+from app.models.operation_time import DowntimeCategory, MachineDowntime
 from app.models.schedule_move import DelayKind
+from app.models.staff_alert import StaffAlert, StaffAlertKind
 from app.models.supplier import Supplier
 from app.models.supplier_order import SupplierOrder
 from app.models.user import User, UserRole, UserStatus
@@ -30,7 +33,10 @@ from app.models.worker_skill import (
     WorkerSkill,
 )
 from app.services.overdue_delivery_service import check_overdue_deliveries
+from app.services import job_order_service
 from app.services import material_delay_service as delay_service
+from app.services.auth_service import update_user
+from app.services.worker_profile_service import ensure_worker_profile
 from app.services.schedule_calendar import ensure_utc, shop_local_to_utc, shop_now
 from app.services.schedule_service import operation_working_segments, place_from_start
 
@@ -51,6 +57,11 @@ def _iso(d, hh, mm=0):
 
 def _parse(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def _next_quarter_hour():
+    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    return now + timedelta(minutes=15 - now.minute % 15)
 
 
 def _user(email, role, name, hours=(time(8, 0), time(17, 0))):
@@ -177,15 +188,18 @@ def _propose(client, shop, job, ops=None, anchor=None, **extra):
     return res.get_json()
 
 
-def _confirm(client, shop, job, ops, proposal):
+def _merged(ops, proposal):
     """As the planning page does: the operations with the proposed start and unit."""
-    merged = [
+    return [
         {**o, "scheduledStart": p["scheduledStart"], "machineUnitId": p["machineUnitId"] or o["machineUnitId"]}
         for o, p in zip(ops, proposal["operations"])
     ]
+
+
+def _confirm(client, shop, job, ops, proposal=None):
     return client.post(
         f"/api/v1/job-orders/{job.id}/schedule/confirm",
-        json={"operations": merged},
+        json={"operations": _merged(ops, proposal) if proposal else ops},
         headers=_headers(shop["admin"]),
     )
 
@@ -505,3 +519,274 @@ def test_twenty_jobs_proposed_and_confirmed_without_double_booking(client, shop)
         assert res.status_code == 200, res.get_json()
     assert _double_bookings() == []
     assert max(timings) < 2.0, timings
+
+
+# ---- Redo is scheduled right away --------------------------------------------
+
+
+def _rework(client, shop, op):
+    res = client.post(
+        f"/api/v1/operations/{op.id}/rework",
+        json={"category": "OPERATOR_ERROR"},
+        headers=_headers(shop["admin"]),
+    )
+    assert res.status_code == 201, res.get_json()
+    db.session.expire_all()
+    return res.get_json()
+
+
+def _completed(job, lead, unit=None):
+    done = _booked(job, 1, lead, _at(LAST_SAT, 8), _at(LAST_SAT, 10), unit=unit,
+                   status=OperationStatus.COMPLETED, actual_start=_at(LAST_SAT, 8))
+    done.actual_end = _at(LAST_SAT, 10)
+    db.session.commit()
+    return done
+
+
+def test_redo_is_placed_right_after_its_original_and_pushes_the_next_operation(client, shop):
+    job = _job(shop, status=JobOrderStatus.IN_PROGRESS)
+    done = _completed(job, shop["rina"])
+    redo_start, _end, _ = place_from_start(shop["rina"].id, _next_quarter_hour(), 2)
+    next_start, next_end, _ = place_from_start(shop["omar"].id, redo_start, 2)
+    _booked(job, 2, shop["omar"], next_start, next_end)
+    later = MON + timedelta(days=7)
+    _booked(job, 3, shop["ben"], _at(later, 8), _at(later, 10))
+    _rework(client, shop, done)
+
+    job = db.session.get(JobOrder, job.id)
+    ops = {op.sequence_no: op for op in job.operations}
+    redo = ops[2]
+    assert redo.rework_of_operation_id == done.id
+    assert redo.assigned_worker_id == shop["rina"].id
+    assert redo_start <= ensure_utc(redo.scheduled_start) <= redo_start + timedelta(minutes=15)
+    assert ops[3].assigned_worker_id == shop["omar"].id
+    assert ensure_utc(ops[3].scheduled_start) >= ensure_utc(redo.scheduled_end)
+    assert ensure_utc(ops[3].scheduled_start) > next_start
+    assert ensure_utc(ops[4].scheduled_start) == _at(later, 8)
+    assert ensure_utc(ops[1].actual_start) == _at(LAST_SAT, 8)
+    assert job.to_dict()["needsReplan"] is False
+    assert _double_bookings() == []
+
+
+def test_redo_that_cannot_be_placed_marks_the_job_needs_replan(client, shop):
+    job = _job(shop, status=JobOrderStatus.IN_PROGRESS)
+    done = _completed(job, shop["rina"], unit=shop["laser1"])
+    _booked(job, 2, shop["omar"], _at(MON, 8), _at(MON, 10))
+    db.session.add(MachineDowntime(
+        machine_unit_id=shop["laser1"].id, started_at=_at(LAST_SAT, 11),
+        category=DowntimeCategory.MECHANICAL_FAILURE, reason="Lens cracked",
+        reported_by_id=shop["admin"].id,
+    ))
+    db.session.commit()
+    _rework(client, shop, done)
+
+    job = db.session.get(JobOrder, job.id)
+    redo = next(op for op in job.operations if op.rework_of_operation_id == done.id)
+    assert redo.scheduled_start is None
+    nxt = next(op for op in job.operations if op.assigned_worker_id == shop["omar"].id)
+    assert ensure_utc(nxt.scheduled_start) == _at(MON, 8)
+
+    headers = _headers(shop["admin"])
+    page = client.get(f"/api/v1/job-orders/{job.id}", headers=headers).get_json()
+    assert page["needsReplan"] is True
+    assert "Laser #1 is down with no expected repair date" in page["needsReplanReason"]
+    listed = {j["id"]: j for j in client.get("/api/v1/job-orders", headers=headers).get_json()}
+    assert listed[job.id]["needsReplan"] is True
+    alerts = StaffAlert.query.filter_by(kind=StaffAlertKind.NEEDS_REPLAN, job_order_id=job.id).all()
+    assert [a.recipient_id for a in alerts] == [shop["admin"].id]
+
+    # Once the laser is back, the Admin re-plans and the mark goes away.
+    MachineDowntime.query.update({MachineDowntime.ended_at: datetime.now(timezone.utc)})
+    db.session.commit()
+    p = _propose(client, shop, job, anchor=_next_quarter_hour())
+    assert p["problems"] == []
+    res = client.post(
+        f"/api/v1/job-orders/{job.id}/schedule/apply",
+        json={"operations": [
+            {"id": o["id"], "scheduledStart": o["scheduledStart"], "machineUnitId": o["machineUnitId"]}
+            for o in p["operations"] if o["sequenceNo"] > 1
+        ]},
+        headers=headers,
+    )
+    assert res.status_code == 200, res.get_json()
+    assert res.get_json()["needsReplan"] is False
+
+
+# ---- Overrunning work keeps its machine and crew ------------------------------
+
+
+def test_overrunning_operation_blocks_its_unit_and_crew_until_the_work_can_finish(client, shop):
+    now = datetime.now(timezone.utc)
+    busy = _job(shop, status=JobOrderStatus.IN_PROGRESS)
+    _booked(busy, 1, shop["ben"], now - timedelta(days=3), now - timedelta(days=2),
+            unit=shop["shaper1"], hours=60, status=OperationStatus.IN_PROGRESS,
+            actual_start=now - timedelta(days=3))
+    # Nothing logged yet, so all 60 target hours are still to do.
+    _s, until, _ = place_from_start(shop["ben"].id, now, 60)
+    anchor = _next_quarter_hour()
+
+    p = _propose(client, shop, _job(shop), [_op(shop["omar"], machine=shop["shaper"])], anchor=anchor)
+    assert _starts(p)[0] >= until - timedelta(minutes=1)
+    p = _propose(client, shop, _job(shop), [_op(shop["ben"])], anchor=anchor)
+    assert _starts(p)[0] >= until - timedelta(minutes=1)
+
+
+def test_overrun_past_its_target_still_blocks_at_least_one_more_working_hour(client, shop):
+    from app.models.operation_time import OperationTimeEvent, OperationTimeLog
+
+    now = datetime.now(timezone.utc)
+    busy = _job(shop, status=JobOrderStatus.IN_PROGRESS)
+    op = _booked(busy, 1, shop["ben"], now - timedelta(days=3), now - timedelta(days=2),
+                 unit=shop["shaper1"], hours=1, status=OperationStatus.IN_PROGRESS,
+                 actual_start=now - timedelta(days=3))
+    db.session.add(OperationTimeLog(
+        operation_id=op.id, worker_id=shop["ben"].id,
+        event=OperationTimeEvent.START, event_at=now - timedelta(days=3),
+    ))
+    db.session.commit()
+    _s, until, _ = place_from_start(shop["ben"].id, now, 1)
+
+    p = _propose(client, shop, _job(shop), [_op(shop["omar"], machine=shop["shaper"])],
+                 anchor=_next_quarter_hour())
+    assert _starts(p)[0] >= until - timedelta(minutes=1)
+
+
+# ---- Every machine operation has a unit ---------------------------------------
+
+
+def test_typed_start_on_a_machine_operation_picks_a_free_unit(client, shop):
+    other = _job(shop, status=JobOrderStatus.SCHEDULED)
+    _booked(other, 1, shop["ben"], _at(MON, 8), _at(MON, 12), unit=shop["lathe8"])
+    job = _job(shop)
+    ops = [_op(shop["gio"], hours=2, machine=shop["lathe"], start=_iso(MON, 9))]
+    p = _propose(client, shop, job, ops, pinSequence=1, lockBeforeSequence=1)
+    op = p["operations"][0]
+    assert (op["machineUnitId"], op["machineUnitLabel"]) == (shop["lathe2"].id, "Lathe #2")
+    assert p["problems"] == []
+    assert _confirm(client, shop, job, ops, p).status_code == 200
+    assert _double_bookings() == []
+
+
+def test_confirm_refuses_a_machine_operation_without_a_unit(client, shop):
+    other = _job(shop, status=JobOrderStatus.SCHEDULED)
+    _booked(other, 1, shop["rina"], _at(MON, 8), _at(MON, 12), unit=shop["laser1"])
+    job = _job(shop)
+    ops = [_op(shop["omar"], hours=2, machine=shop["laser"], start=_iso(MON, 9))]
+    p = _propose(client, shop, job, ops, pinSequence=1, lockBeforeSequence=1)
+    assert p["operations"][0]["machineUnitId"] is None
+    assert "NO_MACHINE_UNIT" in [x["code"] for x in p["problems"]]
+    _refused(_confirm(client, shop, job, ops, p), "#1 Step 1 needs a machine unit")
+
+    free_time = [_op(shop["omar"], hours=2, machine=shop["laser"], start=_iso(TUE, 9))]
+    _refused(_confirm(client, shop, job, free_time), "#1 Step 1 needs a machine unit")
+    assert db.session.get(JobOrder, job.id).status == JobOrderStatus.DRAFT
+    assert _double_bookings() == []
+
+
+# ---- People with no working hours ---------------------------------------------
+
+NO_HOURS = "Eli has no working hours set; set them on Worker setup"
+DEFAULT_HOURS = [(d, True, time(8, 0), time(17, 0)) for d in range(6)] + [(6, False, None, None)]
+
+
+def _hours(user_id):
+    rows = WorkerSchedule.query.filter_by(worker_id=user_id).order_by(WorkerSchedule.day_of_week)
+    return [(r.day_of_week, r.is_working, r.start_time, r.end_time) for r in rows]
+
+
+def test_worker_with_no_hours_is_unavailable_alone_or_as_a_helper(client, shop):
+    eli = _user("sc_eli@test.local", UserRole.PRODUCTION_WORKER, "Eli")
+    WorkerSchedule.query.filter_by(worker_id=eli.id).delete()
+    db.session.commit()
+
+    for ops in ([_op(eli, hours=2)], [_op(shop["rina"], hours=2, helpers=[eli])]):
+        job = _job(shop)
+        op = _propose(client, shop, job, ops)["operations"][0]
+        assert op["scheduled"] is False
+        assert NO_HOURS in op["message"]
+        res = _confirm(client, shop, job, [{**ops[0], "scheduledStart": _iso(MON, 9)}])
+        assert res.status_code in (400, 409), res.get_json()
+        assert NO_HOURS in res.get_json()["error"]["message"]
+    assert _double_bookings() == []
+
+
+def test_every_new_worker_profile_gets_the_shop_default_hours(app, shop):
+    from app.models.user_security import InvitationChannel
+    from app.services.invitation_service import create_invited_user
+
+    admin2 = _user("sc_admin2@test.local", UserRole.ADMIN, "Second Admin")
+    ensure_worker_profile(admin2)
+    db.session.commit()
+    assert _hours(admin2.id) == DEFAULT_HOURS
+
+    office = shop["office"]
+    update_user(office, {"role": UserRole.PRODUCTION_WORKER})
+    assert _hours(office.id) == DEFAULT_HOURS
+
+    invited, _inv, _secret = create_invited_user(
+        full_name="Invited Admin", email="sc_invited@test.local", mobile_number="09171234567",
+        role=UserRole.ADMIN, channel=InvitationChannel.EMAIL, created_by_id=shop["admin"].id,
+    )
+    assert _hours(invited.id) == DEFAULT_HOURS
+
+
+# ---- Confirms run one at a time -----------------------------------------------
+
+
+def test_two_confirms_at_the_same_moment_only_one_succeeds(app, client, shop, monkeypatch):
+    a, b = _job(shop), _job(shop)
+    ops = [_op(shop["rina"], hours=2)]
+    bodies = {job.id: _merged(ops, _propose(client, shop, job, ops)) for job in (a, b)}
+    headers = _headers(shop["admin"])
+
+    # Each confirm waits after its clash check until the other has checked too,
+    # so without a lock both would pass before either is saved.
+    both_checked = threading.Barrier(2)
+    check = job_order_service._assert_schedule_has_no_problems
+
+    def check_then_wait(job, lead):
+        check(job, lead)
+        try:
+            both_checked.wait(timeout=3)
+        except threading.BrokenBarrierError:
+            pass
+
+    monkeypatch.setattr(job_order_service, "_assert_schedule_has_no_problems", check_then_wait)
+    codes = []
+
+    def confirm(job_id, body):
+        res = app.test_client().post(
+            f"/api/v1/job-orders/{job_id}/schedule/confirm", json={"operations": body}, headers=headers
+        )
+        codes.append(res.status_code)
+
+    threads = [threading.Thread(target=confirm, args=item) for item in bodies.items()]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    assert sorted(codes) == [200, 409]
+    db.session.expire_all()
+    assert _double_bookings() == []
+
+
+# ---- Only confirmed jobs reserve time -----------------------------------------
+
+
+def test_a_pending_jobs_saved_times_do_not_block_other_jobs(client, shop):
+    draft = _job(shop)
+    _booked(draft, 1, shop["rina"], _at(MON, 8), _at(MON, 10), unit=shop["laser1"],
+            status=OperationStatus.PENDING)
+    assigned_draft = _job(shop)
+    _booked(assigned_draft, 1, shop["omar"], _at(MON, 8), _at(MON, 10))
+
+    job = _job(shop)
+    ops = [_op(shop["rina"], hours=2, machine=shop["laser"]), _op(shop["omar"], 2, 2)]
+    p = _propose(client, shop, job, ops)
+    assert _starts(p) == [_at(MON, 8), _at(MON, 10)]
+    assert _starts(_propose(client, shop, job, [_op(shop["omar"], hours=2)])) == [_at(MON, 8)]
+    assert p["problems"] == []
+    assert _confirm(client, shop, job, ops, p).status_code == 200
+
+    # The pending job now has to fit around the confirmed one.
+    assert _starts(_propose(client, shop, draft)) == [_at(MON, 10)]

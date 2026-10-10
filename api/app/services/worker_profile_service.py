@@ -73,12 +73,35 @@ def query_assignable_workers():
     return query.order_by(User.full_name)
 
 
+def add_default_hours(worker_id) -> bool:
+    """Give a worker the shop's default hours when they have none set. Does not
+    commit; True when hours were added."""
+    from app.services.schedule_calendar import default_shop_schedule_by_dow
+
+    if WorkerSchedule.query.filter_by(worker_id=worker_id).first():
+        return False
+    for dow, day in default_shop_schedule_by_dow().items():
+        db.session.add(
+            WorkerSchedule(
+                worker_id=worker_id,
+                day_of_week=dow,
+                start_time=day.start_time,
+                end_time=day.end_time,
+                is_working=day.is_working,
+            )
+        )
+    return True
+
+
 def ensure_worker_profile(user):
+    """Every assignable person has a worker profile and working hours (the
+    shop's default hours until the Admin sets theirs)."""
     if user.role not in ASSIGNABLE_ROLES:
         return
     if not user.worker_profile:
         db.session.add(WorkerProfile(user_id=user.id))
-        db.session.flush()
+    add_default_hours(user.id)
+    db.session.flush()
 
 
 def get_worker_or_404(worker_id):

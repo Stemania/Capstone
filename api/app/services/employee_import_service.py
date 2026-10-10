@@ -14,14 +14,14 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass, field
-from datetime import time
 from pathlib import Path
 
 from app.extensions import db
 from app.models.machine import MachineType, MachineUnit
 from app.models.user import User, UserRole, UserStatus
 from app.models.worker_profile import WorkerProfile
-from app.models.worker_skill import WorkerSchedule, WorkerSkill
+from app.models.worker_skill import WorkerSkill
+from app.services.worker_profile_service import add_default_hours
 from app.utils.errors import AppError
 
 COLUMNS = ("full_name", "nickname", "role", "machine_skills", "default_units")
@@ -72,20 +72,6 @@ def read_rows(path: Path) -> list[dict]:
         return [
             {(k or "").strip(): (v or "").strip() for k, v in row.items()} for row in reader
         ]
-
-
-def _default_schedule(user: User) -> None:
-    for dow in range(7):
-        working = dow < 6
-        db.session.add(
-            WorkerSchedule(
-                worker_id=user.id,
-                day_of_week=dow,
-                start_time=time(8, 0) if working else None,
-                end_time=time(17, 0) if working else None,
-                is_working=working,
-            )
-        )
 
 
 def import_employees(path: Path, dry_run: bool = False) -> ImportReport:
@@ -202,8 +188,7 @@ def import_employees(path: Path, dry_run: bool = False) -> ImportReport:
             if user.role in (UserRole.PRODUCTION_WORKER, UserRole.ADMIN):
                 if not WorkerProfile.query.filter_by(user_id=user.id).first():
                     db.session.add(WorkerProfile(user_id=user.id))
-                if not WorkerSchedule.query.filter_by(worker_id=user.id).first():
-                    _default_schedule(user)
+                if add_default_hours(user.id):
                     row_changes.append("working hours Mon-Sat 08:00-17:00")
 
                 have = {

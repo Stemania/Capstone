@@ -10,3 +10,7 @@ DEFAULT_ESTIMATED_HOURS = Decimal("1.0")
 
 # IANA zone for Brothers Machine Shop (UTC+8).
 SHOP_TIMEZONE = "Asia/Manila"
+
+# Postgres advisory lock held while a schedule is checked and saved, so two
+# confirmations (or re-plans) never pass the clash check at the same time.
+SCHEDULE_LOCK_KEY = 7340001

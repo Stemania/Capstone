@@ -39,6 +39,7 @@ import { useAuth } from '../../hooks/useAuth';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import MaterialWaitTag from '../../components/MaterialWaitTag';
 import MaterialDelayTag from '../../components/MaterialDelayTag';
+import NeedsReplanTag from '../../components/NeedsReplanTag';
 import { CrewChips, PersonChip } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
 import type {
@@ -889,6 +890,7 @@ export default function JobOrderDetailPage() {
               {status.label}
               {isDraft && job.draftStage ? ` · ${job.draftStage}` : ''}
             </StatusPill>
+            <NeedsReplanTag job={job} compact={false} />
             <MaterialWaitTag wait={job} compact={false} />
             <MaterialDelayTag job={job} compact={false} />
             <span style={{ fontSize: 13, color: overdue ? '#7A1528' : MUTED, fontWeight: 600 }}>
@@ -909,6 +911,21 @@ export default function JobOrderDetailPage() {
           </div>
         </div>
       </div>
+
+      {canManage && job.needsReplan ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Needs re-plan"
+          description={
+            <>
+              {job.needsReplanReason && <div>{job.needsReplanReason}</div>}
+              <div>Propose the schedule again and apply it.</div>
+            </>
+          }
+        />
+      ) : null}
 
       {canManage && job.materialDelay ? (
         <Alert

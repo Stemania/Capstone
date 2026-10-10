@@ -20,6 +20,7 @@ class StaffAlertKind:
     DELIVERY_OVERDUE = "DELIVERY_OVERDUE"
     JOB_AT_RISK = "JOB_AT_RISK"
     SINGLE_UNIT_DOWN = "SINGLE_UNIT_DOWN"
+    NEEDS_REPLAN = "NEEDS_REPLAN"
 
 
 class StaffAlert(db.Model):

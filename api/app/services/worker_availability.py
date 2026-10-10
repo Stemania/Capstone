@@ -57,12 +57,21 @@ def get_busy_workers(start=None, end=None, exclude_operation_id=None, exclude_op
         excluded.add(exclude_operation_id)
 
     if start and end:
-        ops = JobOperation.query.filter(
-            JobOperation.assigned_worker_id.isnot(None),
-            JobOperation.status.in_(ACTIVE_OP_STATUSES),
-            JobOperation.scheduled_start.isnot(None),
-            JobOperation.scheduled_end.isnot(None),
-        ).all()
+        from app.models.job_order import JobOrder, JobOrderStatus
+
+        # Only released jobs reserve time; a pending job's saved times block nobody.
+        ops = (
+            JobOperation.query.join(JobOrder, JobOperation.job_order_id == JobOrder.id)
+            .filter(
+                JobOperation.assigned_worker_id.isnot(None),
+                JobOperation.status.in_(ACTIVE_OP_STATUSES),
+                JobOperation.status != OperationStatus.PENDING,
+                JobOrder.status != JobOrderStatus.DRAFT,
+                JobOperation.scheduled_start.isnot(None),
+                JobOperation.scheduled_end.isnot(None),
+            )
+            .all()
+        )
         for op in ops:
             if op.id in excluded:
                 continue

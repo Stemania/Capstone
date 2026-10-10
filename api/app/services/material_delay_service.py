@@ -208,9 +208,12 @@ def reschedule_jobs(jobs, trigger: str, trigger_order=None) -> list[dict]:
     A failure on one job is logged and rolled back without undoing the order
     change, which has already been committed.
     """
+    from app.services.job_order_service import lock_schedule
+
     outcomes = []
     for job_id in sorted({j.id for j in jobs if j is not None}):
         try:
+            lock_schedule(refresh=False)
             job = db.session.get(JobOrder, job_id)
             if job is None:
                 continue

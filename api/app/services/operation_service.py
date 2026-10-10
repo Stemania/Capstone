@@ -663,10 +663,14 @@ def create_rework_operation(operation, user_id, user_role, reason, category=None
         db.session.flush()
         job.status = derive_job_status(job)
         db.session.commit()
-        return follow
     except Exception:
         db.session.rollback()
         raise
+
+    from app.services.job_order_service import replan_after_redo
+
+    replan_after_redo(job.id, follow.id)
+    return follow
 
 
 def _redo_helpers(original):

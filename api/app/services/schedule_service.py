@@ -13,6 +13,7 @@ from app.services.schedule_calendar import (
     derive_working_segments,
     effective_hours_for_date,
     ensure_utc,
+    has_working_hours,
     horizon_end_utc,
     intersect_intervals,
     load_calendar_exceptions,
@@ -28,14 +29,17 @@ from app.services.schedule_calendar import (
 
 MISSING_WORKER_MESSAGE = "assign a worker to schedule this operation"
 
-ACTIVE_BOOKING_STATUSES = (
-    OperationStatus.PENDING,
+# Only released jobs reserve time; a pending job's saved times block nobody.
+BOOKING_STATUSES = (
     OperationStatus.SCHEDULED,
     OperationStatus.IN_PROGRESS,
+    OperationStatus.COMPLETED,
     OperationStatus.REWORK,
 )
 
 FROZEN_STATUSES = (OperationStatus.COMPLETED, OperationStatus.IN_PROGRESS)
+
+MIN_REMAINING_HOURS = 1.0
 
 
 def compute_schedule_flag(projected_completion_utc, due_date) -> str | None:
@@ -119,6 +123,18 @@ def _parse_estimated_hours(value) -> tuple[Decimal, bool]:
     return Decimal(str(value)), False
 
 
+def expected_finish(op: JobOperation, now_utc=None) -> datetime | None:
+    """When in-progress work can be done: now plus its remaining target hours
+    (target less hours worked, at least one hour) in the crew's working time."""
+    from app.services.completion_estimate_service import hours_worked_so_far
+
+    now = ensure_utc(now_utc or datetime.now(timezone.utc))
+    target, _ = _parse_estimated_hours(op.estimated_hours)
+    remaining = max(float(target) - hours_worked_so_far(op, now), MIN_REMAINING_HOURS)
+    _start, end, _segments = place_from_start(op.crew_ids, now, remaining)
+    return end
+
+
 def _operation_booking_envelope(op: JobOperation) -> tuple[datetime, datetime] | None:
     if op.status == OperationStatus.COMPLETED:
         if op.actual_start and op.actual_end:
@@ -126,6 +142,14 @@ def _operation_booking_envelope(op: JobOperation) -> tuple[datetime, datetime] |
         if op.scheduled_start and op.scheduled_end:
             return ensure_utc(op.scheduled_start), ensure_utc(op.scheduled_end)
         return None
+    if op.status == OperationStatus.IN_PROGRESS and (op.actual_start or op.scheduled_start):
+        start = ensure_utc(op.actual_start or op.scheduled_start)
+        ends = [ensure_utc(op.scheduled_end)] if op.scheduled_end else []
+        finish = expected_finish(op)
+        if finish is not None:
+            ends.append(finish)
+        end = max(ends, default=None)
+        return (start, end) if end and end > start else None
     if op.actual_start and op.scheduled_end:
         return ensure_utc(op.actual_start), ensure_utc(op.scheduled_end)
     if op.scheduled_start and op.scheduled_end:
@@ -179,8 +203,11 @@ def _segments_for_worker_envelope(
 
 def _external_booking_records(exclude_job_id=None, exclude_operation_ids=None):
     """(operation, working periods) for every booking outside the given job."""
-    query = JobOperation.query.filter(
-        JobOperation.status.in_(ACTIVE_BOOKING_STATUSES + (OperationStatus.COMPLETED,)),
+    from app.models.job_order import JobOrder, JobOrderStatus
+
+    query = JobOperation.query.join(JobOrder, JobOperation.job_order_id == JobOrder.id).filter(
+        JobOperation.status.in_(BOOKING_STATUSES),
+        JobOrder.status != JobOrderStatus.DRAFT,
     )
     if exclude_job_id:
         query = query.filter(JobOperation.job_order_id != exclude_job_id)
@@ -501,6 +528,19 @@ def _worker_label(worker_id) -> str:
     return user.full_name if user else "The assigned worker"
 
 
+def no_hours_messages(worker_ids) -> list[str]:
+    """'<Name> has no working hours set; …' for each given worker without hours."""
+    ids = [w for w in (worker_ids or []) if w]
+    # A crew's shared map is empty only when someone in it has no hours.
+    if not ids or load_crew_schedule_map(ids):
+        return []
+    return [
+        f"{_worker_label(w)} has no working hours set; set them on Worker setup"
+        for w in ids
+        if not has_working_hours(load_crew_schedule_map([w]))
+    ]
+
+
 def _find_earliest_slot(
     worker_ids,
     machine_type_id,
@@ -661,15 +701,20 @@ def place_from_start(worker_ids, start, hours):
     return placed_start, placed_end, intersect_intervals([(placed_start, placed_end)], windows)
 
 
-def _window_from_start(op: dict, requested_start) -> dict:
+def _window_from_start(op: dict, requested_start, choose_unit=None) -> dict:
     """The operation starts at the requested time (moved to the next working time
-    when outside working hours) and ends once its target hours are worked."""
+    when outside working hours) and ends once its target hours are worked.
+    ``choose_unit(op, segments)`` returns (unit id, label, note) for a machine
+    operation; without it the operation keeps its unit."""
     if op.get("outsourced"):
         return _outsourced_window(op, _parse_iso(requested_start))
     if not op.get("assignedWorkerId"):
         return _failure_result(op, MISSING_WORKER_MESSAGE, required_hours=op["estimatedHours"])
+    no_hours = no_hours_messages(_crew(op))
+    if no_hours:
+        return _failure_result(op, "; ".join(no_hours), required_hours=op["estimatedHours"])
     requested = _parse_iso(requested_start)
-    start, end, _ = place_from_start(_crew(op), requested, op["estimatedHours"])
+    start, end, segments = place_from_start(_crew(op), requested, op["estimatedHours"])
     if start is None:
         return _failure_result(
             op,
@@ -677,26 +722,77 @@ def _window_from_start(op: dict, requested_start) -> dict:
             f"{op['estimatedHours']:.1f}h within {SCHEDULE_HORIZON_DAYS} days of the chosen start",
             required_hours=op["estimatedHours"],
         )
-    message = None
+    notes = []
     if start != requested:
-        message = f"Start moved to the next working time, {_fmt_shop(start)}"
+        notes.append(f"Start moved to the next working time, {_fmt_shop(start)}")
+    unit_id, unit_label = op.get("machineUnitId"), op.get("machineUnitLabel")
+    if choose_unit and op.get("machineTypeId"):
+        unit_id, unit_label, note = choose_unit(op, segments)
+        if note:
+            notes.append(note)
     return _result_from_slot(
         op,
         start.isoformat(),
         end.isoformat(),
-        op.get("machineUnitId"),
+        unit_id,
         scheduled=True,
-        message=message,
-        machine_unit_label=op.get("machineUnitLabel"),
+        message="; ".join(notes) or None,
+        machine_unit_label=unit_label,
     )
 
 
-def _lock_existing_window(op: dict) -> dict | None:
+def _overlaps_any(segments, intervals) -> bool:
+    return any(s < ie and i_s < e for s, e in segments for i_s, ie in intervals)
+
+
+def _free_unit_chooser(
+    units_by_type, machine_busy, in_job_machine_busy, anchor_utc, end_utc, honor_machine_pins
+):
+    """Unit choice for an operation placed at a typed start, ranked as the normal
+    search does: least booked in the horizon, then the unit whose assigned
+    operator is the lead, then label. The current unit stays while it is free
+    (or pinned); with no free unit the operation keeps its unit, or has none."""
+
+    def unit_busy(unit_id):
+        return merge_intervals(
+            machine_busy.get(unit_id, [])
+            + machine_busy.get(str(unit_id), [])
+            + in_job_machine_busy.get(unit_id, [])
+            + in_job_machine_busy.get(str(unit_id), [])
+        )
+
+    def choose(op, segments):
+        units = list(units_by_type.get(op.get("machineTypeId"), []))
+        current = op.get("machineUnitId")
+        if current and honor_machine_pins:
+            return current, _unit_label(current, units_by_type), None
+        free = [u for u in units if not _overlaps_any(segments, unit_busy(u.id))]
+        if current and any(str(u.id) == str(current) for u in free):
+            return current, _unit_label(current, units_by_type), None
+        if not free:
+            if current:
+                return current, _unit_label(current, units_by_type), None
+            return None, None, "no machine unit is free at this time"
+        lead = str(op.get("assignedWorkerId") or "")
+        best = min(
+            free,
+            key=lambda u: (
+                _busy_seconds_in_horizon(unit_busy(u.id), anchor_utc, end_utc),
+                0 if lead and str(u.default_operator_id or "") == lead else 1,
+                u.label or "",
+            ),
+        )
+        return best.id, best.label, None
+
+    return choose
+
+
+def _lock_existing_window(op: dict, choose_unit=None) -> dict | None:
     """Keep a previously proposed start when partially re-proposing; the end is
     always worked out again from the target hours."""
     if not op.get("scheduledStart"):
         return None
-    return _window_from_start(op, op["scheduledStart"])
+    return _window_from_start(op, op["scheduledStart"], choose_unit)
 
 
 def _record_in_job_busy(op_result, op, in_job_worker_busy, in_job_machine_busy):
@@ -768,6 +864,9 @@ def propose_schedule(
 
     in_job_worker_busy = {}
     in_job_machine_busy = {}
+    choose_unit = _free_unit_chooser(
+        units_by_type, machine_busy, in_job_machine_busy, anchor_utc, end_utc, honor_machine_pins
+    )
     downtimes = None
     results = []
     prev_end = anchor_utc
@@ -782,7 +881,7 @@ def propose_schedule(
             and lock_before_sequence is not None
             and op["sequenceNo"] < int(lock_before_sequence)
         ):
-            locked = _lock_existing_window(op)
+            locked = _lock_existing_window(op, choose_unit)
         if (
             not frozen
             and not locked
@@ -790,7 +889,7 @@ def propose_schedule(
             and op["sequenceNo"] == int(pin_sequence)
             and op.get("scheduledStart")
         ):
-            locked = _window_from_start(op, op["scheduledStart"])
+            locked = _window_from_start(op, op["scheduledStart"], choose_unit)
 
         kept = frozen or locked
         if kept and not kept.get("scheduled"):
@@ -819,6 +918,12 @@ def propose_schedule(
         if not assigned_worker:
             results.append(
                 _failure_result(op, MISSING_WORKER_MESSAGE, required_hours=op["estimatedHours"])
+            )
+            continue
+        no_hours = no_hours_messages(_crew(op))
+        if no_hours:
+            results.append(
+                _failure_result(op, "; ".join(no_hours), required_hours=op["estimatedHours"])
             )
             continue
 
@@ -1184,6 +1289,16 @@ def schedule_problems(
     for op in ops:
         start = _parse_iso(op.get("scheduledStart"))
         end = _parse_iso(op.get("scheduledEnd"))
+        no_hours = (
+            no_hours_messages(_crew(op))
+            if not op.get("outsourced") and not _frozen_result(op)
+            else []
+        )
+        if no_hours:
+            for message in no_hours:
+                add(op, "NO_WORKING_HOURS", f"{label(op)}: {message}")
+            first = False
+            continue
         if op.get("unplacedMessage") or not start or not end:
             reason = op.get("unplacedMessage")
             add(
@@ -1278,6 +1393,12 @@ def schedule_problems(
                 )
 
         unit_id = op.get("machineUnitId")
+        if op.get("machineTypeId") and not unit_id:
+            add(
+                op,
+                "NO_MACHINE_UNIT",
+                f"{label(op)} needs a machine unit; choose one or propose the schedule again",
+            )
         if unit_id:
             unit = unit_labels.get(unit_id, "The machine unit")
             clash = next(

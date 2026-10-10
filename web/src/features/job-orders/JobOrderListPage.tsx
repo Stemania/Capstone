@@ -23,6 +23,7 @@ import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import MaterialDelayTag from '../../components/MaterialDelayTag';
+import NeedsReplanTag from '../../components/NeedsReplanTag';
 import MaterialWaitTag from '../../components/MaterialWaitTag';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
 import { useAuth } from '../../hooks/useAuth';
@@ -68,10 +69,11 @@ function JobStatusBadge({ job }: { job: JobOrder }) {
     <StatusPill color={st.color} compact>{st.label}</StatusPill>
   );
   const delayed = !!job.materialDelay && job.status === 'SCHEDULED';
-  if (!job.waitingForMaterials && !delayed) return pill;
+  if (!job.waitingForMaterials && !delayed && !job.needsReplan) return pill;
   return (
     <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
       {pill}
+      <NeedsReplanTag job={job} />
       <MaterialWaitTag wait={job} />
       <MaterialDelayTag job={job} />
     </span>

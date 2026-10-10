@@ -204,6 +204,10 @@ def _register_cli(app):
             active=True,
         )
         db.session.add(user)
+        db.session.flush()
+        from app.services.worker_profile_service import ensure_worker_profile
+
+        ensure_worker_profile(user)
         db.session.commit()
         print(f"Admin user {email} created.")
 
