@@ -1,0 +1,463 @@
+/* Admin / Office shell: navy sidebar, light top bar, grey page. */
+
+/* ---------- Sidebar ---------- */
+.app-sider.ant-layout-sider {
+  background: var(--c-navy);
+  height: 100%;
+  overflow: hidden;
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.app-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.app-sider__nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+}
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  min-height: var(--topbar-h);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.app-brand.is-collapsed {
+  justify-content: center;
+  padding: 14px 8px;
+}
+
+.app-brand__logo {
+  width: 36px;
+  height: auto;
+  flex-shrink: 0;
+}
+
+.app-brand__copy {
+  min-width: 0;
+}
+
+.app-brand__name {
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.2;
+  white-space: nowrap;
+  letter-spacing: 0.1px;
+}
+
+.app-brand__tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-gold);
+  letter-spacing: 0.4px;
+  margin-top: 2px;
+  opacity: 0.9;
+}
+
+.app-nav.ant-menu {
+  background: transparent !important;
+  border-inline-end: none !important;
+  padding: 4px 0 12px;
+}
+
+.app-nav .ant-menu-item-group-title {
+  padding: 14px 20px 4px !important;
+  font-size: 10.5px !important;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-sidebar-muted) !important;
+  line-height: 1.4;
+}
+
+.app-nav.ant-menu-inline-collapsed .ant-menu-item-group-title {
+  padding: 10px 0 4px !important;
+  display: flex;
+  justify-content: center;
+}
+
+.app-nav__rule {
+  display: block;
+  width: 24px;
+  height: 1px;
+  background: rgba(148, 163, 184, 0.25);
+}
+
+.app-nav .ant-menu-item {
+  position: relative;
+  font-weight: 500 !important;
+  font-size: 13.5px;
+  color: var(--c-sidebar-text);
+  overflow: visible !important;
+}
+
+.app-nav .ant-menu-item .ant-menu-title-content {
+  font-weight: 500 !important;
+}
+
+.app-nav .ant-menu-item .anticon {
+  font-size: 16px;
+  color: var(--c-sidebar-muted);
+  transition: color var(--ease);
+}
+
+.app-nav .ant-menu-item:hover .anticon {
+  color: #fff;
+}
+
+.app-nav .ant-menu-item-selected {
+  color: #fff !important;
+}
+
+.app-nav .ant-menu-item-selected .ant-menu-title-content {
+  font-weight: 700 !important;
+}
+
+.app-nav .ant-menu-item-selected .anticon {
+  color: #fff;
+}
+
+/* Thin gold bar on the active item. */
+.app-nav .ant-menu-item-selected::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--c-gold);
+}
+
+.app-nav.ant-menu-inline-collapsed .ant-menu-item-selected::before {
+  left: -4px;
+}
+
+.app-sider__foot {
+  flex-shrink: 0;
+  padding: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.app-sider__logout.ant-btn {
+  color: var(--c-sidebar-text) !important;
+  font-weight: 600;
+  height: 36px;
+  justify-content: flex-start;
+  padding-inline: 16px;
+}
+
+.app-sider__foot.is-collapsed .app-sider__logout.ant-btn {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.app-sider__logout.ant-btn:hover {
+  color: #fff !important;
+  background: rgba(148, 163, 184, 0.12) !important;
+}
+
+/* Drawer version of the sidebar (tablet / phone). */
+.app-nav-drawer .ant-drawer-section,
+.app-nav-drawer .ant-drawer-content,
+.app-nav-drawer .ant-drawer-body {
+  background: var(--c-navy) !important;
+  padding: 0 !important;
+}
+
+.app-nav-drawer .ant-drawer-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app-nav-drawer__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: env(safe-area-inset-top);
+  padding-right: 12px;
+}
+
+.app-nav-drawer__top .app-brand {
+  border-bottom: none;
+}
+
+.app-nav-drawer__close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.app-nav-drawer .ant-menu-item {
+  height: 44px !important;
+  line-height: 44px !important;
+}
+
+/* ---------- Top bar ---------- */
+.app-main.ant-layout {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-page);
+}
+
+.app-topbar.ant-layout-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: var(--topbar-h);
+  line-height: normal;
+  padding: 0 var(--page-pad) 0 12px;
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  flex-shrink: 0;
+}
+
+.app-topbar__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.app-topbar__menu-btn.ant-btn {
+  color: var(--c-text-2);
+  flex-shrink: 0;
+}
+
+.app-topbar__heading {
+  min-width: 0;
+}
+
+.app-topbar__heading .ui-crumbs {
+  margin-bottom: 0;
+}
+
+.app-topbar__title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.app-topbar__title {
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: 700;
+  color: var(--c-text);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-topbar__subtitle {
+  font-size: var(--fs-sm);
+  color: var(--c-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.app-topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.app-topbar__icon-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  background: var(--c-surface);
+  color: var(--c-text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  cursor: pointer;
+  padding: 0;
+  transition: background var(--ease), border-color var(--ease), color var(--ease);
+}
+
+.app-topbar__icon-btn:hover {
+  background: var(--c-surface-muted);
+  border-color: var(--c-border-strong);
+  color: var(--c-text);
+}
+
+.app-topbar__icon-btn .app-shell__bell-icon {
+  font-size: 17px;
+  color: var(--c-text-2);
+}
+
+.app-topbar__who {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px 3px 3px;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  background: var(--c-surface);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  max-width: 240px;
+  transition: background var(--ease), border-color var(--ease);
+}
+
+.app-topbar__who:hover,
+.app-topbar__who.is-open {
+  background: var(--c-surface-muted);
+  border-color: var(--c-border-strong);
+}
+
+.app-topbar__who-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  text-align: left;
+}
+
+.app-topbar__who-name {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-text);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-topbar__who-role {
+  font-size: 11px;
+  color: var(--c-text-muted);
+  line-height: 1.2;
+}
+
+.app-topbar__who-caret {
+  font-size: 10px;
+  color: var(--c-text-muted);
+}
+
+/* Account popover */
+.acct-panel {
+  width: 240px;
+}
+
+.acct-panel__who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 4px 12px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.acct-panel__name {
+  font-size: var(--fs-base);
+  font-weight: 700;
+  color: var(--c-text);
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.acct-panel__role {
+  font-size: var(--fs-xs);
+  color: var(--c-text-muted);
+  margin-top: 2px;
+}
+
+/* ---------- Content ---------- */
+.app-shell__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--c-page);
+}
+
+.app-shell__content.ant-layout-content {
+  margin: 0;
+  padding: var(--page-pad);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  min-width: 0;
+}
+
+/*
+ * Pages built from cards (<Page>) sit on the grey background. Pages not yet
+ * on <Page> keep one white surface so nothing renders on bare grey.
+ */
+.app-shell__content > .nav-keep-alive--active:not(:has(> .ui-page)),
+.app-shell__content > :not(.nav-keep-alive):not(.ui-page) {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  padding: 20px;
+}
+
+/* ---------- Phone ---------- */
+@media (max-width: 767px) {
+  .app-topbar.ant-layout-header {
+    height: auto;
+    min-height: 56px;
+    padding: calc(8px + env(safe-area-inset-top)) 12px 8px 16px;
+  }
+
+  .app-topbar__title {
+    font-size: 18px;
+  }
+
+  .app-topbar__subtitle {
+    display: none;
+  }
+
+  .app-topbar__who {
+    padding: 2px;
+  }
+
+  .app-shell--phone .app-shell__content.ant-layout-content {
+    padding: 12px 12px 16px;
+  }
+
+  .app-shell--phone .app-shell__content > .nav-keep-alive--active:not(:has(> .ui-page)),
+  .app-shell--phone .app-shell__content > :not(.nav-keep-alive):not(.ui-page) {
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+
+  .app-shell--phone .app-shell__scroll {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+}

@@ -1,10 +1,10 @@
-import { Grid, Layout, Menu, Button, Drawer, Popover } from 'antd';
+import { Grid, Layout, Menu, Button, Drawer, Popover, Tooltip } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   LogoutOutlined,
   FileTextOutlined,
   TeamOutlined,
   ToolOutlined,
-  UserOutlined,
   SettingOutlined,
   BarChartOutlined,
   CalendarOutlined,
@@ -18,98 +18,134 @@ import {
   ShopOutlined,
   ClockCircleOutlined,
   UnorderedListOutlined,
+  SafetyCertificateOutlined,
+  DownOutlined,
 } from '@ant-design/icons';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { operationsApi } from '../api/operations.api';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { adminPx } from '../theme/adminTheme';
 import { confirmLogout } from '../utils/confirmLogout';
 import KeepAliveOutlet from '../navigation/KeepAliveOutlet';
 import { getNavSection, useNavMemory } from '../navigation/navMemory';
 import NotificationBell from '../components/NotificationBell';
+import { PersonAvatar } from '../components/PersonAvatar';
+import { Breadcrumbs, type Crumb } from '../components/ui/PageHeader';
+import { layout } from '../theme/tokens';
+import './appShell.css';
 
 const { Header, Sider, Content } = Layout;
 
-const NAVY = '#0f1c2e';
+type NavItem = { key: string; icon: ReactNode; label: string; adminOnly?: boolean };
+type NavGroup = { label: string; items: NavItem[] };
 
-const pageMeta: Record<string, { title: string; subtitle: string }> = {
-  '/job-orders': { title: 'Job Orders', subtitle: 'Create and manage production job orders' },
-  '/clients': {
-    title: 'Clients',
-    subtitle: 'Register clients and contacts for job update messages',
+/** Same groups and names for Admin and Office Staff; each sees only what it can open. */
+const NAV: NavGroup[] = [
+  {
+    label: 'Overview',
+    items: [{ key: '/schedule', icon: <CalendarOutlined />, label: 'Schedule' }],
   },
-  '/suppliers': {
-    title: 'Suppliers and Orders',
-    subtitle: 'Raw material suppliers and the purchase orders sent to them',
+  {
+    label: 'Production',
+    items: [
+      { key: '/job-orders', icon: <FileTextOutlined />, label: 'Job Orders' },
+      { key: '/machines', icon: <BuildOutlined />, label: 'Machines' },
+      { key: '/work-calendar', icon: <FieldTimeOutlined />, label: 'Work calendar' },
+    ],
   },
-  '/schedule': {
-    title: 'Schedule',
-    subtitle: 'Shop-wide production schedule by machine and worker',
+  {
+    label: 'Purchasing & stock',
+    items: [
+      { key: '/suppliers', icon: <ShopOutlined />, label: 'Suppliers and Orders' },
+      { key: '/tools', icon: <ToolOutlined />, label: 'Inventory' },
+    ],
   },
-  '/machines': {
-    title: 'Machines',
-    subtitle: 'Machine units, breakdowns, and who reported them',
+  {
+    label: 'Clients',
+    items: [{ key: '/clients', icon: <ContactsOutlined />, label: 'Clients' }],
   },
-  '/work-calendar': {
-    title: 'Work calendar',
-    subtitle: 'Shop-wide overtime, special days, and holidays',
+  {
+    label: 'People',
+    items: [
+      { key: '/users', icon: <TeamOutlined />, label: 'Users & Roles', adminOnly: true },
+      { key: '/worker-setup', icon: <SettingOutlined />, label: 'Worker setup', adminOnly: true },
+      { key: '/attendance', icon: <ClockCircleOutlined />, label: 'Attendance', adminOnly: true },
+    ],
   },
-  '/analytics': {
-    title: 'Analytics',
-    subtitle: 'How the shop is doing — time, sales, what is coming, and printable reports',
+  {
+    label: 'Insights',
+    items: [{ key: '/analytics', icon: <BarChartOutlined />, label: 'Analytics' }],
   },
-  '/my-assignments': {
-    title: 'My assignments',
-    subtitle: 'Operations assigned to you — start, pause, and complete them',
-  },
-  '/users': { title: 'Users & Roles', subtitle: 'Manage accounts, roles, and who can sign in' },
-  '/tools': { title: 'Inventory', subtitle: 'Tools and consumables' },
-  '/worker-setup': {
-    title: 'Worker setup',
-    subtitle: 'Skills, weekly hours, and work history',
-  },
-  '/attendance': {
-    title: 'Attendance',
-    subtitle: 'Record each worker\u2019s clock-in and clock-out',
-  },
+];
+
+const SECTION_META: Record<string, { title: string; subtitle: string }> = {
+  '/schedule': { title: 'Schedule', subtitle: 'Shop-wide production schedule by machine and worker' },
+  '/my-assignments': { title: 'My assignments', subtitle: 'Operations assigned to you' },
+  '/job-orders': { title: 'Job Orders', subtitle: 'Create and track production job orders' },
+  '/machines': { title: 'Machines', subtitle: 'Machine units, breakdowns, and who reported them' },
+  '/work-calendar': { title: 'Work calendar', subtitle: 'Shop-wide overtime, special days, and holidays' },
+  '/suppliers': { title: 'Suppliers and Orders', subtitle: 'Material suppliers and the purchase orders sent to them' },
+  '/tools': { title: 'Inventory', subtitle: 'Tools, consumables, and raw materials' },
+  '/clients': { title: 'Clients', subtitle: 'Clients and contacts for job update messages' },
+  '/users': { title: 'Users & Roles', subtitle: 'Accounts, roles, and who can sign in' },
+  '/worker-setup': { title: 'Worker setup', subtitle: 'Skills, weekly hours, and work history' },
+  '/attendance': { title: 'Attendance', subtitle: 'Each worker\u2019s clock-in and clock-out' },
+  '/analytics': { title: 'Analytics', subtitle: 'How the shop is doing, and printable reports' },
+  '/settings/shop': { title: 'Shop details', subtitle: 'Printed on purchase orders and job orders' },
+  '/account': { title: 'Account security', subtitle: 'Password and quick sign-in PIN' },
 };
+
+const REPORT_TITLES: Record<string, string> = {
+  efficiency: 'Production Performance',
+  inventory: 'Inventory Status',
+  'worker-performance': 'Worker Performance',
+};
+
+type Meta = { title: string; subtitle?: string; crumbs?: Crumb[] };
+
+function routeMeta(pathname: string, section: string | null): Meta {
+  const jobs: Crumb = { label: 'Job Orders', to: '/job-orders' };
+  if (pathname === '/job-orders/new') return { title: 'New job order', crumbs: [jobs, { label: 'New' }] };
+  if (/^\/job-orders\/[^/]+\/edit$/.test(pathname)) return { title: 'Edit job order', crumbs: [jobs, { label: 'Edit' }] };
+  if (/^\/job-orders\/[^/]+\/plan$/.test(pathname)) return { title: 'Plan job order', crumbs: [jobs, { label: 'Plan' }] };
+  if (/^\/job-orders\/[^/]+$/.test(pathname)) {
+    return { title: 'Job order', subtitle: 'Details, progress, and notifications', crumbs: [jobs, { label: 'Details' }] };
+  }
+  if (/^\/clients\/[^/]+$/.test(pathname)) {
+    return { title: 'Client', subtitle: 'Details and job history', crumbs: [{ label: 'Clients', to: '/clients' }, { label: 'Details' }] };
+  }
+  if (/^\/supplier-orders\/[^/]+$/.test(pathname)) {
+    return {
+      title: 'Supplier order',
+      subtitle: 'Lines, issuing, receiving, and the printed PO',
+      crumbs: [{ label: 'Suppliers and Orders', to: '/supplier-orders' }, { label: 'Supplier order' }],
+    };
+  }
+  if (/^\/my-assignments\/[^/]+$/.test(pathname)) {
+    return { title: 'Assignment', crumbs: [{ label: 'My assignments', to: '/my-assignments' }, { label: 'Assignment' }] };
+  }
+  const report = pathname.match(/^\/analytics\/reports\/([^/]+)/);
+  if (report) {
+    return {
+      title: REPORT_TITLES[report[1]] || 'Report',
+      crumbs: [
+        { label: 'Analytics', to: '/analytics' },
+        { label: 'Reports', to: '/analytics/reports' },
+        { label: REPORT_TITLES[report[1]] || 'Report' },
+      ],
+    };
+  }
+  return SECTION_META[section || ''] || { title: '' };
+}
 
 function Brand({ collapsed }: { collapsed: boolean }) {
   return (
-    <div
-      style={{
-        padding: collapsed ? '16px 8px' : '14px 16px',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: 8,
-        textAlign: 'center',
-      }}
-    >
-      <img
-        src="/logo.png"
-        alt="Brothers Machine Shop logo"
-        style={{ width: collapsed ? 40 : 60, height: 'auto', flexShrink: 0 }}
-      />
+    <div className={`app-brand${collapsed ? ' is-collapsed' : ''}`}>
+      <img src="/logo.png" alt="Brothers Machine Shop logo" className="app-brand__logo" />
       {!collapsed && (
-        <div style={{ minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: 15,
-              fontWeight: 800,
-              letterSpacing: 0.3,
-              color: '#fff',
-              whiteSpace: 'nowrap',
-              lineHeight: 1.25,
-            }}
-          >
-            Brothers Machine Shop
-          </div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
-            Production Scheduling
-          </div>
+        <div className="app-brand__copy">
+          <div className="app-brand__name">Brothers Machine Shop</div>
+          <div className="app-brand__tag">Production Scheduling</div>
         </div>
       )}
     </div>
@@ -159,47 +195,34 @@ export default function AppLayout() {
     setMobileOpen(false);
   };
 
-  const menuItems = [];
-
-  if (isAdmin || isOfficeStaff) {
-    menuItems.push(
-      { key: '/schedule', icon: <CalendarOutlined />, label: 'Schedule' },
-      { key: '/job-orders', icon: <FileTextOutlined />, label: 'Job Orders' },
-      { key: '/machines', icon: <BuildOutlined />, label: 'Machines' },
-      { key: '/work-calendar', icon: <FieldTimeOutlined />, label: 'Work calendar' },
-      { key: '/clients', icon: <ContactsOutlined />, label: 'Clients' },
-      { key: '/suppliers', icon: <ShopOutlined />, label: 'Suppliers and Orders' },
-      { key: '/analytics', icon: <BarChartOutlined />, label: 'Analytics' },
-      { key: '/tools', icon: <ToolOutlined />, label: 'Inventory' },
-    );
-  }
-
-  if (isAdmin && (hasAssignments || location.pathname.startsWith('/my-assignments'))) {
-    menuItems.splice(1, 0, {
-      key: '/my-assignments',
-      icon: <UnorderedListOutlined />,
-      label: 'My assignments',
-    });
-  }
-
-  if (isAdmin) {
-    menuItems.push(
-      { key: '/users', icon: <TeamOutlined />, label: 'Users & Roles' },
-      { key: '/worker-setup', icon: <SettingOutlined />, label: 'Worker setup' },
-      { key: '/attendance', icon: <ClockCircleOutlined />, label: 'Attendance' },
-    );
-  }
+  const showAssignments = isAdmin && (hasAssignments || location.pathname.startsWith('/my-assignments'));
+  const groups = (isAdmin || isOfficeStaff ? NAV : [])
+    .map((g) => {
+      const items = g.items.filter((it) => isAdmin || !it.adminOnly);
+      if (g.label === 'Overview' && showAssignments) {
+        items.push({ key: '/my-assignments', icon: <UnorderedListOutlined />, label: 'My assignments' });
+      }
+      return { ...g, items };
+    })
+    .filter((g) => g.items.length > 0);
 
   const section = getNavSection(location.pathname);
-  const selectedKey = menuItems.find((item) => item.key === section)?.key || '';
-  const meta =
-    /^\/job-orders\/[^/]+$/.test(location.pathname)
-      ? { title: 'Job Order', subtitle: 'View details, time taken, and notifications' }
-      : /^\/clients\/[^/]+$/.test(location.pathname)
-        ? { title: 'Client', subtitle: 'Details and job history' }
-        : /^\/supplier-orders\/[^/]+$/.test(location.pathname)
-          ? { title: 'Supplier Order', subtitle: 'Lines, issuing, receiving, and the printed PO' }
-          : pageMeta[selectedKey] || { title: '', subtitle: '' };
+  const allKeys = groups.flatMap((g) => g.items.map((it) => it.key));
+  const selectedKey = allKeys.find((k) => k === section) || '';
+  const meta = routeMeta(location.pathname, section);
+  const iconOnly = collapsed && !isCompact;
+
+  const menuItems: MenuProps['items'] = groups.map((g) => ({
+    type: 'group' as const,
+    key: `group:${g.label}`,
+    label: iconOnly ? <span className="app-nav__rule" aria-hidden /> : g.label,
+    children: g.items.map((it) => ({
+      key: it.key,
+      icon: it.icon,
+      label: it.label,
+      title: it.label,
+    })),
+  }));
 
   const handleLogout = () => {
     confirmLogout(() => {
@@ -218,78 +241,44 @@ export default function AppLayout() {
     <Menu
       theme="dark"
       mode="inline"
-      inlineCollapsed={collapsed && !isCompact}
+      inlineCollapsed={iconOnly}
       selectedKeys={[selectedKey]}
       items={menuItems}
-      style={{ background: 'transparent', border: 'none', padding: '8px' }}
-      onClick={({ key }) => {
-        goSection(key);
-      }}
+      className="app-nav"
+      onClick={({ key }) => goSection(String(key))}
     />
   );
 
-  const logoutButton = (iconOnly: boolean) => (
-    <div
-      style={{
-        flexShrink: 0,
-        padding: iconOnly ? '8px' : '8px 8px 12px',
-        borderTop: '1px solid rgba(255,255,255,0.08)',
-      }}
-    >
-      <Button
-        type="text"
-        icon={<LogoutOutlined />}
-        onClick={handleLogout}
-        block
-        aria-label="Logout"
-        style={{
-          color: 'rgba(255,255,255,0.75)',
-          fontWeight: 700,
-          height: 40,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: iconOnly ? 'center' : 'flex-start',
-          paddingInline: iconOnly ? 0 : 16,
-        }}
-      >
-        {iconOnly ? null : 'Logout'}
-      </Button>
+  const logoutButton = (compactBtn: boolean) => (
+    <div className={`app-sider__foot${compactBtn ? ' is-collapsed' : ''}`}>
+      <Tooltip title={compactBtn ? 'Log out' : undefined} placement="right">
+        <Button type="text" icon={<LogoutOutlined />} onClick={handleLogout} block aria-label="Log out" className="app-sider__logout">
+          {compactBtn ? null : 'Log out'}
+        </Button>
+      </Tooltip>
     </div>
   );
 
   const onSchedule = location.pathname.startsWith('/schedule');
 
   const accountPanel = (
-    <div style={{ width: 240, padding: '4px 2px 2px' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: '10px 8px 14px',
-          borderBottom: '1px solid #e2e8f0',
-          marginBottom: 10,
-        }}
-      >
-        <div className="app-nav-drawer__avatar" style={{ width: 44, height: 44, fontSize: 20 }}>
-          <UserOutlined />
-        </div>
+    <div className="acct-panel">
+      <div className="acct-panel__who">
+        <PersonAvatar userId={user?.id} fullName={user?.fullName} photoVersion={user?.photoVersion} size={40} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', lineHeight: 1.25, wordBreak: 'break-word' }}>
-            {user?.fullName}
-          </div>
-          <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>{roleLabel(user?.role)}</div>
+          <div className="acct-panel__name">{user?.fullName}</div>
+          <div className="acct-panel__role">{roleLabel(user?.role)}</div>
         </div>
       </div>
       <button
         type="button"
         className="acct-sheet-btn"
-        style={{ marginBottom: 8 }}
         onClick={() => {
           setAccountOpen(false);
           navigate('/account/security');
         }}
       >
+        <SafetyCertificateOutlined />
         Account security
       </button>
       <button
@@ -306,6 +295,28 @@ export default function AppLayout() {
     </div>
   );
 
+  const accountChip = user?.fullName ? (
+    <Popover
+      trigger="click"
+      placement="bottomRight"
+      open={accountOpen}
+      onOpenChange={setAccountOpen}
+      content={accountPanel}
+      styles={{ container: { padding: 12, borderRadius: 12 } }}
+    >
+      <button type="button" className={`app-topbar__who${accountOpen ? ' is-open' : ''}`} aria-label="Account">
+        <PersonAvatar userId={user.id} fullName={user.fullName} photoVersion={user.photoVersion} size={32} />
+        {!isPhone && (
+          <span className="app-topbar__who-copy">
+            <span className="app-topbar__who-name">{user.fullName}</span>
+            <span className="app-topbar__who-role">{roleLabel(user.role)}</span>
+          </span>
+        )}
+        {!isPhone && <DownOutlined className="app-topbar__who-caret" aria-hidden />}
+      </button>
+    </Popover>
+  ) : null;
+
   const phoneTabs = [
     { key: '/job-orders', label: 'Jobs', icon: <FileTextOutlined />, match: '/job-orders' },
     { key: '/schedule', label: 'Schedule', icon: <CalendarOutlined />, match: '/schedule' },
@@ -314,25 +325,21 @@ export default function AppLayout() {
   const moreActive = !phoneTabs.some((t) => location.pathname.startsWith(t.match));
 
   return (
-    <Layout className={`app-shell${isPhone ? ' app-shell--phone' : ''}${isCompact ? ' app-shell--compact' : ''}`} style={{ height: '100%', overflow: 'hidden' }}>
+    <Layout
+      className={`app-shell${isPhone ? ' app-shell--phone' : ''}${isCompact ? ' app-shell--compact' : ''}`}
+      style={{ height: '100%', overflow: 'hidden' }}
+    >
       {!isCompact && (
         <Sider
           trigger={null}
           collapsible
           collapsed={collapsed}
-          collapsedWidth={adminPx(72)}
-          width={adminPx(250)}
+          collapsedWidth={layout.sidebarCollapsedWidth}
+          width={layout.sidebarWidth}
           className="app-sider"
-          style={{
-            background: NAVY,
-            height: '100%',
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
         >
           <Brand collapsed={collapsed} />
-          <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>{menu}</div>
+          <div className="app-sider__nav">{menu}</div>
           {logoutButton(collapsed)}
         </Sider>
       )}
@@ -341,152 +348,56 @@ export default function AppLayout() {
         placement="left"
         open={mobileOpen}
         onClose={() => setMobileOpen(false)}
-        width={adminPx(280)}
+        size={layout.sidebarWidth + 48}
         closable={false}
         className="app-nav-drawer"
-        styles={{
-          content: { padding: 0, borderRadius: 0, background: NAVY },
-          header: { display: 'none' },
-          body: {
-            padding: 0,
-            background: NAVY,
-            display: 'flex',
-            flexDirection: 'column',
-            height: '100%',
-          },
-        }}
+        styles={{ section: { padding: 0, borderRadius: 0 }, header: { display: 'none' }, body: { padding: 0 } }}
       >
         <div className="app-nav-drawer__top">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            <img src="/logo.png" alt="Brothers Machine Shop logo" style={{ width: 40, height: 'auto', flexShrink: 0 }} />
-            <div>
-              <div className="app-nav-drawer__shop">Brothers Machine Shop</div>
-              <div className="app-nav-drawer__tag">Production Scheduling</div>
-            </div>
-          </div>
+          <Brand collapsed={false} />
           <button type="button" className="app-nav-drawer__close" onClick={() => setMobileOpen(false)} aria-label="Close menu">
             ×
           </button>
         </div>
-        <div className="app-nav-drawer__user">
-          <div className="app-nav-drawer__avatar">
-            <UserOutlined />
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <div className="app-nav-drawer__name">{user?.fullName}</div>
-            <div className="app-nav-drawer__role">{roleLabel(user?.role)}</div>
-          </div>
-        </div>
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>{menu}</div>
+        <div className="app-sider__nav">{menu}</div>
         {logoutButton(false)}
       </Drawer>
 
-      <Layout
-        style={{
-          height: '100%',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        <Header
-          className="app-shell__header"
-          style={{
-            padding: 0,
-            background: NAVY,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            height: isPhone ? undefined : 68,
-            lineHeight: 'normal',
-            flexShrink: 0,
-            width: '100%',
-            margin: 0,
-          }}
-        >
-          <div
-            className={isPhone ? 'app-shell__header-inner app-shell__header-inner--phone' : 'app-shell__header-inner'}
-          >
-            {isPhone ? (
-              <>
-                <div className="app-shell__phone-copy">
-                  <div className="app-shell__title">{meta.title || 'BMSC'}</div>
-                  {meta.subtitle && <div className="app-shell__subtitle">{meta.subtitle}</div>}
-                </div>
-                <div className="app-shell__phone-actions">
-                  {showBell && <NotificationBell className="app-shell__cal" />}
-                  {!onSchedule && (
-                    <button
-                      type="button"
-                      className="app-shell__cal"
-                      onClick={() => goSection('/schedule')}
-                      aria-label="Schedule"
-                      title="Schedule"
-                    >
-                      <CalendarOutlined />
-                    </button>
-                  )}
-                  {user?.fullName && (
-                    <Popover
-                      trigger="click"
-                      placement="bottomRight"
-                      open={accountOpen}
-                      onOpenChange={setAccountOpen}
-                      arrow={{ pointAtCenter: true }}
-                      content={accountPanel}
-                      styles={{
-                        container: {
-                          padding: 12,
-                          borderRadius: 14,
-                          boxShadow: '0 8px 28px rgba(15,23,42,0.18)',
-                        },
-                      }}
-                    >
-                      <button type="button" className={`app-shell__who-pill${accountOpen ? ' is-open' : ''}`}>
-                        <div className="app-shell__who-copy">
-                          <div className="app-shell__who-name">{user.fullName}</div>
-                          <div className="app-shell__who-role">{roleLabel(user.role)}</div>
-                        </div>
-                        <span className="app-shell__who-avatar" aria-hidden>
-                          <UserOutlined />
-                        </span>
-                      </button>
-                    </Popover>
-                  )}
-                </div>
-              </>
-            ) : (
-              <>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                  <Button
-                    type="text"
-                    icon={isCompact ? <MenuOutlined /> : collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                    onClick={() => {
-                      if (isCompact) setMobileOpen(true);
-                      else setCollapsed(!collapsed);
-                    }}
-                    aria-label={isCompact ? 'Open menu' : collapsed ? 'Expand menu' : 'Collapse menu'}
-                    style={{ color: 'rgba(255,255,255,0.85)' }}
-                  />
-                  <div style={{ minWidth: 0 }}>
-                    <div className="app-shell__title">{meta.title}</div>
-                    {meta.subtitle && <div className="app-shell__subtitle">{meta.subtitle}</div>}
-                  </div>
-                </div>
-                <div className="app-shell__header-actions">
-                  {showBell && <NotificationBell />}
-                  <div className="app-shell__who">
-                    <div className="app-shell__who-icon">
-                      <UserOutlined />
-                    </div>
-                    <div className="app-shell__who-copy">
-                      <div className="app-shell__who-name">{user?.fullName}</div>
-                      <div className="app-shell__who-role">{roleLabel(user?.role)}</div>
-                    </div>
-                  </div>
-                </div>
-              </>
+      <Layout className="app-main">
+        <Header className="app-topbar">
+          <div className="app-topbar__left">
+            {!isPhone && (
+              <Tooltip title={isCompact ? 'Open menu' : collapsed ? 'Expand menu' : 'Collapse menu'}>
+                <Button
+                  type="text"
+                  className="app-topbar__menu-btn"
+                  icon={isCompact ? <MenuOutlined /> : collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                  onClick={() => {
+                    if (isCompact) setMobileOpen(true);
+                    else setCollapsed(!collapsed);
+                  }}
+                  aria-label={isCompact ? 'Open menu' : collapsed ? 'Expand menu' : 'Collapse menu'}
+                />
+              </Tooltip>
             )}
+            <div className="app-topbar__heading">
+              {meta.crumbs?.length ? <Breadcrumbs items={meta.crumbs} /> : null}
+              <div className="app-topbar__title-row">
+                <h1 className="app-topbar__title">{meta.title || 'BMSC'}</h1>
+                {meta.subtitle && !meta.crumbs?.length ? <span className="app-topbar__subtitle">{meta.subtitle}</span> : null}
+              </div>
+            </div>
+          </div>
+          <div className="app-topbar__right">
+            {showBell && <NotificationBell className="app-topbar__icon-btn" />}
+            {isPhone && !onSchedule && (
+              <Tooltip title="Schedule">
+                <button type="button" className="app-topbar__icon-btn" onClick={() => goSection('/schedule')} aria-label="Schedule">
+                  <CalendarOutlined />
+                </button>
+              </Tooltip>
+            )}
+            {accountChip}
           </div>
         </Header>
         <div className="app-shell__scroll">

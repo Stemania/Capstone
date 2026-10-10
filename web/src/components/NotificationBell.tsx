@@ -1,8 +1,9 @@
 import { formatShop } from '../utils/shopTime';
 import { useCallback, useEffect, useState } from 'react';
-import { Badge, Button, Empty, Popover, Spin } from 'antd';
+import { Badge, Button, Popover, Skeleton } from 'antd';
 import { BellOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import EmptyState from './ui/EmptyState';
 import { alertsApi } from '../api/alerts.api';
 import type { StaffAlert } from '../types';
 
@@ -78,14 +79,12 @@ export default function NotificationBell({ className }: { className?: string }) 
       <div className="notif-panel__list">
         {loading && items.length === 0 ? (
           <div className="notif-panel__empty">
-            <Spin />
+            <Skeleton active title={false} paragraph={{ rows: 3 }} />
           </div>
         ) : items.length === 0 ? (
-          <Empty
-            className="notif-panel__empty"
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="No notifications yet"
-          />
+          <div className="notif-panel__empty">
+            <EmptyState compact icon={<BellOutlined />} title="No notifications yet" />
+          </div>
         ) : (
           items.map((a) => (
             <div
@@ -137,14 +136,7 @@ export default function NotificationBell({ className }: { className?: string }) 
       }}
       content={content}
       arrow={{ pointAtCenter: true }}
-      styles={{
-        container: {
-          padding: 0,
-          borderRadius: 14,
-          boxShadow: '0 8px 28px rgba(15,23,42,0.18)',
-          overflow: 'hidden',
-        },
-      }}
+      styles={{ container: { padding: 0, borderRadius: 12, overflow: 'hidden' } }}
     >
       <button
         type="button"
@@ -153,7 +145,7 @@ export default function NotificationBell({ className }: { className?: string }) 
         title="Notifications"
       >
         <Badge count={count} size="small" overflowCount={99} offset={[2, -2]}>
-          <BellOutlined style={{ color: '#fff', fontSize: 20 }} />
+          <BellOutlined className="app-shell__bell-icon" />
         </Badge>
       </button>
     </Popover>
