@@ -25,7 +25,7 @@ export function ReportToolbar({
     <div className="report-toolbar no-print">
       <div className="report-header">
         <Space wrap align="center" size={12}>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/reports')}>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/analytics/reports')}>
             Back
           </Button>
           <div>

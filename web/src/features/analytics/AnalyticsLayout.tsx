@@ -15,12 +15,14 @@ const ADMIN_TABS = [
   { label: 'Job orders & sales', value: '/analytics/sales' },
   { label: 'Forecast', value: '/analytics/forecast' },
   { label: 'Suppliers', value: '/analytics/suppliers' },
+  { label: 'Reports', value: '/analytics/reports' },
 ];
 
 const OFFICE_TABS = [
   { label: 'Job orders & sales', value: '/analytics/sales' },
   { label: 'Forecast', value: '/analytics/forecast' },
   { label: 'Suppliers & purchasing', value: '/analytics/suppliers' },
+  { label: 'Reports', value: '/analytics/reports' },
 ];
 
 export default function AnalyticsLayout() {
@@ -35,12 +37,13 @@ export default function AnalyticsLayout() {
       tabs[0].value,
     [location.pathname, tabs]
   );
+  const onReports = active === '/analytics/reports';
 
   return (
     <AnalyticsPeriodProvider range={range} setRange={setRange}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div
-          className="admin-h-scroll"
+          className="admin-h-scroll no-print"
           style={{
             display: 'flex',
             flexWrap: 'wrap',
@@ -55,18 +58,20 @@ export default function AnalyticsLayout() {
             onChange={(v) => navigate(String(v))}
             size="large"
           />
-          <DatePicker.RangePicker
-            value={range}
-            allowClear={false}
-            format="YYYY-MM-DD"
-            onChange={(vals) => {
-              if (vals?.[0] && vals?.[1]) {
-                setRange([vals[0].startOf('day'), vals[1].endOf('day')]);
-              }
-            }}
-            disabledDate={(d) => d.isAfter(shopToday(), 'day')}
-            size="large"
-          />
+          {!onReports && (
+            <DatePicker.RangePicker
+              value={range}
+              allowClear={false}
+              format="YYYY-MM-DD"
+              onChange={(vals) => {
+                if (vals?.[0] && vals?.[1]) {
+                  setRange([vals[0].startOf('day'), vals[1].endOf('day')]);
+                }
+              }}
+              disabledDate={(d) => d.isAfter(shopToday(), 'day')}
+              size="large"
+            />
+          )}
         </div>
         <Suspense
           fallback={

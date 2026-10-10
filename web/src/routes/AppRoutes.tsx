@@ -26,8 +26,7 @@ import ToolsPage from '../features/tool-tracking/ToolsPage';
 import ScanToolPage from '../features/tool-tracking/ScanToolPage';
 import ClientsPage from '../features/clients/ClientsPage';
 import ClientDetailPage from '../features/clients/ClientDetailPage';
-import SuppliersPage from '../features/suppliers/SuppliersPage';
-import SupplierOrdersPage from '../features/supplier-orders/SupplierOrdersPage';
+import SuppliersAndOrdersPage from '../features/suppliers/SuppliersAndOrdersPage';
 import SupplierOrderDetailPage from '../features/supplier-orders/SupplierOrderDetailPage';
 import SupplierOrderPrintPage from '../features/reports/SupplierOrderPrintPage';
 import MachinesPage from '../features/machines/MachinesPage';
@@ -48,6 +47,11 @@ const AnalyticsJobOrdersPage = lazy(() => import('../features/analytics/Analytic
 function AnalyticsIndex() {
   const { user } = useAuth();
   return user?.role === 'ADMIN' ? <AnalyticsOverviewPage /> : <Navigate to="/analytics/sales" replace />;
+}
+
+function ReportsRedirect() {
+  const rest = useParams()['*'];
+  return <Navigate to={rest ? `/analytics/reports/${rest}` : '/analytics/reports'} replace />;
 }
 
 function WorkerSetupFromUser() {
@@ -140,6 +144,15 @@ export default function AppRoutes() {
                       <Route path="sales" element={<AnalyticsJobOrdersPage />} />
                       <Route path="forecast" element={<AnalyticsForecastPage />} />
                       <Route path="suppliers" element={<AnalyticsSuppliersPage />} />
+                      <Route path="reports" element={<ReportsHubPage />} />
+                      <Route path="reports/inventory" element={<InventoryReportPage />} />
+                      <Route element={<ProtectedRoute roles={['ADMIN']} />}>
+                        <Route path="reports/efficiency" element={<EfficiencyReportPage />} />
+                        <Route
+                          path="reports/worker-performance"
+                          element={<WorkerPerformanceReportPage />}
+                        />
+                      </Route>
                       <Route path="efficiency" element={<Navigate to="/analytics" replace />} />
                       <Route path="capacity" element={<Navigate to="/analytics/forecast" replace />} />
                       <Route path="purchasing" element={<Navigate to="/analytics/suppliers" replace />} />
@@ -147,21 +160,12 @@ export default function AppRoutes() {
                     <Route path="/tools" element={<ToolsPage />} />
                     <Route path="/clients" element={<ClientsPage />} />
                     <Route path="/clients/:id" element={<ClientDetailPage />} />
-                    <Route path="/suppliers" element={<SuppliersPage />} />
-                    <Route path="/supplier-orders" element={<SupplierOrdersPage />} />
+                    <Route path="/suppliers" element={<SuppliersAndOrdersPage />} />
+                    <Route path="/supplier-orders" element={<SuppliersAndOrdersPage />} />
                     <Route path="/supplier-orders/:id" element={<SupplierOrderDetailPage />} />
                     <Route path="/machines" element={<MachinesPage />} />
                     <Route path="/work-calendar" element={<WorkCalendarPage />} />
-                    <Route path="/reports" element={<ReportsHubPage />} />
-                    <Route path="/reports/inventory" element={<InventoryReportPage />} />
-                  </Route>
-
-                  <Route element={<ProtectedRoute roles={['ADMIN']} />}>
-                    <Route path="/reports/efficiency" element={<EfficiencyReportPage />} />
-                    <Route
-                      path="/reports/worker-performance"
-                      element={<WorkerPerformanceReportPage />}
-                    />
+                    <Route path="/reports/*" element={<ReportsRedirect />} />
                   </Route>
 
                   <Route element={<ProtectedRoute roles={['ADMIN']} />}>

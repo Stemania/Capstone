@@ -19,7 +19,6 @@ export const NAV_SECTIONS = [
   '/attendance',
   '/settings/shop',
   '/analytics',
-  '/reports',
   '/schedule',
   '/machines',
   '/work-calendar',
@@ -60,11 +59,17 @@ function saveStored(lastBySection: Record<string, string>) {
   }
 }
 
+/** Paths that live under another section's sidebar entry. */
+const SECTION_ALIASES: Record<string, string> = {
+  '/supplier-orders': '/suppliers',
+};
+
 export function getNavSection(pathname: string): string | null {
   const hit = NAV_SECTIONS.find(
     (s) => pathname === s || pathname.startsWith(`${s}/`)
   );
-  return hit || null;
+  if (!hit) return null;
+  return SECTION_ALIASES[hit] || hit;
 }
 
 type NavMemoryValue = {
@@ -151,7 +156,9 @@ export function NavMemoryProvider({ children }: { children: ReactNode }) {
       }
       const remembered = lastBySection[sectionKey];
       const usable =
-        remembered && remembered.startsWith(sectionKey) && !deniedRef.current.has(remembered);
+        remembered &&
+        getNavSection(remembered.split('?')[0]) === sectionKey &&
+        !deniedRef.current.has(remembered);
       return {
         to: usable ? remembered : sectionKey,
         reset: false,

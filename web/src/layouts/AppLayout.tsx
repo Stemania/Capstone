@@ -9,7 +9,6 @@ import {
   BarChartOutlined,
   CalendarOutlined,
   ContactsOutlined,
-  FileSearchOutlined,
   BuildOutlined,
   AppstoreOutlined,
   MenuOutlined,
@@ -17,9 +16,7 @@ import {
   MenuUnfoldOutlined,
   FieldTimeOutlined,
   ShopOutlined,
-  ShoppingCartOutlined,
   ClockCircleOutlined,
-  BankOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
 import { useEffect, useState } from 'react';
@@ -29,7 +26,7 @@ import { useAuth } from '../hooks/useAuth';
 import { adminPx } from '../theme/adminTheme';
 import { confirmLogout } from '../utils/confirmLogout';
 import KeepAliveOutlet from '../navigation/KeepAliveOutlet';
-import { useNavMemory } from '../navigation/navMemory';
+import { getNavSection, useNavMemory } from '../navigation/navMemory';
 import NotificationBell from '../components/NotificationBell';
 
 const { Header, Sider, Content } = Layout;
@@ -43,12 +40,8 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
     subtitle: 'Register clients and contacts for job update messages',
   },
   '/suppliers': {
-    title: 'Suppliers',
-    subtitle: 'Raw material suppliers, lead times, and contacts',
-  },
-  '/supplier-orders': {
-    title: 'Supplier Orders',
-    subtitle: 'Purchase orders grouping materials for several job orders',
+    title: 'Suppliers and Orders',
+    subtitle: 'Raw material suppliers and the purchase orders sent to them',
   },
   '/schedule': {
     title: 'Schedule',
@@ -62,13 +55,9 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
     title: 'Work calendar',
     subtitle: 'Shop-wide overtime, special days, and holidays',
   },
-  '/reports': {
-    title: 'Reports',
-    subtitle: 'Printable production performance, inventory, and worker reports',
-  },
   '/analytics': {
     title: 'Analytics',
-    subtitle: 'How the shop is doing — time, sales, and what is coming',
+    subtitle: 'How the shop is doing — time, sales, what is coming, and printable reports',
   },
   '/my-assignments': {
     title: 'My assignments',
@@ -83,10 +72,6 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/attendance': {
     title: 'Attendance',
     subtitle: 'Record each worker\u2019s clock-in and clock-out',
-  },
-  '/settings/shop': {
-    title: 'Shop details',
-    subtitle: 'Name, contacts, and approvers printed on purchase orders and job orders',
   },
 };
 
@@ -183,9 +168,7 @@ export default function AppLayout() {
       { key: '/machines', icon: <BuildOutlined />, label: 'Machines' },
       { key: '/work-calendar', icon: <FieldTimeOutlined />, label: 'Work calendar' },
       { key: '/clients', icon: <ContactsOutlined />, label: 'Clients' },
-      { key: '/suppliers', icon: <ShopOutlined />, label: 'Suppliers' },
-      { key: '/supplier-orders', icon: <ShoppingCartOutlined />, label: 'Supplier Orders' },
-      { key: '/reports', icon: <FileSearchOutlined />, label: 'Reports' },
+      { key: '/suppliers', icon: <ShopOutlined />, label: 'Suppliers and Orders' },
       { key: '/analytics', icon: <BarChartOutlined />, label: 'Analytics' },
       { key: '/tools', icon: <ToolOutlined />, label: 'Inventory' },
     );
@@ -204,11 +187,11 @@ export default function AppLayout() {
       { key: '/users', icon: <TeamOutlined />, label: 'Users & Roles' },
       { key: '/worker-setup', icon: <SettingOutlined />, label: 'Worker setup' },
       { key: '/attendance', icon: <ClockCircleOutlined />, label: 'Attendance' },
-      { key: '/settings/shop', icon: <BankOutlined />, label: 'Shop details' },
     );
   }
 
-  const selectedKey = menuItems.find((item) => location.pathname.startsWith(item.key))?.key || '';
+  const section = getNavSection(location.pathname);
+  const selectedKey = menuItems.find((item) => item.key === section)?.key || '';
   const meta =
     /^\/job-orders\/[^/]+$/.test(location.pathname)
       ? { title: 'Job Order', subtitle: 'View details, time taken, and notifications' }
@@ -338,7 +321,7 @@ export default function AppLayout() {
           collapsible
           collapsed={collapsed}
           collapsedWidth={adminPx(72)}
-          width={adminPx(230)}
+          width={adminPx(250)}
           className="app-sider"
           style={{
             background: NAVY,

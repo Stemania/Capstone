@@ -16,21 +16,21 @@ import type { JobOrder } from '../../types';
 const REPORTS = [
   {
     adminOnly: true,
-    to: '/reports/efficiency',
+    to: '/analytics/reports/efficiency',
     title: 'Production Performance',
     blurb:
       'On-time rate, difference from target, redo share, and breakdowns by worker, operation type, and machine.',
     icon: <BarChartOutlined style={{ fontSize: 22 }} />,
   },
   {
-    to: '/reports/inventory',
+    to: '/analytics/reports/inventory',
     title: 'Inventory Status',
     blurb: 'Stock levels, reorder alerts, outstanding borrows, and usage over a period.',
     icon: <ToolOutlined style={{ fontSize: 22 }} />,
   },
   {
     adminOnly: true,
-    to: '/reports/worker-performance',
+    to: '/analytics/reports/worker-performance',
     title: 'Worker Performance',
     blurb: 'Finished operations, target vs hours worked, difference from target, and machines each worker can run.',
     icon: <TeamOutlined style={{ fontSize: 22 }} />,
