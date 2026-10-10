@@ -1,8 +1,9 @@
 import { formatShop } from '../../utils/shopTime';
 import { useEffect, useState } from 'react';
 import { Alert, Button, Spin } from 'antd';
-import { PrinterOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { PrinterOutlined, ArrowLeftOutlined, EditOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
 import { supplierOrdersApi } from '../../api/supplierOrders.api';
 import { getErrorMessage } from '../../api/client';
 import { useShopDetails } from '../../hooks/useShopDetails';
@@ -53,6 +54,7 @@ function SummaryRow({ label, amount, total }: { label: string; amount: number; t
 export default function SupplierOrderPrintPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
   const shop = useShopDetails();
   const [data, setData] = useState<SupplierOrderPrint | null>(null);
   const [loading, setLoading] = useState(true);
@@ -107,6 +109,11 @@ export default function SupplierOrderPrintPage() {
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>
             Back
           </Button>
+          {isAdmin && (
+            <Button icon={<EditOutlined />} onClick={() => navigate('/settings/shop')}>
+              Edit shop details
+            </Button>
+          )}
           <Button type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>
             Print
           </Button>

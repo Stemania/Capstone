@@ -1,7 +1,7 @@
 import { formatShop } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
 import { Button, Spin, message } from 'antd';
-import { PrinterOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { PrinterOutlined, ArrowLeftOutlined, EditOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { clientsApi, jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
@@ -119,6 +119,11 @@ export default function JobOrderPrintPage() {
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>
             Back
           </Button>
+          {user?.role === 'ADMIN' && (
+            <Button icon={<EditOutlined />} onClick={() => navigate('/settings/shop')}>
+              Edit shop details
+            </Button>
+          )}
           <Button type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>
             Print
           </Button>
