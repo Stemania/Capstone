@@ -10,9 +10,9 @@ export const DEFAULT_SHOP_DETAILS: ShopDetails = {
   telephone: '(043) 4303524',
   mobileNumbers: '09260056680 / 09157859720',
   email: 'brothersmachining@yahoo.com',
-  poApproverName: 'GREGORIO AGAO JR.',
+  poApproverName: 'Approver name',
   poApproverTitle: 'General Manager',
-  joApproverName: 'GARY AGAO',
+  joApproverName: 'Prepared by',
   joApproverTitle: 'Production Head',
 };
 

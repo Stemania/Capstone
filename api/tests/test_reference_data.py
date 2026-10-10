@@ -110,7 +110,8 @@ def test_fresh_database_gets_full_reference_data(app):
 
     settings = db.session.get(ShopSettings, 1)
     assert settings.shop_name == "BROTHERS MACHINE SHOP and SERVICES CORP."
-    assert settings.po_approver_name == "GREGORIO AGAO JR."
+    assert settings.po_approver_name == "Approver name"
+    assert settings.jo_approver_name == "Prepared by"
     assert settings.jo_approver_title == "Production Head"
 
 
@@ -342,11 +343,11 @@ def test_shop_details_admin_edit(app, client):
     assert res.status_code == 200
     assert res.get_json()["mobileNumbers"] == "09260056680 / 09157859720"
 
-    change = {"joApproverName": "GARY AGAO JR."}
+    change = {"joApproverName": "Juan Dela Cruz"}
     assert client.put("/api/v1/shop-details", json=change, headers=_headers(office)).status_code == 403
     res = client.put("/api/v1/shop-details", json=change, headers=_headers(admin))
     assert res.status_code == 200
-    assert res.get_json()["joApproverName"] == "GARY AGAO JR."
+    assert res.get_json()["joApproverName"] == "Juan Dela Cruz"
     assert client.put(
         "/api/v1/shop-details", json={"shopName": ""}, headers=_headers(admin)
     ).status_code == 400

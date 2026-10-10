@@ -18,9 +18,9 @@ SHOP_DETAIL_DEFAULTS = {
     "telephone": "(043) 4303524",
     "mobile_numbers": "09260056680 / 09157859720",
     "email": "brothersmachining@yahoo.com",
-    "po_approver_name": "GREGORIO AGAO JR.",
+    "po_approver_name": "Approver name",
     "po_approver_title": "General Manager",
-    "jo_approver_name": "GARY AGAO",
+    "jo_approver_name": "Prepared by",
     "jo_approver_title": "Production Head",
 }
 
