@@ -182,7 +182,7 @@ function pickBestWorker(
   return { workerId: fromList?.id };
 }
 
-/** "Gio Agao · Lathe #2" for a machine lead, else the name. */
+/** "Ana Lopez · Lathe #2" for a machine lead, else the name. */
 function suggestionLabel(s: WorkerSuggestion) {
   const name = personLabel(s.fullName, s.nickname);
   return s.machineUnitLabel ? `${name} · ${s.machineUnitLabel}` : name;

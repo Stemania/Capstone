@@ -1,4 +1,4 @@
-/** "PJ · Anthony Pajantoy" when there is a nickname, else the full name. */
+/** "JD · Juan Dela Cruz" when there is a nickname, else the full name. */
 export function personLabel(fullName?: string | null, nickname?: string | null): string {
   const name = (fullName || '').trim();
   const nick = (nickname || '').trim();

@@ -762,7 +762,7 @@ export default function UsersPage() {
           <Form.Item
             name="nickname"
             label="Nickname"
-            extra='Shown with the name, e.g. "PJ · Anthony Pajantoy".'
+            extra='Shown with the name, e.g. "JD · Juan Dela Cruz".'
           >
             <Input maxLength={40} />
           </Form.Item>
