@@ -631,25 +631,8 @@ def create_rework_operation(operation, user_id, user_role, reason, category=None
             409,
         )
 
-    from app.services.worker_profile_service import is_checking_operation
-
     redo_seq = operation.sequence_no + 1
     later = [op for op in job.operations if op.sequence_no >= redo_seq]
-    checking_ops = [
-        op
-        for op in job.operations
-        if is_checking_operation(op.operation_type_id, op.operation_name)
-    ]
-    recheck_template = None
-    if checking_ops and not is_checking_operation(
-        operation.operation_type_id, operation.operation_name
-    ):
-        checking_follows = any(
-            op in later and op.status not in _STARTED_STATUSES and op.actual_start is None
-            for op in checking_ops
-        )
-        if not checking_follows:
-            recheck_template = max(checking_ops, key=lambda o: o.sequence_no)
 
     try:
         operation.rework_reason = note
@@ -678,34 +661,12 @@ def create_rework_operation(operation, user_id, user_role, reason, category=None
             follow.set_helpers(_redo_helpers(operation))
         job.operations.append(follow)
         db.session.flush()
-
-        if recheck_template is not None:
-            last_seq = max(op.sequence_no for op in job.operations)
-            recheck_worker = recheck_template.assigned_worker_id
-            job.operations.append(
-                JobOperation(
-                    job_order_id=job.id,
-                    sequence_no=last_seq + 1,
-                    operation_name=recheck_template.operation_name,
-                    operation_type_id=recheck_template.operation_type_id,
-                    machine_type_id=recheck_template.machine_type_id,
-                    machine_unit_id=None,
-                    assigned_worker_id=recheck_worker,
-                    estimated_hours=recheck_template.estimated_hours,
-                    status=(
-                        OperationStatus.SCHEDULED if recheck_worker else OperationStatus.PENDING
-                    ),
-                )
-            )
         job.status = derive_job_status(job)
         db.session.commit()
         return follow
     except Exception:
         db.session.rollback()
         raise
-
-
-_STARTED_STATUSES = (OperationStatus.IN_PROGRESS, OperationStatus.COMPLETED)
 
 
 def _redo_helpers(original):
@@ -726,12 +687,7 @@ def _default_redo_worker(original):
     if not original.assigned_worker_id:
         return None
     try:
-        _validate_worker(
-            original.assigned_worker_id,
-            machine_type_id=original.machine_type_id,
-            operation_type_id=original.operation_type_id,
-            operation_name=original.operation_name,
-        )
+        _validate_worker(original.assigned_worker_id, machine_type_id=original.machine_type_id)
     except AppError:
         return None
     return original.assigned_worker_id

@@ -380,7 +380,7 @@ def test_estimated_hours_default_flag(schedule_patches):
         [
             {
                 "sequenceNo": 1,
-                "operationName": "Checking",
+                "operationName": "Finishing",
                 "assignedWorkerId": "worker-1",
                 "estimatedHours": None,
             }
@@ -653,7 +653,7 @@ def test_assigned_worker_without_room_is_flagged(schedule_patches, monkeypatch):
         [
             {
                 "sequenceNo": 1,
-                "operationName": "Checking",
+                "operationName": "Finishing",
                 "assignedWorkerId": busy_worker,
                 "machineTypeId": None,
                 "estimatedHours": 2,
@@ -706,7 +706,7 @@ def test_pinned_unit_keeps_assigned_worker(schedule_patches, monkeypatch):
 
 
 def test_no_machine_op_keeps_busy_assigned_worker(schedule_patches, monkeypatch):
-    """Checking waits for its assigned worker instead of switching to a free one."""
+    """Finishing waits for its assigned worker instead of switching to a free one."""
     busy_worker = "worker-busy"
     anchor = _anchor(hour=8)
     block_end = _anchor(hour=12)
@@ -718,7 +718,7 @@ def test_no_machine_op_keeps_busy_assigned_worker(schedule_patches, monkeypatch)
         [
             {
                 "sequenceNo": 1,
-                "operationName": "Checking",
+                "operationName": "Finishing",
                 "assignedWorkerId": busy_worker,
                 "machineTypeId": None,
                 "estimatedHours": 2,

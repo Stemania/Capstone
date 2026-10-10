@@ -433,7 +433,7 @@ def build_fixtures(ctx):
         job_type="REPAIR",
         ops=[
             ("THREADING", 2, ctx.juan, "Re-cut M24 x 2 thread, 60 mm length."),
-            ("CHECKING", 1, ctx.pedro, "Check thread with M24 ring gauge."),
+            ("FINISHING", 1, ctx.pedro, "Deburr thread ends; check with M24 ring gauge."),
         ],
         due_in=8, amount=4800, quantity=4, unit="pcs",
     )
@@ -447,13 +447,13 @@ def build_fixtures(ctx):
         job_type="REPAIR",
         ops=[
             ("TURNING", 3, ctx.ana, "Build up and re-turn roller journal to 50 h6."),
-            ("CHECKING", 1, ctx.pedro, "Check runout under 0.03 mm."),
+            ("FINISHING", 1, ctx.pedro, "Polish journal; runout under 0.03 mm."),
         ],
         due_in=4, amount=12750, quantity=1, unit="pc",
     )
-    turning, checking = schedule(tc28)
+    turning, finishing = schedule(tc28)
     work_in_past(turning, at(ctx.d2, 8))
-    work_in_past(checking, at(ctx.d2, 13))
+    work_in_past(finishing, at(ctx.d2, 13))
     ctx.note(
         "TC-28", tc28,
         "Admin: For Delivery is refused until Office Staff record the sales invoice.",
@@ -514,7 +514,7 @@ def build_fixtures(ctx):
         ops=[
             ("TURNING", 3, None, "Turn journals to 45 h6."),
             ("KEYWAY", 2, None, "Cut 14 mm keyway, 60 mm long."),
-            ("CHECKING", 1, None, "Check journal size and keyway width."),
+            ("FINISHING", 1, None, "Deburr keyway; check journal size and keyway width."),
         ],
         due_in=14, amount=16500, quantity=1, unit="pc",
     )

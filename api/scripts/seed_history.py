@@ -176,42 +176,42 @@ FICTIONAL_EMAIL_DOMAIN = "@bmsc.local"
 
 
 ROUTINGS = [
-    ["BLANKING", "TEETH_CUTTING", "DRILLING", "KEYWAY", "HEAT_TREATMENT", "CHECKING"],
-    ["BLANKING", "TURNING", "FACING", "THREADING", "CHECKING"],
-    ["TURNING", "FACING", "SURFACE_GRINDING", "CHECKING"],
-    ["TEETH_CUTTING", "SLOTTING", "DRILLING", "CHECKING"],
-    ["BLANKING", "GROOVING", "KEYWAY", "HEAT_TREATMENT", "CHECKING"],
-    ["SPLINE", "SURFACE_GRINDING", "CHECKING"],
-    ["FACING", "DRILLING", "WELDING", "CHECKING"],
-    ["TURNING", "THREADING", "CHECKING"],
+    ["BLANKING", "TEETH_CUTTING", "DRILLING", "KEYWAY", "HEAT_TREATMENT", "FINISHING"],
+    ["BLANKING", "TURNING", "FACING", "THREADING", "FINISHING"],
+    ["TURNING", "FACING", "SURFACE_GRINDING", "FINISHING"],
+    ["TEETH_CUTTING", "SLOTTING", "DRILLING", "FINISHING"],
+    ["BLANKING", "GROOVING", "KEYWAY", "HEAT_TREATMENT", "FINISHING"],
+    ["SPLINE", "SURFACE_GRINDING", "FINISHING"],
+    ["FACING", "DRILLING", "WELDING", "FINISHING"],
+    ["TURNING", "THREADING", "FINISHING"],
     ["SLOTTING", "DRILLING", "KEYWAY"],
-    ["BLANKING", "TURNING", "SURFACE_GRINDING", "HEAT_TREATMENT", "CHECKING"],
+    ["BLANKING", "TURNING", "SURFACE_GRINDING", "HEAT_TREATMENT", "FINISHING"],
     # Fabrication: cutting on Laser #1, bending on Bending #1.
-    ["LAYOUT", "CUTTING", "BENDING", "WELDING", "CHECKING"],
-    ["CUTTING", "BENDING", "DRILLING", "CHECKING"],
+    ["LAYOUT", "CUTTING", "BENDING", "WELDING", "FINISHING"],
+    ["CUTTING", "BENDING", "DRILLING", "FINISHING"],
 ]
 
 # Open pipeline: Lathe/Milling dominate absolute hours; KEYWAY/SPLINE/DRILLING
 # appear often enough that single-unit types become bottlenecks from modest load.
 OPEN_PIPELINE_ROUTINGS = [
     # Milling-forward (most absolute hours land here via volume × unit count)
-    ["TEETH_CUTTING", "SLOTTING", "GROOVING", "DRILLING", "CHECKING"],
-    ["TEETH_CUTTING", "SLOTTING", "GROOVING", "KEYWAY", "CHECKING"],
-    ["BLANKING", "TEETH_CUTTING", "SLOTTING", "GROOVING", "CHECKING"],
-    ["TEETH_CUTTING", "SLOTTING", "DRILLING", "SPLINE", "CHECKING"],
-    ["GROOVING", "SLOTTING", "TEETH_CUTTING", "SURFACE_GRINDING", "CHECKING"],
-    ["BLANKING", "TEETH_CUTTING", "SLOTTING", "KEYWAY", "CHECKING"],
+    ["TEETH_CUTTING", "SLOTTING", "GROOVING", "DRILLING", "FINISHING"],
+    ["TEETH_CUTTING", "SLOTTING", "GROOVING", "KEYWAY", "FINISHING"],
+    ["BLANKING", "TEETH_CUTTING", "SLOTTING", "GROOVING", "FINISHING"],
+    ["TEETH_CUTTING", "SLOTTING", "DRILLING", "SPLINE", "FINISHING"],
+    ["GROOVING", "SLOTTING", "TEETH_CUTTING", "SURFACE_GRINDING", "FINISHING"],
+    ["BLANKING", "TEETH_CUTTING", "SLOTTING", "KEYWAY", "FINISHING"],
     ["TEETH_CUTTING", "SLOTTING", "GROOVING", "DRILLING", "KEYWAY"],
     # Lathe-forward (Blanking / Turning / Facing / Threading)
-    ["BLANKING", "TURNING", "FACING", "THREADING", "CHECKING"],
-    ["BLANKING", "TURNING", "FACING", "DRILLING", "CHECKING"],
-    ["TURNING", "FACING", "THREADING", "KEYWAY", "CHECKING"],
-    ["BLANKING", "TURNING", "KEYWAY", "DRILLING", "CHECKING"],
-    ["TURNING", "FACING", "TEETH_CUTTING", "SLOTTING", "CHECKING"],
-    ["BLANKING", "TURNING", "FACING", "SPLINE", "CHECKING"],
+    ["BLANKING", "TURNING", "FACING", "THREADING", "FINISHING"],
+    ["BLANKING", "TURNING", "FACING", "DRILLING", "FINISHING"],
+    ["TURNING", "FACING", "THREADING", "KEYWAY", "FINISHING"],
+    ["BLANKING", "TURNING", "KEYWAY", "DRILLING", "FINISHING"],
+    ["TURNING", "FACING", "TEETH_CUTTING", "SLOTTING", "FINISHING"],
+    ["BLANKING", "TURNING", "FACING", "SPLINE", "FINISHING"],
     ["BLANKING", "TURNING", "FACING", "THREADING", "DRILLING"],
     # Fabrication
-    ["LAYOUT", "CUTTING", "BENDING", "FITTING", "CHECKING"],
+    ["LAYOUT", "CUTTING", "BENDING", "FITTING", "FINISHING"],
 ]
 
 JOB_TITLES = [
@@ -1420,7 +1420,7 @@ def _pick_open_pipeline_route(rng: random.Random) -> list:
     # Bottleneck steps: enough for high single-unit util, not the whole shop
     has_shaper = any(c in ("KEYWAY", "SPLINE") for c in route)
     has_drill = "DRILLING" in route
-    insert_at = len(route) - 1 if route and route[-1] == "CHECKING" else len(route)
+    insert_at = len(route) - 1 if route and route[-1] == "FINISHING" else len(route)
     if not has_shaper and rng.random() < 0.40:
         route.insert(insert_at, rng.choice(["KEYWAY", "SPLINE"]))
         insert_at += 1

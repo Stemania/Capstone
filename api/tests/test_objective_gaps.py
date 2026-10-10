@@ -135,7 +135,7 @@ def test_planning_saves_instructions_and_worker_sees_them(client, shop):
                     "estimatedHours": 2,
                     "notes": "Hold Ø40 h7. Deburr all edges.",
                 },
-                {"operationName": "Checking", "estimatedHours": 1},
+                {"operationName": "Finishing", "estimatedHours": 1},
             ]
         },
         headers=_headers(shop["admin"]),

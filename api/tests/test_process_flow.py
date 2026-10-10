@@ -165,7 +165,7 @@ def test_first_operation_start_consumes_every_received_line(people):
     a = _line(job, "Round bar S45C", received=date(2026, 9, 3))
     b = _line(job, "Hex nut M20", received=date(2026, 9, 4))
     op1 = _add_op(job, "TURNING", people["worker"].id, seq=1)
-    _add_op(job, "CHECKING", people["worker"].id, seq=2)
+    _add_op(job, "FINISHING", people["worker"].id, seq=2)
     db.session.refresh(job)
     assert a.status == "RECEIVED" and b.status == "RECEIVED"
 
@@ -453,7 +453,7 @@ def test_part_condition_rank_order_including_wip():
 def test_completed_op_maps_to_stage(people, code, expected):
     job = _job(people, status=JobOrderStatus.IN_PROGRESS)
     _add_op(job, code, status=OperationStatus.COMPLETED, seq=1)
-    _add_op(job, "CHECKING", status=OperationStatus.PENDING, seq=2)
+    _add_op(job, "FINISHING", status=OperationStatus.PENDING, seq=2)
     db.session.refresh(job)
     advance_part_condition(job)
     assert job.part_condition == expected
@@ -463,20 +463,20 @@ def test_finishing_never_demoted_and_all_complete_still_finished(people):
     job = _job(people, status=JobOrderStatus.IN_PROGRESS)
     _add_op(job, "FINISHING", status=OperationStatus.COMPLETED, seq=1)
     _add_op(job, "CUTTING", status=OperationStatus.COMPLETED, seq=2)
-    _add_op(job, "CHECKING", status=OperationStatus.PENDING, seq=3)
+    _add_op(job, "FINISHING", status=OperationStatus.PENDING, seq=3)
     db.session.refresh(job)
     advance_part_condition(job)
     assert job.part_condition == PartCondition.FINISHED
 
     job2 = _job(people, status=JobOrderStatus.IN_PROGRESS)
     _add_op(job2, "CUTTING", status=OperationStatus.COMPLETED, seq=1)
-    _add_op(job2, "CHECKING", status=OperationStatus.COMPLETED, seq=2)
+    _add_op(job2, "TURNING", status=OperationStatus.COMPLETED, seq=2)
     db.session.refresh(job2)
     advance_part_condition(job2)
     assert job2.part_condition == PartCondition.FINISHED
 
 
-def test_checking_does_not_change_stage(people):
+def test_completed_history_checking_does_not_change_stage(people):
     job = _job(people, status=JobOrderStatus.IN_PROGRESS, part_condition=PartCondition.CUT)
     _add_op(job, "CHECKING", status=OperationStatus.COMPLETED, seq=1)
     _add_op(job, "TURNING", status=OperationStatus.PENDING, seq=2)
@@ -489,7 +489,7 @@ def test_wip_never_overwrites_a_later_stage(people):
     job = _job(people, status=JobOrderStatus.IN_PROGRESS, part_condition=PartCondition.FORMED)
     _add_op(job, "DEBURRING", status=OperationStatus.COMPLETED, seq=1)
     _add_op(job, "CUTTING", status=OperationStatus.COMPLETED, seq=2)
-    _add_op(job, "CHECKING", status=OperationStatus.PENDING, seq=3)
+    _add_op(job, "FINISHING", status=OperationStatus.PENDING, seq=3)
     db.session.refresh(job)
     advance_part_condition(job)
     assert job.part_condition == PartCondition.FORMED
@@ -501,7 +501,7 @@ def test_specific_stage_overwrites_wip(people):
         part_condition=PartCondition.WORK_IN_PROCESS,
     )
     _add_op(job, "CUTTING", status=OperationStatus.COMPLETED, seq=1)
-    _add_op(job, "CHECKING", status=OperationStatus.PENDING, seq=2)
+    _add_op(job, "FINISHING", status=OperationStatus.PENDING, seq=2)
     db.session.refresh(job)
     advance_part_condition(job)
     assert job.part_condition == PartCondition.CUT

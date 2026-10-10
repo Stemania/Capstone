@@ -86,7 +86,6 @@ def shop(app):
         "CUTTING": OperationType(code="CUTTING", name="Cutting"),
         "FITTING": OperationType(code="FITTING", name="Fitting"),
         "FINISHING": OperationType(code="FINISHING", name="Finishing (Bapping)"),
-        "CHECKING": OperationType(code="CHECKING", name="Checking"),
         "HEAT_TREATMENT": OperationType(
             code="HEAT_TREATMENT",
             name="Heat Treatment",
@@ -210,7 +209,7 @@ def test_break_is_a_shop_setting_only_admin_changes(client, shop):
 # 2. Fabrication sequence: part stages
 
 
-def _stage_after(shop, completed_codes, pending_code="CHECKING"):
+def _stage_after(shop, completed_codes, pending_code="TURNING"):
     from app.services.job_order_service import advance_part_condition
 
     job = _job(shop)
@@ -269,13 +268,9 @@ def test_skills_are_for_machines_only(client, shop):
 
 def test_every_worker_qualifies_for_operations_without_a_machine(client, shop):
     job = _job(shop)
-    for seq, code in enumerate(("LAYOUT", "CUTTING", "FITTING"), start=1):
+    for seq, code in enumerate(("LAYOUT", "CUTTING", "FITTING", "FINISHING"), start=1):
         op = _op(job, seq, shop["types"][code])
         assert _assign(client, shop, op, shop["ben"]).status_code == 200, code
-    # Except Checking: the Administrator's final quality control.
-    checking = _op(job, 4, shop["types"]["CHECKING"])
-    assert _assign(client, shop, checking, shop["ben"]).status_code == 400
-    assert _assign(client, shop, checking, shop["admin"]).status_code == 200
 
     body = {"operationTypeId": shop["types"]["LAYOUT"].id, "operationName": "Layout"}
     res = client.post("/api/v1/workers/suggest", json=body, headers=_headers(shop["admin"]))

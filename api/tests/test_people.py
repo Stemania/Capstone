@@ -84,7 +84,7 @@ def shop(app):
         "LASER_CUT": OperationType(code="LASER_CUT", name="Laser cutting", default_machine_type_id=laser.id),
         "BEND": OperationType(code="BEND", name="Bending", default_machine_type_id=bending.id),
         "LAYOUT": OperationType(code="LAYOUT", name="Layout"),
-        "CHECKING": OperationType(code="CHECKING", name="Checking"),
+        "CHECKING": OperationType(code="CHECKING", name="Checking", active=False),
     }
     client_row = Client(name="PP Client")
     db.session.add_all([*units.values(), *types.values(), client_row])
@@ -396,7 +396,7 @@ def test_workers_only_see_photos_of_people_on_their_jobs(client, shop):
 
     job = _job(shop)
     _op(job, 1, shop["types"]["LAYOUT"], worker=ben)
-    _op(job, 2, shop["types"]["CHECKING"], worker=admin)
+    _op(job, 2, shop["types"]["LAYOUT"], worker=admin)
     assert can_see(ben, admin)
     assert not can_see(ben, ana)
 
@@ -440,51 +440,40 @@ def test_operation_type_skills_are_rejected(client, shop):
 # 5. Admins can be assigned
 
 
-def test_checking_stays_with_admins(client, shop):
+def test_checking_is_retired(client, shop):
     checking = shop["types"]["CHECKING"]
     admin_headers = _headers(shop["admin"])
+
+    listed = client.get("/api/v1/operation-types", headers=admin_headers).get_json()
+    assert "CHECKING" not in {t["code"] for t in listed}
+
+    # A completed-history Checking op is an ordinary operation: anyone may hold it.
     op = _op(_job(shop), 1, checking)
-
-    res = _assign(client, shop, op, shop["ben"])
-    assert res.status_code == 400
-    assert res.get_json()["error"]["code"] == "CHECKING_ADMIN_ONLY"
-    assert _assign(client, shop, op, shop["admin"]).status_code == 200
-
-    body = {"operationTypeId": checking.id, "operationName": "Checking"}
-    res = client.post("/api/v1/workers/suggest", json=body, headers=admin_headers)
-    assert {s["fullName"] for s in res.get_json()["suggestions"]} == {"Pia Admin"}
-
+    assert _assign(client, shop, op, shop["ben"]).status_code == 200
     listed = client.get(
         f"/api/v1/workers?operationTypeId={checking.id}", headers=admin_headers
     ).get_json()
-    assert {w["role"] for w in listed} == {"ADMIN"}
-    listed = client.get("/api/v1/workers?operationName=Checking", headers=admin_headers).get_json()
-    assert {w["role"] for w in listed} == {"ADMIN"}
+    assert "PRODUCTION_WORKER" in {w["role"] for w in listed}
 
-    # Saving a draft with a worker on Checking is refused too.
+    # New jobs cannot plan it.
     draft = _job(shop, status=JobOrderStatus.DRAFT)
     res = client.patch(
         f"/api/v1/job-orders/{draft.id}",
         json={
             "operations": [
-                {
-                    "operationTypeId": checking.id,
-                    "operationName": "Checking",
-                    "assignedWorkerId": shop["ana"].id,
-                    "estimatedHours": 1,
-                }
+                {"operationTypeId": checking.id, "operationName": "Checking", "estimatedHours": 1}
             ]
         },
         headers=admin_headers,
     )
     assert res.status_code == 400
-    assert res.get_json()["error"]["code"] == "CHECKING_ADMIN_ONLY"
+    assert res.get_json()["error"]["code"] == "OPERATION_TYPE_INACTIVE"
 
 
-def test_imported_admin_can_do_checking(client, shop, tmp_path):
+def test_imported_admin_can_be_assigned(client, shop, tmp_path):
     import_employees(_csv(tmp_path, "Ivy Inspector,II,ADMIN,,\n"))
     ivy = User.query.filter_by(full_name="Ivy Inspector").one()
-    op = _op(_job(shop), 1, shop["types"]["CHECKING"])
+    op = _op(_job(shop), 1, shop["types"]["LAYOUT"])
     assert _assign(client, shop, op, ivy).status_code == 200
 
 

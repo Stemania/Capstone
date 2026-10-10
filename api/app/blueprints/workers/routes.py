@@ -5,7 +5,6 @@ from app.middleware.rbac import require_roles
 from app.models.user import User, UserRole
 from app.services.worker_availability import get_busy_workers
 from app.services.worker_profile_service import (
-    is_checking_operation,
     machine_skill_holders,
     query_assignable_workers,
 )
@@ -27,13 +26,9 @@ def list_workers():
         end=scheduled_end,
         exclude_operation_id=exclude_operation_id,
     )
-    # Workers and Admins (Admins only for Checking); a machine operation lists
-    # only its skill holders once anyone has that skill recorded.
-    query = query_assignable_workers(
-        for_checking=is_checking_operation(
-            request.args.get("operationTypeId"), request.args.get("operationName")
-        )
-    )
+    # Workers and Admins; a machine operation lists only its skill holders
+    # once anyone has that skill recorded.
+    query = query_assignable_workers()
     holders = machine_skill_holders(machine_type_id)
     if holders is not None:
         query = query.filter(User.id.in_(list(holders)))

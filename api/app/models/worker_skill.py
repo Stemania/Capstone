@@ -160,7 +160,8 @@ OPERATION_TYPE_SEED = [
     {"code": "SPLINE", "name": "Spline", "machine": "SHAPER"},
     {"code": "SURFACE_GRINDING", "name": "Surface Grinding", "machine": "GRINDING"},
     {"code": "HEAT_TREATMENT", "name": "Heat Treatment", "machine": None, "outsourced": True, "turnaround_days": 3},
-    {"code": "CHECKING", "name": "Checking", "machine": None},
+    # Not a shop process; kept inactive so completed history still displays.
+    {"code": "CHECKING", "name": "Checking", "machine": None, "active": False},
     {"code": "WELDING", "name": "Welding", "machine": None},
     # The shop's cutting is laser cutting.
     {"code": "CUTTING", "name": "Cutting", "machine": "LASER"},
@@ -174,6 +175,9 @@ OPERATION_TYPE_SEED = [
 
 # Steps pre-filled when planning a Fabrication job, in shop order.
 FABRICATION_SEQUENCE = ["LAYOUT", "CUTTING", "BENDING", "FITTING", "FINISHING"]
+
+# The final operation: it stays last on a job, and operations added later go before it.
+FINAL_OPERATION_CODE = "FINISHING"
 
 SKILL_TOKEN_TO_MACHINE = {
     "lathe": "LATHE",

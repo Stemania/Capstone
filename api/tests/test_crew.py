@@ -81,7 +81,7 @@ def shop(app):
     types = {
         "TURNING": OperationType(code="TURNING_C", name="Turning", default_machine_type_id=lathe.id),
         "LAYOUT": OperationType(code="LAYOUT_C", name="Layout"),
-        "CHECKING": OperationType(code="CHECKING", name="Checking"),
+        "CHECKING": OperationType(code="CHECKING", name="Checking", active=False),
     }
     client_row = Client(name="Crew Client")
     db.session.add_all([lathe2, lathe8, *types.values(), client_row])
@@ -192,22 +192,17 @@ def test_machine_lead_needs_the_skill_but_helpers_do_not(client, shop):
     assert res.status_code == 200, res.get_json()
 
 
-def test_checking_accepts_only_admins_and_no_helpers(client, shop):
+def test_former_checking_op_takes_any_lead_and_helpers(client, shop):
+    """The Admin-only and no-helpers Checking rules are gone."""
     op = _op(_job(shop), 1, shop["types"]["CHECKING"])
-    res = _assign(client, shop, op, shop["ben"])
-    assert res.status_code == 400
-    assert res.get_json()["error"]["code"] == "CHECKING_ADMIN_ONLY"
-    res = _assign(client, shop, op, shop["admin"], [shop["ben"]])
-    assert res.status_code == 400
-    assert res.get_json()["error"]["code"] == "CHECKING_NO_HELPERS"
-    res = _assign(client, shop, op, shop["admin"])
+    res = _assign(client, shop, op, shop["ben"], [shop["cara"]])
     assert res.status_code == 200, res.get_json()
-    assert res.get_json()["helperIds"] == []
+    assert res.get_json()["helperIds"] == [shop["cara"].id]
 
-    helpers = _suggest(client, shop, shop["types"]["CHECKING"], leadId=shop["admin"].id)
-    assert helpers["suggestions"] == []
+    helpers = _suggest(client, shop, shop["types"]["CHECKING"], leadId=shop["ben"].id)
+    assert helpers["suggestions"]
     leads = _suggest(client, shop, shop["types"]["CHECKING"])
-    assert {s["fullName"] for s in leads["suggestions"]} == {"Ada Admin"}
+    assert "Ben Crew" in {s["fullName"] for s in leads["suggestions"]}
 
 
 # ---- Scheduling: every member is booked ------------------------------------

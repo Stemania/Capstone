@@ -132,7 +132,7 @@ def test_blanking_completed_sets_blank():
 def test_machining_op_completed_sets_machined(code):
     job = _job(JobType.FABRICATION)
     _add_op(job, code, OperationStatus.COMPLETED)
-    _add_op(job, "CHECKING", OperationStatus.PENDING, seq=2)
+    _add_op(job, "FINISHING", OperationStatus.PENDING, seq=2)
     db.session.refresh(job)
     advance_part_condition(job)
     assert job.part_condition == PartCondition.MACHINED
@@ -141,7 +141,7 @@ def test_machining_op_completed_sets_machined(code):
 def test_heat_treatment_completed_sets_heat_treated():
     job = _job(JobType.FABRICATION)
     _add_op(job, "HEAT_TREATMENT", OperationStatus.COMPLETED)
-    _add_op(job, "CHECKING", OperationStatus.PENDING, seq=2)
+    _add_op(job, "FINISHING", OperationStatus.PENDING, seq=2)
     db.session.refresh(job)
     advance_part_condition(job)
     assert job.part_condition == PartCondition.HEAT_TREATED
@@ -161,7 +161,7 @@ def test_never_moves_backwards_when_later_op_completes_out_of_order():
     # Out-of-order blanking complete must not demote HEAT_TREATED
     _add_op(job, "BLANKING", OperationStatus.COMPLETED, seq=1)
     _add_op(job, "HEAT_TREATMENT", OperationStatus.COMPLETED, seq=2)
-    _add_op(job, "CHECKING", OperationStatus.PENDING, seq=3)
+    _add_op(job, "FINISHING", OperationStatus.PENDING, seq=3)
     db.session.refresh(job)
     advance_part_condition(job)
     assert job.part_condition == PartCondition.HEAT_TREATED
@@ -176,7 +176,7 @@ def test_never_moves_backwards_from_machined_to_blank():
     assert job.part_condition == PartCondition.MACHINED
 
 
-def test_checking_alone_does_not_advance_stage():
+def test_completed_history_checking_does_not_advance_stage():
     job = _job(JobType.FABRICATION)
     _add_op(job, "CHECKING", OperationStatus.COMPLETED)
     _add_op(job, "TURNING", OperationStatus.PENDING, seq=2)
@@ -189,7 +189,7 @@ def test_repair_starts_as_client_supplied_item():
     job = _job(JobType.REPAIR)
     assert job.part_condition == PartCondition.CLIENT_SUPPLIED_ITEM
     _add_op(job, "TURNING", OperationStatus.COMPLETED)
-    _add_op(job, "CHECKING", OperationStatus.PENDING, seq=2)
+    _add_op(job, "FINISHING", OperationStatus.PENDING, seq=2)
     db.session.refresh(job)
     advance_part_condition(job)
     assert job.part_condition == PartCondition.MACHINED

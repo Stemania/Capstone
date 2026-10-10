@@ -108,16 +108,13 @@ def _validate_worker(
     exclude_operation_id=None,
     *,
     machine_type_id=None,
-    operation_type_id=None,
-    operation_name=None,
     exclude_operation_ids=None,
 ):
-    from app.services.worker_profile_service import assert_may_do_checking, is_assignable_worker
+    from app.services.worker_profile_service import is_assignable_worker
 
     worker = User.query.get(worker_id)
     if not is_assignable_worker(worker):
         raise AppError("Invalid worker assignment", "VALIDATION_ERROR", 400)
-    assert_may_do_checking(worker, operation_type_id, operation_name)
     _assert_worker_has_machine_skill(worker, machine_type_id)
     from app.services.worker_availability import assert_worker_available
 
@@ -146,28 +143,20 @@ def _validate_helpers(
     end=None,
     exclude_operation_id=None,
     *,
-    operation_type_id=None,
-    operation_name=None,
     outsourced=False,
     exclude_operation_ids=None,
 ) -> list[str]:
     """Helpers: up to two, distinct, not the lead, assignable and free. They
-    need no machine skill. Checking and outsourced work take no helpers."""
+    need no machine skill. Outsourced work takes no helpers."""
     from app.models.operation import MAX_HELPERS
     from app.services.worker_availability import assert_worker_available
-    from app.services.worker_profile_service import is_assignable_worker, is_checking_operation
+    from app.services.worker_profile_service import is_assignable_worker
 
     helper_ids = _parse_helper_ids(helper_ids)
     if not helper_ids:
         return []
     if outsourced:
         raise AppError("Outsourced operations have no crew.", "VALIDATION_ERROR", 400)
-    if is_checking_operation(operation_type_id, operation_name):
-        raise AppError(
-            "Checking is done by one Admin alone; it takes no helpers.",
-            "CHECKING_NO_HELPERS",
-            400,
-        )
     if not lead_id:
         raise AppError("Choose the lead worker before adding helpers.", "VALIDATION_ERROR", 400)
     if len(helper_ids) > MAX_HELPERS:
@@ -416,11 +405,41 @@ def _parse_turnaround(value):
     return days
 
 
+def _is_final_operation(op_type_id=None, operation_name=None) -> bool:
+    from app.models.worker_skill import FINAL_OPERATION_CODE, OperationType
+
+    if op_type_id:
+        ot = db.session.get(OperationType, op_type_id)
+        if ot is not None:
+            return ot.code == FINAL_OPERATION_CODE
+    return (operation_name or "").strip().lower().startswith("finishing")
+
+
+def _finishing_last(op_payloads: list) -> list:
+    """Finishing stays the final operation: anything listed after it moves
+    before it. Sequence numbers follow the new order."""
+    rest, final = [], []
+    for p in op_payloads:
+        is_final = _is_final_operation(p.get("operationTypeId"), p.get("operationName") or p.get("name"))
+        (final if is_final else rest).append(dict(p))
+    ordered = rest + final
+    for i, p in enumerate(ordered, start=1):
+        p.pop("seq", None)
+        p["sequenceNo"] = i
+    return ordered
+
+
 def _build_operation(job_id, op_data, seq_fallback):
     from app.models.worker_skill import OperationType
 
     op_type_id = op_data.get("operationTypeId")
     op_type = OperationType.query.get(op_type_id) if op_type_id else None
+    if op_type is not None and not op_type.active:
+        raise AppError(
+            f"{op_type.name} is no longer one of the shop's operations. Choose another.",
+            "OPERATION_TYPE_INACTIVE",
+            400,
+        )
     name = (op_data.get("operationName") or op_data.get("name") or "").strip()
     if not name and op_type:
         name = op_type.name
@@ -444,19 +463,8 @@ def _build_operation(job_id, op_data, seq_fallback):
             turnaround_days = op_type.default_turnaround_days
     if worker_id:
         # Clashes are checked on working periods when the schedule is confirmed.
-        _validate_worker(
-            worker_id,
-            machine_type_id=machine_type_id,
-            operation_type_id=op_type_id,
-            operation_name=name,
-        )
-    helper_ids = _validate_helpers(
-        worker_id,
-        op_data.get("helperIds"),
-        operation_type_id=op_type_id,
-        operation_name=name,
-        outsourced=outsourced,
-    )
+        _validate_worker(worker_id, machine_type_id=machine_type_id)
+    helper_ids = _validate_helpers(worker_id, op_data.get("helperIds"), outsourced=outsourced)
     status_raw = op_data.get("status", "PENDING")
     try:
         status = OperationStatus(status_raw)
@@ -583,7 +591,7 @@ def create_job_order(data, created_by_id, actor_role=None):
         db.session.flush()
 
         # Optional ops on create (admin tooling); still stays DRAFT — no JOB_RECEIVED.
-        for i, op_data in enumerate(data.get("operations") or [], start=1):
+        for i, op_data in enumerate(_finishing_last(data.get("operations") or []), start=1):
             op = _build_operation(job.id, op_data, i)
             db.session.add(op)
 
@@ -742,7 +750,7 @@ def _apply_job_update(job, data, role):
             )
         _assert_no_started_operations(job)
         JobOperation.query.filter_by(job_order_id=job.id).delete()
-        for i, op_data in enumerate(data["operations"], start=1):
+        for i, op_data in enumerate(_finishing_last(data["operations"]), start=1):
             payload = dict(op_data)
             payload.pop("id", None)
             op = _build_operation(job.id, payload, i)
@@ -1056,8 +1064,6 @@ def assign_operation_worker(operation, worker_id, helper_ids=None):
         end=operation.scheduled_end,
         exclude_operation_id=operation.id,
         machine_type_id=operation.machine_type_id,
-        operation_type_id=operation.operation_type_id,
-        operation_name=operation.operation_name,
     )
     if helper_ids is None:
         helper_ids = [h for h in operation.helper_ids if h != worker_id]
@@ -1067,8 +1073,6 @@ def assign_operation_worker(operation, worker_id, helper_ids=None):
         start=operation.scheduled_start,
         end=operation.scheduled_end,
         exclude_operation_id=operation.id,
-        operation_type_id=operation.operation_type_id,
-        operation_name=operation.operation_name,
     )
     try:
         operation.assigned_worker_id = worker_id
@@ -1169,18 +1173,8 @@ def apply_released_schedule(job, operations):
             else:
                 helper_ids = [h for h in op.helper_ids if h != worker_id]
             try:
-                _validate_worker(
-                    worker_id,
-                    machine_type_id=op.machine_type_id,
-                    operation_type_id=op.operation_type_id,
-                    operation_name=op.operation_name,
-                )
-                helper_ids = _validate_helpers(
-                    worker_id,
-                    helper_ids,
-                    operation_type_id=op.operation_type_id,
-                    operation_name=op.operation_name,
-                )
+                _validate_worker(worker_id, machine_type_id=op.machine_type_id)
+                helper_ids = _validate_helpers(worker_id, helper_ids)
             except AppError as exc:
                 raise AppError(f"{label}: {exc.message}", exc.code, exc.status_code)
 

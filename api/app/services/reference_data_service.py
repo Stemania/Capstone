@@ -251,13 +251,16 @@ def _load_operation_types(report, machines):
                     code=spec["code"],
                     name=spec["name"],
                     default_machine_type_id=machine.id if machine else None,
-                    active=True,
+                    active=spec.get("active", True),
                     is_outsourced=bool(spec.get("outsourced")),
                     default_turnaround_days=spec.get("turnaround_days"),
                 )
             )
             report.change(f"Operation type {spec['code']}: created")
             continue
+        if spec.get("active") is False and ot.active:
+            ot.active = False
+            report.change(f"Operation type {spec['code']}: deactivated")
         if machine is not None and ot.default_machine_type_id != machine.id:
             before = ot.default_machine_type.code if ot.default_machine_type else None
             ot.default_machine_type_id = machine.id

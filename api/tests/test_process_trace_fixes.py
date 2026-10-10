@@ -18,7 +18,7 @@ from app.models.operation_time import OperationPauseReason, OperationTimeEvent, 
 from app.models.supplier import Supplier
 from app.models.user import User, UserRole, UserStatus
 from app.models.worker_profile import WorkerProfile
-from app.models.worker_skill import WorkerSchedule
+from app.models.worker_skill import OperationType, WorkerSchedule
 from app.services.schedule_calendar import shop_local_to_utc, shop_now
 
 
@@ -113,7 +113,7 @@ def test_redo_goes_right_after_original_with_original_worker(client, shop):
     job = _job(shop, status=JobOrderStatus.IN_PROGRESS)
     cutting = _op(job, 1, "Cutting", status=OperationStatus.COMPLETED, worker=shop["worker"])
     _op(job, 2, "Welding", worker=shop["other"])
-    _op(job, 3, "Checking", worker=shop["admin"])
+    _op(job, 3, "Finishing", worker=shop["other"])
     db.session.commit()
 
     res = client.post(
@@ -127,19 +127,18 @@ def test_redo_goes_right_after_original_with_original_worker(client, shop):
     assert redo["assignedWorkerId"] == shop["worker"].id
 
     names = [(o.sequence_no, o.operation_name) for o in _ops_by_seq(job.id)]
-    # The unstarted Checking already follows the redo, so no extra Checking.
-    assert names == [(1, "Cutting"), (2, "Cutting"), (3, "Welding"), (4, "Checking")]
+    assert names == [(1, "Cutting"), (2, "Cutting"), (3, "Welding"), (4, "Finishing")]
 
 
-def test_redo_adds_recheck_when_checking_already_done(client, shop):
+def test_redo_on_a_completed_job_adds_only_the_redo_and_reopens_it(client, shop):
     job = _job(shop, status=JobOrderStatus.COMPLETED)
     cutting = _op(job, 1, "Cutting", status=OperationStatus.COMPLETED, worker=shop["worker"])
-    _op(job, 2, "Checking", status=OperationStatus.COMPLETED, worker=shop["admin"])
+    _op(job, 2, "Finishing", status=OperationStatus.COMPLETED, worker=shop["other"])
     db.session.commit()
 
     res = client.post(
         f"/api/v1/operations/{cutting.id}/rework",
-        json={"category": "DIMENSION_OUT_OF_TOLERANCE"},
+        json={"category": "DIMENSION_OUT_OF_TOLERANCE", "reason": "OD undersize"},
         headers=_headers(shop["admin"]),
     )
     assert res.status_code == 201, res.get_json()
@@ -148,29 +147,29 @@ def test_redo_adds_recheck_when_checking_already_done(client, shop):
     assert [(o.sequence_no, o.operation_name) for o in ops] == [
         (1, "Cutting"),
         (2, "Cutting"),
-        (3, "Checking"),
-        (4, "Checking"),
+        (3, "Finishing"),
     ]
-    recheck = ops[3]
-    assert recheck.status != OperationStatus.COMPLETED
-    assert recheck.assigned_worker_id == shop["admin"].id
+    assert ops[1].rework_of_operation_id == cutting.id
+    assert ops[1].status != OperationStatus.COMPLETED
     db.session.refresh(job)
     assert job.status != JobOrderStatus.COMPLETED
 
 
-def test_redo_of_checking_adds_no_extra_checking(client, shop):
+def test_redo_of_finishing_goes_after_it(client, shop):
     job = _job(shop, status=JobOrderStatus.COMPLETED)
     _op(job, 1, "Cutting", status=OperationStatus.COMPLETED, worker=shop["worker"])
-    checking = _op(job, 2, "Checking", status=OperationStatus.COMPLETED, worker=shop["admin"])
+    finishing = _op(job, 2, "Finishing", status=OperationStatus.COMPLETED, worker=shop["other"])
     db.session.commit()
 
     res = client.post(
-        f"/api/v1/operations/{checking.id}/rework",
+        f"/api/v1/operations/{finishing.id}/rework",
         json={"category": "OPERATOR_ERROR"},
         headers=_headers(shop["admin"]),
     )
     assert res.status_code == 201, res.get_json()
-    assert [o.operation_name for o in _ops_by_seq(job.id)] == ["Cutting", "Checking", "Checking"]
+    assert [o.operation_name for o in _ops_by_seq(job.id)] == ["Cutting", "Finishing", "Finishing"]
+    db.session.refresh(job)
+    assert job.status != JobOrderStatus.COMPLETED
 
 
 def test_redo_unassigned_when_original_worker_gone(client, shop):
@@ -498,3 +497,59 @@ def test_planning_save_with_worker_busy_on_another_job(client, shop):
         headers=_headers(shop["admin"]),
     )
     assert res.status_code == 200, res.get_json()
+
+# ---- Finishing is the final operation ------------------------------------
+
+
+def _finishing_type():
+    ot = OperationType.query.filter_by(code="FINISHING").first()
+    if ot is None:
+        ot = OperationType(code="FINISHING", name="Finishing (Bapping)")
+        db.session.add(ot)
+        db.session.flush()
+    return ot
+
+
+def _save_plan(client, shop, job, operations):
+    return client.patch(
+        f"/api/v1/job-orders/{job.id}",
+        json={"operations": operations},
+        headers=_headers(shop["admin"]),
+    )
+
+
+def test_planning_save_keeps_finishing_last(client, shop):
+    finishing = _finishing_type()
+    draft = _job(shop, status=JobOrderStatus.DRAFT)
+    db.session.commit()
+
+    res = _save_plan(
+        client,
+        shop,
+        draft,
+        [
+            {"operationName": "Cutting", "estimatedHours": 1},
+            {"operationTypeId": finishing.id, "operationName": finishing.name, "estimatedHours": 1},
+            {"operationName": "Fitting", "estimatedHours": 1},
+        ],
+    )
+    assert res.status_code == 200, res.get_json()
+    names = [(o.sequence_no, o.operation_name) for o in _ops_by_seq(draft.id)]
+    assert names == [(1, "Cutting"), (2, "Fitting"), (3, "Finishing (Bapping)")]
+
+
+def test_planning_save_without_finishing_keeps_the_given_order(client, shop):
+    draft = _job(shop, status=JobOrderStatus.DRAFT)
+    db.session.commit()
+
+    res = _save_plan(
+        client,
+        shop,
+        draft,
+        [
+            {"operationName": "Welding", "estimatedHours": 1},
+            {"operationName": "Cutting", "estimatedHours": 1},
+        ],
+    )
+    assert res.status_code == 200, res.get_json()
+    assert [o.operation_name for o in _ops_by_seq(draft.id)] == ["Welding", "Cutting"]

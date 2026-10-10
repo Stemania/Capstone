@@ -42,7 +42,6 @@ from app.services.scoring_service import (
 from app.services.worker_availability import _parse_dt, _windows_overlap, get_busy_workers
 from app.services.worker_profile_service import (
     NO_MACHINE_SKILL_RECORDED,
-    is_checking_operation,
     machine_skill_holders,
     query_assignable_workers,
 )
@@ -144,9 +143,9 @@ def _usable_units(machine_type_id, scheduled_start, scheduled_end, exclude_opera
 
 
 def _available_people(
-    *, for_checking, scheduled_start, scheduled_end, exclude_operation_id, exclude_ids=()
+    *, scheduled_start, scheduled_end, exclude_operation_id, exclude_ids=()
 ):
-    workers = query_assignable_workers(for_checking=for_checking).all()
+    workers = query_assignable_workers().all()
     excluded = set(exclude_ids or ())
     busy = get_busy_workers(
         start=scheduled_start, end=scheduled_end, exclude_operation_id=exclude_operation_id
@@ -302,8 +301,6 @@ def suggest_workers(
     op_type_id = _resolve_operation_type_id(
         operation_type_id=operation_type_id, operation_name=operation_name
     )
-    checking = is_checking_operation(op_type_id, operation_name)
-
     if lead_id:
         mode, weights = MODE_HELPER, HELPER_WEIGHTS
     elif target_machine_id:
@@ -312,11 +309,7 @@ def suggest_workers(
         mode, weights = MODE_NO_MACHINE, NO_MACHINE_WEIGHTS
     log_weights_used(weights, context=f"suggest {mode}")
 
-    if mode == MODE_HELPER and checking:
-        return {"mode": mode, "weights": dict(weights), "suggestions": []}
-
     workers = _available_people(
-        for_checking=checking and mode != MODE_HELPER,
         scheduled_start=scheduled_start,
         scheduled_end=scheduled_end,
         exclude_operation_id=exclude_operation_id,

@@ -16,10 +16,8 @@ from app.models.worker_skill import (
 from app.utils.errors import AppError
 
 # Production workers and Admins can be assigned, including people not yet
-# activated (they activate before recording work on a phone). Checking is the
-# exception: it is the Administrator's final quality control, so Admins only.
+# activated (they activate before recording work on a phone).
 ASSIGNABLE_ROLES = (UserRole.PRODUCTION_WORKER, UserRole.ADMIN)
-CHECKING_ROLES = (UserRole.ADMIN,)
 
 
 def _parse_time(value):
@@ -39,19 +37,6 @@ def _parse_date(value):
     if hasattr(value, "isoformat") and not isinstance(value, str):
         return value
     return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
-
-
-def is_checking_operation(operation_type_id=None, operation_name=None) -> bool:
-    """True when the operation is Checking."""
-    if operation_type_id:
-        ot = OperationType.query.get(operation_type_id)
-        if ot:
-            code = (ot.code or "").strip().upper()
-            name = (ot.name or "").strip().lower()
-            if code == "CHECKING" or name == "checking":
-                return True
-    name = (operation_name or "").strip().lower()
-    return name == "checking"
 
 
 NO_MACHINE_SKILL_RECORDED = "No one has this machine skill recorded yet"
@@ -82,21 +67,9 @@ def is_assignable_worker(user: User | None) -> bool:
     )
 
 
-def assert_may_do_checking(user: User, operation_type_id=None, operation_name=None) -> None:
-    if user.role not in CHECKING_ROLES and is_checking_operation(operation_type_id, operation_name):
-        raise AppError(
-            "Checking is the Administrator's final quality control. Assign an Admin.",
-            "CHECKING_ADMIN_ONLY",
-            400,
-        )
-
-
-def query_assignable_workers(for_checking: bool = False):
-    """Production workers and Admins who are not disabled, by name; only
-    Admins for Checking."""
+def query_assignable_workers():
+    """Production workers and Admins who are not disabled, by name."""
     query = User.query.options(joinedload(User.worker_profile)).filter(_assignable_filter())
-    if for_checking:
-        query = query.filter(User.role.in_(CHECKING_ROLES))
     return query.order_by(User.full_name)
 
 

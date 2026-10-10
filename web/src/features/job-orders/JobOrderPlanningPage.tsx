@@ -70,7 +70,7 @@ type OpFormRow = {
   machineTypeId?: string;
   machineUnitId?: string;
   assignedWorkerId?: string;
-  /** Up to MAX_HELPERS; no helpers on Checking or outsourced work. */
+  /** Up to MAX_HELPERS; no helpers on outsourced work. */
   helperIds?: string[];
   estimatedHours?: number | null;
   turnaroundDays?: number | null;
@@ -82,15 +82,24 @@ type OpFormRow = {
 
 const MAX_HELPERS = 2;
 
+/** Finishing is the final operation: it stays last, and new operations go before it. */
+const FINAL_OPERATION_CODE = 'FINISHING';
+
 /** Steps pre-filled when planning a Fabrication job, in shop order. */
-const FABRICATION_SEQUENCE = ['LAYOUT', 'CUTTING', 'BENDING', 'FITTING', 'FINISHING'];
+const FABRICATION_SEQUENCE = ['LAYOUT', 'CUTTING', 'BENDING', 'FITTING', FINAL_OPERATION_CODE];
 
 function isOutsourcedType(ot?: OperationType | null): boolean {
   return Boolean(ot?.isOutsourced);
 }
 
-function fabricationRows(types: OperationType[]): OpFormRow[] {
-  return FABRICATION_SEQUENCE.map((code) => types.find((t) => t.code === code))
+function isFinalType(ot?: OperationType | null, operationName?: string): boolean {
+  if (ot) return ot.code === FINAL_OPERATION_CODE;
+  return (operationName || '').trim().toLowerCase().startsWith('finishing');
+}
+
+function prefillRows(types: OperationType[], jobType?: string): OpFormRow[] {
+  const codes = jobType === 'FABRICATION' ? FABRICATION_SEQUENCE : [FINAL_OPERATION_CODE];
+  return codes.map((code) => types.find((t) => t.code === code))
     .filter((t): t is OperationType => Boolean(t))
     .map((t) => ({
       key: newRowKey(),
@@ -190,13 +199,6 @@ const RANKING_HELP =
 
 function newRowKey() {
   return `op-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function isCheckingType(ot?: OperationType | null, operationName?: string): boolean {
-  if (ot) {
-    return ot.code === 'CHECKING' || ot.name.trim().toLowerCase() === 'checking';
-  }
-  return (operationName || '').trim().toLowerCase() === 'checking';
 }
 
 export default function JobOrderPlanningPage() {
@@ -405,7 +407,7 @@ export default function JobOrderPlanningPage() {
     let cancelled = false;
     operations.forEach((op) => {
       const ot = operationTypes.find((t) => t.id === op.operationTypeId);
-      if (!op.assignedWorkerId || isOutsourcedType(ot) || isCheckingType(ot, op.operationName)) {
+      if (!op.assignedWorkerId || isOutsourcedType(ot)) {
         setHelperSuggestions((prev) => (prev[op.key] ? { ...prev, [op.key]: [] } : prev));
         return;
       }
@@ -499,8 +501,8 @@ export default function JobOrderPlanningPage() {
                   status: op.status,
                   notes: op.notes || undefined,
                 }))
-            : j.jobType === 'FABRICATION' && fabricationRows(typesRes.data || []).length
-              ? fabricationRows(typesRes.data || [])
+            : prefillRows(typesRes.data || [], j.jobType).length
+              ? prefillRows(typesRes.data || [], j.jobType)
               : [
                   {
                     key: newRowKey(),
@@ -601,8 +603,39 @@ export default function JobOrderPlanningPage() {
     });
   };
 
-  const onOperationTypeChange = async (index: number, typeId: string) => {
+  /** Re-key the per-row worker lists after rows move; null drops a row's entry. */
+  const remapRowState = (to: (oldIndex: number) => number | null) => {
+    const remap = <T,>(m: Record<number, T>) => {
+      const out: Record<number, T> = {};
+      for (const [k, v] of Object.entries(m)) {
+        const n = to(Number(k));
+        if (n !== null) out[n] = v;
+      }
+      return out;
+    };
+    setRowWorkers((prev) => remap(prev));
+    setRowSuggestions((prev) => remap(prev));
+    rowDataRef.current = remap(rowDataRef.current);
+  };
+
+  const isFinalRow = (row?: OpFormRow) =>
+    isFinalType(operationTypes.find((t) => t.id === row?.operationTypeId), row?.operationName);
+
+  const onOperationTypeChange = async (rowIndex: number, typeId: string) => {
     const ot = operationTypes.find((t) => t.id === typeId);
+    const current = operations[rowIndex];
+    let index = rowIndex;
+    if (isFinalType(ot) && index !== operations.length - 1) {
+      const last = operations.length - 1;
+      setOperations((prev) => {
+        const next = [...prev];
+        const [row] = next.splice(index, 1);
+        next.push(row);
+        return next;
+      });
+      remapRowState((i) => (i === index ? last : i > index ? i - 1 : i));
+      index = last;
+    }
     if (isOutsourcedType(ot)) {
       setRowWorkers((prev) => ({ ...prev, [index]: [] }));
       setRowSuggestions((prev) => ({ ...prev, [index]: [] }));
@@ -615,24 +648,22 @@ export default function JobOrderPlanningPage() {
         assignedWorkerId: undefined,
         helperIds: [],
         estimatedHours: null,
-        turnaroundDays: operations[index]?.turnaroundDays ?? ot?.defaultTurnaroundDays ?? null,
+        turnaroundDays: current?.turnaroundDays ?? ot?.defaultTurnaroundDays ?? null,
       });
       return;
     }
-    const checking = isCheckingType(ot);
-    const machineTypeId = checking ? undefined : ot?.defaultMachineTypeId || undefined;
+    const machineTypeId = ot?.defaultMachineTypeId || undefined;
     patchRow(index, {
       operationTypeId: typeId,
       operationName: ot?.name || '',
       machineTypeId,
       machineUnitId: undefined,
       assignedWorkerId: undefined,
-      ...(checking ? { helperIds: [] } : {}),
       turnaroundDays: null,
     });
     void loadRowWorkers(index, machineTypeId, true, typeId);
     void loadSuggestions(index, {
-      ...operations[index],
+      ...current,
       operationTypeId: typeId,
       operationName: ot?.name || '',
       machineTypeId,
@@ -641,14 +672,6 @@ export default function JobOrderPlanningPage() {
 
   const onMachineTypeChange = (index: number, machineTypeId?: string) => {
     const row = operations[index];
-    if (
-      isCheckingType(
-        operationTypes.find((t) => t.id === row?.operationTypeId),
-        row?.operationName
-      )
-    ) {
-      return;
-    }
     patchRow(index, { machineTypeId, machineUnitId: undefined, assignedWorkerId: undefined });
     void loadRowWorkers(index, machineTypeId, true, row?.operationTypeId);
     void loadSuggestions(index, {
@@ -662,11 +685,9 @@ export default function JobOrderPlanningPage() {
     operations.map((op, i) => {
       const ot = operationTypes.find((t) => t.id === op.operationTypeId);
       const outsourced = isOutsourcedType(ot);
-      const checking = isCheckingType(ot, op.operationName);
-      const mt =
-        checking || outsourced
-          ? undefined
-          : machines.find((m) => m.id === op.machineTypeId || m.code === op.machineTypeId);
+      const mt = outsourced
+        ? undefined
+        : machines.find((m) => m.id === op.machineTypeId || m.code === op.machineTypeId);
       return {
         id: op.id,
         sequenceNo: i + 1,
@@ -675,12 +696,12 @@ export default function JobOrderPlanningPage() {
         ...(mt?.id ? { machineTypeId: mt.id } : { machinesNeeded: [] }),
         assignedWorkerId: outsourced ? null : op.assignedWorkerId || null,
         helperIds:
-          outsourced || checking || !op.assignedWorkerId
+          outsourced || !op.assignedWorkerId
             ? []
             : (op.helperIds || []).filter((h) => h && h !== op.assignedWorkerId),
         estimatedHours: outsourced ? null : op.estimatedHours ?? null,
         turnaroundDays: outsourced ? op.turnaroundDays ?? null : null,
-        machineUnitId: checking || outsourced ? null : op.machineUnitId || null,
+        machineUnitId: outsourced ? null : op.machineUnitId || null,
         scheduledStart: op.scheduledStart || null,
         scheduledEnd: op.scheduledEnd || null,
         status: op.status || 'PENDING',
@@ -900,9 +921,17 @@ export default function JobOrderPlanningPage() {
     }
   };
 
-  const moveRow = (index: number, dir: -1 | 1) => {
+  /** A move that would put an operation after Finishing is not allowed. */
+  const canMoveRow = (index: number, dir: -1 | 1) => {
     const target = index + dir;
-    if (target < 0 || target >= operations.length) return;
+    if (target < 0 || target >= operations.length) return false;
+    const upper = dir === 1 ? index : target;
+    return isFinalRow(operations[upper]) || !isFinalRow(operations[upper + 1]);
+  };
+
+  const moveRow = (index: number, dir: -1 | 1) => {
+    if (!canMoveRow(index, dir)) return;
+    const target = index + dir;
     setOperations((prev) => {
       const next = [...prev];
       const tmp = next[index];
@@ -910,6 +939,29 @@ export default function JobOrderPlanningPage() {
       next[target] = tmp;
       return next;
     });
+    remapRowState((i) => (i === index ? target : i === target ? index : i));
+  };
+
+  const addOperation = () => {
+    const finalAt = operations.findIndex((op) => isFinalRow(op));
+    const at = finalAt === -1 ? operations.length : finalAt;
+    setOperations((prev) => [
+      ...prev.slice(0, at),
+      {
+        key: newRowKey(),
+        operationTypeId: undefined,
+        operationName: '',
+        machineTypeId: undefined,
+        assignedWorkerId: undefined,
+      },
+      ...prev.slice(at),
+    ]);
+    remapRowState((i) => (i >= at ? i + 1 : i));
+  };
+
+  const removeRow = (index: number) => {
+    setOperations((prev) => prev.filter((_, i) => i !== index));
+    remapRowState((i) => (i === index ? null : i > index ? i - 1 : i));
   };
 
   if (loading) {
@@ -962,15 +1014,13 @@ export default function JobOrderPlanningPage() {
       render: (_: unknown, record: OpFormRow, index: number) => {
         const ot = operationTypes.find((t) => t.id === record.operationTypeId);
         const outsourced = isOutsourcedType(ot);
-        const checking = isCheckingType(ot, record.operationName);
-        const noMachine = checking || outsourced;
         return (
           <Select
-            allowClear={!noMachine}
+            allowClear={!outsourced}
             style={{ width: '100%' }}
-            placeholder={outsourced ? 'Outsourced' : checking ? 'No machine' : 'Machine'}
-            value={noMachine ? undefined : record.machineTypeId}
-            disabled={readOnly || noMachine}
+            placeholder={outsourced ? 'Outsourced' : 'Machine'}
+            value={outsourced ? undefined : record.machineTypeId}
+            disabled={readOnly || outsourced}
             options={machineOptionsForRow(machines, operations, index)}
             onChange={(v) => onMachineTypeChange(index, v)}
           />
@@ -988,7 +1038,6 @@ export default function JobOrderPlanningPage() {
         const qualifiedWorkers = rowWorkers[index] || [];
         const rowType = operationTypes.find((t) => t.id === record.operationTypeId);
         const rowMachineId = record.machineTypeId || rowType?.defaultMachineTypeId;
-        const checking = isCheckingType(rowType, record.operationName);
         const helpers = record.helperIds || [];
         const helperChoices = (current?: string) =>
           workerOptions(
@@ -1009,7 +1058,7 @@ export default function JobOrderPlanningPage() {
               showSearch
               optionFilterProp="search"
               style={{ width: '100%' }}
-              placeholder={checking ? 'Admins only' : rowMachineId ? 'Lead (qualified)' : 'Lead worker'}
+              placeholder={rowMachineId ? 'Lead (qualified)' : 'Lead worker'}
               value={record.assignedWorkerId}
               disabled={readOnly}
               options={workerOptions(qualifiedWorkers)}
@@ -1048,7 +1097,7 @@ export default function JobOrderPlanningPage() {
                 )}
               </div>
             ))}
-            {!readOnly && !checking && record.assignedWorkerId && helpers.length < MAX_HELPERS ? (
+            {!readOnly && record.assignedWorkerId && helpers.length < MAX_HELPERS ? (
               <Button
                 type="dashed"
                 size="small"
@@ -1115,14 +1164,14 @@ export default function JobOrderPlanningPage() {
             type="text"
             size="small"
             icon={<ArrowUpOutlined />}
-            disabled={index === 0}
+            disabled={!canMoveRow(index, -1)}
             onClick={() => moveRow(index, -1)}
           />
           <Button
             type="text"
             size="small"
             icon={<ArrowDownOutlined />}
-            disabled={index === operations.length - 1}
+            disabled={!canMoveRow(index, 1)}
             onClick={() => moveRow(index, 1)}
           />
           <Button
@@ -1131,11 +1180,7 @@ export default function JobOrderPlanningPage() {
             danger
             icon={<DeleteOutlined />}
             disabled={operations.length <= 1}
-            onClick={() => {
-              setOperations((prev) => prev.filter((_, i) => i !== index));
-              setRowWorkers({});
-              setRowSuggestions({});
-            }}
+            onClick={() => removeRow(index)}
           />
         </div>
       ),
@@ -1225,7 +1270,6 @@ export default function JobOrderPlanningPage() {
               const canAddHelper =
                 !readOnly &&
                 Boolean(row?.assignedWorkerId) &&
-                !isCheckingType(operationTypes.find((t) => t.id === row?.operationTypeId), row?.operationName) &&
                 rowHelpers.length < MAX_HELPERS;
               if (!suggestions.length && !helperSugs.length) return null;
               const topId = suggestions[0]?.workerId;
@@ -1382,18 +1426,7 @@ export default function JobOrderPlanningPage() {
             block
             icon={<PlusOutlined />}
             style={{ marginTop: 12 }}
-            onClick={() => {
-              setOperations((prev) => [
-                ...prev,
-                {
-                  key: newRowKey(),
-                  operationTypeId: undefined,
-                  operationName: '',
-                  machineTypeId: undefined,
-                  assignedWorkerId: undefined,
-                },
-              ]);
-            }}
+            onClick={addOperation}
           >
             Add Operation
           </Button>
