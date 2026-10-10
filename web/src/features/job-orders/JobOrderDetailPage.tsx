@@ -10,6 +10,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Progress,
   Row,
   Select,
   Space,
@@ -19,7 +20,6 @@ import {
   message,
 } from 'antd';
 import {
-  ArrowLeftOutlined,
   CheckCircleFilled,
   CheckOutlined,
   DeleteOutlined,
@@ -36,7 +36,10 @@ import { operationsApi } from '../../api/operations.api';
 import { notificationsApi } from '../../api/notifications.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
-import StatusPill, { type PillColor } from '../../components/StatusPill';
+import StatusPill from '../../components/StatusPill';
+import { IdChip } from '../../components/ui';
+import { JOB_FLAG, JOB_STATUS, OPERATION_STATUS, type StatusDef } from '../../theme/statuses';
+import { colors, tones } from '../../theme/tokens';
 import MaterialWaitTag from '../../components/MaterialWaitTag';
 import MaterialDelayTag from '../../components/MaterialDelayTag';
 import NeedsReplanTag from '../../components/NeedsReplanTag';
@@ -69,23 +72,10 @@ import {
 } from './MaterialOrdersSummary';
 import { ReproposeModal } from '../calendar/RescheduleAffectedJobs';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
-const STATUS_PILL: Record<JobOrderStatus, { label: string; color: PillColor }> = {
-  DRAFT: { label: 'Pending', color: 'gray' },
-  SCHEDULED: { label: 'Scheduled', color: 'blue' },
-  IN_PROGRESS: { label: 'In Progress', color: 'blue' },
-  COMPLETED: { label: 'Completed', color: 'green' },
-  DELIVERED: { label: 'For Delivery', color: 'green' },
-};
-
-const OP_STATUS: Record<OperationStatus, { label: string; color: PillColor }> = {
-  PENDING: { label: 'Pending', color: 'amber' },
-  SCHEDULED: { label: 'Scheduled', color: 'blue' },
-  IN_PROGRESS: { label: 'In Progress', color: 'blue' },
-  COMPLETED: { label: 'Completed', color: 'green' },
-  REWORK: { label: 'Redo', color: 'amber' },
-};
+const STATUS_PILL = JOB_STATUS as Record<JobOrderStatus, StatusDef>;
+const OP_STATUS = OPERATION_STATUS as Record<OperationStatus, StatusDef>;
 
 const REWORK_CATEGORY_OPTIONS: { value: ReworkReasonCategory; label: string }[] = [
   { value: 'DIMENSION_OUT_OF_TOLERANCE', label: 'Dimension out of tolerance' },
@@ -102,7 +92,6 @@ function reworkCategoryLabel(cat: string | null | undefined) {
 }
 
 const GREEN = '#16a34a';
-const GREEN_SOFT = 'rgba(22,163,74,0.12)';
 const NAVY = '#0f1c2e';
 const BORDER = '#e2e8f0';
 const MUTED = '#64748b';
@@ -739,9 +728,11 @@ export default function JobOrderDetailPage() {
     op.status !== 'IN_PROGRESS' && op.status !== 'COMPLETED' && !op.actualStart;
   const canRepropose =
     !isDraft && job.status !== 'DELIVERED' && (job.operations || []).some(isNotStarted);
+  const opsTotal = (job.operations || []).length;
+  const opsDone = (job.operations || []).filter((op) => op.status === 'COMPLETED').length;
 
   return (
-    <div className="jo-detail-page" style={{ maxWidth: 1200, margin: '0 auto', padding: isWorker ? '0 12px 24px' : undefined }}>
+    <div className={`jo-detail-page${isWorker ? '' : ' ui-page ui-page--stack'}`} style={{ maxWidth: 1200, margin: '0 auto', padding: isWorker ? '0 12px 24px' : undefined }}>
       {isWorker ? (
         <div style={{ margin: '0 -12px 12px' }}>
           <WorkerPageHeader
@@ -750,31 +741,40 @@ export default function JobOrderDetailPage() {
             onBack={() => navigate(backTo)}
           />
         </div>
-      ) : (
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 12,
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 16,
-        }}
-      >
-        <Space wrap>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(backTo)}>
-            Back
-          </Button>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>
-              {job.jobNumber || job.id.slice(0, 8).toUpperCase()}
-            </Text>
-            <Title level={4} style={{ margin: 0, color: NAVY }}>
-              Job Order
-            </Title>
+      ) : null}
+
+      {/* Header card: number, status, key facts, actions, progress */}
+      <div className="jo-head" style={cardStyle({ marginBottom: 16 })}>
+        <div className="jo-head__row">
+          <div className="jo-head__main">
+            <div className="jo-head__chips">
+              <IdChip>{job.jobNumber || job.id.slice(0, 8).toUpperCase()}</IdChip>
+              {overdue ? (
+                <StatusPill tone={JOB_FLAG.overdue.tone}>{JOB_FLAG.overdue.label}</StatusPill>
+              ) : null}
+              <StatusPill tone={status.tone}>
+                {isDraft && !isAdmin ? 'Pending' : status.label}
+                {isDraft && job.draftStage ? ` · ${job.draftStage}` : ''}
+              </StatusPill>
+              <NeedsReplanTag job={job} compact={false} />
+              <MaterialWaitTag wait={job} compact={false} />
+              <MaterialDelayTag job={job} compact={false} />
+            </div>
+            <h2 className="jo-head__title">{job.title}</h2>
+            <div className="jo-head__facts">
+              <span>{dash(job.clientName)}</span>
+              <span className={overdue ? 'tone-text--red' : undefined}>Due {fmtDate(job.dueDate)}</span>
+              {job.quantity != null && (
+                <span>
+                  Qty {job.quantity}
+                  {job.unitOfMeasure ? ` ${job.unitOfMeasure}` : ''}
+                </span>
+              )}
+              {!isWorker && job.amount != null && <span className="ui-tabular">{fmtMoney(job.amount)}</span>}
+            </div>
           </div>
-        </Space>
-        <Space wrap align="center">
+        {!isWorker && (
+        <Space wrap align="center" className="jo-head__actions">
           {isDraft && isAdmin && (
             <Button
               type="primary"
@@ -857,59 +857,24 @@ export default function JobOrderDetailPage() {
             </Button>
           )}
         </Space>
-      </div>
-      )}
-
-      {/* Header card */}
-      <div style={cardStyle({ marginBottom: 16, display: 'flex', gap: 14 })}>
-        <div
-          style={{
-            width: 48,
-            height: 48,
-            borderRadius: 12,
-            background: GREEN_SOFT,
-            color: GREEN,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 22,
-            flexShrink: 0,
-          }}
-        >
-          <CheckCircleFilled />
+        )}
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 20, fontWeight: 800, color: NAVY, marginBottom: 2 }}>
-            {job.title}
-          </div>
-          <div style={{ fontSize: 14, color: MUTED, marginBottom: 10 }}>
-            {dash(job.clientName)}
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            <StatusPill color={status.color}>
-              {status.label}
-              {isDraft && job.draftStage ? ` · ${job.draftStage}` : ''}
-            </StatusPill>
-            <NeedsReplanTag job={job} compact={false} />
-            <MaterialWaitTag wait={job} compact={false} />
-            <MaterialDelayTag job={job} compact={false} />
-            <span style={{ fontSize: 13, color: overdue ? '#7A1528' : MUTED, fontWeight: 600 }}>
-              Due {fmtDate(job.dueDate)}
+        {opsTotal > 0 && (
+          <div className="jo-head__progress">
+            <span className="jo-head__progress-label">Production progress</span>
+            <Progress
+              percent={Math.round((opsDone / opsTotal) * 100)}
+              showInfo={false}
+              strokeColor={tones.blue.solid}
+              railColor={colors.surfaceSunken}
+              size="small"
+              style={{ flex: 1, margin: 0 }}
+            />
+            <span className="jo-head__progress-count ui-tabular">
+              {opsDone}/{opsTotal} operations · {Math.round((opsDone / opsTotal) * 100)}%
             </span>
-            {(job.quantity != null || (!isWorker && job.amount != null)) && (
-              <span style={{ fontSize: 13, color: MUTED }}>
-                {job.quantity != null && (
-                  <>
-                    Qty {job.quantity}
-                    {job.unitOfMeasure ? ` ${job.unitOfMeasure}` : ''}
-                  </>
-                )}
-                {!isWorker && job.quantity != null && job.amount != null && ' · '}
-                {!isWorker && job.amount != null && fmtMoney(job.amount)}
-              </span>
-            )}
           </div>
-        </div>
+        )}
       </div>
 
       {canManage && job.needsReplan ? (
@@ -1133,12 +1098,15 @@ export default function JobOrderDetailPage() {
                       </div>
 
                       <div
-                        style={cardStyle({
+                        style={{
                           flex: 1,
+                          minWidth: 0,
                           marginBottom: 12,
-                          borderColor: active ? '#2563eb' : BORDER,
-                          opacity: done ? 0.95 : 1,
-                        })}
+                          padding: '12px 14px',
+                          borderRadius: 8,
+                          background: active ? tones.blue.bg : colors.surfaceMuted,
+                          borderLeft: `3px solid ${active ? tones.blue.solid : 'transparent'}`,
+                        }}
                       >
                         <div
                           style={{
@@ -1159,7 +1127,7 @@ export default function JobOrderDetailPage() {
                               </Text>
                             ) : null}
                           </span>
-                          <StatusPill color={opSt.color} compact>
+                          <StatusPill tone={opSt.tone} compact>
                             {op.isOutsourced && active ? 'Sent out' : opSt.label}
                             {active && op.isPaused ? ' · Paused' : ''}
                           </StatusPill>

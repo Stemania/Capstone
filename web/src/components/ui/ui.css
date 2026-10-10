@@ -593,3 +593,42 @@ a.ui-id:hover {
   height: 10px;
   border-radius: 3px;
 }
+
+/* ---------- Form sections ---------- */
+.ui-form-section {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+  margin: 4px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.ui-form-section ~ .ui-form-section {
+  margin-top: 8px;
+}
+
+.ui-muted-note {
+  font-size: var(--fs-xs);
+  color: var(--c-text-muted);
+  line-height: 1.45;
+}
+
+/* Disabled fields read as "not editable", not as empty boxes. */
+.ant-input-number-disabled,
+.ant-input-disabled,
+.ant-input-affix-wrapper-disabled,
+.ant-picker-disabled,
+.ant-select-disabled .ant-select-selector {
+  border-style: solid !important;
+  background: var(--c-surface-sunken) !important;
+  color: var(--c-text-2) !important;
+}
+
+.ant-input-number-disabled .ant-input-number-input,
+.ant-input-disabled {
+  color: var(--c-text-2) !important;
+  -webkit-text-fill-color: var(--c-text-2);
+}

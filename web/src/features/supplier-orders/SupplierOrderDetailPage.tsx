@@ -17,7 +17,6 @@ import {
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import {
-  ArrowLeftOutlined,
   CheckOutlined,
   DeleteOutlined,
   EditOutlined,
@@ -32,6 +31,7 @@ import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import OverdueTag from '../../components/OverdueTag';
 import StatusPill from '../../components/StatusPill';
+import { IdChip } from '../../components/ui';
 import { GradeInput } from '../../components/MaterialInputs';
 import type { DeliveryMode, MaterialPurchase, SupplierOrder } from '../../types';
 import OrderMaterialsModal from './OrderMaterialsModal';
@@ -380,12 +380,10 @@ export default function SupplierOrderDetailPage() {
           marginBottom: 16,
         }}
       >
-        <Space wrap>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/supplier-orders')}>
-            Supplier orders
-          </Button>
-          <span style={{ fontWeight: 800, fontSize: 18 }}>
-            {order.poNumber || 'Draft order'} · {order.supplierName}
+        <Space wrap align="center">
+          {order.poNumber ? <IdChip>{order.poNumber}</IdChip> : null}
+          <span style={{ fontWeight: 700, fontSize: 'var(--fs-title)', color: 'var(--c-text)' }}>
+            {order.poNumber ? order.supplierName : `Draft order · ${order.supplierName}`}
           </span>
           <StatusPill color={pill.color}>{pill.label}</StatusPill>
         </Space>

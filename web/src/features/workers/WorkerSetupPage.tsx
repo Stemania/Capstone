@@ -4,7 +4,6 @@ import {
   Checkbox,
   Input,
   InputNumber,
-  Segmented,
   Select,
   Spin,
   Switch,
@@ -22,6 +21,8 @@ import { PersonAvatar } from '../../components/PersonAvatar';
 import PhotoUploadControl from '../../components/PhotoUploadControl';
 import { personLabel } from '../../utils/people';
 import WorkerHistoryPanel from './WorkerHistoryPanel';
+import InfoTip from '../../components/InfoTip';
+import { LevelBar, TabBar } from '../../components/ui';
 
 const { Text } = Typography;
 
@@ -244,22 +245,29 @@ export default function WorkerSetupPage() {
     {
       title: 'Level',
       dataIndex: 'proficiency',
-      width: 120,
-      render: (_: unknown, row: SkillRow) => (
-        <InputNumber
-          min={1}
-          max={5}
-          value={row.proficiency}
-          disabled={!row.enabled}
-          onChange={(v) => {
-            setSkillRows((prev) =>
-              prev.map((r) =>
-                r.key === row.key ? { ...r, proficiency: Number(v) || 1 } : r
-              )
-            );
-          }}
-        />
-      ),
+      width: 200,
+      render: (_: unknown, row: SkillRow) =>
+        row.enabled ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+            <InputNumber
+              min={1}
+              max={5}
+              value={row.proficiency}
+              aria-label={`${row.name} level`}
+              style={{ width: 64 }}
+              onChange={(v) => {
+                setSkillRows((prev) =>
+                  prev.map((r) =>
+                    r.key === row.key ? { ...r, proficiency: Number(v) || 1 } : r
+                  )
+                );
+              }}
+            />
+            <LevelBar level={row.proficiency} />
+          </span>
+        ) : (
+          <span className="ui-muted-note">Can&apos;t run</span>
+        ),
     },
     {
       title: 'Primary',
@@ -357,22 +365,27 @@ export default function WorkerSetupPage() {
 
   return (
     <div>
-      <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-        Set who can run which machines and weekly work hours, for production workers and Admins.
-        Work history is built from completed operations and tool activity. Add or deactivate
-        accounts under Users & Roles.
-      </Text>
-
       <div className="worker-setup-grid">
         <aside className="worker-setup-list">
-          <Input
-            allowClear
-            placeholder="Search workers…"
-            prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            style={{ marginBottom: 10 }}
-          />
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10 }}>
+            <Input
+              allowClear
+              placeholder="Search workers…"
+              prefix={<SearchOutlined aria-hidden />}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <InfoTip
+              label="How this works"
+              content={
+                <>
+                  Set who can run which machines and weekly work hours, for production workers and
+                  Admins. Work history is built from completed operations and tool activity. Add or
+                  deactivate accounts under Users &amp; Roles.
+                </>
+              }
+            />
+          </div>
           {listLoading ? (
             <div style={{ padding: 24, textAlign: 'center' }}>
               <Spin />
@@ -443,21 +456,28 @@ export default function WorkerSetupPage() {
                 </div>
               </div>
 
-              <Segmented
-                value={detailTab}
-                onChange={(v) => setDetailTab(v as DetailTab)}
-                style={{ marginBottom: 16 }}
-                options={[
-                  { label: 'Skills', value: 'skills' },
-                  { label: 'Weekly hours', value: 'hours' },
-                  { label: 'History', value: 'history' },
-                ]}
-              />
+              <div style={{ marginBottom: 16 }}>
+                <TabBar<DetailTab>
+                  value={detailTab}
+                  onChange={setDetailTab}
+                  items={[
+                    { label: 'Skills', value: 'skills' },
+                    { label: 'Weekly hours', value: 'hours' },
+                    { label: 'History', value: 'history' },
+                  ]}
+                />
+              </div>
 
               {detailTab === 'skills' ? (
                 <div className="worker-setup-panel">
                   <div className="worker-setup-panel__head">
-                    <span>Skills</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      Skills
+                      <InfoTip
+                        label="How skills work"
+                        content="Switch on the machines they can operate, each at level 1 to 5. One primary skill only. Operations without a machine take no skill: anyone can do them. A machine nobody has a skill for yet is open to everyone."
+                      />
+                    </span>
                     <Button
                       type="primary"
                       loading={savingSkills}
@@ -474,11 +494,6 @@ export default function WorkerSetupPage() {
                     columns={skillColumns}
                     dataSource={skillRows}
                   />
-                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 10 }}>
-                    Switch on the machines they can operate, each at level 1 to 5. One primary
-                    skill only. Operations without a machine take no skill: anyone can do them. A
-                    machine nobody has a skill for yet is open to everyone.
-                  </Text>
                 </div>
               ) : null}
 
