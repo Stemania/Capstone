@@ -120,6 +120,7 @@ export default function ShopDetailsPage() {
           </Row>
 
           <div
+            className="m-action-bar"
             style={{
               display: 'flex',
               justifyContent: 'space-between',
@@ -128,7 +129,7 @@ export default function ShopDetailsPage() {
               flexWrap: 'wrap',
             }}
           >
-            <span style={{ fontSize: 12, color: '#64748b' }}>
+            <span className="m-action-bar__note" style={{ fontSize: 12, color: '#64748b' }}>
               {updatedAt ? `Last saved ${formatShop(updatedAt, 'MMM D, YYYY h:mm A')}` : ''}
             </span>
             <Button

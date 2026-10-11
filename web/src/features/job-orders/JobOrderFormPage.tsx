@@ -307,7 +307,7 @@ export default function JobOrderFormPage() {
             </Col>
           </Row>
 
-          <div className="jo-form__footer">
+          <div className="jo-form__footer m-action-bar">
             <Button onClick={() => navigate(backTo)}>Cancel</Button>
             <Button type="primary" loading={submitting} onClick={saveJob} style={{ minWidth: 140 }}>
               Save

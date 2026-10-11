@@ -2727,6 +2727,10 @@ button.admin-card {
   min-width: 0;
 }
 
+.worker-setup-panel__save {
+  display: flex;
+}
+
 .worker-setup-panel {
   background: transparent;
   border: 0;

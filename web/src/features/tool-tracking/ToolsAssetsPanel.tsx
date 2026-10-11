@@ -533,12 +533,12 @@ export default function ToolsAssetsPanel() {
             <Input placeholder="e.g. Angle grinder" />
           </Form.Item>
           <Row gutter={12}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="code" label="Type code" style={{ marginBottom: 14 }}>
                 <Input placeholder="Auto-generated if empty" />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="description" label="Description" style={{ marginBottom: 14 }}>
                 <Input placeholder="Optional" />
               </Form.Item>

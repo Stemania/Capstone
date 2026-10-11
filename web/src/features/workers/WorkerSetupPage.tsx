@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Checkbox, Input, InputNumber, Select, Spin, Switch, Typography, message } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
-import { useSearchParams } from 'react-router-dom';
+import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { NARROW_QUERY, useViewport } from '../../hooks/useViewport';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { usersApi, workerProfileApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
@@ -49,6 +50,7 @@ function defaultSchedule(): WorkerSchedule[] {
 }
 
 export default function WorkerSetupPage() {
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const workerId = params.get('worker') || '';
   const detailTab: DetailTab =
@@ -67,11 +69,27 @@ export default function WorkerSetupPage() {
   const [savingSkills, setSavingSkills] = useState(false);
   const [savingSchedule, setSavingSchedule] = useState(false);
 
+  const { isNarrow } = useViewport();
+  const pushedDetail = useRef(false);
+
   const setWorker = (id: string) => {
     const nextParams = new URLSearchParams(params);
     nextParams.delete('tab');
     nextParams.set('worker', id);
     if (!nextParams.get('panel')) nextParams.set('panel', 'skills');
+    // On narrow screens the list and the detail are separate views, so Back should return to the list.
+    pushedDetail.current = isNarrow && !workerId;
+    setParams(nextParams, { replace: !pushedDetail.current });
+  };
+
+  const backToList = () => {
+    if (pushedDetail.current) {
+      pushedDetail.current = false;
+      navigate(-1);
+      return;
+    }
+    const nextParams = new URLSearchParams(params);
+    nextParams.delete('worker');
     setParams(nextParams, { replace: true });
   };
 
@@ -94,7 +112,7 @@ export default function WorkerSetupPage() {
           )
           .sort((a, b) => a.fullName.localeCompare(b.fullName));
         setWorkers(production);
-        if (!workerId && production[0]) {
+        if (!workerId && production[0] && !window.matchMedia(NARROW_QUERY).matches) {
           const nextParams = new URLSearchParams(params);
           nextParams.delete('tab');
           nextParams.set('worker', production[0].id);
@@ -355,7 +373,9 @@ export default function WorkerSetupPage() {
 
   return (
     <div>
-      <div className="worker-setup-grid">
+      <div
+        className={`worker-setup-grid${isNarrow ? (workerId ? ' worker-setup-grid--detail' : ' worker-setup-grid--list') : ''}`}
+      >
         <aside className="worker-setup-list">
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10 }}>
             <Input
@@ -415,6 +435,15 @@ export default function WorkerSetupPage() {
             <PageSkeleton variant="block" />
           ) : (
             <>
+              {isNarrow ? (
+                <Button
+                  icon={<ArrowLeftOutlined />}
+                  onClick={backToList}
+                  className="worker-setup-back"
+                >
+                  All workers
+                </Button>
+              ) : null}
               <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
                 <PersonAvatar
                   userId={selected?.id}
@@ -466,16 +495,19 @@ export default function WorkerSetupPage() {
                         content="Switch on the machines they can operate, each at level 1 to 5. One primary skill only. Operations without a machine take no skill: anyone can do them. A machine nobody has a skill for yet is open to everyone."
                       />
                     </span>
-                    <Button
-                      type="primary"
-                      loading={savingSkills}
-                      onClick={saveSkills}
-                      style={{ fontWeight: 600 }}
-                    >
-                      Save skills
-                    </Button>
+                    <div className="worker-setup-panel__save m-action-bar">
+                      <Button
+                        type="primary"
+                        loading={savingSkills}
+                        onClick={saveSkills}
+                        style={{ fontWeight: 600 }}
+                      >
+                        Save skills
+                      </Button>
+                    </div>
                   </div>
                   <ResponsiveTable
+                    card={{ title: 'target', badge: 'enabled' }}
                     size="small"
                     rowKey="key"
                     pagination={false}
@@ -489,16 +521,19 @@ export default function WorkerSetupPage() {
                 <div className="worker-setup-panel">
                   <div className="worker-setup-panel__head">
                     <span>Weekly hours</span>
-                    <Button
-                      type="primary"
-                      loading={savingSchedule}
-                      onClick={saveSchedule}
-                      style={{ fontWeight: 600 }}
-                    >
-                      Save hours
-                    </Button>
+                    <div className="worker-setup-panel__save m-action-bar">
+                      <Button
+                        type="primary"
+                        loading={savingSchedule}
+                        onClick={saveSchedule}
+                        style={{ fontWeight: 600 }}
+                      >
+                        Save hours
+                      </Button>
+                    </div>
                   </div>
                   <ResponsiveTable
+                    card={{ title: 'dayOfWeek', badge: 'isWorking' }}
                     size="small"
                     rowKey="dayOfWeek"
                     pagination={false}

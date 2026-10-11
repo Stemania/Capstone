@@ -1420,7 +1420,7 @@ export default function JobOrderPlanningPage() {
         )}
 
         {wizardStep === 2 && !readOnly ? (
-          <div className="jo-plan__footer">
+          <div className="jo-plan__footer m-action-bar">
             <Tooltip title={advanceTooltip}>
               <span>
                 <SplitActionButton
@@ -1536,7 +1536,7 @@ export default function JobOrderPlanningPage() {
           />
         ) : null}
         {wizardStep === 3 && !readOnly ? (
-          <div className="jo-plan__footer">
+          <div className="jo-plan__footer m-action-bar">
             <Button onClick={goBackStep}>Back</Button>
             <Tooltip
               title={!canConfirm ? confirmBlockers.join(' ') : undefined}

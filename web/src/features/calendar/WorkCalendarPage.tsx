@@ -633,7 +633,7 @@ export default function WorkCalendarPage() {
           )}
           {watchType !== 'HOLIDAY_NO_WORK' && (
             <Row gutter={12}>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Form.Item
                   name="startTime"
                   label="Start time"
@@ -643,7 +643,7 @@ export default function WorkCalendarPage() {
                   <TimePicker format="HH:mm" minuteStep={15} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Form.Item
                   name="endTime"
                   label="End time"
@@ -710,7 +710,7 @@ export default function WorkCalendarPage() {
         </p>
         <Form form={breakForm} layout="vertical" requiredMark={false}>
           <Row gutter={12}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item
                 name="breakStart"
                 label="Starts"
@@ -719,7 +719,7 @@ export default function WorkCalendarPage() {
                 <TimePicker format="HH:mm" minuteStep={15} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item
                 name="breakEnd"
                 label="Ends"

@@ -162,7 +162,8 @@
   }
 
   /* Icon-only buttons are square tap targets. */
-  .ant-btn.ant-btn-icon-only {
+  .ant-btn.ant-btn-icon-only,
+  .ant-input-number {
     min-width: 44px;
   }
 
@@ -280,6 +281,33 @@
   .ant-drawer-right .ant-drawer-section,
   .ant-drawer-left .ant-drawer-section {
     max-width: 100vw;
+  }
+}
+
+/* ================= Narrow: phone + tablet portrait ================= */
+@media (max-width: 991px) {
+  /* Master–detail: the list and the selected item are separate views. */
+  .worker-setup-grid--list,
+  .worker-setup-grid--detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .worker-setup-grid--list .worker-setup-detail,
+  .worker-setup-grid--detail .worker-setup-list {
+    display: none;
+  }
+
+  .worker-setup-grid--list .worker-setup-list {
+    min-height: 0;
+    max-height: none;
+  }
+
+  .worker-setup-list__item {
+    min-height: 56px;
+  }
+
+  .worker-setup-back {
+    margin-bottom: 14px;
   }
 }
 
@@ -462,6 +490,33 @@
   .app-shell--phone .m-action-bar .ant-btn > span:not(.ant-btn-icon) {
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .app-shell--phone .m-action-bar > span {
+    display: flex;
+  }
+
+  .app-shell--phone .m-action-bar > .m-action-bar__note {
+    display: block;
+    align-self: center;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .app-shell--phone .m-action-bar .jo-split-btn {
+    display: flex;
+    width: 100%;
+  }
+
+  .app-shell--phone .m-action-bar .jo-split-btn__main {
+    flex: 1 1 auto;
+    width: auto;
+  }
+
+  .app-shell--phone .m-action-bar .jo-split-btn__trigger {
+    flex: 0 0 48px;
+    width: 48px;
   }
 
   /* Three or more actions: the primary one gets its own full-width row. */

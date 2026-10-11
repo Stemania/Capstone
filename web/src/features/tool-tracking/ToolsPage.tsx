@@ -586,12 +586,12 @@ export default function ToolsPage() {
             >
               {sectionLabel('Item details')}
               <Row gutter={12}>
-                <Col span={14}>
+                <Col xs={24} sm={14}>
                   <Form.Item name="name" label="Name" rules={[{ required: true }]}>
                     <Input placeholder="e.g. Sandpaper" />
                   </Form.Item>
                 </Col>
-                <Col span={10}>
+                <Col xs={24} sm={10}>
                   <Form.Item
                     name="shopTerm"
                     label="Shop term"
@@ -602,12 +602,12 @@ export default function ToolsPage() {
                 </Col>
               </Row>
               <Row gutter={12}>
-                <Col span={14}>
+                <Col xs={24} sm={14}>
                   <Form.Item name="code" label="Code">
                     <Input placeholder="Auto-generated if empty" />
                   </Form.Item>
                 </Col>
-                <Col span={10}>
+                <Col xs={24} sm={10}>
                   <Form.Item name="sizeSpec" label="Size / spec">
                     <Input placeholder="e.g. 10mm" />
                   </Form.Item>
@@ -615,17 +615,17 @@ export default function ToolsPage() {
               </Row>
               {sectionLabel('Stock levels')}
               <Row gutter={12}>
-                <Col span={8}>
+                <Col xs={24} sm={8}>
                   <Form.Item name="unit" label="Unit" rules={[{ required: true }]}>
                     <Input />
                   </Form.Item>
                 </Col>
-                <Col span={8}>
+                <Col xs={24} sm={8}>
                   <Form.Item name="quantityOnHand" label="In stock" rules={[{ required: true }]}>
                     <InputNumber min={0} style={{ width: '100%' }} />
                   </Form.Item>
                 </Col>
-                <Col span={8}>
+                <Col xs={24} sm={8}>
                   <Form.Item name="minimumStock" label="Reorder level">
                     <InputNumber min={0} style={{ width: '100%' }} />
                   </Form.Item>
@@ -709,7 +709,7 @@ export default function ToolsPage() {
               </Form.Item>
               {sectionLabel('Stock levels')}
               <Row gutter={12}>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item
                     name="unit"
                     label="Unit"
@@ -719,7 +719,7 @@ export default function ToolsPage() {
                     <Input />
                   </Form.Item>
                 </Col>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item name="minimumStock" label="Reorder level" style={{ marginBottom: 14 }}>
                     <InputNumber min={0} style={{ width: '100%' }} />
                   </Form.Item>
