@@ -1,16 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { InputNumber, Button, Select, Typography, Alert, Tag, Tooltip, Space, message, Input } from 'antd';
+import { InputNumber, Button, Select, Typography, Alert, Tag, Tooltip, Popover, Badge, message, Input } from 'antd';
 import SplitActionButton from '../../components/SplitActionButton';
 import InfoTip from '../../components/InfoTip';
-import type { ColumnsType } from 'antd/es/table';
 import {
+  CloseOutlined,
   DeleteOutlined,
+  DownOutlined,
+  FileTextOutlined,
+  LockOutlined,
   PlusOutlined,
   StarFilled,
+  StarOutlined,
+  UpOutlined,
+  UserAddOutlined,
   WarningOutlined,
   ArrowUpOutlined,
   ArrowDownOutlined,
-  ArrowLeftOutlined,
   CheckCircleFilled,
 } from '@ant-design/icons';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -42,10 +47,18 @@ import type {
   User,
   WorkerSuggestion,
 } from '../../types';
-import { PageSkeleton } from '../../components/ui';
-import ResponsiveTable from '../../components/ui/ResponsiveTable';
+import { Page, PageSkeleton } from '../../components/ui';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
+
+/** Backend reasons carry ISO dates ("received 2026-10-06"); show them like the rest of the page. */
+function readableDates(text: string) {
+  return text.replace(/\b\d{4}-\d{2}-\d{2}\b/g, (iso) => formatShop(iso, 'MMM D, YYYY'));
+}
+
+const SCHEDULE_HELP =
+  'Review the times and pick the machine unit for each operation. Changes show in the week view ' +
+  'right away but are not saved until you confirm. Confirming releases the job to the shop floor.';
 
 function isPlanningStatus(status: string) {
   return status === 'DRAFT';
@@ -225,6 +238,7 @@ export default function JobOrderPlanningPage() {
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState('');
+  const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
   const workerFetchSeq = useRef<Record<number, number>>({});
   const suggestionFetchSeq = useRef<Record<number, number>>({});
   const rowDataRef = useRef<
@@ -971,243 +985,419 @@ export default function JobOrderPlanningPage() {
     : scheduleProblems.map((p) => p.message);
   const canConfirm = confirmBlockers.length === 0;
 
-  const columns: ColumnsType<OpFormRow> = [
-    {
-      title: '#',
-      width: 56,
-      render: (_: unknown, __: OpFormRow, index: number) => (
-        <span style={{ fontWeight: 700, color: '#64748b' }}>{index + 1}</span>
-      ),
-    },
-    {
-      title: 'Operation type',
-      width: 220,
-      render: (_: unknown, record: OpFormRow, index: number) => (
+  const typeOf = (record?: OpFormRow) => operationTypes.find((t) => t.id === record?.operationTypeId);
+
+  const renderTypeCell = (record: OpFormRow, index: number) => (
+    <Select
+      showSearch
+      optionFilterProp="label"
+      style={{ width: '100%' }}
+      placeholder="Operation type"
+      value={record.operationTypeId}
+      disabled={readOnly}
+      options={operationTypes.map((t) => ({ value: t.id, label: t.name }))}
+      onChange={(v) => onOperationTypeChange(index, v)}
+    />
+  );
+
+  const renderMachineCell = (record: OpFormRow, index: number) => {
+    const outsourced = isOutsourcedType(typeOf(record));
+    const unitLabel =
+      !outsourced && record.machineUnitId && record.machineTypeId
+        ? machineUnits.find((u) => u.id === record.machineUnitId)?.label
+        : null;
+    return (
+      <>
         <Select
-          showSearch
-          optionFilterProp="label"
+          allowClear={!outsourced}
           style={{ width: '100%' }}
-          placeholder="Operation type"
-          value={record.operationTypeId}
-          disabled={readOnly}
-          options={operationTypes.map((t) => ({ value: t.id, label: t.name }))}
-          onChange={(v) => onOperationTypeChange(index, v)}
+          placeholder={outsourced ? 'Outsourced' : 'Machine'}
+          value={outsourced ? undefined : record.machineTypeId}
+          disabled={readOnly || outsourced}
+          labelRender={({ label, value }) =>
+            label == null ? String(value) : String(label).replace(/ \(\d+ available\)$/, '')
+          }
+          options={machineOptionsForRow(machines, operations, index)}
+          onChange={(v) => onMachineTypeChange(index, v)}
         />
-      ),
-    },
-    {
-      title: 'Machine',
-      width: 180,
-      render: (_: unknown, record: OpFormRow, index: number) => {
-        const ot = operationTypes.find((t) => t.id === record.operationTypeId);
-        const outsourced = isOutsourcedType(ot);
-        return (
+        {unitLabel ? <div className="jo-op__hint">Unit: {unitLabel}</div> : null}
+      </>
+    );
+  };
+
+  const renderCrewCell = (record: OpFormRow, index: number) => {
+    const ot = typeOf(record);
+    if (isOutsourcedType(ot)) {
+      return <Select style={{ width: '100%' }} placeholder="Outside shop" disabled />;
+    }
+    const qualifiedWorkers = rowWorkers[index] || [];
+    const rowMachineId = record.machineTypeId || ot?.defaultMachineTypeId;
+    const helpers = record.helperIds || [];
+    const helperChoices = (current?: string) =>
+      workerOptions(
+        allWorkers.filter(
+          (w) =>
+            w.id === current ||
+            (w.id !== record.assignedWorkerId && !helpers.includes(w.id)),
+        ),
+      );
+    const setHelpers = (next: string[]) => patchRow(index, { helperIds: next });
+    const canAddHelper = !readOnly && Boolean(record.assignedWorkerId) && helpers.length < MAX_HELPERS;
+    return (
+      <div className="jo-op__crew">
+        <div className="jo-op__crew-line">
           <Select
-            allowClear={!outsourced}
-            style={{ width: '100%' }}
-            placeholder={outsourced ? 'Outsourced' : 'Machine'}
-            value={outsourced ? undefined : record.machineTypeId}
-            disabled={readOnly || outsourced}
-            options={machineOptionsForRow(machines, operations, index)}
-            onChange={(v) => onMachineTypeChange(index, v)}
+            allowClear
+            showSearch
+            optionFilterProp="search"
+            style={{ flex: 1, minWidth: 0 }}
+            placeholder={rowMachineId ? 'Lead (qualified)' : 'Lead worker'}
+            value={record.assignedWorkerId}
+            disabled={readOnly}
+            options={workerOptions(qualifiedWorkers)}
+            onChange={(v) =>
+              patchRow(index, {
+                assignedWorkerId: v,
+                helperIds: v ? helpers.filter((h) => h !== v) : [],
+              })
+            }
           />
-        );
-      },
-    },
-    {
-      title: 'Crew',
-      width: 240,
-      render: (_: unknown, record: OpFormRow, index: number) => {
-        const ot = operationTypes.find((t) => t.id === record.operationTypeId);
-        if (isOutsourcedType(ot)) {
-          return <Select style={{ width: '100%' }} placeholder="Outside shop" disabled />;
-        }
-        const qualifiedWorkers = rowWorkers[index] || [];
-        const rowType = operationTypes.find((t) => t.id === record.operationTypeId);
-        const rowMachineId = record.machineTypeId || rowType?.defaultMachineTypeId;
-        const helpers = record.helperIds || [];
-        const helperChoices = (current?: string) =>
-          workerOptions(
-            allWorkers.filter(
-              (w) =>
-                w.id === current ||
-                (w.id !== record.assignedWorkerId && !helpers.includes(w.id)),
-            ),
-          );
-        const setHelpers = (next: string[]) => patchRow(index, { helperIds: next });
-        const unitLabel = record.machineUnitId
-          ? machineUnits.find((u) => u.id === record.machineUnitId)?.label
-          : null;
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {canAddHelper ? (
+            <Tooltip title={`Add a helper (up to ${MAX_HELPERS})`}>
+              <Button
+                type="text"
+                className="jo-op__icon-btn"
+                icon={<UserAddOutlined />}
+                aria-label="Add helper"
+                onClick={() => setHelpers([...helpers, ''])}
+              />
+            </Tooltip>
+          ) : null}
+        </div>
+        {helpers.map((hid, hi) => (
+          <div key={`${hid}-${hi}`} className="jo-op__crew-line">
             <Select
-              allowClear
               showSearch
+              size="small"
               optionFilterProp="search"
-              style={{ width: '100%' }}
-              placeholder={rowMachineId ? 'Lead (qualified)' : 'Lead worker'}
-              value={record.assignedWorkerId}
+              style={{ flex: 1, minWidth: 0 }}
+              placeholder="Helper"
+              value={hid || undefined}
               disabled={readOnly}
-              options={workerOptions(qualifiedWorkers)}
-              onChange={(v) =>
-                patchRow(index, {
-                  assignedWorkerId: v,
-                  helperIds: v ? helpers.filter((h) => h !== v) : [],
-                })
-              }
+              options={helperChoices(hid)}
+              onChange={(v) => setHelpers(helpers.map((h, j) => (j === hi ? v : h)))}
             />
-            {unitLabel && rowMachineId ? (
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                Unit: {unitLabel}
+            {!readOnly && (
+              <Button
+                type="text"
+                size="small"
+                className="jo-op__icon-btn"
+                aria-label="Remove helper"
+                icon={<CloseOutlined />}
+                onClick={() => setHelpers(helpers.filter((_, j) => j !== hi))}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderTargetCell = (record: OpFormRow, index: number) =>
+    isOutsourcedType(typeOf(record)) ? (
+      <InputNumber
+        style={{ width: '100%' }}
+        min={1}
+        max={90}
+        precision={0}
+        placeholder="Days"
+        suffix="days"
+        value={record.turnaroundDays ?? undefined}
+        disabled={readOnly}
+        onChange={(v) => patchRow(index, { turnaroundDays: v })}
+      />
+    ) : (
+      <InputNumber
+        style={{ width: '100%' }}
+        min={0}
+        step={0.5}
+        placeholder="Hours"
+        suffix="h"
+        value={record.estimatedHours ?? undefined}
+        disabled={readOnly}
+        onChange={(v) => patchRow(index, { estimatedHours: v })}
+      />
+    );
+
+  const renderNoteButton = (record: OpFormRow, index: number) => {
+    const note = record.notes?.trim() || '';
+    return (
+      <Popover
+        trigger="click"
+        placement="bottomRight"
+        title="Instructions"
+        content={
+          <div className="jo-op__note-pop">
+            <Input.TextArea
+              autoSize={{ minRows: 3, maxRows: 8 }}
+              maxLength={1000}
+              showCount
+              placeholder="Tolerances, setup, special handling"
+              value={record.notes ?? ''}
+              disabled={readOnly}
+              onChange={(e) => patchRow(index, { notes: e.target.value })}
+            />
+          </div>
+        }
+      >
+        <Tooltip title={note ? note.slice(0, 140) : 'Add instructions'}>
+          <Badge count={note ? 1 : 0} size="small" offset={[-4, 4]} color="var(--c-primary)">
+            <Button
+              type="text"
+              className={`jo-op__icon-btn${note ? ' is-on' : ''}`}
+              icon={<FileTextOutlined />}
+              aria-label={note ? 'Edit instructions (1 note)' : 'Add instructions'}
+            />
+          </Badge>
+        </Tooltip>
+      </Popover>
+    );
+  };
+
+  /** Lead suggestions shown in the panel; helper picks only count when there are no leads. */
+  const suggestionCount = (index: number, key: string) =>
+    Math.min((rowSuggestions[index] || []).length || (helperSuggestions[key] || []).length, 5);
+
+  const renderSuggestions = (index: number) => {
+    const row = operations[index];
+    if (isOutsourcedType(typeOf(row))) {
+      return (
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          Done by an outside shop: no worker or machine. The schedule blocks out the
+          turnaround days, and the next operation waits until it is returned.
+        </Text>
+      );
+    }
+    const suggestions = rowSuggestions[index] || [];
+    const qualifiedWorkers = rowWorkers[index] || [];
+    const helperSugs = (helperSuggestions[row?.key || ''] || []).slice(0, 5);
+    const rowHelpers = (row?.helperIds || []).filter(Boolean);
+    const canAddHelper =
+      !readOnly &&
+      Boolean(row?.assignedWorkerId) &&
+      rowHelpers.length < MAX_HELPERS;
+    if (!suggestions.length && !helperSugs.length) return null;
+    const topId = suggestions[0]?.workerId;
+    const assignedId = row?.assignedWorkerId;
+    return (
+      <div>
+        <div className="jo-op__more-head">
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Best match auto-selected — click another to override
+          </Text>
+          <InfoTip title="How suggestions are ranked" content={RANKING_HELP} />
+        </div>
+        <div className="jo-op__picks">
+          {suggestions.slice(0, 5).map((s) => {
+            const inDropdown = qualifiedWorkers.some((w) => w.id === s.workerId);
+            const isTop = s.workerId === topId;
+            const isAssigned = s.workerId === assignedId;
+            return (
+              <button
+                type="button"
+                key={s.workerId}
+                disabled={!inDropdown || readOnly}
+                onClick={() => {
+                  if (!inDropdown || readOnly) return;
+                  patchRow(index, {
+                    assignedWorkerId: s.workerId,
+                    ...(s.machineUnitId ? { machineUnitId: s.machineUnitId } : {}),
+                    helperIds: rowHelpers.filter((h) => h !== s.workerId),
+                  });
+                }}
+                className={`jo-op__pick${isAssigned ? ' is-picked' : ''}`}
+              >
+                <span className="jo-op__pick-head">
+                  {(isTop || isAssigned) && <StarFilled style={{ color: '#c9a227', fontSize: 12 }} />}
+                  <PersonAvatar
+                    userId={s.workerId}
+                    fullName={s.fullName}
+                    photoVersion={s.photoVersion}
+                    size={22}
+                  />
+                  <span className="jo-op__pick-name">{suggestionLabel(s)}</span>
+                  <Tag color={isAssigned ? 'gold' : 'default'} style={{ margin: 0, fontSize: 11 }}>
+                    {(s.score * 100).toFixed(0)}%
+                  </Tag>
+                </span>
+                {s.attendanceWarning && (
+                  <Tag color="warning" icon={<WarningOutlined />} style={{ margin: '4px 0 0', fontSize: 11 }}>
+                    {s.attendanceWarning}
+                  </Tag>
+                )}
+                {s.reason && <span className="jo-op__pick-reason">{s.reason}</span>}
+              </button>
+            );
+          })}
+        </div>
+        {helperSugs.length > 0 && canAddHelper ? (
+          <>
+            <div className="jo-op__more-head" style={{ marginTop: 10 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Suggested helpers — click to add (up to {MAX_HELPERS})
               </Text>
-            ) : null}
-            {helpers.map((hid, hi) => (
-              <div key={`${hid}-${hi}`} style={{ display: 'flex', gap: 4 }}>
-                <Select
-                  showSearch
-                  optionFilterProp="search"
-                  style={{ flex: 1, minWidth: 0 }}
-                  placeholder="Helper"
-                  value={hid || undefined}
-                  disabled={readOnly}
-                  options={helperChoices(hid)}
-                  onChange={(v) => setHelpers(helpers.map((h, j) => (j === hi ? v : h)))}
-                />
-                {!readOnly && (
+            </div>
+            <div className="jo-op__picks">
+              {helperSugs.map((s) => (
+                <button
+                  type="button"
+                  key={s.workerId}
+                  onClick={() =>
+                    patchRow(index, {
+                      helperIds: [...rowHelpers, s.workerId].slice(0, MAX_HELPERS),
+                    })
+                  }
+                  className="jo-op__pick is-helper"
+                >
+                  <span className="jo-op__pick-head">
+                    <PlusOutlined style={{ fontSize: 11, color: '#8c8c8c' }} />
+                    <PersonAvatar
+                      userId={s.workerId}
+                      fullName={s.fullName}
+                      photoVersion={s.photoVersion}
+                      size={22}
+                    />
+                    <span className="jo-op__pick-name">{personLabel(s.fullName, s.nickname)}</span>
+                    <Tag style={{ margin: 0, fontSize: 11 }}>{(s.score * 100).toFixed(0)}%</Tag>
+                  </span>
+                  {s.attendanceWarning && (
+                    <Tag color="warning" icon={<WarningOutlined />} style={{ margin: '4px 0 0', fontSize: 11 }}>
+                      {s.attendanceWarning}
+                    </Tag>
+                  )}
+                  {s.reason && <span className="jo-op__pick-reason">{s.reason}</span>}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderOperationRow = (record: OpFormRow, index: number) => {
+    const outsourced = isOutsourcedType(typeOf(record));
+    const isFinal = isFinalRow(record);
+    const count = outsourced ? 0 : suggestionCount(index, record.key);
+    const hasMore = outsourced || count > 0;
+    const open = Boolean(openRows[record.key]) && hasMore;
+    const toggle = () => setOpenRows((prev) => ({ ...prev, [record.key]: !prev[record.key] }));
+    return (
+      <li key={record.key} className={`jo-op${open ? ' is-open' : ''}`}>
+        <div className="jo-op__rail" aria-hidden>
+          <span className="jo-op__num">{index + 1}</span>
+        </div>
+        <div className="jo-op__card">
+          <div className="jo-op__grid">
+            <div className="jo-op__field jo-op__field--type" data-label="Operation">
+              {renderTypeCell(record, index)}
+              {isFinal ? (
+                <div className="jo-op__hint">
+                  <LockOutlined /> Always the last step
+                </div>
+              ) : null}
+            </div>
+            <div className="jo-op__field jo-op__field--machine" data-label="Machine">
+              {renderMachineCell(record, index)}
+            </div>
+            <div className="jo-op__field jo-op__field--crew" data-label="Crew">
+              {renderCrewCell(record, index)}
+            </div>
+            <div className="jo-op__field jo-op__field--target" data-label={outsourced ? 'Turnaround' : 'Target'}>
+              {renderTargetCell(record, index)}
+            </div>
+            <div className="jo-op__tools">
+              {renderNoteButton(record, index)}
+              {hasMore ? (
+                <Button
+                  type="text"
+                  size="small"
+                  className={`jo-op__more-btn${open ? ' is-on' : ''}`}
+                  aria-expanded={open}
+                  onClick={toggle}
+                >
+                  {outsourced ? (
+                    'About'
+                  ) : (
+                    <>
+                      <StarOutlined /> Suggested <span className="jo-op__count">{count}</span>
+                    </>
+                  )}
+                  {open ? <UpOutlined /> : <DownOutlined />}
+                </Button>
+              ) : null}
+              {!readOnly ? (
+                <span className="jo-op__order">
+                  <Tooltip title={canMoveRow(index, -1) ? 'Move earlier' : undefined}>
+                    <Button
+                      type="text"
+                      size="small"
+                      className="jo-op__icon-btn"
+                      icon={<ArrowUpOutlined />}
+                      aria-label={`Move step ${index + 1} earlier`}
+                      disabled={!canMoveRow(index, -1)}
+                      onClick={() => moveRow(index, -1)}
+                    />
+                  </Tooltip>
+                  <Tooltip title={canMoveRow(index, 1) ? 'Move later' : undefined}>
+                    <Button
+                      type="text"
+                      size="small"
+                      className="jo-op__icon-btn"
+                      icon={<ArrowDownOutlined />}
+                      aria-label={`Move step ${index + 1} later`}
+                      disabled={!canMoveRow(index, 1)}
+                      onClick={() => moveRow(index, 1)}
+                    />
+                  </Tooltip>
+                </span>
+              ) : null}
+              {!readOnly ? (
+                <Tooltip title={operations.length > 1 ? 'Remove step' : undefined}>
                   <Button
                     type="text"
                     size="small"
-                    aria-label="Remove helper"
+                    danger
+                    className="jo-op__icon-btn"
                     icon={<DeleteOutlined />}
-                    onClick={() => setHelpers(helpers.filter((_, j) => j !== hi))}
+                    aria-label={`Remove step ${index + 1}`}
+                    disabled={operations.length <= 1}
+                    onClick={() => removeRow(index)}
                   />
-                )}
-              </div>
-            ))}
-            {!readOnly && record.assignedWorkerId && helpers.length < MAX_HELPERS ? (
-              <Button
-                type="dashed"
-                size="small"
-                icon={<PlusOutlined />}
-                onClick={() => setHelpers([...helpers, ''])}
-              >
-                Add helper
-              </Button>
-            ) : null}
+                </Tooltip>
+              ) : null}
+            </div>
           </div>
-        );
-      },
-    },
-    {
-      title: 'Target',
-      width: 130,
-      render: (_: unknown, record: OpFormRow, index: number) =>
-        isOutsourcedType(operationTypes.find((t) => t.id === record.operationTypeId)) ? (
-          <InputNumber
-            style={{ width: '100%' }}
-            min={1}
-            max={90}
-            precision={0}
-            placeholder="Days"
-            suffix="days"
-            value={record.turnaroundDays ?? undefined}
-            disabled={readOnly}
-            onChange={(v) => patchRow(index, { turnaroundDays: v })}
-          />
-        ) : (
-          <InputNumber
-            style={{ width: '100%' }}
-            min={0}
-            step={0.5}
-            placeholder="Hours"
-            suffix="h"
-            value={record.estimatedHours ?? undefined}
-            disabled={readOnly}
-            onChange={(v) => patchRow(index, { estimatedHours: v })}
-          />
-        ),
-    },
-    {
-      title: 'Instructions',
-      width: 260,
-      render: (_: unknown, record: OpFormRow, index: number) => (
-        <Input.TextArea
-          autoSize={{ minRows: 1, maxRows: 4 }}
-          maxLength={1000}
-          placeholder="Tolerances, setup, special handling"
-          value={record.notes ?? ''}
-          disabled={readOnly}
-          onChange={(e) => patchRow(index, { notes: e.target.value })}
-        />
-      ),
-    },
-    {
-      title: '',
-      width: 120,
-      render: (_: unknown, __: OpFormRow, index: number) =>
-        readOnly ? null : (
-        <div style={{ display: 'flex', gap: 4 }}>
-          <Button
-            type="text"
-            size="small"
-            icon={<ArrowUpOutlined />}
-            disabled={!canMoveRow(index, -1)}
-            onClick={() => moveRow(index, -1)}
-          />
-          <Button
-            type="text"
-            size="small"
-            icon={<ArrowDownOutlined />}
-            disabled={!canMoveRow(index, 1)}
-            onClick={() => moveRow(index, 1)}
-          />
-          <Button
-            type="text"
-            size="small"
-            danger
-            icon={<DeleteOutlined />}
-            disabled={operations.length <= 1}
-            onClick={() => removeRow(index)}
-          />
+          {open ? <div className="jo-op__more">{renderSuggestions(index)}</div> : null}
         </div>
-      ),
-    },
-  ];
+      </li>
+    );
+  };
 
-  const pageTitle =
-    wizardStep === 2
-      ? 'Operations'
-      : wizardStep === 3
-        ? 'Schedule'
-        : wizardStep === 4
-          ? 'Released'
-          : 'Plan Job Order';
+  const finish =
+    wizardStep === 3 && scheduleMeta
+      ? { projectedCompletion: scheduleMeta.projectedCompletion, flag: scheduleMeta.scheduleFlag }
+      : { projectedCompletion: job.projectedCompletion, flag: job.scheduleFlag };
+
+  const totalHours = operations.reduce((sum, op) => sum + (op.estimatedHours || 0), 0);
 
   return (
-    <div className="jo-form-page">
-      <div className="jo-form-page__header">
-        <Space wrap size={8}>
-          <Button
-            icon={<ArrowLeftOutlined />}
-            onClick={() => navigate(jobOrdersListPath(job.status))}
-          >
-            Exit
-          </Button>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>
-              {job.jobNumber || job.id.slice(0, 8).toUpperCase()}
-            </Text>
-            <Title level={4} style={{ margin: 0, color: '#0f1c2e', lineHeight: 1.25 }}>
-              {pageTitle}
-            </Title>
-          </div>
-        </Space>
-        <JobOrderFlowSteps current={wizardStep} onStepClick={goToStep} locked={readOnly} />
-      </div>
+    <Page className="jo-plan-page">
+      <JobOrderFlowSteps current={wizardStep} onStepClick={goToStep} locked={readOnly} />
 
-      {error && <Alert type="error" title={error} style={{ marginBottom: 16 }} showIcon />}
+      {error && <Alert type="error" title={error} showIcon />}
 
-      <JobInfoCard job={job} />
+      <JobInfoCard job={job} finish={finish} />
 
       {wizardStep === 4 ? (
         <div className="jo-plan__released">
@@ -1231,340 +1421,180 @@ export default function JobOrderPlanningPage() {
       ) : null}
 
       {wizardStep === 2 ? (
-      <div className="jo-plan__panel">
-        <div className="jo-plan__section-title">Operations</div>
-        <ResponsiveTable
-          size="middle"
-          pagination={false}
-          rowKey="key"
-          dataSource={operations}
-          columns={columns}
-          expandable={{
-            expandedRowRender: (_record, index) => {
-              const row = operations[index];
-              if (isOutsourcedType(operationTypes.find((t) => t.id === row?.operationTypeId))) {
-                return (
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    Done by an outside shop: no worker or machine. The schedule blocks out the
-                    turnaround days, and the next operation waits until it is returned.
-                  </Text>
-                );
-              }
-              const suggestions = rowSuggestions[index] || [];
-              const qualifiedWorkers = rowWorkers[index] || [];
-              const helperSugs = (helperSuggestions[row?.key || ''] || []).slice(0, 5);
-              const rowHelpers = (row?.helperIds || []).filter(Boolean);
-              const canAddHelper =
-                !readOnly &&
-                Boolean(row?.assignedWorkerId) &&
-                rowHelpers.length < MAX_HELPERS;
-              if (!suggestions.length && !helperSugs.length) return null;
-              const topId = suggestions[0]?.workerId;
-              const assignedId = operations[index]?.assignedWorkerId;
-              return (
-                <div style={{ padding: '4px 0' }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      marginBottom: 6,
+        <section className="jo-plan__panel" aria-label="Operations">
+          <div className="jo-plan__panel-head">
+            <h2 className="jo-plan__section-title">Operations</h2>
+            <span className="jo-plan__panel-sub">
+              {operations.length} step{operations.length === 1 ? '' : 's'}
+              {totalHours > 0 ? ` · ${totalHours.toLocaleString(undefined, { maximumFractionDigits: 1 })} h target` : ''}
+              {' · '}done in this order
+            </span>
+          </div>
+          <div className="jo-ops__head" aria-hidden>
+            <span>#</span>
+            <span>Operation</span>
+            <span>Machine</span>
+            <span>Crew</span>
+            <span>Target</span>
+            <span />
+          </div>
+          <ol className="jo-ops">{operations.map((record, index) => renderOperationRow(record, index))}</ol>
+
+          {!readOnly ? (
+            <div className="jo-plan__footer jo-plan__footer--sticky m-action-bar">
+              <Button icon={<PlusOutlined />} onClick={addOperation} aria-label="Add operation" className="jo-plan__add">
+                <span className="jo-plan__add-label">Add operation</span>
+              </Button>
+              {operationsMissingItems.length > 0 || materialDateUnknown ? (
+                <Tooltip title={advanceTooltip}>
+                  <span className="jo-plan__footer-note m-action-bar__note">
+                    <WarningOutlined />{' '}
+                    {operationsMissingItems.length + (materialDateUnknown ? 1 : 0)} thing
+                    {operationsMissingItems.length + (materialDateUnknown ? 1 : 0) === 1 ? '' : 's'} left to fill in
+                  </span>
+                </Tooltip>
+              ) : null}
+              <Tooltip title={advanceTooltip}>
+                <span>
+                  <SplitActionButton
+                    loading={proposing || saving}
+                    disabled={!canAdvanceToSchedule}
+                    onClick={handleViewProposedSchedule}
+                    menu={{
+                      items: [
+                        {
+                          key: 'exit',
+                          label: 'Save and exit',
+                          onClick: () => savePlanning(true),
+                        },
+                      ],
                     }}
                   >
-                    <Text type="secondary" style={{ fontSize: 11 }}>
-                      Best match auto-selected — click another to override
-                    </Text>
-                    <InfoTip title="How suggestions are ranked" content={RANKING_HELP} />
-                  </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {suggestions.slice(0, 5).map((s) => {
-                      const inDropdown = qualifiedWorkers.some((w) => w.id === s.workerId);
-                      const isTop = s.workerId === topId;
-                      const isAssigned = s.workerId === assignedId;
-                      return (
-                        <div
-                          key={s.workerId}
-                          onClick={() => {
-                            if (!inDropdown || readOnly) return;
-                            patchRow(index, {
-                              assignedWorkerId: s.workerId,
-                              ...(s.machineUnitId ? { machineUnitId: s.machineUnitId } : {}),
-                              helperIds: rowHelpers.filter((h) => h !== s.workerId),
-                            });
-                          }}
-                          style={{
-                            cursor: inDropdown && !readOnly ? 'pointer' : 'not-allowed',
-                            opacity: inDropdown ? 1 : 0.55,
-                            padding: '6px 10px',
-                            borderRadius: 6,
-                            border: isAssigned
-                              ? '1.5px solid #c9a227'
-                              : '1px solid #e8e8e8',
-                            background: isAssigned ? '#fffbeb' : '#fafafa',
-                            minWidth: 160,
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            {(isTop || isAssigned) && (
-                              <StarFilled style={{ color: '#c9a227', fontSize: 12 }} />
-                            )}
-                            <PersonAvatar
-                              userId={s.workerId}
-                              fullName={s.fullName}
-                              photoVersion={s.photoVersion}
-                              size={24}
-                            />
-                            <Text strong style={{ fontSize: 12 }}>
-                              {suggestionLabel(s)}
-                            </Text>
-                            <Tag
-                              color={isAssigned ? 'gold' : 'default'}
-                              style={{ margin: 0, fontSize: 11 }}
-                            >
-                              {(s.score * 100).toFixed(0)}%
-                            </Tag>
-                          </div>
-                          {s.attendanceWarning && (
-                            <Tag
-                              color="warning"
-                              icon={<WarningOutlined />}
-                              style={{ margin: '4px 0 0', fontSize: 11 }}
-                            >
-                              {s.attendanceWarning}
-                            </Tag>
-                          )}
-                          {s.reason && (
-                            <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-                              {s.reason}
-                            </Text>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {helperSugs.length > 0 && canAddHelper ? (
-                    <div style={{ marginTop: 10 }}>
-                      <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
-                        Suggested helpers — click to add (up to {MAX_HELPERS})
-                      </Text>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                        {helperSugs.map((s) => (
-                          <div
-                            key={s.workerId}
-                            onClick={() =>
-                              patchRow(index, {
-                                helperIds: [...rowHelpers, s.workerId].slice(0, MAX_HELPERS),
-                              })
-                            }
-                            style={{
-                              cursor: 'pointer',
-                              padding: '6px 10px',
-                              borderRadius: 6,
-                              border: '1px dashed #d9d9d9',
-                              background: '#fafafa',
-                              minWidth: 160,
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <PlusOutlined style={{ fontSize: 11, color: '#8c8c8c' }} />
-                              <PersonAvatar
-                                userId={s.workerId}
-                                fullName={s.fullName}
-                                photoVersion={s.photoVersion}
-                                size={22}
-                              />
-                              <Text style={{ fontSize: 12 }}>{personLabel(s.fullName, s.nickname)}</Text>
-                              <Tag style={{ margin: 0, fontSize: 11 }}>{(s.score * 100).toFixed(0)}%</Tag>
-                            </div>
-                            {s.attendanceWarning && (
-                              <Tag
-                                color="warning"
-                                icon={<WarningOutlined />}
-                                style={{ margin: '4px 0 0', fontSize: 11 }}
-                              >
-                                {s.attendanceWarning}
-                              </Tag>
-                            )}
-                            {s.reason && (
-                              <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-                                {s.reason}
-                              </Text>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            },
-            rowExpandable: (_record) => {
-              const index = operations.findIndex((o) => o.key === _record.key);
-              return (
-                (rowSuggestions[index] || []).length > 0 ||
-                (helperSuggestions[_record.key] || []).length > 0
-              );
-            },
-          }}
-        />
-        {!readOnly && (
-          <Button
-            type="dashed"
-            block
-            icon={<PlusOutlined />}
-            style={{ marginTop: 12 }}
-            onClick={addOperation}
-          >
-            Add Operation
-          </Button>
-        )}
-
-        {wizardStep === 2 && !readOnly ? (
-          <div className="jo-plan__footer m-action-bar">
-            <Tooltip title={advanceTooltip}>
-              <span>
-                <SplitActionButton
-                  loading={proposing || saving}
-                  disabled={!canAdvanceToSchedule}
-                  onClick={handleViewProposedSchedule}
-                  menu={{
-                    items: [
-                      {
-                        key: 'exit',
-                        label: 'Save and exit',
-                        onClick: () => savePlanning(true),
-                      },
-                    ],
-                  }}
-                >
-                  View proposed schedule
-                </SplitActionButton>
-              </span>
-            </Tooltip>
-          </div>
-        ) : null}
-      </div>
+                    View proposed schedule
+                  </SplitActionButton>
+                </span>
+              </Tooltip>
+            </div>
+          ) : null}
+        </section>
       ) : null}
 
       {wizardStep === 3 ? (
-      <div className="jo-plan__panel">
-        <div className="jo-plan__section-title">Schedule</div>
-        <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 13 }}>
-          Review times and pick the specific machine unit for each operation. Changes show in the
-          week view immediately. Confirming the schedule releases the job to the shop floor.
-        </Text>
+        <section className="jo-plan__panel" aria-label="Schedule">
+          <div className="jo-plan__panel-head">
+            <h2 className="jo-plan__section-title">
+              Schedule <InfoTip title="Schedule" content={SCHEDULE_HELP} label="How the schedule works" />
+            </h2>
+          </div>
 
-        {scheduleOps ? (
-          <>
-            {scheduleNotice && (
-              <Alert type="info" showIcon style={{ marginBottom: 12 }} title={scheduleNotice} />
-            )}
-            {scheduleMeta?.materialNotBefore && (
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 12 }}
-                title={`Earliest start ${formatShop(scheduleMeta.materialNotBefore, 'MMM D, YYYY')} — ${
-                  scheduleMeta.materialConstraintReason || 'waiting for material'
-                }`}
-              />
-            )}
-            <ScheduleProposalPanel
-              operations={scheduleOps}
-              machineUnits={machineUnits}
-              projectedCompletion={scheduleMeta?.projectedCompletion}
-              scheduleFlag={scheduleMeta?.scheduleFlag}
-              problemsBySeq={problemsBySeq}
-              onChangeOp={handleScheduleOpChange}
-              onMachineUnitChange={readOnly ? undefined : handleMachineUnitChange}
-              onRefreshProposal={readOnly ? undefined : handleRefreshProposedSchedule}
-              refreshing={proposing}
-              readOnly={readOnly}
-            />
-            <ScheduleExpandShell title="Schedule view" className="jo-plan__week-wrap" expandInBody>
-              {({ expandButton }) => (
-                <ScheduleWeekView
-                  jobId={job.id}
-                  jobNumber={job.jobNumber}
-                  jobTitle={job.title}
-                  operations={scheduleOps}
-                  machineUnits={machineUnits}
-                  expandButton={expandButton}
-                  scheduleColor={job.scheduleColor}
-                  colorPickerDisabled={readOnly}
-                  onScheduleColorChange={async (hex) => {
-                    const prev = job.scheduleColor;
-                    setJob({ ...job, scheduleColor: hex });
-                    try {
-                      const { data } = await jobOrdersApi.update(job.id, {
-                        scheduleColor: hex,
-                      });
-                      setJob((j) =>
-                        j ? { ...j, scheduleColor: data.scheduleColor ?? hex } : j
-                      );
-                    } catch (err) {
-                      setJob((j) => (j ? { ...j, scheduleColor: prev } : j));
-                      message.error(getErrorMessage(err));
-                    }
-                  }}
+          {scheduleOps ? (
+            <>
+              {scheduleNotice && (
+                <Alert type="info" showIcon style={{ marginBottom: 12 }} title={scheduleNotice} />
+              )}
+              {scheduleMeta?.materialNotBefore && (
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  title={`Earliest start ${formatShop(scheduleMeta.materialNotBefore, 'MMM D, YYYY')} — ${readableDates(
+                    scheduleMeta.materialConstraintReason || 'waiting for material'
+                  )}`}
                 />
               )}
-            </ScheduleExpandShell>
-          </>
-        ) : (
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginTop: 12 }}
-            title="Go back to Operations and use “View proposed schedule” to generate a first draft."
-          />
-        )}
+              <ScheduleProposalPanel
+                operations={scheduleOps}
+                machineUnits={machineUnits}
+                projectedCompletion={scheduleMeta?.projectedCompletion}
+                scheduleFlag={scheduleMeta?.scheduleFlag}
+                dueDate={job.dueDate}
+                problemsBySeq={problemsBySeq}
+                onChangeOp={handleScheduleOpChange}
+                onMachineUnitChange={readOnly ? undefined : handleMachineUnitChange}
+                onRefreshProposal={readOnly ? undefined : handleRefreshProposedSchedule}
+                refreshing={proposing}
+                readOnly={readOnly}
+              />
+              <ScheduleExpandShell title="Schedule view" className="jo-plan__week-wrap" expandInBody>
+                {({ expandButton }) => (
+                  <ScheduleWeekView
+                    jobId={job.id}
+                    jobNumber={job.jobNumber}
+                    jobTitle={job.title}
+                    operations={scheduleOps}
+                    machineUnits={machineUnits}
+                    expandButton={expandButton}
+                    scheduleColor={job.scheduleColor}
+                    colorPickerDisabled={readOnly}
+                    onScheduleColorChange={async (hex) => {
+                      const prev = job.scheduleColor;
+                      setJob({ ...job, scheduleColor: hex });
+                      try {
+                        const { data } = await jobOrdersApi.update(job.id, {
+                          scheduleColor: hex,
+                        });
+                        setJob((j) =>
+                          j ? { ...j, scheduleColor: data.scheduleColor ?? hex } : j
+                        );
+                      } catch (err) {
+                        setJob((j) => (j ? { ...j, scheduleColor: prev } : j));
+                        message.error(getErrorMessage(err));
+                      }
+                    }}
+                  />
+                )}
+              </ScheduleExpandShell>
+            </>
+          ) : (
+            <Alert
+              type="info"
+              showIcon
+              title="Go back to Operations and use “View proposed schedule” to generate a first draft."
+            />
+          )}
 
-        {wizardStep === 3 && !readOnly && scheduleOps && confirmBlockers.length > 0 ? (
-          <Alert
-            type="error"
-            showIcon
-            style={{ marginTop: 12 }}
-            title="This schedule can't be confirmed yet"
-            description={
-              <ul style={{ margin: 0, paddingLeft: 18 }}>
-                {confirmBlockers.map((reason, i) => (
-                  <li key={i}>{reason}</li>
-                ))}
-              </ul>
-            }
-          />
-        ) : null}
-        {wizardStep === 3 && !readOnly ? (
-          <div className="jo-plan__footer m-action-bar">
-            <Button onClick={goBackStep}>Back</Button>
-            <Tooltip
-              title={!canConfirm ? confirmBlockers.join(' ') : undefined}
-            >
-              <span>
-                <SplitActionButton
-                  loading={confirming || saving}
-                  disabled={!canConfirm}
-                  onClick={handleConfirmSchedule}
-                  menu={{
-                    items: [
-                      {
-                        key: 'exit',
-                        label: 'Save and exit',
-                        onClick: () => savePlanning(true),
-                      },
-                    ],
-                  }}
-                >
-                  Confirm schedule
-                </SplitActionButton>
-              </span>
-            </Tooltip>
-          </div>
-        ) : null}
-      </div>
+          {!readOnly && scheduleOps && confirmBlockers.length > 0 ? (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginTop: 12 }}
+              title="This schedule can't be confirmed yet"
+              description={
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {confirmBlockers.map((reason, i) => (
+                    <li key={i}>{reason}</li>
+                  ))}
+                </ul>
+              }
+            />
+          ) : null}
+          {!readOnly ? (
+            <div className="jo-plan__footer jo-plan__footer--sticky m-action-bar">
+              <Button onClick={goBackStep}>Back</Button>
+              <Tooltip title={!canConfirm ? confirmBlockers.join(' ') : undefined}>
+                <span>
+                  <SplitActionButton
+                    loading={confirming || saving}
+                    disabled={!canConfirm}
+                    onClick={handleConfirmSchedule}
+                    menu={{
+                      items: [
+                        {
+                          key: 'exit',
+                          label: 'Save and exit',
+                          onClick: () => savePlanning(true),
+                        },
+                      ],
+                    }}
+                  >
+                    Confirm schedule
+                  </SplitActionButton>
+                </span>
+              </Tooltip>
+            </div>
+          ) : null}
+        </section>
       ) : null}
-
-    </div>
+    </Page>
   );
 }

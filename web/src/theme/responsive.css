@@ -193,8 +193,8 @@
 
   /* Breadcrumb links and small inline toggles: taller hit area, same look. */
   .ui-crumbs a,
-  .jo-mini-steps__node,
-  .jo-info__toggle,
+  .jo-head__toggle,
+  .jo-head__mat-po a,
   .jo-sched-color-btn,
   .acct-sec__device-revoke,
   .ant-table-cell a,
@@ -208,8 +208,8 @@
   }
 
   .ui-crumbs a::after,
-  .jo-mini-steps__node::after,
-  .jo-info__toggle::after,
+  .jo-head__toggle::after,
+  .jo-head__mat-po a::after,
   .acct-sec__device-revoke::after,
   .ant-table-cell a::after,
   .ant-table-cell .ant-btn-link::after,
@@ -232,6 +232,19 @@
 
   .ui-infotip::after {
     inset: -13px;
+  }
+
+  /* Plan job order: row tools and step nodes. */
+  .jo-op__icon-btn.ant-btn,
+  .jo-sched__refresh.ant-btn {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .jo-op__more-btn.ant-btn,
+  .jo-steps__node {
+    min-height: 44px;
   }
 
   /* Phone/tablet chrome on the schedule and job lists. */

@@ -2,9 +2,9 @@ import { CheckOutlined } from '@ant-design/icons';
 
 /** Planning stages. Job information is entered by Office Staff beforehand and is not a stage here. */
 export const JOB_FLOW_STEPS = [
-  { id: 2, label: 'Operations' },
-  { id: 3, label: 'Schedule' },
-  { id: 4, label: 'Released' },
+  { id: 2, label: 'Operations', hint: 'Steps, crew and hours' },
+  { id: 3, label: 'Schedule', hint: 'Times and machine units' },
+  { id: 4, label: 'Released', hint: 'On the shop floor' },
 ] as const;
 
 /** 1 = no operations yet (planning opens on Operations). */
@@ -39,11 +39,11 @@ export function resolveJobFlowStep(job: {
   return 4;
 }
 
-/** Compact three-stage indicator for the planning header. */
+/** Three-stage planning indicator across the top of the page. */
 export default function JobOrderFlowSteps({ current, onStepClick, locked = false }: Props) {
   return (
-    <nav className="jo-mini-steps" aria-label="Planning progress">
-      <ol className="jo-mini-steps__list">
+    <nav className="jo-steps" aria-label="Planning progress">
+      <ol className="jo-steps__list">
         {JOB_FLOW_STEPS.map((step, index) => {
           const done = step.id < current || (step.id === 4 && current === 4);
           const active = step.id === current && !done;
@@ -51,25 +51,25 @@ export default function JobOrderFlowSteps({ current, onStepClick, locked = false
           return (
             <li
               key={step.id}
-              className={[
-                'jo-mini-steps__item',
-                done ? 'is-done' : '',
-                active ? 'is-active' : '',
-              ]
+              className={['jo-steps__item', done ? 'is-done' : '', active ? 'is-active' : '']
                 .filter(Boolean)
                 .join(' ')}
             >
-              {index > 0 && <span className="jo-mini-steps__line" aria-hidden />}
               <button
                 type="button"
-                className="jo-mini-steps__node"
+                className="jo-steps__node"
                 disabled={!clickable}
                 aria-current={active ? 'step' : undefined}
+                title={clickable ? `Back to ${step.label}` : undefined}
                 onClick={() => clickable && onStepClick?.(step.id)}
               >
-                <span className="jo-mini-steps__dot">{done ? <CheckOutlined /> : null}</span>
-                <span className="jo-mini-steps__label">{step.label}</span>
+                <span className="jo-steps__dot">{done ? <CheckOutlined /> : index + 1}</span>
+                <span className="jo-steps__text">
+                  <span className="jo-steps__label">{step.label}</span>
+                  <span className="jo-steps__hint">{step.hint}</span>
+                </span>
               </button>
+              {index < JOB_FLOW_STEPS.length - 1 ? <span className="jo-steps__line" aria-hidden /> : null}
             </li>
           );
         })}

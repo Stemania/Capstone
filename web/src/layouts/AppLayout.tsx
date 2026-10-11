@@ -112,7 +112,9 @@ function routeMeta(pathname: string, section: string | null): Meta {
   const jobs: Crumb = { label: 'Job Orders', to: '/job-orders' };
   if (pathname === '/job-orders/new') return { title: 'New job order', crumbs: [jobs, { label: 'New' }] };
   if (/^\/job-orders\/[^/]+\/edit$/.test(pathname)) return { title: 'Edit job order', crumbs: [jobs, { label: 'Edit' }] };
-  if (/^\/job-orders\/[^/]+\/plan$/.test(pathname)) return { title: 'Plan job order', crumbs: [jobs, { label: 'Plan' }] };
+  if (/^\/job-orders\/[^/]+\/plan$/.test(pathname)) {
+    return { title: 'Plan job order', crumbs: [{ label: 'Job Orders', to: '/job-orders?tab=drafts' }, { label: 'Plan' }] };
+  }
   if (/^\/job-orders\/[^/]+$/.test(pathname)) {
     return { title: 'Job order', subtitle: 'Details, progress, and notifications', crumbs: [jobs, { label: 'Details' }] };
   }
