@@ -356,12 +356,12 @@ function AdminOfficeScheduleBoard() {
   }, [loading, data, phoneView]);
 
   const naturalWeekLayout = useMemo(() => {
-    if (viewMode !== 'week') return null;
+    if (viewMode === 'day') return null;
     const windows =
       data?.shopDayWindows && data.shopDayWindows.length > 0
         ? data.shopDayWindows
         : defaultShopDayWindows(from, to);
-    return buildWeekTimelineLayout(from, to, windows, isMobile);
+    return buildWeekTimelineLayout(from, to, windows, isMobile, viewMode);
   }, [viewMode, data?.shopDayWindows, from, to, isMobile]);
 
   const weekLayout = useMemo(() => {
@@ -869,7 +869,7 @@ function AdminOfficeScheduleBoard() {
             />
           </div>
           <div className="sched-page__note">
-            {viewMode === 'week' && weekLayout
+            {weekLayout
               ? `${WORKING_HOURS_NOTE} Scroll sideways for more days.`
               : `${HOUR_START}:00–${HOUR_END}:00. Scroll sideways for more days.`}
           </div>
@@ -1277,12 +1277,12 @@ const BoardRows = memo(function BoardRows({
                       ? [{ start: op.scheduledStart, end: op.scheduledEnd }]
                       : [];
                 const dayPieces = rawSegs.flatMap((seg) =>
-                  viewMode === 'week' && weekLayout
+                  weekLayout
                     ? splitSegmentAcrossWeekDays(seg.start, seg.end, weekLayout)
                     : [seg]
                 );
                 const spans =
-                  viewMode === 'week' && weekLayout
+                  weekLayout
                     ? mergeAdjacentWeekPieces(dayPieces)
                     : dayPieces;
                 return spans.flatMap((seg, i) => {

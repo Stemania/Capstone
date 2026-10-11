@@ -100,7 +100,7 @@ export function defaultShopDayWindows(from: Dayjs, to: Dayjs): ShopDayWindow[] {
 }
 
 /**
- * Week columns start at the fixed 08:00 opening so a job that starts at
+ * Week and month columns start at the fixed 08:00 opening so a job that starts at
  * opening sits flush on every day (the per-day union of worker hours can start
  * earlier on some weekdays and would inset bars — the Tuesday gap). A day that
  * runs past 17:00 (overtime) gets a proportionally wider column so bars are
@@ -110,9 +110,14 @@ export function buildWeekTimelineLayout(
   from: Dayjs,
   to: Dayjs,
   windows: ShopDayWindow[],
-  mobile: boolean
+  mobile: boolean,
+  mode: 'week' | 'month' = 'week'
 ): WeekTimelineLayout {
-  const pph = pxPerHour('week', mobile);
+  // Month keeps its usual day width; only the working hours fill it.
+  const pph =
+    mode === 'month'
+      ? dayWidthPx('month', mobile) / ((DEFAULT_DAY_END_MIN - DEFAULT_DAY_START_MIN) / 60)
+      : pxPerHour('week', mobile);
   const byDate = new Map(windows.map((w) => [w.date, w]));
   const count = to.diff(from, 'day') + 1;
   const colW = defaultWorkingDayWidth(pph);
@@ -242,7 +247,7 @@ export function timelineWidth(
   weekLayout?: WeekTimelineLayout | null,
   hourPx?: number
 ): number {
-  if (mode === 'week' && weekLayout) {
+  if (mode !== 'day' && weekLayout) {
     return weekLayout.totalWidth;
   }
   const hoursPerDay = HOUR_END - HOUR_START;
@@ -281,7 +286,7 @@ export function leftPx(
   hourPx?: number
 ): number | null {
   const t = dayjs(iso).tz(SHOP_TZ);
-  if (mode === 'week' && weekLayout) {
+  if (mode !== 'day' && weekLayout) {
     const day = weekDayForInstant(t, weekLayout);
     // Outside the visible week — never fall back to left:0 (that pinned
     // Sep 8/9 ops onto Mon Aug 31).
@@ -313,7 +318,7 @@ export function widthPx(
   const start = dayjs(startIso).tz(SHOP_TZ);
   const end = dayjs(endIso).tz(SHOP_TZ);
 
-  if (mode === 'week' && weekLayout) {
+  if (mode !== 'day' && weekLayout) {
     const startDay = weekDayForInstant(start, weekLayout);
     if (!startDay) return null;
     if (!startDay.isWorking || startDay.durationHours <= 0) {
@@ -394,12 +399,12 @@ export function dayColumnsForView(
   hourPx?: number
 ): TimelineDayColumn[] {
   const dayCount = to.diff(from, 'day') + 1;
-  if (viewMode === 'week' && weekLayout) {
+  if (viewMode !== 'day' && weekLayout) {
     return weekLayout.days.map((day) => ({
       key: day.date,
       left: day.left,
       width: day.width,
-      label: formatShop(day.date, 'ddd D'),
+      label: formatShop(day.date, viewMode === 'week' ? 'ddd D' : 'D'),
     }));
   }
   const hoursPerDay = HOUR_END - HOUR_START;

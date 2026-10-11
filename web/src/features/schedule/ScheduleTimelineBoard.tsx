@@ -152,12 +152,12 @@ function ScheduleTimelineBoard({
   }, []);
 
   const naturalWeekLayout = useMemo(() => {
-    if (viewMode !== 'week') return null;
+    if (viewMode === 'day') return null;
     const windows =
       shopDayWindows && shopDayWindows.length > 0
         ? shopDayWindows
         : defaultShopDayWindows(from, to);
-    return buildWeekTimelineLayout(from, to, windows, isMobile);
+    return buildWeekTimelineLayout(from, to, windows, isMobile, viewMode);
   }, [viewMode, shopDayWindows, from, to, isMobile]);
 
   const weekLayout = useMemo(() => {
@@ -672,7 +672,7 @@ function ScheduleTimelineBoard({
         )}
         <span style={{ fontSize: 11, color: '#94a3b8' }}>
           {footerNote ||
-            (viewMode === 'week' && weekLayout
+            (weekLayout
               ? `${WORKING_HOURS_NOTE} Scroll sideways for more detail.`
               : `${HOUR_START}:00–${HOUR_END}:00. Scroll sideways for more detail.`)}
         </span>
