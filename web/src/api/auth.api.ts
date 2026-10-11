@@ -1,16 +1,8 @@
 import apiClient from './client';
+import { getOrCreateDeviceId, thisDeviceLabel } from './device';
 import type { LoginResponse, User, UserDevice } from '../types';
 
-const DEVICE_KEY = 'bmsc_device_id';
-
-export function getOrCreateDeviceId(): string {
-  let id = localStorage.getItem(DEVICE_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(DEVICE_KEY, id);
-  }
-  return id;
-}
+export { getOrCreateDeviceId };
 
 export const authApi = {
   login: (identifier: string, password: string) =>
@@ -18,7 +10,7 @@ export const authApi = {
       identifier,
       password,
       deviceId: getOrCreateDeviceId(),
-      deviceLabel: navigator.userAgent.slice(0, 120),
+      deviceLabel: thisDeviceLabel(),
     }),
 
   me: () => apiClient.get<User>('/auth/me'),
@@ -47,7 +39,7 @@ export const authApi = {
       passwordConfirm,
       ...(identifier ? { identifier } : {}),
       deviceId: getOrCreateDeviceId(),
-      deviceLabel: navigator.userAgent.slice(0, 120),
+      deviceLabel: thisDeviceLabel(),
     }),
 
   changePassword: (currentPassword: string, newPassword: string) =>
@@ -74,7 +66,7 @@ export const authApi = {
       passwordConfirm,
       ...(identifier ? { identifier } : {}),
       deviceId: getOrCreateDeviceId(),
-      deviceLabel: navigator.userAgent.slice(0, 120),
+      deviceLabel: thisDeviceLabel(),
     }),
 
   pinStatus: () =>
@@ -86,7 +78,7 @@ export const authApi = {
     apiClient.post<UserDevice>('/auth/pin', {
       deviceId: getOrCreateDeviceId(),
       pin,
-      deviceLabel: navigator.userAgent.slice(0, 120),
+      deviceLabel: thisDeviceLabel(),
     }),
 
   removePin: () =>
@@ -102,4 +94,9 @@ export const authApi = {
 
   revokeDevice: (deviceRowId: string) =>
     apiClient.delete<UserDevice>(`/auth/devices/${deviceRowId}`),
+
+  signOutOtherDevices: () =>
+    apiClient.post<{ signedOut: number }>('/auth/devices/sign-out-others', {
+      deviceId: getOrCreateDeviceId(),
+    }),
 };

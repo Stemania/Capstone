@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from flask_jwt_extended import create_access_token, create_refresh_token
+from sqlalchemy import func
 
 from app.extensions import bcrypt, db
 from app.models.user import User, UserStatus
 from app.models.user_security import UserDevice
 from app.services.audit_service import write_audit_event
+from app.services.session_service import issue_tokens
 from app.utils.errors import AppError
 from app.utils.passwords import validate_pin
 
 MAX_PIN_FAILURES = 5
+# Rows without a PIN and unused this long are deleted (a session lasts at most 7 days).
+STALE_DEVICE_DAYS = 30
 
 
 def _utcnow():
@@ -27,13 +30,9 @@ def _get_or_create_device(user_id: str, device_id: str, device_label: str | None
             device.device_label = device_label
         return device
     if device and device.revoked_at is not None:
-        device.revoked_at = None
-        device.pin_hash = None
-        device.pin_set_at = None
-        device.pin_failed_attempts = 0
-        if device_label:
-            device.device_label = device_label
-        return device
+        # A fresh row id, so tokens from before the sign-out stay rejected.
+        db.session.delete(device)
+        db.session.flush()
     device = UserDevice(
         user_id=user_id,
         device_id=device_id,
@@ -50,6 +49,7 @@ def register_device_after_password_login(
 ) -> UserDevice | None:
     if not device_id:
         return None
+    prune_stale_devices(user.id)
     device = _get_or_create_device(user.id, device_id, device_label)
     device.last_used_at = _utcnow()
     db.session.commit()
@@ -155,18 +155,28 @@ def unlock_with_pin(device_id: str, pin: str) -> dict:
     device.last_used_at = _utcnow()
     db.session.commit()
 
-    claims = {"role": user.role.value}
-    return {
-        "accessToken": create_access_token(identity=user.id, additional_claims=claims),
-        "refreshToken": create_refresh_token(identity=user.id, additional_claims=claims),
-        "user": user.to_dict(include_profile=True),
-    }
+    return issue_tokens(user, device)
+
+
+def prune_stale_devices(user_id: str) -> int:
+    cutoff = _utcnow() - timedelta(days=STALE_DEVICE_DAYS)
+    stale = UserDevice.query.filter(
+        UserDevice.user_id == user_id,
+        UserDevice.pin_hash.is_(None),
+        func.coalesce(UserDevice.last_used_at, UserDevice.created_at) < cutoff,
+    ).all()
+    for device in stale:
+        db.session.delete(device)
+    if stale:
+        db.session.commit()
+    return len(stale)
 
 
 def list_user_devices(user_id: str) -> list[UserDevice]:
+    prune_stale_devices(user_id)
     return (
         UserDevice.query.filter_by(user_id=user_id)
-        .order_by(UserDevice.created_at.desc())
+        .order_by(func.coalesce(UserDevice.last_used_at, UserDevice.created_at).desc())
         .all()
     )
 
@@ -183,13 +193,46 @@ def revoke_device(user_id: str, device_row_id: str) -> UserDevice:
     return device
 
 
-def revoke_all_devices_for_user(user_id: str) -> int:
+def revoke_all_devices_for_user(user_id: str, keep_device_row_id: str | None = None) -> int:
+    """Sign out every device; ``keep_device_row_id`` stays signed in but loses its PIN."""
     now = _utcnow()
     devices = UserDevice.query.filter(
         UserDevice.user_id == user_id,
         UserDevice.revoked_at.is_(None),
     ).all()
+    revoked = 0
     for device in devices:
+        device.pin_hash = None
+        device.pin_set_at = None
+        device.pin_failed_attempts = 0
+        if device.id != keep_device_row_id:
+            device.revoked_at = now
+            revoked += 1
+    write_audit_event(
+        "DEVICE_REVOKED",
+        "User",
+        user_id,
+        after={"count": revoked, "scope": "all" if not keep_device_row_id else "others"},
+    )
+    db.session.commit()
+    return revoked
+
+
+def sign_out_other_devices(user_id: str, current_device_row_id: str | None) -> int:
+    """Sign out every device except the current one. Other devices also lose their PIN."""
+    if not current_device_row_id:
+        raise AppError(
+            "Sign in again on this device first",
+            "DEVICE_REQUIRED",
+            400,
+        )
+    now = _utcnow()
+    others = UserDevice.query.filter(
+        UserDevice.user_id == user_id,
+        UserDevice.revoked_at.is_(None),
+        UserDevice.id != current_device_row_id,
+    ).all()
+    for device in others:
         device.revoked_at = now
         device.pin_hash = None
         device.pin_set_at = None
@@ -197,10 +240,10 @@ def revoke_all_devices_for_user(user_id: str) -> int:
         "DEVICE_REVOKED",
         "User",
         user_id,
-        after={"count": len(devices), "scope": "all"},
+        after={"count": len(others), "scope": "others"},
     )
     db.session.commit()
-    return len(devices)
+    return len(others)
 
 
 def device_pin_status(user_id: str, device_id: str) -> dict:

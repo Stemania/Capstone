@@ -1,5 +1,6 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { connectivity } from '../offline/connectivity';
+import { readDeviceId } from './device';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -8,6 +9,20 @@ function clearSession() {
   localStorage.removeItem('accessToken');
   localStorage.removeItem('refreshToken');
   localStorage.removeItem('user');
+}
+
+/** Why the login page was opened; it shows a matching note. */
+export type SessionEndReason = 'signed-out' | 'expired';
+
+function endSession(reason?: SessionEndReason) {
+  clearSession();
+  if (reason === 'signed-out') localStorage.removeItem('bmsc_has_pin');
+  window.location.href = reason ? `/login?reason=${reason}` : '/login';
+}
+
+function responseCode(error: unknown): string | undefined {
+  if (!axios.isAxiosError(error)) return undefined;
+  return (error.response?.data as { error?: { code?: string } } | undefined)?.error?.code;
 }
 
 export const REQUEST_TIMEOUT_MS = 20_000;
@@ -63,6 +78,11 @@ apiClient.interceptors.response.use(
         return Promise.reject(error);
       }
 
+      if (responseCode(error) === 'DEVICE_SIGNED_OUT') {
+        endSession('signed-out');
+        return Promise.reject(error);
+      }
+
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({
@@ -83,16 +103,18 @@ apiClient.interceptors.response.use(
       const refreshToken = localStorage.getItem('refreshToken');
       if (!refreshToken) {
         isRefreshing = false;
-        clearSession();
-        window.location.href = '/login';
+        endSession();
         return Promise.reject(error);
       }
 
       try {
-        const { data } = await axios.post(`${API_BASE}/auth/refresh`, null, {
-          headers: { Authorization: `Bearer ${refreshToken}` },
-        });
+        const { data } = await axios.post<{ accessToken: string; refreshToken?: string }>(
+          `${API_BASE}/auth/refresh`,
+          { deviceId: readDeviceId() },
+          { headers: { Authorization: `Bearer ${refreshToken}` } }
+        );
         localStorage.setItem('accessToken', data.accessToken);
+        if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
         processQueue(null, data.accessToken);
         if (originalRequest.headers) {
           originalRequest.headers.Authorization = `Bearer ${data.accessToken}`;
@@ -105,8 +127,7 @@ apiClient.interceptors.response.use(
           connectivity.reportUnreachable();
           return Promise.reject(refreshError);
         }
-        clearSession();
-        window.location.href = '/login';
+        endSession(responseCode(refreshError) === 'DEVICE_SIGNED_OUT' ? 'signed-out' : 'expired');
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

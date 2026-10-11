@@ -1,11 +1,12 @@
 import { Form, Input, Button, Alert } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { authApi, getOrCreateDeviceId } from '../../api/auth.api';
 import { getErrorCode, getErrorMessage } from '../../api/client';
 import { useOnline } from '../../offline/connectivity';
+import { createActionQueue } from '../../offline/actionQueue';
 import PinKeypad from './PinKeypad';
 import './LoginPage.css';
 
@@ -19,6 +20,9 @@ export default function LoginPage() {
   const [pinMode, setPinMode] = useState(false);
   const [checkingPin, setCheckingPin] = useState(true);
   const [failSignal, setFailSignal] = useState(0);
+  const [params] = useSearchParams();
+  const endReason = params.get('reason');
+  const [waitingActions] = useState(() => createActionQueue(localStorage).list().length);
 
   useEffect(() => {
     getOrCreateDeviceId();
@@ -110,6 +114,24 @@ export default function LoginPage() {
               style={{ marginBottom: 16 }}
               title="Needs a connection"
               description="Signing in needs a connection. Actions waiting on this phone are kept and sent after you sign in."
+            />
+          )}
+          {online && (endReason === 'signed-out' || endReason === 'expired') && !error && (
+            <Alert
+              type={endReason === 'signed-out' ? 'warning' : 'info'}
+              showIcon
+              style={{ marginBottom: 16 }}
+              title={endReason === 'signed-out' ? 'This device was signed out' : 'Please sign in again'}
+              description={[
+                endReason === 'signed-out'
+                  ? 'It was signed out from Account security, or the password was changed.'
+                  : 'Your session ended.',
+                waitingActions > 0
+                  ? `${waitingActions} saved action${waitingActions === 1 ? '' : 's'} on this phone will be sent after you sign in.`
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
             />
           )}
           {error && <Alert type="error" title={error} style={{ marginBottom: 16 }} showIcon />}

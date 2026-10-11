@@ -141,7 +141,13 @@ def update_user(user, data):
     return user
 
 
-def change_own_password(user: User, current_password: str, new_password: str) -> User:
+def change_own_password(
+    user: User,
+    current_password: str,
+    new_password: str,
+    current_device_row_id: str | None = None,
+) -> User:
+    """Clears PIN unlock everywhere and signs out every other device."""
     if not user.password_hash or not bcrypt.check_password_hash(
         user.password_hash, current_password
     ):
@@ -150,5 +156,5 @@ def change_own_password(user: User, current_password: str, new_password: str) ->
     user.password_hash = bcrypt.generate_password_hash(new_password).decode("utf-8")
     write_audit_event("PASSWORD_CHANGED", "User", user.id)
     db.session.flush()
-    revoke_all_devices_for_user(user.id)
+    revoke_all_devices_for_user(user.id, keep_device_row_id=current_device_row_id)
     return user

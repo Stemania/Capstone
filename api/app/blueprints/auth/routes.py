@@ -1,10 +1,5 @@
 from flask import Blueprint, current_app, jsonify, request
-from flask_jwt_extended import (
-    create_access_token,
-    create_refresh_token,
-    get_jwt_identity,
-    jwt_required,
-)
+from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required
 
 from app.extensions import limiter
 from app.middleware.rbac import get_current_user_id
@@ -21,6 +16,7 @@ from app.services.device_pin_service import (
     remove_device_pin,
     revoke_device,
     set_device_pin,
+    sign_out_other_devices,
     unlock_with_pin,
 )
 from app.services.invitation_service import accept_invitation, validate_invitation_secret
@@ -29,18 +25,24 @@ from app.services.password_reset_service import (
     request_password_reset,
     validate_reset_secret,
 )
+from app.services.session_service import DEVICE_CLAIM, issue_tokens, refresh_session
 from app.utils.errors import AppError
 
 auth_bp = Blueprint("auth", __name__)
 
 
-def _tokens_for(user: User) -> dict:
-    claims = {"role": user.role.value}
-    return {
-        "accessToken": create_access_token(identity=user.id, additional_claims=claims),
-        "refreshToken": create_refresh_token(identity=user.id, additional_claims=claims),
-        "user": user.to_dict(include_profile=True),
-    }
+def _current_device_row_id() -> str | None:
+    return get_jwt().get(DEVICE_CLAIM)
+
+
+def _signed_in(user: User, data: dict) -> dict:
+    """Register this browser's device and issue tokens bound to it."""
+    device_id = data.get("deviceId")
+    device = register_device_after_password_login(user, device_id, data.get("deviceLabel"))
+    payload = issue_tokens(user, device)
+    if device_id:
+        payload["device"] = device_pin_status(user.id, device_id)
+    return payload
 
 
 def _limit_login():
@@ -94,13 +96,7 @@ def login():
         )
 
     user = authenticate_user(identifier, password)
-    device_id = data.get("deviceId")
-    device_label = data.get("deviceLabel")
-    register_device_after_password_login(user, device_id, device_label)
-    payload = _tokens_for(user)
-    if device_id:
-        payload["device"] = device_pin_status(user.id, device_id)
-    return jsonify(payload)
+    return jsonify(_signed_in(user, data))
 
 
 @auth_bp.route("/refresh", methods=["POST"])
@@ -110,9 +106,8 @@ def refresh():
     user = get_user_by_id(user_id)
     if user.status.value != "ACTIVE":
         raise AppError("Account is not active", "FORBIDDEN", 403)
-    claims = {"role": user.role.value}
-    access_token = create_access_token(identity=user.id, additional_claims=claims)
-    return jsonify({"accessToken": access_token})
+    data = request.get_json(silent=True) or {}
+    return jsonify(refresh_session(user, get_jwt(), data.get("deviceId")))
 
 
 @auth_bp.route("/me", methods=["GET"])
@@ -147,12 +142,8 @@ def invitation_accept():
     confirm = data.get("passwordConfirm") or data.get("confirmPassword")
     identifier = data.get("identifier") or data.get("email") or data.get("mobile")
     result = accept_invitation(token or "", password or "", confirm or "", identifier)
-    device_id = data.get("deviceId")
-    device_label = data.get("deviceLabel")
     user = get_user_by_id(result["user"]["id"])
-    register_device_after_password_login(user, device_id, device_label)
-    if device_id:
-        result["device"] = device_pin_status(user.id, device_id)
+    result.update(_signed_in(user, data))
     return jsonify(result)
 
 
@@ -165,6 +156,7 @@ def change_password():
         user,
         data.get("currentPassword") or "",
         data.get("newPassword") or "",
+        current_device_row_id=_current_device_row_id(),
     )
     return jsonify({"message": "Password updated"})
 
@@ -218,12 +210,8 @@ def password_reset_confirm():
     confirm = data.get("passwordConfirm") or data.get("confirmPassword")
     identifier = data.get("identifier") or data.get("email") or data.get("mobile")
     result = complete_password_reset(token or "", password or "", confirm or "", identifier)
-    device_id = data.get("deviceId")
-    device_label = data.get("deviceLabel")
     user = get_user_by_id(result["user"]["id"])
-    register_device_after_password_login(user, device_id, device_label)
-    if device_id:
-        result["device"] = device_pin_status(user.id, device_id)
+    result.update(_signed_in(user, data))
     return jsonify(result)
 
 
@@ -274,6 +262,23 @@ def pin_status():
 def devices_list():
     user = get_user_by_id(get_current_user_id())
     return jsonify([d.to_dict() for d in list_user_devices(user.id)])
+
+
+@auth_bp.route("/devices/sign-out-others", methods=["POST"])
+@jwt_required()
+def devices_sign_out_others():
+    user = get_user_by_id(get_current_user_id())
+    current = _current_device_row_id()
+    if not current:
+        data = request.get_json(silent=True) or {}
+        device_id = data.get("deviceId")
+        row = next(
+            (d for d in list_user_devices(user.id) if d.device_id == device_id and not d.revoked_at),
+            None,
+        )
+        current = row.id if row else None
+    count = sign_out_other_devices(user.id, current)
+    return jsonify({"signedOut": count})
 
 
 @auth_bp.route("/devices/<device_row_id>", methods=["DELETE"])

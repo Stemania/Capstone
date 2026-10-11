@@ -39,6 +39,9 @@ def create_app(config_object=None):
     db.init_app(app)
     migrate = Migrate(app, db)
     jwt.init_app(app)
+    from app.services.session_service import register_jwt_callbacks
+
+    register_jwt_callbacks(jwt)
     bcrypt.init_app(app)
     limiter.init_app(app)
 

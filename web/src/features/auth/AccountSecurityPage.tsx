@@ -11,6 +11,7 @@ import {
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authApi, getOrCreateDeviceId } from '../../api/auth.api';
+import { describeDevice, type DeviceKind } from '../../api/device';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { WorkerPageHeader } from '../../layouts/WorkerLayout';
@@ -23,40 +24,6 @@ import './AccountSecurityPage.css';
 
 /** Other devices listed before "Show N more". */
 const VISIBLE_OTHERS = 3;
-
-type DeviceKind = 'phone' | 'tablet' | 'desktop';
-
-type DeviceInfo = { name: string; kind: DeviceKind };
-
-function describeDevice(label: string | null | undefined, deviceId: string): DeviceInfo {
-  const raw = (label || '').trim();
-  if (!raw) return { name: `Device ${deviceId.slice(0, 8)}`, kind: 'desktop' };
-
-  let kind: DeviceKind = 'desktop';
-  if (/iPad|Tablet/.test(raw) || (/Android/.test(raw) && !/Mobile/.test(raw))) kind = 'tablet';
-  else if (/iPhone|iPod|Android|Mobile/.test(raw)) kind = 'phone';
-
-  if (!raw.includes('Mozilla') && raw.length <= 48) return { name: raw, kind };
-
-  let os = 'Device';
-  if (/iPhone|iPod/.test(raw)) os = 'iPhone';
-  else if (/iPad/.test(raw)) os = 'iPad';
-  else if (/Android/.test(raw)) os = 'Android';
-  else if (/Windows/.test(raw)) os = 'Windows';
-  else if (/Mac OS X|Macintosh/.test(raw)) os = 'Mac';
-  else if (/Linux/.test(raw)) os = 'Linux';
-
-  const version = (token: string) => raw.match(new RegExp(`${token}/(\\d+)`))?.[1];
-  let browser = '';
-  if (/Edg(A|iOS)?\//.test(raw)) browser = `Edge ${version('Edg(?:A|iOS)?') ?? ''}`;
-  else if (/Cursor\//.test(raw)) browser = 'Cursor browser';
-  else if (/CriOS\//.test(raw)) browser = `Chrome ${version('CriOS') ?? ''}`;
-  else if (/Firefox\//.test(raw)) browser = `Firefox ${version('Firefox') ?? ''}`;
-  else if (/Chrome\//.test(raw)) browser = `Chrome ${version('Chrome') ?? ''}`;
-  else if (/Safari\//.test(raw)) browser = `Safari ${version('Version') ?? ''}`;
-
-  return { name: browser ? `${os} · ${browser.trim()}` : os, kind };
-}
 
 function timeAgo(iso: string | null | undefined): string {
   if (!iso) return 'never';
@@ -108,11 +75,11 @@ const KIND_ICON: Record<DeviceKind, ReactNode> = {
 function DeviceRow({
   device,
   current,
-  onRemove,
+  onSignOut,
 }: {
   device: UserDevice;
   current: boolean;
-  onRemove?: () => void;
+  onSignOut?: () => void;
 }) {
   const info = describeDevice(device.deviceLabel, device.deviceId);
   const last = lastActive(device);
@@ -148,9 +115,9 @@ function DeviceRow({
           </span>
         </div>
       </div>
-      {onRemove ? (
-        <Button type="text" className="sec-device__remove" onClick={onRemove}>
-          Remove
+      {onSignOut ? (
+        <Button type="text" className="sec-device__remove" onClick={onSignOut}>
+          Sign out
         </Button>
       ) : null}
     </li>
@@ -232,7 +199,7 @@ export default function AccountSecurityPage() {
     try {
       await authApi.changePassword(values.currentPassword, values.newPassword);
       localStorage.removeItem('bmsc_has_pin');
-      message.success('Password updated. PIN unlock is now off on all your devices.');
+      message.success('Password updated. Your other devices were signed out and PIN unlock is off.');
       passwordForm.resetFields();
       load();
     } catch (err) {
@@ -242,21 +209,20 @@ export default function AccountSecurityPage() {
     }
   };
 
-  const removeNote =
-    'PIN unlock stops working there and it leaves this list. If that browser is still signed in, ' +
-    'it stays signed in until its session ends (at most 7 days).';
+  const signOutNote =
+    'It is signed out right away and its PIN unlock is turned off. Signing in there again needs the password.';
 
-  const removeOne = (row: UserDevice) => {
+  const signOutOne = (row: UserDevice) => {
     modal.confirm({
-      title: `Remove ${describeDevice(row.deviceLabel, row.deviceId).name}?`,
-      content: removeNote,
-      okText: 'Remove',
+      title: `Sign out ${describeDevice(row.deviceLabel, row.deviceId).name}?`,
+      content: signOutNote,
+      okText: 'Sign out',
       okButtonProps: { danger: true },
       centered: true,
       onOk: async () => {
         try {
           await authApi.revokeDevice(row.id);
-          message.success('Device removed');
+          message.success('Device signed out');
           load();
         } catch (err) {
           message.error(getErrorMessage(err));
@@ -265,19 +231,20 @@ export default function AccountSecurityPage() {
     });
   };
 
-  const removeOthers = () => {
+  const signOutOthers = () => {
     modal.confirm({
-      title: `Remove all ${others.length} other device${others.length === 1 ? '' : 's'}?`,
-      content: `${removeNote} This ${deviceWord} is not affected.`,
-      okText: 'Remove all others',
+      title: `Sign out ${others.length} other device${others.length === 1 ? '' : 's'}?`,
+      content: `Each one is signed out right away and its PIN unlock is turned off. This ${deviceWord} stays signed in.`,
+      okText: 'Sign out others',
       okButtonProps: { danger: true },
       centered: true,
       onOk: async () => {
-        const results = await Promise.allSettled(others.map((d) => authApi.revokeDevice(d.id)));
-        const failed = results.filter((r) => r.status === 'rejected').length;
-        if (failed)
-          message.warning(`${failed} device${failed === 1 ? '' : 's'} could not be removed. Try again.`);
-        else message.success('Other devices removed');
+        try {
+          const { data } = await authApi.signOutOtherDevices();
+          message.success(`${data.signedOut} device${data.signedOut === 1 ? '' : 's'} signed out`);
+        } catch (err) {
+          message.error(getErrorMessage(err));
+        }
         setShowAll(false);
         load();
       },
@@ -370,7 +337,7 @@ export default function AccountSecurityPage() {
         </Form.Item>
         <p className="sec-note">
           <InfoCircleOutlined aria-hidden />
-          Changing your password turns off PIN unlock on all your devices.
+          Changing your password signs out your other devices and turns off PIN unlock on all of them.
         </p>
         <Button type="primary" htmlType="submit" size="large" loading={passwordSaving} className="sec-btn">
           Update password
@@ -462,8 +429,8 @@ export default function AccountSecurityPage() {
       subtitle="Browsers and phones where you signed in. Most recent first."
       extra={
         others.length > 0 ? (
-          <Button className="sec-btn sec-devices__all" onClick={removeOthers}>
-            Remove all other devices
+          <Button className="sec-btn sec-devices__all" onClick={signOutOthers}>
+            Sign out all other devices
           </Button>
         ) : null
       }
@@ -486,7 +453,7 @@ export default function AccountSecurityPage() {
           ) : (
             <ul className="sec-devices">
               {visibleOthers.map((d) => (
-                <DeviceRow key={d.id} device={d} current={false} onRemove={() => removeOne(d)} />
+                <DeviceRow key={d.id} device={d} current={false} onSignOut={() => signOutOne(d)} />
               ))}
             </ul>
           )}
@@ -502,7 +469,7 @@ export default function AccountSecurityPage() {
           ) : null}
           <p className="sec-note sec-note--muted">
             <InfoCircleOutlined aria-hidden />
-            Last active is the last password sign-in or PIN unlock. Location is not recorded.
+            Last active updates about once an hour while a device is in use. Location is not recorded.
           </p>
         </>
       )}
@@ -537,7 +504,7 @@ export default function AccountSecurityPage() {
                 PIN {pinOn ? 'on' : 'off'}
               </StatusPill>
               <StatusPill tone="blue" compact>
-                {loading ? '…' : others.length + (thisDevice ? 1 : 0)} device
+                {loading ? 'â€¦' : others.length + (thisDevice ? 1 : 0)} device
                 {others.length + (thisDevice ? 1 : 0) === 1 ? '' : 's'}
               </StatusPill>
             </div>
