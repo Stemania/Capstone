@@ -748,20 +748,21 @@ export default function AssignmentDetailPage() {
                   )}
 
                   {isMine && op.machineUnitId && !op.machineDown && !done && (
-                    <Button
-                      block
-                      size="large"
-                      danger
-                      icon={<WarningOutlined />}
-                      disabled={actionLoading === op.id}
-                      onClick={() => {
-                        setReportNote('');
-                        setReportForOp(op);
-                      }}
-                      style={{ height: 48, marginTop: 10, fontWeight: 700 }}
-                    >
-                      Report breakdown
-                    </Button>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginTop: 6 }}>
+                      <Button
+                        type="text"
+                        danger
+                        icon={<WarningOutlined />}
+                        disabled={actionLoading === op.id}
+                        onClick={() => {
+                          setReportNote('');
+                          setReportForOp(op);
+                        }}
+                        style={{ height: 36, fontWeight: 600, fontSize: 13 }}
+                      >
+                        Report breakdown
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>
