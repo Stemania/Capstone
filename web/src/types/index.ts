@@ -224,6 +224,14 @@ export interface SupplierReliability {
   enoughData: boolean;
   label: string;
   rank: number | null;
+  /** Weighted 0-100 score; null when fewer than 3 deliveries were due. */
+  score?: number | null;
+  grade?: 'A' | 'B' | 'C' | 'D' | null;
+  scoreParts?: { onTime: number | null; daysLate: number | null; leadTime: number | null };
+  scoreWeights?: { onTime: number; daysLate: number; leadTime: number };
+  statedLeadTimeDays?: number | null;
+  averageActualLeadDays?: number | null;
+  leadTimeSamples?: number;
 }
 
 export type MaterialPurchaseStatus = 'DRAFT' | 'ORDERED' | 'RECEIVED' | 'CONSUMED' | 'CANCELLED';
@@ -1273,6 +1281,12 @@ export interface AnalyticsWorkerRow {
 export interface AnalyticsByWorker extends AnalyticsPeriodMeta {
   minimumOperationCount: number;
   workers: AnalyticsWorkerRow[];
+  recommendationWeights?: {
+    machineLead: Record<string, number>;
+    noMachine: Record<string, number>;
+    helper: Record<string, number>;
+    minimumSamples: number;
+  };
 }
 
 export interface AnalyticsOperationTypeRow {
@@ -1418,6 +1432,9 @@ export interface AnalyticsDelays extends AnalyticsPeriodMeta {
   machineDowntime: AnalyticsDowntimeRow[];
   causes: AnalyticsDelayCauseRow[];
   totalDelayHours: number | null;
+  paretoThresholdPct?: number;
+  /** Causes up to and including the one that reaches the threshold. */
+  vitalFewCount?: number;
   reworkByReason?: AnalyticsReworkReasonRow[];
   materialDelays?: AnalyticsMaterialDelayRow[];
   breakdownOverlapHours?: number | null;
@@ -1482,9 +1499,30 @@ export interface MovingAverageMonthRow {
   absoluteError: number | null;
 }
 
-/** Monthly moving-average forecast with back-tested error. */
+export type ForecastMethodKey = 'MA3' | 'SES' | 'HOLT';
+
+export interface ForecastHorizonRow {
+  month: string;
+  forecast: number | null;
+  lower: number | null;
+  upper: number | null;
+}
+
+export interface ForecastMethodResult {
+  key: ForecastMethodKey;
+  name: string;
+  mae: number | null;
+  mapePct: number | null;
+  backtestedMonths: number;
+  selected: boolean;
+}
+
+/** Monthly forecast: the method with the lowest back-tested error of MA3, SES and Holt. */
 export interface MovingAverageForecast {
-  method: string;
+  method: string | null;
+  methodKey?: ForecastMethodKey | null;
+  errorMetric?: 'MAPE' | 'MAE' | null;
+  parameters?: Record<string, number>;
   window: number;
   monthsAvailable: number;
   monthsNeeded: number;
@@ -1495,6 +1533,11 @@ export interface MovingAverageForecast {
   mae: number | null;
   mapePct: number | null;
   backtestedMonths: number;
+  intervalLevelPct?: number;
+  horizon?: ForecastHorizonRow[];
+  currentMonthSoFar?: number | null;
+  excludedMonths?: { month: string; reason: 'PARTIAL_FIRST_MONTH' | 'IN_PROGRESS' }[];
+  methods?: ForecastMethodResult[];
   months: MovingAverageMonthRow[];
 }
 
@@ -1547,6 +1590,12 @@ export interface ConsumableRunOutRow {
   daysLeft: number | null;
   runOutDate: string | null;
   likelyOut: boolean;
+  leadTimeDays?: number | null;
+  leadTimeSource?: 'MEASURED' | 'SUPPLIER' | 'DEFAULT';
+  leadTimeWorkingDays?: number | null;
+  safetyStock?: number | null;
+  reorderPoint?: number | null;
+  status?: 'OK' | 'REORDER_NOW' | 'LIKELY_OUT' | 'NO_DATA';
 }
 
 export interface ConsumableRunOut {
@@ -1554,7 +1603,53 @@ export interface ConsumableRunOut {
   method: string;
   description: string;
   today: string;
+  serviceLevelPct?: number;
+  defaultLeadTimeDays?: number;
   items: ConsumableRunOutRow[];
+}
+
+export interface AnalyticsUtilizationWeekly {
+  period: { from: string; to: string };
+  weeks: { weekStart: string; from: string; to: string; availableHours: number }[];
+  machines: {
+    machineUnitId: string;
+    machineUnitLabel: string;
+    machineTypeCode: string | null;
+    machineTypeName: string | null;
+    busyHours: number | null;
+    utilizationPct: number | null;
+    cells: { weekStart: string; busyHours: number | null; utilizationPct: number | null }[];
+  }[];
+}
+
+export interface CompletionEstimateJob {
+  jobOrderId: string;
+  jobNumber: string;
+  title: string | null;
+  clientName: string | null;
+  status: string;
+  dueDate: string | null;
+  scheduledFinish: string | null;
+  predictedFinish: string | null;
+  basis: string | null;
+  flag: 'GREEN' | 'AMBER' | 'RED' | null;
+  /** Date required minus the later of predicted and scheduled finish, in days. */
+  slackDays: number | null;
+  ratioBases: string[];
+}
+
+export interface CompletionEstimates {
+  minSamples: number;
+  jobs: CompletionEstimateJob[];
+  operationTypes: {
+    operationTypeId: string;
+    operationTypeName: string | null;
+    samples: number;
+    ratio: number;
+    enoughHistory: boolean;
+    workerRatios: number;
+    machineRatios: number;
+  }[];
 }
 
 export interface AnalyticsCapacityTypeRow {

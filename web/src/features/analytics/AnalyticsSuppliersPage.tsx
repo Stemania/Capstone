@@ -1,467 +1,217 @@
-import { useEffect, useState } from 'react';
-import { Segmented, Typography, message } from 'antd';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  LabelList,
-  Legend,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
-import { analyticsApi } from '../../api/analytics.api';
-import { chartPalette } from '../../theme/tokens';
-import { getErrorMessage } from '../../api/client';
-import { suppliersApi } from '../../api/suppliers.api';
-import type { AnalyticsPurchasing, SupplierReliability } from '../../types';
-import { exportCsv } from '../../utils/csvExport';
-import {
-  AnalyticsGrid,
-  AnalyticsSection,
-  CHART_BOX,
-  ShowDetails,
-  withoutAllZero,
-} from './AnalyticsSection';
-import { formatInt, formatMoney, useAnalyticsPeriod } from './analyticsPeriod';
 import { PageSkeleton } from '../../components/ui';
-import ResponsiveTable from '../../components/ui/ResponsiveTable';
-
-const { Text } = Typography;
-const AXIS = { fontSize: 13, fill: '#334155' };
-const BAR = chartPalette[0];
-const STATED = '#94a3b8';
-
-type MaterialSort = 'count' | 'spend';
+import { exportCsv } from '../../utils/csvExport';
+import { fmtNum, fmtPeso, fmtPesoCompact, pctChange } from './format';
+import { Card, ChartEmpty, Grid, Kpi, Kpis, PALETTE, SortedBars } from './kit';
+import { CardLoading, RingCard, ScoreInfo, scoredSuppliers } from './cards';
+import { usePeriods, usePurchasing, useReliability } from './sources';
 
 export default function AnalyticsSuppliersPage() {
-  const { params } = useAnalyticsPeriod();
-  const [data, setData] = useState<AnalyticsPurchasing | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [materialSort, setMaterialSort] = useState<MaterialSort>('count');
-  const [reliability, setReliability] = useState<SupplierReliability[]>([]);
+  const { period, previous } = usePeriods();
+  const purchasing = usePurchasing(period).data;
+  const prev = usePurchasing(previous).data;
+  const reliability = useReliability(period).data;
 
-  useEffect(() => {
-    suppliersApi
-      .reliability({ from: params.from, to: params.to })
-      .then(({ data: rows }) => setReliability(rows))
-      .catch(() => setReliability([]));
-  }, [params.from, params.to]);
+  if (!purchasing) return <PageSkeleton variant="cards" />;
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await analyticsApi.purchasing(params);
-        if (!cancelled) setData(res.data);
-      } catch (err) {
-        if (!cancelled) message.error(getErrorMessage(err));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [params.from, params.to]);
-
-  if (loading && !data) {
-    return (
-      <PageSkeleton variant="cards" />
-    );
-  }
-  if (!data) return null;
-
-  const period = `${data.period.from}_${data.period.to}`;
-
-  const spend = withoutAllZero(data.spendBySupplier, (r) => [r.purchaseCount, r.totalSpend]);
-  const spendRank = new Map(spend.map((r, i) => [r.supplierId, i]));
-  const rankOf = (id: string) => spendRank.get(id) ?? Number.MAX_SAFE_INTEGER;
-
-  const leadTime = withoutAllZero(data.supplierLeadTime, (r) => [
-    r.statedLeadTimeDays,
-    r.averageActualDays,
-    r.sampleCount,
-  ]).sort((a, b) => rankOf(a.supplierId) - rankOf(b.supplierId));
-  const leadChart = leadTime.map((r) => ({
-    name: r.supplierName || '—',
-    stated: r.statedLeadTimeDays,
-    actual: r.averageActualDays,
-  }));
-
-  const spendChart = spend.map((r) => ({
-    name: r.supplierName || '—',
-    spend: r.totalSpend ?? 0,
-  }));
-
-  const supplierChartHeight = Math.max(220, Math.max(leadChart.length, spendChart.length) * 52 + 90);
-
-  const materials = withoutAllZero(
-    materialSort === 'count' ? data.materialsByCount : data.materialsBySpend,
-    (r) => [r.purchaseCount, r.totalQuantity, r.totalSpend]
-  );
-  const topMaterials = materials.slice(0, 10).map((r) => ({
-    name: r.materialName,
-    value: materialSort === 'count' ? r.purchaseCount : r.totalSpend ?? 0,
-  }));
+  const { scored, unscored } = scoredSuppliers(reliability);
+  const avgScore = scored.length ? scored.reduce((s, r) => s + (r.score ?? 0), 0) / scored.length : null;
+  const lead = purchasing.supplierLeadTime.filter((r) => r.averageActualDays != null);
+  const spend = purchasing.spendBySupplier.filter((r) => (r.totalSpend ?? 0) > 0);
+  const materials = purchasing.materialsBySpend.filter((r) => (r.totalSpend ?? 0) > 0);
+  const slowest = [...lead].sort((a, b) => (b.varianceDays ?? 0) - (a.varianceDays ?? 0))[0];
+  const topSpend = [...spend].sort((a, b) => (b.totalSpend ?? 0) - (a.totalSpend ?? 0))[0];
 
   return (
     <div>
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'baseline',
-          gap: '4px 20px',
-          marginBottom: 12,
-          fontSize: 13,
-        }}
-      >
-        <Text type="secondary">
-          Period {data.period.from} → {data.period.to} · purchases by date ordered.
-        </Text>
-        <span>
-          <Text type="secondary">Purchase lines </Text>
-          <Text strong style={{ fontSize: 15, color: '#0f1c2e' }}>
-            {formatInt(data.purchaseCount)}
-          </Text>
-        </span>
-        <span>
-          <Text type="secondary">Total spend </Text>
-          <Text strong style={{ fontSize: 15, color: '#0f1c2e' }}>
-            {formatMoney(data.totalSpend)}
-          </Text>
-        </span>
-      </div>
+      <Kpis>
+        <Kpi
+          label="Purchase lines"
+          value={fmtNum(purchasing.purchaseCount)}
+          delta={prev ? pctChange(purchasing.purchaseCount, prev.purchaseCount) : undefined}
+          better="none"
+        />
+        <Kpi
+          label="Spend"
+          value={fmtPesoCompact(purchasing.totalSpend)}
+          delta={prev ? pctChange(purchasing.totalSpend, prev.totalSpend) : undefined}
+          better="none"
+        />
+        <Kpi
+          label="Suppliers scored"
+          value={fmtNum(scored.length)}
+          sub={unscored.length ? `${unscored.length} with too few deliveries` : undefined}
+        />
+        <Kpi label="Avg score" value={avgScore == null ? '—' : fmtNum(avgScore)} info={<ScoreInfo />} />
+      </Kpis>
 
-      <AnalyticsGrid>
-        <AnalyticsSection
+      <Grid>
+        <Card
           title="Supplier reliability"
-          description="Deliveries received on or before the date promised when the order was issued, out of all deliveries that were due. A later date agreed with the supplier does not change the promise, and an overdue delivery not yet received counts as late. Ranked by reliability, then by average days late. Counts deliveries promised within the selected period; a supplier needs at least 3 due in it to be ranked."
-          onExport={() =>
-            exportCsv('supplier-reliability.csv', reliability, [
-              { key: 'rank', header: 'Rank', value: (r) => r.rank },
-              { key: 'supplier', header: 'Supplier', value: (r) => r.supplierName },
-              { key: 'pct', header: 'ReliabilityPct', value: (r) => r.reliabilityPct ?? r.label },
-              { key: 'due', header: 'DueDeliveries', value: (r) => r.dueDeliveries },
-              { key: 'onTime', header: 'OnTime', value: (r) => r.onTimeDeliveries },
-              { key: 'late', header: 'Late', value: (r) => r.lateDeliveries },
-              { key: 'overdue', header: 'OverdueNotReceived', value: (r) => r.overdueDeliveries },
-              { key: 'avg', header: 'AvgDaysLate', value: (r) => r.avgDaysLate },
-            ])
+          span={12}
+          takeaway={
+            scored[0] ? (
+              <>
+                Most reliable: <strong>{scored[0].supplierName}</strong> · {Math.round(scored[0].score ?? 0)}
+              </>
+            ) : reliability ? (
+              'Not enough deliveries in this period to score'
+            ) : undefined
           }
-          exportDisabled={!reliability.length}
-        >
-          <ResponsiveTable
-            size="small"
-            pagination={false}
-            rowKey="supplierId"
-            dataSource={reliability}
-            columns={[
-              { title: '#', dataIndex: 'rank', width: 50, render: (v: number | null) => v ?? '—' },
-              { title: 'Supplier', dataIndex: 'supplierName' },
-              {
-                title: 'Reliability',
-                key: 'pct',
-                width: 170,
-                render: (_: unknown, r) =>
-                  r.reliabilityPct == null ? (
-                    <Text type="secondary">{r.label}</Text>
-                  ) : (
-                    <Text strong>{r.reliabilityPct.toFixed(1)}%</Text>
-                  ),
-              },
-              {
-                title: 'On time / due',
-                key: 'ratio',
-                width: 120,
-                align: 'right',
-                render: (_: unknown, r) => `${r.onTimeDeliveries} / ${r.dueDeliveries}`,
-              },
-              {
-                title: 'Overdue now',
-                dataIndex: 'overdueDeliveries',
-                width: 110,
-                align: 'right',
-              },
-              {
-                title: 'Avg days late',
-                dataIndex: 'avgDaysLate',
-                width: 120,
-                align: 'right',
-                render: (v: number, r) => (r.lateDeliveries ? v.toFixed(1) : '—'),
-              },
-            ]}
-          />
-        </AnalyticsSection>
-      </AnalyticsGrid>
-
-      <AnalyticsGrid>
-        <AnalyticsSection
-          span={6}
-          title="Supplier lead time"
-          description="Stated lead time against the average actual days from issue date to received date on each supplier order (lines recorded without a PO still use ordered-to-received). Negative variance means faster than stated."
-          onExport={() =>
-            exportCsv(`supplier-lead-time-${period}.csv`, leadTime, [
-              { key: 'supplierName', header: 'Supplier', value: (r) => r.supplierName },
-              { key: 'stated', header: 'StatedLeadTimeDays', value: (r) => r.statedLeadTimeDays },
-              { key: 'actual', header: 'AverageActualDays', value: (r) => r.averageActualDays },
-              { key: 'variance', header: 'VarianceDays', value: (r) => r.varianceDays },
-              { key: 'samples', header: 'SampleCount', value: (r) => r.sampleCount },
-            ])
+          info={<ScoreInfo weights={scored[0]?.scoreWeights} />}
+          onExport={
+            reliability
+              ? () =>
+                  exportCsv('supplier-reliability', reliability, [
+                    { key: 's', header: 'Supplier', value: (r) => r.supplierName },
+                    { key: 'd', header: 'Deliveries due', value: (r) => r.dueDeliveries },
+                    { key: 'o', header: 'On time', value: (r) => r.onTimeDeliveries },
+                    { key: 'p', header: 'On-time %', value: (r) => r.reliabilityPct ?? '' },
+                    { key: 'l', header: 'Avg days late', value: (r) => r.avgDaysLate },
+                    { key: 'st', header: 'Stated lead days', value: (r) => r.statedLeadTimeDays ?? '' },
+                    { key: 'al', header: 'Actual lead days', value: (r) => r.averageActualLeadDays ?? '' },
+                    { key: 'sc', header: 'Score', value: (r) => r.score ?? '' },
+                    { key: 'g', header: 'Grade', value: (r) => r.grade ?? r.label },
+                  ])
+              : undefined
           }
-          exportDisabled={!leadTime.length}
+          foot={
+            unscored.length ? (
+              <>
+                Not enough deliveries: {unscored.map((s) => `${s.supplierName} (${s.dueDeliveries})`).join(', ')}
+              </>
+            ) : undefined
+          }
         >
-          {leadChart.length === 0 ? (
-            <Text type="secondary">No supplier deliveries in this period.</Text>
+          {!reliability ? (
+            <CardLoading />
+          ) : scored.length ? (
+            <div className="ana-rings">
+              {scored.map((s) => (
+                <RingCard key={s.supplierId} s={s} />
+              ))}
+            </div>
           ) : (
-            <>
-              <div
-                style={{ ...CHART_BOX, padding: 12, height: supplierChartHeight }}
-              >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart layout="vertical" data={leadChart} margin={{ top: 8, right: 48, left: 8, bottom: 8 }}>
-                    <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" horizontal={false} />
-                    <XAxis
-                      type="number"
-                      tick={AXIS}
-                      label={{ value: 'Days', position: 'insideBottom', offset: -2, style: AXIS }}
-                      height={40}
-                    />
-                    <YAxis type="category" dataKey="name" width={160} tick={AXIS} />
-                    <Tooltip
-                      contentStyle={{ fontSize: 13 }}
-                      formatter={(value: number, name: string) => [
-                        value == null ? '—' : `${Number(value).toFixed(1)} days`,
-                        name,
-                      ]}
-                    />
-                    <Legend verticalAlign="top" wrapperStyle={{ fontSize: 13, paddingBottom: 4 }} />
-                    <Bar dataKey="stated" name="Stated" fill={STATED} barSize={12} />
-                    <Bar dataKey="actual" name="Avg actual" fill={BAR} barSize={12}>
-                      <LabelList
-                        dataKey="actual"
-                        position="right"
-                        formatter={(v: number | null) => (v == null ? '' : Number(v).toFixed(1))}
-                        style={{ fontSize: 11, fill: '#334155' }}
-                      />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <ShowDetails>
-                <ResponsiveTable
-                  size="small"
-                  pagination={false}
-                  rowKey="supplierId"
-                  dataSource={leadTime}
-                  columns={[
-                    { title: 'Supplier', dataIndex: 'supplierName' },
-                    {
-                      title: 'Stated (days)',
-                      dataIndex: 'statedLeadTimeDays',
-                      width: 110,
-                      align: 'right',
-                      render: (v: number | null) => (v == null ? '—' : v),
-                    },
-                    {
-                      title: 'Avg actual (days)',
-                      dataIndex: 'averageActualDays',
-                      width: 130,
-                      align: 'right',
-                      render: (v: number | null) => (v == null ? '—' : v.toFixed(1)),
-                    },
-                    {
-                      title: 'Variance',
-                      dataIndex: 'varianceDays',
-                      width: 100,
-                      align: 'right',
-                      render: (v: number | null) => {
-                        if (v == null) return '—';
-                        const sign = v > 0 ? '+' : '';
-                        return `${sign}${v.toFixed(1)}`;
-                      },
-                    },
-                    { title: 'Samples', dataIndex: 'sampleCount', width: 90, align: 'right' },
-                  ]}
-                />
-              </ShowDetails>
-            </>
+            <ChartEmpty title="Not enough deliveries" text="A score needs at least 3 deliveries due in the period." />
           )}
-        </AnalyticsSection>
+        </Card>
 
-        <AnalyticsSection
-          span={6}
-          title="Spend by supplier"
-          description="Suppliers in the same order as the lead time chart, highest spend first."
-          onExport={() =>
-            exportCsv(`spend-by-supplier-${period}.csv`, spend, [
-              { key: 'supplierName', header: 'Supplier', value: (r) => r.supplierName },
-              { key: 'purchaseCount', header: 'PurchaseCount', value: (r) => r.purchaseCount },
-              { key: 'totalSpend', header: 'TotalSpend', value: (r) => r.totalSpend },
-            ])
+        <Card
+          title="Lead time: actual vs stated"
+          span={4}
+          takeaway={
+            slowest && (slowest.varianceDays ?? 0) > 0 ? (
+              <>
+                <strong>{slowest.supplierName}</strong> takes {fmtNum(slowest.varianceDays, 1)} d longer than stated
+              </>
+            ) : lead.length ? (
+              'All within their stated lead time'
+            ) : (
+              'No received orders yet'
+            )
           }
-          exportDisabled={!spend.length}
+          info="Bar: average days from order to receipt. Dark tick: the supplier's stated lead time."
         >
-          {spendChart.length === 0 ? (
-            <Text type="secondary">No purchases in this period.</Text>
-          ) : (
-            <>
-              <div
-                style={{ ...CHART_BOX, padding: 12, height: supplierChartHeight }}
-              >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart layout="vertical" data={spendChart} margin={{ top: 8, right: 80, left: 8, bottom: 8 }}>
-                    <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" tick={AXIS} tickFormatter={(v) => formatMoney(v, 0)} />
-                    <YAxis type="category" dataKey="name" width={160} tick={AXIS} />
-                    <Tooltip
-                      contentStyle={{ fontSize: 13 }}
-                      formatter={(value: number) => [formatMoney(value), 'Spend']}
-                    />
-                    <Bar dataKey="spend" name="Spend" fill={BAR} barSize={14}>
-                      <LabelList
-                        dataKey="spend"
-                        position="right"
-                        formatter={(v: number) => formatMoney(v, 0)}
-                        style={{ fontSize: 11, fill: '#334155' }}
-                      />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <ShowDetails>
-                <ResponsiveTable
-                  size="small"
-                  pagination={false}
-                  rowKey="supplierId"
-                  dataSource={spend}
-                  columns={[
-                    { title: 'Supplier', dataIndex: 'supplierName' },
-                    { title: 'Purchases', dataIndex: 'purchaseCount', width: 100, align: 'right' },
-                    {
-                      title: 'Spend',
-                      dataIndex: 'totalSpend',
-                      width: 120,
-                      align: 'right',
-                      render: (v: number | null) => formatMoney(v),
-                    },
-                  ]}
-                />
-              </ShowDetails>
-            </>
-          )}
-        </AnalyticsSection>
-      </AnalyticsGrid>
-
-      <AnalyticsGrid>
-        <AnalyticsSection
-          title="Materials purchased"
-          description={
-            materialSort === 'count'
-              ? 'Top 10 materials by number of purchases.'
-              : 'Top 10 materials by spend.'
-          }
-          controls={
-            <Segmented<MaterialSort>
-              size="small"
-              value={materialSort}
-              onChange={setMaterialSort}
-              options={[
-                { label: 'By purchases', value: 'count' },
-                { label: 'By spend', value: 'spend' },
-              ]}
+          {lead.length ? (
+            <SortedBars
+              rows={lead.map((r) => ({
+                key: r.supplierId,
+                label: r.supplierName ?? '—',
+                value: r.averageActualDays ?? 0,
+                display: `${fmtNum(r.averageActualDays, 1)} d`,
+                sub: r.statedLeadTimeDays != null ? `vs ${r.statedLeadTimeDays}` : undefined,
+                marker: r.statedLeadTimeDays,
+                color: (r.varianceDays ?? 0) > 0 ? PALETTE.warn : PALETTE.second,
+                title: `${r.sampleCount} received order${r.sampleCount === 1 ? '' : 's'}`,
+              }))}
             />
-          }
-          onExport={() =>
-            exportCsv(`materials-by-${materialSort}-${period}.csv`, materials, [
-              { key: 'materialName', header: 'Material', value: (r) => r.materialName },
-              { key: 'purchaseCount', header: 'PurchaseCount', value: (r) => r.purchaseCount },
-              { key: 'totalQuantity', header: 'TotalQuantity', value: (r) => r.totalQuantity },
-              { key: 'unit', header: 'Unit', value: (r) => r.unit },
-              { key: 'totalSpend', header: 'TotalSpend', value: (r) => r.totalSpend },
-            ])
-          }
-          exportDisabled={!materials.length}
-        >
-          {topMaterials.length === 0 ? (
-            <Text type="secondary">No purchases in this period.</Text>
           ) : (
-            <>
-              <div
-                style={{ ...CHART_BOX, padding: 12, height: Math.max(260, topMaterials.length * 36 + 80) }}
-              >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart layout="vertical" data={topMaterials} margin={{ top: 8, right: 80, left: 8, bottom: 8 }}>
-                    <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" horizontal={false} />
-                    <XAxis
-                      type="number"
-                      tick={AXIS}
-                      allowDecimals={materialSort === 'spend'}
-                      tickFormatter={(v) => (materialSort === 'spend' ? formatMoney(v, 0) : String(v))}
-                    />
-                    <YAxis type="category" dataKey="name" width={160} tick={AXIS} />
-                    <Tooltip
-                      contentStyle={{ fontSize: 13 }}
-                      formatter={(value: number) =>
-                        materialSort === 'spend'
-                          ? [formatMoney(value), 'Spend']
-                          : [value, 'Purchases']
-                      }
-                    />
-                    <Bar
-                      dataKey="value"
-                      name={materialSort === 'spend' ? 'Spend' : 'Purchases'}
-                      fill={BAR}
-                      barSize={14}
-                    >
-                      <LabelList
-                        dataKey="value"
-                        position="right"
-                        formatter={(v: number) =>
-                          materialSort === 'spend' ? formatMoney(v, 0) : String(v)
-                        }
-                        style={{ fontSize: 11, fill: '#334155' }}
-                      />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <ShowDetails>
-                <ResponsiveTable
-                  size="small"
-                  pagination={false}
-                  rowKey="materialName"
-                  dataSource={materials}
-                  columns={[
-                    { title: 'Material', dataIndex: 'materialName' },
-                    { title: 'Purchases', dataIndex: 'purchaseCount', width: 100, align: 'right' },
-                    {
-                      title: 'Qty',
-                      key: 'qty',
-                      width: 120,
-                      align: 'right',
-                      render: (_: unknown, r) =>
-                        r.totalQuantity == null
-                          ? '—'
-                          : `${r.totalQuantity}${r.unit ? ` ${r.unit}` : ''}`,
-                    },
-                    {
-                      title: 'Spend',
-                      dataIndex: 'totalSpend',
-                      width: 120,
-                      align: 'right',
-                      render: (v: number | null) => formatMoney(v),
-                    },
-                  ]}
-                />
-              </ShowDetails>
-            </>
+            <ChartEmpty title="No received orders in this period" />
           )}
-        </AnalyticsSection>
-      </AnalyticsGrid>
+        </Card>
+
+        <Card
+          title="Spend by supplier"
+          span={4}
+          takeaway={
+            topSpend ? (
+              <>
+                <strong>{topSpend.supplierName}</strong> ·{' '}
+                {fmtNum(((topSpend.totalSpend ?? 0) / (purchasing.totalSpend || 1)) * 100)}% of spend
+              </>
+            ) : (
+              'No purchases'
+            )
+          }
+          onExport={
+            spend.length
+              ? () =>
+                  exportCsv('spend-by-supplier', spend, [
+                    { key: 's', header: 'Supplier', value: (r) => r.supplierName ?? '' },
+                    { key: 'n', header: 'Purchase lines', value: (r) => r.purchaseCount },
+                    { key: 'a', header: 'Spend', value: (r) => r.totalSpend ?? '' },
+                  ])
+              : undefined
+          }
+        >
+          {spend.length ? (
+            <SortedBars
+              limit={8}
+              rows={spend.map((r) => ({
+                key: r.supplierId,
+                label: r.supplierName ?? '—',
+                value: r.totalSpend ?? 0,
+                display: fmtPesoCompact(r.totalSpend),
+                sub: `${r.purchaseCount}`,
+                title: `${fmtPeso(r.totalSpend)} · ${r.purchaseCount} lines`,
+              }))}
+            />
+          ) : (
+            <ChartEmpty title="No purchases in this period" />
+          )}
+        </Card>
+
+        <Card
+          title="Top materials by spend"
+          span={4}
+          takeaway={
+            materials[0] ? (
+              <>
+                <strong>{materials[0].materialName}</strong> · {fmtPesoCompact(materials[0].totalSpend)}
+              </>
+            ) : (
+              'No purchases'
+            )
+          }
+          onExport={
+            materials.length
+              ? () =>
+                  exportCsv('materials-by-spend', materials, [
+                    { key: 'm', header: 'Material', value: (r) => r.materialName },
+                    { key: 'n', header: 'Purchase lines', value: (r) => r.purchaseCount },
+                    { key: 'q', header: 'Quantity', value: (r) => r.totalQuantity ?? '' },
+                    { key: 'u', header: 'Unit', value: (r) => r.unit ?? '' },
+                    { key: 'a', header: 'Spend', value: (r) => r.totalSpend ?? '' },
+                  ])
+              : undefined
+          }
+        >
+          {materials.length ? (
+            <SortedBars
+              limit={8}
+              rows={materials.map((r) => ({
+                key: r.materialName,
+                label: r.materialName,
+                value: r.totalSpend ?? 0,
+                display: fmtPesoCompact(r.totalSpend),
+                color: PALETTE.third,
+                title: `${fmtNum(r.totalQuantity)} ${r.unit ?? ''} · ${r.purchaseCount} lines`,
+              }))}
+            />
+          ) : (
+            <ChartEmpty title="No purchases in this period" />
+          )}
+        </Card>
+      </Grid>
     </div>
   );
 }

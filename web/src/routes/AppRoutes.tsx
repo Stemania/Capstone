@@ -42,15 +42,12 @@ import JobOrderPrintPage from '../features/reports/JobOrderPrintPage';
 import { PageSkeleton } from '../components/ui';
 const AnalyticsLayout = lazy(() => import('../features/analytics/AnalyticsLayout'));
 const AnalyticsOverviewPage = lazy(() => import('../features/analytics/AnalyticsOverviewPage'));
+const AnalyticsProductionPage = lazy(() => import('../features/analytics/AnalyticsProductionPage'));
 const AnalyticsDelaysPage = lazy(() => import('../features/analytics/AnalyticsDelaysPage'));
-const AnalyticsForecastPage = lazy(() => import('../features/analytics/AnalyticsForecastPage'));
+const AnalyticsSalesPage = lazy(() => import('../features/analytics/AnalyticsSalesPage'));
+const AnalyticsInventoryPage = lazy(() => import('../features/analytics/AnalyticsInventoryPage'));
 const AnalyticsSuppliersPage = lazy(() => import('../features/analytics/AnalyticsSuppliersPage'));
-const AnalyticsJobOrdersPage = lazy(() => import('../features/analytics/AnalyticsJobOrdersPage'));
-
-function AnalyticsIndex() {
-  const { user } = useAuth();
-  return user?.role === 'ADMIN' ? <AnalyticsOverviewPage /> : <Navigate to="/analytics/sales" replace />;
-}
+const AnalyticsWorkersPage = lazy(() => import('../features/analytics/AnalyticsWorkersPage'));
 
 function ReportsRedirect() {
   const rest = useParams()['*'];
@@ -139,12 +136,14 @@ export default function AppRoutes() {
                         </AnalyticsSuspense>
                       }
                     >
-                      <Route index element={<AnalyticsIndex />} />
+                      <Route index element={<AnalyticsOverviewPage />} />
                       <Route element={<ProtectedRoute roles={['ADMIN']} />}>
+                        <Route path="production" element={<AnalyticsProductionPage />} />
                         <Route path="delays" element={<AnalyticsDelaysPage />} />
+                        <Route path="workers" element={<AnalyticsWorkersPage />} />
                       </Route>
-                      <Route path="sales" element={<AnalyticsJobOrdersPage />} />
-                      <Route path="forecast" element={<AnalyticsForecastPage />} />
+                      <Route path="sales" element={<AnalyticsSalesPage />} />
+                      <Route path="inventory" element={<AnalyticsInventoryPage />} />
                       <Route path="suppliers" element={<AnalyticsSuppliersPage />} />
                       <Route path="reports" element={<ReportsHubPage />} />
                       <Route path="reports/inventory" element={<InventoryReportPage />} />
@@ -155,8 +154,9 @@ export default function AppRoutes() {
                           element={<WorkerPerformanceReportPage />}
                         />
                       </Route>
-                      <Route path="efficiency" element={<Navigate to="/analytics" replace />} />
-                      <Route path="capacity" element={<Navigate to="/analytics/forecast" replace />} />
+                      <Route path="efficiency" element={<Navigate to="/analytics/workers" replace />} />
+                      <Route path="capacity" element={<Navigate to="/analytics/production" replace />} />
+                      <Route path="forecast" element={<Navigate to="/analytics/sales" replace />} />
                       <Route path="purchasing" element={<Navigate to="/analytics/suppliers" replace />} />
                     </Route>
                     <Route path="/tools" element={<ToolsPage />} />

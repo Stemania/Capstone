@@ -1,73 +1,30 @@
-import { chartPalette } from '../../theme/tokens';
-import { useEffect, useState } from 'react';
-import { Tag, Typography, message } from 'antd';
-import dayjs from 'dayjs';
 import { Link } from 'react-router-dom';
-import { SHOP_TZ, formatShop } from '../../utils/shopTime';
-import {
-  Bar,
-  CartesianGrid,
-  Cell,
-  ComposedChart,
-  LabelList,
-  Legend,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-  BarChart,
-} from 'recharts';
-import { analyticsApi } from '../../api/analytics.api';
-import { getErrorMessage } from '../../api/client';
-import type { AnalyticsDelays, AnalyticsLateJobCause } from '../../types';
-import { exportCsv } from '../../utils/csvExport';
-import { AnalyticsPeriodNote } from './AnalyticsChrome';
-import {
-  AnalyticsGrid,
-  AnalyticsSection,
-  CHART_BOX,
-  ShowDetails,
-  withoutAllZero,
-} from './AnalyticsSection';
-import { formatInt, useAnalyticsPeriod } from './analyticsPeriod';
 import { PageSkeleton } from '../../components/ui';
-import ResponsiveTable from '../../components/ui/ResponsiveTable';
+import type { AnalyticsLateJobCause } from '../../types';
+import { exportCsv } from '../../utils/csvExport';
+import { fmtDay, fmtNum, pctChange } from './format';
+import { Card, ChartEmpty, Grid, Kpi, Kpis, PALETTE, ParetoChart, SortedBars } from './kit';
+import { useDelays, usePeriods } from './sources';
 
-const { Text } = Typography;
-const AXIS = { fontSize: 13, fill: '#334155' };
-const HOURS = chartPalette[0];
-const OPEN = chartPalette[2];
-const CLOSED = chartPalette[0];
-const CUMULATIVE = chartPalette[2];
-
-const CAUSE_TYPE_LABEL: Record<string, string> = {
-  PAUSE: 'Pause',
-  DOWNTIME: 'Downtime',
+const REASON_LABEL: Record<string, string> = {
+  END_OF_SHIFT: 'End of shift',
+  BREAK: 'Break',
+  MACHINE_DOWN: 'Machine down',
+  WAITING_MATERIAL: 'Waiting for material',
+  WAITING_PRIOR_OPERATION: 'Waiting on prior operation',
+  OTHER: 'Other',
+  MACHINE_DOWNTIME: 'Machine downtime',
   REWORK: 'Rework',
-  MATERIAL: 'Material',
-  OUTSOURCED: 'Outsourced',
 };
 
-const fmtShop = (iso: string) => dayjs(iso).tz(SHOP_TZ).format('MMM D, HH:mm');
-const fmtDay = (iso: string) => formatShop(iso, 'MMM D, YYYY');
-
 function reasonLabel(reason: string) {
-  const map: Record<string, string> = {
-    END_OF_SHIFT: 'End of shift',
-    BREAK: 'Break',
-    MACHINE_DOWN: 'Machine down',
-    WAITING_MATERIAL: 'Waiting for material',
-    WAITING_PRIOR_OPERATION: 'Waiting on prior operation',
-    OTHER: 'Other',
-    MACHINE_DOWNTIME: 'Machine downtime',
-    REWORK: 'Rework',
-  };
-  if (map[reason]) return map[reason];
-  return reason
-    .split('_')
-    .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
-    .join(' ');
+  return (
+    REASON_LABEL[reason] ??
+    reason
+      .split('_')
+      .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
+      .join(' ')
+  );
 }
 
 function causeLabel(c: AnalyticsLateJobCause) {
@@ -75,550 +32,286 @@ function causeLabel(c: AnalyticsLateJobCause) {
 }
 
 export default function AnalyticsDelaysPage() {
-  const { params } = useAnalyticsPeriod();
-  const [data, setData] = useState<AnalyticsDelays | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { period, previous } = usePeriods();
+  const data = useDelays(period).data;
+  const prev = useDelays(previous).data;
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await analyticsApi.delays(params);
-        if (!cancelled) setData(res.data);
-      } catch (err) {
-        if (!cancelled) message.error(getErrorMessage(err));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [params.from, params.to]);
+  if (!data) return <PageSkeleton variant="cards" />;
 
-  if (loading && !data) {
-    return (
-      <PageSkeleton variant="cards" />
-    );
-  }
-  if (!data) return null;
-
-  const causeRows = withoutAllZero(data.causes || [], (r) => [r.hours, r.occurrenceCount]).map(
-    (r) => ({
-      name: r.label || reasonLabel(r.cause),
-      hours: r.hours ?? 0,
-      share: r.shareOfTotalPct ?? 0,
-      cumulative: r.cumulativePct ?? 0,
-      count: r.occurrenceCount,
-      causeType: r.causeType,
-    })
-  );
-
-  const brokenUnits = withoutAllZero(data.machineDowntime, (d) => [
-    d.occurrenceCount,
-    d.totalDowntimeHours,
-    d.openCount,
-  ]);
-  const downtimeRows = brokenUnits.map((d) => ({
-    name: d.machineUnitLabel || d.machineUnitId.slice(0, 8),
-    hours: d.totalDowntimeHours ?? 0,
-    open: d.openCount > 0,
-    type: d.machineTypeCode,
-  }));
-
-  const reworkRows = data.reworkByReason ?? [];
-  const materialDelays = data.materialDelays ?? [];
+  const threshold = data.paretoThresholdPct ?? 80;
+  const causes = data.causes
+    .filter((c) => (c.hours ?? 0) > 0)
+    .map((c) => ({
+      label: c.label || reasonLabel(c.cause),
+      hours: c.hours ?? 0,
+      cumulativePct: c.cumulativePct ?? 0,
+      shareOfTotalPct: c.shareOfTotalPct ?? 0,
+      count: c.occurrenceCount,
+    }));
+  const vitalFew = Math.min(data.vitalFewCount ?? 1, causes.length);
+  const top = causes[0];
+  const downtime = data.machineDowntime.filter((d) => (d.totalDowntimeHours ?? 0) > 0 || d.openCount > 0);
+  const downNow = data.machineDowntime.filter((d) => d.openCount > 0).length;
+  const rework = (data.reworkByReason ?? []).filter((r) => r.count > 0);
+  const material = data.materialDelays ?? [];
   const lateJobs = data.lateJobs ?? [];
   const excluded = data.excludedNonWorkingPauses;
-  const chartHeight = Math.max(320, causeRows.length * 28 + 120, downtimeRows.length * 40 + 80);
 
   return (
     <div>
-      <AnalyticsPeriodNote
-        from={data.period.from}
-        to={data.period.to}
-        excludedOperationCount={data.excludedOperationCount}
-      />
+      <Kpis>
+        <Kpi
+          label="Delay hours"
+          value={fmtNum(data.totalDelayHours, 1)}
+          delta={prev ? pctChange(data.totalDelayHours, prev.totalDelayHours) : undefined}
+          better="down"
+        />
+        <Kpi
+          label="Top cause"
+          value={<span style={{ fontSize: 17 }}>{top?.label ?? '—'}</span>}
+          sub={top ? `${fmtNum(top.shareOfTotalPct)}% of delay hours` : 'No delays'}
+        />
+        <Kpi
+          label="Late jobs"
+          value={fmtNum(lateJobs.length)}
+          delta={prev ? pctChange(lateJobs.length, prev.lateJobs?.length ?? 0) : undefined}
+          better="down"
+          info="Jobs delivered after the date required in this period."
+        />
+        <Kpi
+          label="Machines down"
+          value={fmtNum(downNow)}
+          valueTone={downNow ? 'red' : undefined}
+          sub="now"
+        />
+      </Kpis>
 
-      <AnalyticsGrid>
-        <AnalyticsSection
-          span={7}
-          title="What causes delays"
-          description="Delay hours from late materials, pause reasons, machine breakdowns, and redo work, largest first, with the running share."
-          onExport={() =>
-            exportCsv(`delay-causes-${data.period.from}_${data.period.to}.csv`, causeRows, [
-              { key: 'cause', header: 'Cause', value: (r) => r.name },
-              { key: 'type', header: 'Type', value: (r) => CAUSE_TYPE_LABEL[r.causeType] || r.causeType },
-              { key: 'count', header: 'Occurrences', value: (r) => r.count },
-              { key: 'hours', header: 'Hours', value: (r) => r.hours },
-              { key: 'share', header: 'SharePct', value: (r) => r.share },
-              { key: 'cum', header: 'CumulativePct', value: (r) => r.cumulative },
-            ])
+      <Grid>
+        <Card
+          title="Delay causes (Pareto)"
+          span={12}
+          takeaway={
+            !top ? undefined : vitalFew === 1 ? (
+              <>
+                <strong>{top.label}</strong> alone is {fmtNum(top.shareOfTotalPct)}% of delay hours
+              </>
+            ) : (
+              <>
+                <strong>{vitalFew} causes</strong> make up {fmtNum(causes[vitalFew - 1]?.cumulativePct)}% of delay hours
+              </>
+            )
           }
-          exportDisabled={!causeRows.length}
-        >
-          {causeRows.length === 0 ? (
-            <Text type="secondary">No delay causes in this period.</Text>
-          ) : (
-            <>
-              <div
-                style={{ ...CHART_BOX, padding: 12, height: chartHeight }}
-              >
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={causeRows} margin={{ top: 8, right: 24, left: 8, bottom: 48 }}>
-                    <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey="name"
-                      tick={AXIS}
-                      interval={0}
-                      angle={-25}
-                      textAnchor="end"
-                      height={60}
-                    />
-                    <YAxis
-                      yAxisId="hours"
-                      tick={AXIS}
-                      label={{ value: 'Hours', angle: -90, position: 'insideLeft', style: AXIS }}
-                    />
-                    <YAxis
-                      yAxisId="pct"
-                      orientation="right"
-                      domain={[0, 100]}
-                      tick={AXIS}
-                      tickFormatter={(v) => `${v}%`}
-                      label={{ value: 'Cumulative %', angle: 90, position: 'insideRight', style: AXIS }}
-                    />
-                    <Tooltip
-                      contentStyle={{ fontSize: 13 }}
-                      formatter={(value: number, name: string) => {
-                        if (name === 'hours' || name === 'Hours') {
-                          return [`${Number(value).toFixed(1)} h`, 'Hours'];
-                        }
-                        if (name === 'cumulative' || name === 'Cumulative %') {
-                          return [`${Number(value).toFixed(1)}%`, 'Cumulative'];
-                        }
-                        return [value, name];
-                      }}
-                    />
-                    <Legend verticalAlign="top" wrapperStyle={{ fontSize: 13, paddingBottom: 6 }} />
-                    <Bar yAxisId="hours" dataKey="hours" name="Hours" fill={HOURS} barSize={28}>
-                      <LabelList
-                        dataKey="hours"
-                        position="top"
-                        formatter={(v: number) => `${Number(v).toFixed(1)}`}
-                        style={{ fontSize: 11, fill: '#334155' }}
-                      />
-                    </Bar>
-                    <Line
-                      yAxisId="pct"
-                      type="monotone"
-                      dataKey="cumulative"
-                      name="Cumulative %"
-                      stroke={CUMULATIVE}
-                      strokeWidth={2}
-                      dot={{ r: 3, fill: CUMULATIVE }}
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
+          info={
+            <div style={{ maxWidth: 340, display: 'grid', gap: 6 }}>
+              <div>
+                Working hours lost to late materials, pause reasons, machine breakdowns and redo work, largest first.
+                The line is the running share; causes up to the {threshold}% line are the few to fix first.
               </div>
-              <ShowDetails>
-                <ResponsiveTable
-                  size="small"
-                  pagination={false}
-                  rowKey={(r) => `${r.causeType}-${r.name}`}
-                  dataSource={causeRows}
-                  columns={[
-                    { title: 'Cause', dataIndex: 'name' },
-                    {
-                      title: 'Type',
-                      dataIndex: 'causeType',
-                      width: 110,
-                      render: (t: string) => <Tag>{CAUSE_TYPE_LABEL[t] || t}</Tag>,
-                    },
-                    {
-                      title: 'Occurrences',
-                      dataIndex: 'count',
-                      width: 110,
-                      align: 'right',
-                      render: (v: number) => formatInt(v),
-                    },
-                    {
-                      title: 'Hours',
-                      dataIndex: 'hours',
-                      width: 100,
-                      align: 'right',
-                      render: (v: number) => `${v.toFixed(1)} h`,
-                    },
-                    {
-                      title: 'Share',
-                      dataIndex: 'share',
-                      width: 90,
-                      align: 'right',
-                      render: (v: number) => `${v.toFixed(1)}%`,
-                    },
-                    {
-                      title: 'Cumulative',
-                      dataIndex: 'cumulative',
-                      width: 110,
-                      align: 'right',
-                      render: (v: number) => `${v.toFixed(1)}%`,
-                    },
-                  ]}
-                />
-              </ShowDetails>
-            </>
-          )}
-        </AnalyticsSection>
-
-        <AnalyticsSection
-          span={5}
-          title="Machine breakdowns by unit"
-          description={
-            <>
-              Only units that broke down in this period.{' '}
-              <span style={{ color: OPEN, fontWeight: 600 }}>Amber</span> = still down.{' '}
-              <span style={{ color: CLOSED, fontWeight: 600 }}>Blue</span> = back in use.
-            </>
-          }
-          onExport={() =>
-            exportCsv(`machine-breakdowns-${data.period.from}_${data.period.to}.csv`, brokenUnits, [
-              { key: 'unit', header: 'Unit', value: (r) => r.machineUnitLabel || r.machineUnitId },
-              { key: 'type', header: 'Type', value: (r) => r.machineTypeCode },
-              { key: 'count', header: 'Occurrences', value: (r) => r.occurrenceCount },
-              { key: 'hours', header: 'MachineBreakdownHours', value: (r) => r.totalDowntimeHours },
-              { key: 'open', header: 'StillDown', value: (r) => r.openCount },
-            ])
-          }
-          exportDisabled={!brokenUnits.length}
-        >
-          {downtimeRows.length === 0 ? (
-            <Text type="secondary">No machine breakdowns in this period.</Text>
-          ) : (
-            <>
-              <div
-                style={{ ...CHART_BOX, padding: 12, height: chartHeight }}
-              >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart layout="vertical" data={downtimeRows} margin={{ top: 8, right: 48, left: 8, bottom: 8 }}>
-                    <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" horizontal={false} />
-                    <XAxis
-                      type="number"
-                      tick={AXIS}
-                      label={{
-                        value: 'Machine breakdown hours',
-                        position: 'insideBottom',
-                        offset: -2,
-                        style: AXIS,
-                      }}
-                      height={40}
-                    />
-                    <YAxis type="category" dataKey="name" width={120} tick={AXIS} />
-                    <Tooltip
-                      contentStyle={{ fontSize: 13 }}
-                      formatter={(value: number) => [
-                        `${Number(value).toFixed(1)} h`,
-                        'Machine breakdown hours',
-                      ]}
-                      labelFormatter={(label, payload) => {
-                        const row = payload?.[0]?.payload as
-                          | { name: string; open: boolean; type?: string | null }
-                          | undefined;
-                        if (!row) return String(label);
-                        return `${row.name}${row.open ? ' · still down' : ''} · ${row.type || ''}`;
-                      }}
-                    />
-                    <Bar dataKey="hours" name="Machine breakdown hours" barSize={16}>
-                      {downtimeRows.map((r) => (
-                        <Cell key={r.name} fill={r.open ? OPEN : CLOSED} />
-                      ))}
-                      <LabelList
-                        dataKey="hours"
-                        position="right"
-                        formatter={(v: number) => `${v.toFixed(1)}h`}
-                        style={{ fontSize: 11, fill: '#334155' }}
-                      />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+              <div>
+                Breaks and end-of-shift pauses are normal non-working time, not delays
+                {excluded?.totalHours ? ` (${fmtNum(excluded.totalHours, 1)} h left out)` : ''}.
               </div>
-              <ShowDetails>
-                <ResponsiveTable
-                  size="small"
-                  pagination={false}
-                  rowKey="machineUnitId"
-                  dataSource={brokenUnits}
-                  columns={[
-                    {
-                      title: 'Unit',
-                      dataIndex: 'machineUnitLabel',
-                      render: (label: string | null, row) => (
-                        <span>
-                          {label || row.machineUnitId.slice(0, 8)}{' '}
-                          {row.openCount > 0 ? <Tag color="orange">Still down</Tag> : null}
-                        </span>
-                      ),
-                    },
-                    { title: 'Type', dataIndex: 'machineTypeCode', width: 100 },
-                    { title: 'Occurrences', dataIndex: 'occurrenceCount', width: 110, align: 'right' },
-                    {
-                      title: 'Machine breakdown hours',
-                      dataIndex: 'totalDowntimeHours',
-                      width: 170,
-                      align: 'right',
-                      render: (v: number | null) => (v == null ? '—' : `${v.toFixed(1)} h`),
-                    },
-                  ]}
-                />
-              </ShowDetails>
-            </>
-          )}
-        </AnalyticsSection>
-      </AnalyticsGrid>
-
-      <AnalyticsGrid>
-        <AnalyticsSection
-          span={6}
-          title="Redo by reason"
-          description="Redo operations finished in this period, by the reason recorded when the work was sent back, with the hours spent redoing it."
-          onExport={() =>
-            exportCsv(`redo-by-reason-${data.period.from}_${data.period.to}.csv`, reworkRows, [
-              { key: 'reason', header: 'Reason', value: (r) => r.label },
-              { key: 'count', header: 'RedoOperations', value: (r) => r.count },
-              { key: 'hours', header: 'RedoHours', value: (r) => r.hours },
-            ])
-          }
-          exportDisabled={!reworkRows.length}
-        >
-          {reworkRows.length === 0 ? (
-            <Text type="secondary">No redo work finished in this period.</Text>
-          ) : (
-            <div style={{ ...CHART_BOX, padding: 12, height: Math.max(180, reworkRows.length * 40 + 70) }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  layout="vertical"
-                  data={reworkRows}
-                  margin={{ top: 8, right: 96, left: 8, bottom: 8 }}
-                >
-                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" horizontal={false} />
-                  <XAxis
-                    type="number"
-                    allowDecimals={false}
-                    tick={AXIS}
-                    label={{ value: 'Redo operations', position: 'insideBottom', offset: -2, style: AXIS }}
-                    height={40}
-                  />
-                  <YAxis type="category" dataKey="label" width={170} tick={AXIS} />
-                  <Tooltip
-                    contentStyle={{ fontSize: 13 }}
-                    formatter={(value: number, _name, item) => [
-                      `${value} · ${(item?.payload?.hours ?? 0).toFixed(1)} h`,
-                      'Redo operations · hours',
-                    ]}
-                  />
-                  <Bar dataKey="count" fill={HOURS} barSize={16} radius={[0, 3, 3, 0]}>
-                    <LabelList
-                      dataKey="count"
-                      position="right"
-                      content={(props) => {
-                        const { x, y, width, height, index } = props;
-                        const row = reworkRows[index as number];
-                        if (!row || x == null || y == null || width == null || height == null) return null;
-                        return (
-                          <text
-                            x={Number(x) + Number(width) + 8}
-                            y={Number(y) + Number(height) / 2}
-                            dy={4}
-                            fill="#334155"
-                            fontSize={11}
-                          >
-                            {`${row.count} · ${(row.hours ?? 0).toFixed(1)} h`}
-                          </text>
-                        );
-                      }}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <div>
+                A "Machine down" pause that overlaps a breakdown on the same machine is counted once
+                {data.breakdownOverlapHours ? ` (${fmtNum(data.breakdownOverlapHours, 1)} h overlap removed)` : ''}.
+              </div>
             </div>
-          )}
-        </AnalyticsSection>
-      </AnalyticsGrid>
-
-      <AnalyticsGrid>
-        <AnalyticsSection
-          title="Material delay by job"
-          description="Jobs moved later because a supplier delivered late, or because materials were not ordered in time. Working hours already lost: from the planned start before the move to the first operation's actual start, or to now if it has not started. Moves made only because a start date passed are not counted."
+          }
           onExport={() =>
-            exportCsv(`material-delay-${data.period.from}_${data.period.to}.csv`, materialDelays, [
-              { key: 'job', header: 'JobOrder', value: (r) => r.jobNumber },
-              { key: 'cause', header: 'Cause', value: (r) => r.causeLabel },
-              { key: 'supplier', header: 'ResponsibleSupplier', value: (r) => r.supplierNames ?? '' },
-              { key: 'po', header: 'PO', value: (r) => r.suppliers.map((s) => s.poNumber).filter(Boolean).join(' ') },
-              { key: 'orig', header: 'OriginalStart', value: (r) => r.originalStart },
-              { key: 'first', header: 'FirstStart', value: (r) => r.firstStart },
-              { key: 'started', header: 'Started', value: (r) => (r.started ? 'Yes' : 'No') },
-              { key: 'hours', header: 'WorkingHours', value: (r) => r.hours },
+            exportCsv('delay-causes-pareto', causes, [
+              { key: 'c', header: 'Cause', value: (r) => r.label },
+              { key: 'h', header: 'Hours', value: (r) => r.hours },
+              { key: 'n', header: 'Times', value: (r) => r.count },
+              { key: 's', header: 'Share %', value: (r) => r.shareOfTotalPct },
+              { key: 'k', header: 'Cumulative %', value: (r) => r.cumulativePct },
             ])
           }
-          exportDisabled={!materialDelays.length}
         >
-          {materialDelays.length === 0 ? (
-            <Text type="secondary">No material delays in this period.</Text>
+          {causes.length ? (
+            <ParetoChart rows={causes} threshold={threshold} vitalFew={vitalFew} height={300} />
           ) : (
-            <ResponsiveTable
-              size="small"
-              pagination={materialDelays.length > 10 ? { pageSize: 10 } : false}
-              rowKey={(r) => `${r.jobOrderId}-${r.cause}`}
-              dataSource={materialDelays}
-              columns={[
-                {
-                  title: 'Job order',
-                  dataIndex: 'jobNumber',
-                  width: 140,
-                  render: (v: string, r) => <Link to={`/job-orders/${r.jobOrderId}`}>{v}</Link>,
-                },
-                {
-                  title: 'Cause',
-                  dataIndex: 'cause',
-                  width: 130,
-                  render: (v: string) =>
-                    v === 'SUPPLIER_LATE' ? <Tag color="red">Supplier late</Tag> : <Tag color="gold">Not ordered</Tag>,
-                },
-                {
-                  title: 'Responsible supplier',
-                  key: 'supplier',
-                  render: (_: unknown, r) =>
-                    r.cause !== 'SUPPLIER_LATE' ? (
-                      <Text type="secondary">Materials not ordered in time</Text>
-                    ) : r.suppliers.length ? (
-                      r.suppliers.map((s) => (
-                        <div key={s.supplierName}>
-                          {s.supplierName}
-                          {s.poNumber ? <Text type="secondary"> · {s.poNumber}</Text> : null}
-                        </div>
-                      ))
-                    ) : (
-                      <Text type="secondary">Materials not ordered</Text>
-                    ),
-                },
-                {
-                  title: 'Planned start',
-                  dataIndex: 'originalStart',
-                  width: 130,
-                  render: (v: string) => fmtShop(v),
-                },
-                {
-                  title: 'First start',
-                  dataIndex: 'firstStart',
-                  width: 150,
-                  render: (v: string, r) => (
-                    <span>
-                      {fmtShop(v)}
-                      {r.started ? null : <Text type="secondary"> (planned)</Text>}
-                    </span>
-                  ),
-                },
-                {
-                  title: 'Delay',
-                  dataIndex: 'hours',
-                  width: 90,
-                  align: 'right',
-                  render: (v: number | null) => (v == null ? '—' : `${v.toFixed(1)} h`),
-                },
-              ]}
-            />
+            <ChartEmpty title="No delay hours in this period" height={220} />
           )}
-        </AnalyticsSection>
-      </AnalyticsGrid>
+        </Card>
 
-      <AnalyticsGrid>
-        <AnalyticsSection
-          title="Late job orders"
-          description="Job orders set For Delivery in this period after their required date, with the delay causes recorded against each over the whole job."
-          onExport={() =>
-            exportCsv(`late-job-orders-${data.period.from}_${data.period.to}.csv`, lateJobs, [
-              { key: 'job', header: 'JobOrder', value: (r) => r.jobNumber },
-              { key: 'client', header: 'Client', value: (r) => r.clientName },
-              { key: 'due', header: 'RequiredDate', value: (r) => r.dueDate },
-              { key: 'delivered', header: 'ForDeliveryDate', value: (r) => r.deliveredDate },
-              { key: 'late', header: 'DaysLate', value: (r) => r.daysLate },
-              {
-                key: 'causes',
-                header: 'Causes',
-                value: (r) =>
-                  r.causes.map((c) => `${causeLabel(c)} ${c.hours.toFixed(1)}h`).join('; ') ||
-                  'None recorded',
-              },
-            ])
+        <Card
+          title="Breakdowns by machine"
+          span={4}
+          takeaway={
+            downtime[0] ? (
+              <>
+                <strong>{downtime[0].machineUnitLabel}</strong> · {fmtNum(downtime[0].totalDowntimeHours, 1)} h
+              </>
+            ) : (
+              'No breakdowns'
+            )
           }
-          exportDisabled={!lateJobs.length}
+          info="Machine breakdown hours, in shop working hours. Red bars are still down."
         >
-          {lateJobs.length === 0 ? (
-            <Text type="secondary">No job orders set For Delivery late in this period.</Text>
-          ) : (
-            <ResponsiveTable
-              size="small"
-              pagination={lateJobs.length > 10 ? { pageSize: 10 } : false}
-              rowKey="jobOrderId"
-              dataSource={lateJobs}
-              columns={[
-                {
-                  title: 'Job order',
-                  dataIndex: 'jobNumber',
-                  width: 140,
-                  render: (v: string, r) => <Link to={`/job-orders/${r.jobOrderId}`}>{v}</Link>,
-                },
-                { title: 'Client', dataIndex: 'clientName', width: 170, render: (v) => v || '—' },
-                { title: 'Required', dataIndex: 'dueDate', width: 120, render: (v: string) => fmtDay(v) },
-                {
-                  title: 'For Delivery',
-                  dataIndex: 'deliveredDate',
-                  width: 120,
-                  render: (v: string) => fmtDay(v),
-                },
-                {
-                  title: 'Days late',
-                  dataIndex: 'daysLate',
-                  width: 90,
-                  align: 'right',
-                  render: (v: number) => <span style={{ color: '#b91c1c', fontWeight: 600 }}>{v}</span>,
-                },
-                {
-                  title: 'Causes',
-                  key: 'causes',
-                  render: (_: unknown, r) =>
-                    r.causes.length ? (
-                      <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                        {r.causes.map((c) => (
-                          <Tag key={c.cause} title={c.detail ?? undefined} style={{ marginInlineEnd: 0 }}>
-                            {causeLabel(c)} {c.hours.toFixed(1)} h
-                            {c.detail ? <span style={{ color: '#64748b' }}> · {c.detail}</span> : null}
-                          </Tag>
-                        ))}
-                      </span>
-                    ) : (
-                      <Text type="secondary">None recorded</Text>
-                    ),
-                },
-              ]}
+          {downtime.length ? (
+            <SortedBars
+              rows={downtime.map((d) => ({
+                key: d.machineUnitId,
+                label: d.machineUnitLabel || d.machineUnitId.slice(0, 8),
+                value: d.totalDowntimeHours ?? 0,
+                display: `${fmtNum(d.totalDowntimeHours, 1)} h`,
+                sub: d.openCount ? 'down now' : `${d.occurrenceCount}×`,
+                color: d.openCount ? PALETTE.bad : PALETTE.primary,
+              }))}
+              limit={8}
             />
+          ) : (
+            <ChartEmpty title="No breakdowns in this period" />
           )}
-        </AnalyticsSection>
-      </AnalyticsGrid>
+        </Card>
 
-      <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-        Machine breakdowns are measured in shop working hours. Where a &ldquo;Machine down&rdquo;
-        pause overlaps a breakdown on the same machine, that time is counted once
-        {data.breakdownOverlapHours ? ` (${data.breakdownOverlapHours.toFixed(1)} h overlap removed)` : ''}.
-        Pause time inside the period is counted even if the operation has not finished.
-      </Text>
-      <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-        Breaks and end-of-shift pauses are normal non-working time and are not counted as delays
-        {excluded && excluded.totalHours
-          ? ` (${(excluded.totalHours ?? 0).toFixed(1)} h left out: ${(excluded.breakHours ?? 0).toFixed(1)} h breaks, ${(excluded.endOfShiftHours ?? 0).toFixed(1)} h end of shift).`
-          : '.'}
-      </Text>
+        <Card
+          title="Redo by reason"
+          span={4}
+          takeaway={
+            rework[0] ? (
+              <>
+                <strong>{rework[0].label}</strong> · {rework[0].count} redo{rework[0].count === 1 ? '' : 's'}
+              </>
+            ) : (
+              'No redo work'
+            )
+          }
+          info="Redo operations finished in this period, by the reason recorded when the work was sent back, with the hours spent redoing it."
+        >
+          {rework.length ? (
+            <SortedBars
+              rows={rework.map((r) => ({
+                key: r.reason,
+                label: r.label,
+                value: r.hours ?? 0,
+                display: `${fmtNum(r.hours, 1)} h`,
+                sub: `${r.count}×`,
+              }))}
+              limit={8}
+            />
+          ) : (
+            <ChartEmpty title="No redo work in this period" />
+          )}
+        </Card>
+
+        <Card
+          title="Material delays"
+          span={4}
+          takeaway={
+            material.length ? (
+              <>
+                <strong>{material.length}</strong> job{material.length === 1 ? '' : 's'} started late for material
+              </>
+            ) : (
+              'None'
+            )
+          }
+          info="Jobs moved later because a supplier delivered late or materials were not ordered in time. Working hours from the planned start before the move to the first actual start (or now). Moves made only because a start date passed are not counted."
+        >
+          {material.length ? (
+            <div className="ana-list">
+              {material.slice(0, 6).map((m) => (
+                <Link key={m.jobOrderId} to={`/job-orders/${m.jobOrderId}`} className="ana-list__row">
+                  <div className="ana-list__main">
+                    <div className="ana-list__title">{m.jobNumber}</div>
+                    <div className="ana-list__sub">
+                      {m.causeLabel}
+                      {m.supplierNames ? ` · ${m.supplierNames}` : ''}
+                    </div>
+                  </div>
+                  <div className="ana-list__end">
+                    <strong>{fmtNum(m.hours, 1)} h</strong>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <ChartEmpty title="No material delays in this period" />
+          )}
+        </Card>
+
+        <Card
+          title="Late jobs"
+          span={12}
+          takeaway={
+            lateJobs.length ? (
+              <>
+                <strong>{lateJobs.length}</strong> delivered late · up to {Math.max(...lateJobs.map((j) => j.daysLate))}{' '}
+                days
+              </>
+            ) : (
+              'No late deliveries'
+            )
+          }
+          takeawayTone={lateJobs.length ? 'bad' : undefined}
+          info="Jobs delivered after the date required, with the delay hours recorded on their operations."
+          onExport={
+            lateJobs.length
+              ? () =>
+                  exportCsv('late-jobs', lateJobs, [
+                    { key: 'j', header: 'Job', value: (r) => r.jobNumber },
+                    { key: 'c', header: 'Client', value: (r) => r.clientName ?? '' },
+                    { key: 'd', header: 'Date required', value: (r) => r.dueDate },
+                    { key: 'v', header: 'Delivered', value: (r) => r.deliveredDate },
+                    { key: 'l', header: 'Days late', value: (r) => r.daysLate },
+                    {
+                      key: 'x',
+                      header: 'Causes',
+                      value: (r) => r.causes.map((c) => `${causeLabel(c)} ${c.hours.toFixed(1)}h`).join('; '),
+                    },
+                  ])
+              : undefined
+          }
+        >
+          {lateJobs.length ? (
+            <div className="ana-table__wrap">
+              <table className="ana-table">
+                <thead>
+                  <tr>
+                    <th>Job</th>
+                    <th>Client</th>
+                    <th>Required</th>
+                    <th>Delivered</th>
+                    <th className="num">Days late</th>
+                    <th>Causes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...lateJobs]
+                    .sort((a, b) => b.daysLate - a.daysLate)
+                    .map((j) => (
+                      <tr key={j.jobOrderId}>
+                        <td className="strong">
+                          <Link to={`/job-orders/${j.jobOrderId}`}>{j.jobNumber}</Link>
+                        </td>
+                        <td>{j.clientName ?? '—'}</td>
+                        <td>{fmtDay(j.dueDate)}</td>
+                        <td>{fmtDay(j.deliveredDate)}</td>
+                        <td className="num strong ana-bad">{j.daysLate}</td>
+                        <td>
+                          <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {j.causes.length ? (
+                              j.causes.slice(0, 3).map((c) => (
+                                <span key={c.cause} className="ana-chip" title={c.detail ?? undefined}>
+                                  {causeLabel(c)} · {fmtNum(c.hours, 1)} h
+                                </span>
+                              ))
+                            ) : (
+                              <span className="ana-muted">No delay recorded</span>
+                            )}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <ChartEmpty title="Every job in this period was delivered on time" height={100} />
+          )}
+        </Card>
+      </Grid>
     </div>
   );
 }

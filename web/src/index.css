@@ -5607,14 +5607,7 @@ a.client-contact__main:hover .client-contact__value {
   }
 }
 
-/* ---------- Analytics dashboard grid ---------- */
-.analytics-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
+/* ---------- Analytics toolbar (tabs + period) ---------- */
 .analytics-page__toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -5623,70 +5616,6 @@ a.client-contact__main:hover .client-contact__value {
   gap: 10px 16px;
   padding: 10px var(--card-pad);
   margin-bottom: 16px;
-}
-
-.analytics-card {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-card);
-  padding: 14px var(--card-pad);
-}
-
-.analytics-card__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 12px;
-  margin-bottom: 10px;
-}
-
-.analytics-card__titles.ant-typography,
-.analytics-card__titles {
-  min-width: 0;
-  flex: 1 1 auto;
-  margin: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--fs-md);
-  font-weight: 700;
-  color: var(--c-text);
-}
-
-.analytics-card__tools {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-left: auto;
-}
-
-.analytics-card__body {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.analytics-capacity-constraint > td {
-  background: #fffbeb;
-}
-
-@media (min-width: 1200px) {
-  .analytics-grid {
-    grid-template-columns: repeat(12, minmax(0, 1fr));
-  }
-
-  .analytics-span-4 { grid-column: span 4; }
-  .analytics-span-5 { grid-column: span 5; }
-  .analytics-span-6 { grid-column: span 6; }
-  .analytics-span-7 { grid-column: span 7; }
-  .analytics-span-8 { grid-column: span 8; }
-  .analytics-span-12 { grid-column: span 12; }
 }
 
 /* Pages whose own cards already keep their spacing: grey background, no flex gap. */

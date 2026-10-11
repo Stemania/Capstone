@@ -294,8 +294,9 @@
     margin: -10px -12px 0 0;
   }
 
-  .analytics-card__tools {
+  .ana-card__tools {
     flex-wrap: wrap;
+    justify-content: flex-end;
     max-width: 100%;
     min-width: 0;
   }

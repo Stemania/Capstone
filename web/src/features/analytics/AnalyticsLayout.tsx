@@ -1,6 +1,8 @@
 import { shopToday } from '../../utils/shopTime';
 import { Suspense, useMemo, useState } from 'react';
-import { DatePicker } from 'antd';
+import { Button, DatePicker, Tooltip } from 'antd';
+import { PrinterOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { PageSkeleton, TabBar } from '../../components/ui';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -9,22 +11,35 @@ import {
   defaultAnalyticsRange,
   type AnalyticsRange,
 } from './analyticsPeriod';
+import './analytics.css';
 
+/** Tabs follow objective 4: describe (Overview, Production), diagnose (Delays),
+ *  predict (Sales & demand, Inventory), prescribe (Suppliers, Workers). */
 const ADMIN_TABS = [
-  { label: 'Production', value: '/analytics' },
+  { label: 'Overview', value: '/analytics' },
+  { label: 'Production', value: '/analytics/production' },
   { label: 'Delays', value: '/analytics/delays' },
-  { label: 'Job orders & sales', value: '/analytics/sales' },
-  { label: 'Forecast', value: '/analytics/forecast' },
+  { label: 'Sales & demand', value: '/analytics/sales' },
+  { label: 'Inventory', value: '/analytics/inventory' },
   { label: 'Suppliers', value: '/analytics/suppliers' },
+  { label: 'Workers', value: '/analytics/workers' },
   { label: 'Reports', value: '/analytics/reports' },
 ];
 
 const OFFICE_TABS = [
-  { label: 'Job orders & sales', value: '/analytics/sales' },
-  { label: 'Forecast', value: '/analytics/forecast' },
-  { label: 'Suppliers & purchasing', value: '/analytics/suppliers' },
+  { label: 'Overview', value: '/analytics' },
+  { label: 'Sales & demand', value: '/analytics/sales' },
+  { label: 'Inventory', value: '/analytics/inventory' },
+  { label: 'Suppliers', value: '/analytics/suppliers' },
   { label: 'Reports', value: '/analytics/reports' },
 ];
+
+const PRESETS = [
+  { label: 'Last 4 weeks', value: () => [shopToday().subtract(4, 'week'), shopToday()] },
+  { label: 'Last 8 weeks', value: () => [shopToday().subtract(8, 'week'), shopToday()] },
+  { label: 'Last 3 months', value: () => [shopToday().subtract(3, 'month'), shopToday()] },
+  { label: 'This year', value: () => [shopToday().startOf('year'), shopToday()] },
+].map((p) => ({ label: p.label, value: p.value() as [dayjs.Dayjs, dayjs.Dayjs] }));
 
 export default function AnalyticsLayout() {
   const [range, setRange] = useState<AnalyticsRange>(defaultAnalyticsRange);
@@ -38,30 +53,36 @@ export default function AnalyticsLayout() {
       tabs[0].value,
     [location.pathname, tabs]
   );
-  const onReports = active === '/analytics/reports';
+  const noPeriod = active === '/analytics/reports' || active === '/analytics/inventory';
 
   return (
     <AnalyticsPeriodProvider range={range} setRange={setRange}>
-      <div className="ui-page ui-page--stack analytics-page">
-        <div className="ui-card analytics-page__toolbar no-print">
+      <div className="ui-page ui-page--stack analytics-page ana">
+        <div className="ui-card analytics-page__toolbar ana-toolbar no-print">
           <TabBar<string>
             items={tabs.map((t) => ({ label: t.label, value: t.value }))}
             value={active}
             onChange={(v) => navigate(v)}
           />
-          {!onReports && (
-            <DatePicker.RangePicker
-              value={range}
-              allowClear={false}
-              format="MMM D, YYYY"
-              aria-label="Period"
-              onChange={(vals) => {
-                if (vals?.[0] && vals?.[1]) {
-                  setRange([vals[0].startOf('day'), vals[1].endOf('day')]);
-                }
-              }}
-              disabledDate={(d) => d.isAfter(shopToday(), 'day')}
-            />
+          {!noPeriod && (
+            <div className="ana-toolbar__right">
+              <DatePicker.RangePicker
+                value={range}
+                allowClear={false}
+                format="MMM D, YYYY"
+                aria-label="Period"
+                presets={PRESETS}
+                onChange={(vals) => {
+                  if (vals?.[0] && vals?.[1]) {
+                    setRange([vals[0].startOf('day'), vals[1].endOf('day')]);
+                  }
+                }}
+                disabledDate={(d) => d.isAfter(shopToday(), 'day')}
+              />
+              <Tooltip title="Print this tab">
+                <Button icon={<PrinterOutlined />} aria-label="Print this tab" onClick={() => window.print()} />
+              </Tooltip>
+            </div>
           )}
         </div>
         <Suspense fallback={<PageSkeleton />}>

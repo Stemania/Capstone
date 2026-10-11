@@ -1,255 +1,353 @@
-import { useEffect, useState } from 'react';
-import { message } from 'antd';
-import {
-  CartesianGrid,
-  ComposedChart,
-  Legend,
-  Line,
-  Bar,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
-import { analyticsApi } from '../../api/analytics.api';
-import { chart } from '../../theme/tokens';
-import { getErrorMessage } from '../../api/client';
-import type { AnalyticsOverview, AnalyticsTrend } from '../../types';
-import { exportCsv } from '../../utils/csvExport';
-import { AnalyticsPeriodNote, SummaryCard } from './AnalyticsChrome';
-import { AnalyticsGrid, AnalyticsSection, CHART_BOX } from './AnalyticsSection';
-import PerformanceSection from './PerformanceSection';
-import {
-  formatDifferenceFromTarget,
-  formatInt,
-  formatPct,
-  useAnalyticsPeriod,
-} from './analyticsPeriod';
+import { Link } from 'react-router-dom';
+import StatusPill from '../../components/StatusPill';
 import { PageSkeleton } from '../../components/ui';
-
-const AXIS = { fontSize: 13, fill: '#334155' };
-const GRID = chart.grid;
+import { fmtDay, fmtNum, fmtPesoCompact, onTimePct, pctChange, ptsChange } from './format';
+import { Card, ChartEmpty, Grid, Kpi, Kpis, LineTrend, PALETTE, SortedBars } from './kit';
+import {
+  CardLoading,
+  DemandForecastCard,
+  FLAG,
+  RingCard,
+  SalesForecastCard,
+  StockAlertsCard,
+  finishOf,
+  scoredSuppliers,
+  slackText,
+  stockCounts,
+} from './cards';
+import {
+  useCompletion,
+  useConsumables,
+  useDelays,
+  useDemandForecast,
+  useIsAdmin,
+  useJobOrders,
+  useOverview,
+  usePeriods,
+  useReliability,
+  useSalesForecast,
+  useSalesSummary,
+  useTrend,
+} from './sources';
 
 export default function AnalyticsOverviewPage() {
-  const { params } = useAnalyticsPeriod();
-  const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
-  const [trend, setTrend] = useState<AnalyticsTrend | null>(null);
-  const [loading, setLoading] = useState(true);
+  return useIsAdmin() ? <AdminOverview /> : <OfficeOverview />;
+}
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const [o, t] = await Promise.all([
-          analyticsApi.overview(params),
-          analyticsApi.trend(params),
-        ]);
-        if (!cancelled) {
-          setOverview(o.data);
-          setTrend(t.data);
-        }
-      } catch (err) {
-        if (!cancelled) message.error(getErrorMessage(err));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [params.from, params.to]);
+function AdminOverview() {
+  const { period, previous } = usePeriods();
+  const overview = useOverview(period).data;
+  const overviewPrev = useOverview(previous).data;
+  const sales = useSalesSummary(period).data;
+  const salesPrev = useSalesSummary(previous).data;
+  const jobs = useJobOrders(period).data;
+  const jobsPrev = useJobOrders(previous).data;
+  const delays = useDelays(period).data;
+  const delaysPrev = useDelays(previous).data;
+  const trend = useTrend(period).data;
+  const salesForecast = useSalesForecast().data;
+  const demand = useDemandForecast().data;
+  const stock = useConsumables().data;
+  const completion = useCompletion().data;
 
-  if (loading && !overview) {
-    return (
-      <PageSkeleton variant="cards" />
-    );
-  }
+  if (!overview) return <PageSkeleton variant="cards" />;
 
-  if (!overview || !trend) return null;
-
-  const delivered = overview.jobs.onTime + overview.jobs.late;
-  const onTimeRate = delivered > 0 ? (overview.jobs.onTime / delivered) * 100 : null;
-
-  const chartData = trend.weeks.map((w) => ({
-    week: w.weekStart.slice(5),
-    weekFull: w.weekStart,
-    variance: w.averageVariancePct,
-    operations: w.operationCount,
+  const onTime = onTimePct(overview.jobs.onTime, overview.jobs.late);
+  const onTimePrev = overviewPrev ? onTimePct(overviewPrev.jobs.onTime, overviewPrev.jobs.late) : null;
+  const counts = stockCounts(stock);
+  const causes = (delays?.causes ?? []).filter((c) => (c.hours ?? 0) > 0);
+  const atRisk = (completion?.jobs ?? []).filter((j) => j.flag === 'RED' || j.flag === 'AMBER');
+  const weeks = (trend?.weeks ?? []).map((w) => ({
+    label: fmtDay(w.weekStart),
+    tipLabel: `Week of ${fmtDay(w.weekStart)}`,
     jobs: w.jobsFinished,
+    ops: w.operationCount,
   }));
+  const totalJobsInTrend = weeks.reduce((s, w) => s + w.jobs, 0);
 
   return (
     <div>
-      <AnalyticsPeriodNote
-        from={overview.period.from}
-        to={overview.period.to}
-        excludedOperationCount={overview.excludedOperationCount}
-      />
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-          gap: 12,
-          marginBottom: 16,
-        }}
-      >
-        <SummaryCard
+      <Kpis>
+        <Kpi
           label="Jobs finished"
-          value={formatInt(overview.jobs.completed)}
-          hint={`${overview.jobs.onTime} on time · ${overview.jobs.late} late · ${overview.jobs.awaitingDelivery} not yet set For Delivery`}
+          value={fmtNum(overview.jobs.completed)}
+          delta={overviewPrev ? pctChange(overview.jobs.completed, overviewPrev.jobs.completed) : undefined}
         />
-        <SummaryCard
+        <Kpi
           label="On time"
-          value={formatPct(onTimeRate, 0)}
-          hint="Share of jobs set For Delivery by the date required (excludes jobs not yet set For Delivery)"
+          value={onTime == null ? '—' : fmtNum(onTime)}
+          unit={onTime == null ? undefined : '%'}
+          delta={ptsChange(onTime, onTimePrev)}
+          deltaUnit="pts"
+          info="Delivered jobs with a delivery date on or before the date required."
         />
-        <SummaryCard
-          label="Average days late"
-          value={
-            overview.jobs.averageDaysLate == null
-              ? '—'
-              : `${overview.jobs.averageDaysLate.toFixed(1)} days`
-          }
-          hint={
-            overview.jobs.late > 0
-              ? `Longest ${formatInt(overview.jobs.maxDaysLate)} days · ${formatInt(overview.jobs.late)} late jobs`
-              : 'No late jobs in this period'
-          }
+        <Kpi
+          label="Sales"
+          value={fmtPesoCompact(sales?.totalAmount)}
+          delta={sales && salesPrev ? pctChange(sales.totalAmount, salesPrev.totalAmount) : undefined}
         />
-        <SummaryCard
-          label="Average difference from target"
-          value={formatDifferenceFromTarget(null, overview.efficiency.averageVariancePct)}
-          hint={`${overview.efficiency.completedOperationsWithVariance} finished operations that had a target time`}
+        <Kpi
+          label="Job orders in"
+          value={fmtNum(jobs?.received.count)}
+          delta={jobs && jobsPrev ? pctChange(jobs.received.count, jobsPrev.received.count) : undefined}
         />
-        <SummaryCard
-          label="Redo share of hours"
-          value={formatPct(overview.rework.shareOfTotalWorkedHoursPct)}
-          hint={`${formatInt(overview.rework.count)} redo jobs · ${formatNumHours(overview.rework.workedHours)} h`}
+        <Kpi
+          label="Delay hours"
+          value={fmtNum(delays?.totalDelayHours, 1)}
+          delta={delays && delaysPrev ? pctChange(delays.totalDelayHours, delaysPrev.totalDelayHours) : undefined}
+          better="down"
         />
-        <SummaryCard
-          label="Redo rate"
-          value={formatPct(overview.rework.redoRatePct)}
-          hint={`${formatInt(overview.rework.finishedRedoOperationCount)} redo of ${formatInt(overview.rework.finishedOperationCount)} finished operations`}
+        <Kpi
+          label="To reorder"
+          value={fmtNum(counts.LIKELY_OUT + counts.REORDER_NOW)}
+          valueTone={counts.LIKELY_OUT + counts.REORDER_NOW ? 'amber' : undefined}
+          sub="consumables, now"
         />
-        <SummaryCard
-          label="Machines broken down now"
-          value={formatInt(overview.downtime.openCount)}
-          hint="Machine units currently stopped for breakdown"
-        />
-      </div>
+      </Kpis>
 
-      <AnalyticsGrid>
-        <AnalyticsSection
-          span={12}
-          title="Weekly difference from target"
-          description="Bars show how many operations and job orders finished that week (weeks start Monday, Manila time). The line shows how far those operations ran from their target time. Weeks with no target times are left blank on the line."
-          onExport={() =>
-            exportCsv(
-              `weekly-difference-from-target-${overview.period.from}_${overview.period.to}.csv`,
-              trend.weeks,
-              [
-                { key: 'week', header: 'WeekStarting', value: (r) => r.weekStart },
-                { key: 'ops', header: 'FinishedOperations', value: (r) => r.operationCount },
-                { key: 'jobs', header: 'JobsFinished', value: (r) => r.jobsFinished },
-                { key: 'var', header: 'DifferenceFromTargetPct', value: (r) => r.averageVariancePct },
-              ]
-            )
+      <Grid>
+        <SalesForecastCard data={salesForecast} height={210} />
+        <DemandForecastCard data={demand} height={210} compact />
+
+        <Card
+          title="Weekly output"
+          span={4}
+          takeaway={
+            trend ? (
+              <>
+                <strong>{totalJobsInTrend}</strong> jobs finished in {weeks.length} weeks
+              </>
+            ) : undefined
           }
-          exportDisabled={!trend.weeks.length}
         >
-          <div style={{ ...CHART_BOX, padding: '16px 8px 8px', height: 320 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
-                <CartesianGrid stroke={GRID} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="week"
-                  tick={AXIS}
-                  label={{ value: 'Week starting', position: 'insideBottom', offset: -2, style: AXIS }}
-                  height={48}
-                />
-                <YAxis
-                  yAxisId="var"
-                  tick={AXIS}
-                  tickFormatter={(v) => `${v}%`}
-                  label={{ value: 'Percent vs target', angle: -90, position: 'insideLeft', style: AXIS }}
-                  width={64}
-                />
-                <YAxis
-                  yAxisId="ops"
-                  orientation="right"
-                  tick={AXIS}
-                  allowDecimals={false}
-                  label={{ value: 'Finished count', angle: 90, position: 'insideRight', style: AXIS }}
-                  width={56}
-                />
-                <Tooltip
-                  contentStyle={{ fontSize: 13 }}
-                  formatter={(value: number, name: string) => {
-                    if (name === 'variance')
-                      return [formatDifferenceFromTarget(null, value), 'Average difference from target'];
-                    if (name === 'operations') return [value, 'Finished operations'];
-                    if (name === 'jobs') return [value, 'Jobs finished'];
-                    return [value, name];
-                  }}
-                  labelFormatter={(_, payload) =>
-                    payload?.[0]?.payload?.weekFull ? `Week of ${payload[0].payload.weekFull}` : ''
-                  }
-                />
-                <Legend
-                  verticalAlign="top"
-                  wrapperStyle={{ fontSize: 13, paddingBottom: 6 }}
-                  formatter={(value) =>
-                    value === 'variance'
-                      ? 'Average difference from target'
-                      : value === 'operations'
-                        ? 'Finished operations'
-                        : value === 'jobs'
-                          ? 'Jobs finished'
-                          : value
-                  }
-                />
-                <Bar
-                  yAxisId="ops"
-                  dataKey="operations"
-                  name="operations"
-                  fill="#94a3b8"
-                  barSize={18}
-                  radius={[3, 3, 0, 0]}
-                />
-                <Bar
-                  yAxisId="ops"
-                  dataKey="jobs"
-                  name="jobs"
-                  fill="#c9a227"
-                  barSize={18}
-                  radius={[3, 3, 0, 0]}
-                />
-                <Line
-                  yAxisId="var"
-                  type="monotone"
-                  dataKey="variance"
-                  name="variance"
-                  stroke="#0f1c2e"
-                  strokeWidth={2.5}
-                  dot={{ r: 4, fill: '#0f1c2e' }}
-                  connectNulls={false}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        </AnalyticsSection>
-      </AnalyticsGrid>
+          {!trend ? (
+            <CardLoading />
+          ) : weeks.length < 2 ? (
+            <ChartEmpty title="Not enough weeks yet" text="Pick a longer period." />
+          ) : (
+            <LineTrend
+              rows={weeks}
+              height={180}
+              series={[{ key: 'jobs', label: 'Jobs finished', color: PALETTE.primary }]}
+              tipFormat={(_, v) => fmtNum(v)}
+            />
+          )}
+        </Card>
 
-      <AnalyticsGrid>
-        <PerformanceSection span={12} />
-      </AnalyticsGrid>
+        <Card
+          title="Top delay causes"
+          span={4}
+          takeaway={
+            causes[0] ? (
+              <>
+                <strong>{causes[0].label}</strong> · {fmtNum(causes[0].shareOfTotalPct)}% of delay hours
+              </>
+            ) : delays ? (
+              'No delays recorded'
+            ) : undefined
+          }
+          controls={
+            <Link to="/analytics/delays" className="ana-muted" style={{ fontSize: 12 }}>
+              Pareto
+            </Link>
+          }
+        >
+          {!delays ? (
+            <CardLoading />
+          ) : !causes.length ? (
+            <ChartEmpty title="No delay hours in this period" />
+          ) : (
+            <SortedBars
+              rows={causes.map((c, i) => ({
+                key: c.cause,
+                label: c.label,
+                value: c.hours ?? 0,
+                display: `${fmtNum(c.hours, 1)} h`,
+                color: i < (delays.vitalFewCount ?? 1) ? PALETTE.primary : PALETTE.muted,
+              }))}
+              limit={5}
+            />
+          )}
+        </Card>
+
+        <Card
+          title="Open jobs at risk"
+          span={4}
+          takeaway={
+            completion ? (
+              atRisk.length ? (
+                <>
+                  <strong>{atRisk.length}</strong> of {completion.jobs.length} may miss the date required
+                </>
+              ) : (
+                `All ${completion.jobs.length} open jobs on track`
+              )
+            ) : undefined
+          }
+          takeawayTone={atRisk.length ? 'bad' : undefined}
+          controls={
+            <Link to="/analytics/production" className="ana-muted" style={{ fontSize: 12 }}>
+              All jobs
+            </Link>
+          }
+        >
+          {!completion ? (
+            <CardLoading />
+          ) : !atRisk.length ? (
+            <ChartEmpty title="Nothing at risk" text="Predicted finishes are on or before the dates required." />
+          ) : (
+            <div className="ana-list">
+              {atRisk.slice(0, 5).map((j) => (
+                <Link key={j.jobOrderId} to={`/job-orders/${j.jobOrderId}`} className="ana-list__row">
+                  <div className="ana-list__main">
+                    <div className="ana-list__title">{j.jobNumber}</div>
+                    <div className="ana-list__sub">
+                      Due {fmtDay(j.dueDate)} · finish {fmtDay(finishOf(j))}
+                    </div>
+                  </div>
+                  <div className="ana-list__end">
+                    <StatusPill tone={FLAG[j.flag ?? 'GREEN'].tone} compact>
+                      {slackText(j.slackDays)}
+                    </StatusPill>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <StockAlertsCard data={stock} span={12} />
+      </Grid>
     </div>
   );
 }
 
-function formatNumHours(v: number | null | undefined) {
-  if (v == null || Number.isNaN(v)) return '—';
-  return v.toFixed(1);
+const OPEN_LABEL: Record<string, string> = {
+  DRAFT: 'Being planned',
+  SCHEDULED: 'Scheduled',
+  IN_PROGRESS: 'In progress',
+  COMPLETED: 'Awaiting delivery',
+};
+
+function OfficeOverview() {
+  const { period, previous } = usePeriods();
+  const jobs = useJobOrders(period).data;
+  const jobsPrev = useJobOrders(previous).data;
+  const sales = useSalesSummary(period).data;
+  const salesPrev = useSalesSummary(previous).data;
+  const salesForecast = useSalesForecast().data;
+  const demand = useDemandForecast().data;
+  const stock = useConsumables().data;
+  const reliability = useReliability(period).data;
+
+  if (!jobs) return <PageSkeleton variant="cards" />;
+
+  const onTime = onTimePct(jobs.delivered.onTime, jobs.delivered.late);
+  const onTimePrev = jobsPrev ? onTimePct(jobsPrev.delivered.onTime, jobsPrev.delivered.late) : null;
+  const counts = stockCounts(stock);
+  const open = Object.keys(OPEN_LABEL).map((status) => ({
+    key: status,
+    label: OPEN_LABEL[status],
+    value: jobs.openNow.byStatus[status as keyof typeof jobs.openNow.byStatus] ?? 0,
+  }));
+  const openTotal = open.reduce((s, r) => s + r.value, 0);
+  const { scored } = scoredSuppliers(reliability);
+
+  return (
+    <div>
+      <Kpis>
+        <Kpi
+          label="Job orders in"
+          value={fmtNum(jobs.received.count)}
+          delta={jobsPrev ? pctChange(jobs.received.count, jobsPrev.received.count) : undefined}
+        />
+        <Kpi
+          label="Delivered"
+          value={fmtNum(jobs.delivered.count)}
+          delta={jobsPrev ? pctChange(jobs.delivered.count, jobsPrev.delivered.count) : undefined}
+        />
+        <Kpi
+          label="On time"
+          value={onTime == null ? '—' : fmtNum(onTime)}
+          unit={onTime == null ? undefined : '%'}
+          delta={ptsChange(onTime, onTimePrev)}
+          deltaUnit="pts"
+          info="Delivered jobs with a delivery date on or before the date required."
+        />
+        <Kpi
+          label="Sales"
+          value={fmtPesoCompact(sales?.totalAmount)}
+          delta={sales && salesPrev ? pctChange(sales.totalAmount, salesPrev.totalAmount) : undefined}
+        />
+        <Kpi
+          label="Pipeline"
+          value={fmtPesoCompact(salesForecast?.committedPipeline.totalAmount)}
+          sub={salesForecast ? `${salesForecast.committedPipeline.jobCount} released, not finished` : undefined}
+          info="Amount of released jobs not yet completed."
+        />
+        <Kpi
+          label="To reorder"
+          value={fmtNum(counts.LIKELY_OUT + counts.REORDER_NOW)}
+          valueTone={counts.LIKELY_OUT + counts.REORDER_NOW ? 'amber' : undefined}
+          sub="consumables, now"
+        />
+      </Kpis>
+
+      <Grid>
+        <SalesForecastCard data={salesForecast} height={210} />
+        <DemandForecastCard data={demand} height={210} compact />
+
+        <Card
+          title="Open jobs by status"
+          span={4}
+          chip="Now"
+          takeaway={
+            <>
+              <strong>{openTotal}</strong> open · {jobs.openNow.pastDateRequired} past date required
+            </>
+          }
+          takeawayTone={jobs.openNow.pastDateRequired ? 'bad' : undefined}
+        >
+          {openTotal ? (
+            <SortedBars rows={open} sort={false} />
+          ) : (
+            <ChartEmpty title="No open jobs" />
+          )}
+        </Card>
+
+        <Card
+          title="Supplier scores"
+          span={4}
+          takeaway={
+            scored[0] ? (
+              <>
+                Best: <strong>{scored[0].supplierName}</strong> · {Math.round(scored[0].score ?? 0)}
+              </>
+            ) : reliability ? (
+              'Not enough deliveries yet'
+            ) : undefined
+          }
+          controls={
+            <Link to="/analytics/suppliers" className="ana-muted" style={{ fontSize: 12 }}>
+              All suppliers
+            </Link>
+          }
+        >
+          {!reliability ? (
+            <CardLoading />
+          ) : !scored.length ? (
+            <ChartEmpty title="Not enough deliveries" text="Scores need 3 deliveries due in the period." />
+          ) : (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {scored.slice(0, 3).map((s) => (
+                <RingCard key={s.supplierId} s={s} size={56} />
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <StockAlertsCard data={stock} span={4} />
+      </Grid>
+    </div>
+  );
 }
