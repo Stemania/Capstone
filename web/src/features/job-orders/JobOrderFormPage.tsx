@@ -35,6 +35,7 @@ export default function JobOrderFormPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const fromPlanning = searchParams.get('from') === 'plan';
+  const presetClientId = !id ? searchParams.get('client') : null;
   const [form] = Form.useForm();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(isEdit);
@@ -47,7 +48,9 @@ export default function JobOrderFormPage() {
   const { isAdmin } = useAuth();
   const released = jobStatus != null && jobStatus !== 'DRAFT';
   const backTo = !id
-    ? jobOrdersDraftsListPath()
+    ? presetClientId
+      ? `/clients/${presetClientId}`
+      : jobOrdersDraftsListPath()
     : fromPlanning
       ? `/job-orders/${id}/plan`
       : `/job-orders/${id}`;
@@ -102,6 +105,11 @@ export default function JobOrderFormPage() {
       cancelled = true;
     };
   }, [id, isEdit]);
+
+  useEffect(() => {
+    if (!presetClientId || form.getFieldValue('clientId')) return;
+    if (clients.some((c) => c.id === presetClientId)) form.setFieldValue('clientId', presetClientId);
+  }, [clients, form, presetClientId]);
 
   // The <Form> only mounts once loading ends, so fill it after that render.
   useEffect(() => {

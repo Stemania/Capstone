@@ -17,7 +17,7 @@ import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import OverdueTag from '../../components/OverdueTag';
 import StatusPill from '../../components/StatusPill';
-import { IdChip, PageSkeleton } from '../../components/ui';
+import { IdChip, Page, PageSkeleton, SectionCard } from '../../components/ui';
 import { GradeInput } from '../../components/MaterialInputs';
 import type { DeliveryMode, MaterialPurchase, SupplierOrder } from '../../types';
 import OrderMaterialsModal from './OrderMaterialsModal';
@@ -355,293 +355,302 @@ export default function SupplierOrderDetailPage() {
   ];
 
   return (
-    <div>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          gap: 12,
-          flexWrap: 'wrap',
-          marginBottom: 16,
-        }}
-      >
-        <Space wrap align="center">
-          {order.poNumber ? <IdChip>{order.poNumber}</IdChip> : null}
-          <span style={{ fontWeight: 700, fontSize: 'var(--fs-title)', color: 'var(--c-text)' }}>
-            {order.poNumber ? order.supplierName : `Draft order · ${order.supplierName}`}
-          </span>
-          <StatusPill color={pill.color}>{pill.label}</StatusPill>
-        </Space>
-        <Space wrap className="m-action-bar">
-          {editableDraft ? (
-            <Button icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>
-              Add lines
-            </Button>
-          ) : null}
-          {isDraft ? (
-            <Tooltip
-              title={isOfficeStaff ? undefined : 'Only Office Staff can issue a supplier order.'}
-            >
-              <Button
-                type="primary"
-                icon={<CheckOutlined />}
-                disabled={!isOfficeStaff || busy || lines.length === 0 || draftDirty}
-                onClick={issue}
-              >
-                Issue order
-              </Button>
-            </Tooltip>
-          ) : null}
-          {receivableByMe ? (
-            <Button
-              type="primary"
-              icon={<CheckOutlined />}
-              disabled={!openLines.length || busy}
-              onClick={receiveOrder}
-            >
-              Receive order
-            </Button>
-          ) : null}
-          <Tooltip
-            title={
-              isDraft
-                ? 'Issue the order before printing'
-                : cancelled
-                  ? 'A cancelled order cannot be printed'
-                  : undefined
-            }
-          >
-            <Button
-              icon={<PrinterOutlined />}
-              disabled={isDraft || cancelled}
-              onClick={() => navigate(`/supplier-orders/${order.id}/print`)}
-            >
-              Print PO
-            </Button>
-          </Tooltip>
-          {isOfficeStaff && (order.status === 'DRAFT' || order.status === 'ISSUED') ? (
-            <Button danger icon={<StopOutlined />} disabled={busy} onClick={cancelOrder}>
-              Cancel order
-            </Button>
-          ) : null}
-        </Space>
-      </div>
-
-      <Descriptions
-        size="small"
-        bordered
-        column={{ xs: 1, md: 3 }}
-        style={{ marginBottom: 16, background: '#fff' }}
-        items={[
-          { key: 'po', label: 'PO number', children: order.poNumber || 'Assigned on issue' },
-          { key: 'issued', label: 'Date issued', children: fmtDay(order.dateIssued) },
-          {
-            key: 'exp',
-            label: 'Expected delivery',
-            children: (
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  {!order.expectedDeliveryDate ? (
-                    `Issue date + ${order.supplierLeadTimeDays ?? '—'} days`
-                  ) : order.originalExpectedDeliveryDate ? (
-                    <>
-                      <div>
-                        <span style={{ color: '#64748b' }}>Currently expected:</span>{' '}
-                        <strong>{fmtDay(order.expectedDeliveryDate)}</strong>
-                      </div>
-                      <div>
-                        <span style={{ color: '#64748b' }}>Originally expected:</span>{' '}
-                        {fmtDay(order.originalExpectedDeliveryDate)}
-                      </div>
-                    </>
-                  ) : (
-                    fmtDay(order.expectedDeliveryDate)
-                  )}
-                  {order.daysOverdue ? (
-                    <div style={{ marginTop: 4 }}>
-                      <OverdueTag
-                        days={order.daysOverdue}
-                        tooltip="Not received by the expected date. Follow up with the supplier."
-                      />
-                    </div>
-                  ) : null}
-                </div>
-                {receivable ? (
-                  <Tooltip
-                    title={
-                      isOfficeStaff
-                        ? 'Change expected delivery date'
-                        : 'Only Office Staff can change the expected delivery date.'
-                    }
-                  >
-                    <Button
-                      size="small"
-                      type="text"
-                      icon={<EditOutlined />}
-                      aria-label="Change expected delivery date"
-                      disabled={!isOfficeStaff || busy}
-                      onClick={openDateChange}
-                    />
-                  </Tooltip>
-                ) : null}
-              </div>
-            ),
-          },
-          { key: 'prep', label: 'Prepared by', children: order.preparedByName || '—' },
-          { key: 'iss', label: 'Issued by', children: order.issuedByName || '—' },
-          { key: 'rec', label: 'Received', children: fmtDay(order.receivedDate) },
-          { key: 'sub', label: 'Subtotal', children: fmtMoney(order.subtotal) },
-          {
-            key: 'vat',
-            label: 'VAT',
-            children: editableDraft ? (
-              <InputNumber
-                size="small"
-                min={0}
-                max={100}
-                placeholder="None"
-                value={vatRate}
-                onChange={(v) => setVatRate(v)}
-                addonAfter="%"
-                style={{ width: 120 }}
-              />
-            ) : order.vatRate ? (
-              `${order.vatRate}%`
-            ) : (
-              'None'
-            ),
-          },
-          {
-            key: 'terms',
-            label: 'Terms of payment',
-            children: printTermsEditable ? (
-              <Input
-                size="small"
-                maxLength={100}
-                value={terms}
-                disabled={busy}
-                onChange={(e) => setTerms(e.target.value)}
-                onBlur={commitTerms}
-                onPressEnter={commitTerms}
-                style={{ width: 180 }}
-              />
-            ) : (
-              order.termsOfPayment || 'PDC'
-            ),
-          },
-          {
-            key: 'mode',
-            label: 'Mode of delivery',
-            children: printTermsEditable ? (
-              <Select<DeliveryMode>
-                size="small"
-                value={order.deliveryMode || 'DELIVERY'}
-                disabled={busy}
-                onChange={(v) => void savePrintTerms({ deliveryMode: v })}
-                options={DELIVERY_MODE_OPTIONS}
-                style={{ width: 140 }}
-              />
-            ) : (
-              DELIVERY_MODE_OPTIONS.find((o) => o.value === (order.deliveryMode || 'DELIVERY'))
-                ?.label
-            ),
-          },
-          {
-            key: 'notes',
-            label: 'Notes',
-            children: editableDraft ? (
-              <Input.TextArea
-                autoSize={{ minRows: 1, maxRows: 4 }}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
-            ) : (
-              order.notes || '—'
-            ),
-          },
-        ]}
-      />
-
-      {order.expectedDeliveryChanges && order.expectedDeliveryChanges.length > 0 ? (
+    <Page className="so-detail-page">
+      <section className="ui-card so-detail__head">
         <div
           style={{
-            background: '#fff',
-            border: '1px solid #e2e8f0',
-            borderRadius: 8,
-            padding: '10px 14px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 12,
+            flexWrap: 'wrap',
             marginBottom: 16,
           }}
         >
-          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
-            Expected delivery changes
-          </div>
-          {order.expectedDeliveryChanges.map((c, i) => (
-            <div
-              key={`${c.changedAt}-${i}`}
-              style={{
-                fontSize: 13,
-                padding: '6px 0',
-                borderTop: i ? '1px solid #f1f5f9' : undefined,
-              }}
-            >
-              <div>
-                {fmtDay(c.from)} → <strong>{fmtDay(c.to)}</strong>
-                {c.note ? <span style={{ color: '#334155' }}> · {c.note}</span> : null}
-              </div>
-              <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                {c.changedByName || 'Unknown'}
-                {c.changedAt ? `, ${formatShop(c.changedAt, 'D MMM YYYY, h:mm A')}` : ''}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {draftDirty ? (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          title="Notes or VAT changed"
-          action={
-            <Button
-              size="small"
-              type="primary"
-              loading={busy}
-              onClick={() =>
-                run(() => supplierOrdersApi.update(order.id, { notes, vatRate }), 'Order saved').catch(
-                  () => {}
-                )
+          <Space wrap align="center">
+            {order.poNumber ? <IdChip>{order.poNumber}</IdChip> : null}
+            <span style={{ fontWeight: 700, fontSize: 'var(--fs-title)', color: 'var(--c-text)' }}>
+              {order.poNumber ? order.supplierName : `Draft order · ${order.supplierName}`}
+            </span>
+            <StatusPill color={pill.color}>{pill.label}</StatusPill>
+          </Space>
+          <Space wrap className="m-action-bar">
+            {editableDraft ? (
+              <Button icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>
+                Add lines
+              </Button>
+            ) : null}
+            {isDraft ? (
+              <Tooltip
+                title={isOfficeStaff ? undefined : 'Only Office Staff can issue a supplier order.'}
+              >
+                <Button
+                  type="primary"
+                  icon={<CheckOutlined />}
+                  disabled={!isOfficeStaff || busy || lines.length === 0 || draftDirty}
+                  onClick={issue}
+                >
+                  Issue order
+                </Button>
+              </Tooltip>
+            ) : null}
+            {receivableByMe ? (
+              <Button
+                type="primary"
+                icon={<CheckOutlined />}
+                disabled={!openLines.length || busy}
+                onClick={receiveOrder}
+              >
+                Receive order
+              </Button>
+            ) : null}
+            <Tooltip
+              title={
+                isDraft
+                  ? 'Issue the order before printing'
+                  : cancelled
+                    ? 'A cancelled order cannot be printed'
+                    : undefined
               }
             >
-              Save
-            </Button>
-          }
-        />
-      ) : null}
+              <Button
+                icon={<PrinterOutlined />}
+                disabled={isDraft || cancelled}
+                onClick={() => navigate(`/supplier-orders/${order.id}/print`)}
+              >
+                Print PO
+              </Button>
+            </Tooltip>
+            {isOfficeStaff && (order.status === 'DRAFT' || order.status === 'ISSUED') ? (
+              <Button danger icon={<StopOutlined />} disabled={busy} onClick={cancelOrder}>
+                Cancel order
+              </Button>
+            ) : null}
+          </Space>
+        </div>
 
-      {!isDraft && order.status !== 'CANCELLED' ? (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          title={
-            order.status === 'PARTIALLY_RECEIVED'
-              ? 'Part of this order was received earlier. Complete it with Receive order.'
-              : 'Lines are locked after issue. To change the order, cancel it and issue a new one. Deliveries arrive complete: Receive order receives every line on one date.'
-          }
+        <Descriptions
+          size="small"
+          bordered
+          column={{ xs: 1, md: 3 }}
+          style={{ background: '#fff' }}
+          items={[
+            { key: 'po', label: 'PO number', children: order.poNumber || 'Assigned on issue' },
+            { key: 'issued', label: 'Date issued', children: fmtDay(order.dateIssued) },
+            {
+              key: 'exp',
+              label: 'Expected delivery',
+              children: (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {!order.expectedDeliveryDate ? (
+                      `Issue date + ${order.supplierLeadTimeDays ?? '—'} days`
+                    ) : order.originalExpectedDeliveryDate ? (
+                      <>
+                        <div>
+                          <span style={{ color: '#64748b' }}>Currently expected:</span>{' '}
+                          <strong>{fmtDay(order.expectedDeliveryDate)}</strong>
+                        </div>
+                        <div>
+                          <span style={{ color: '#64748b' }}>Originally expected:</span>{' '}
+                          {fmtDay(order.originalExpectedDeliveryDate)}
+                        </div>
+                      </>
+                    ) : (
+                      fmtDay(order.expectedDeliveryDate)
+                    )}
+                    {order.daysOverdue ? (
+                      <div style={{ marginTop: 4 }}>
+                        <OverdueTag
+                          days={order.daysOverdue}
+                          tooltip="Not received by the expected date. Follow up with the supplier."
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                  {receivable ? (
+                    <Tooltip
+                      title={
+                        isOfficeStaff
+                          ? 'Change expected delivery date'
+                          : 'Only Office Staff can change the expected delivery date.'
+                      }
+                    >
+                      <Button
+                        size="small"
+                        type="text"
+                        icon={<EditOutlined />}
+                        aria-label="Change expected delivery date"
+                        disabled={!isOfficeStaff || busy}
+                        onClick={openDateChange}
+                      />
+                    </Tooltip>
+                  ) : null}
+                </div>
+              ),
+            },
+            { key: 'prep', label: 'Prepared by', children: order.preparedByName || '—' },
+            { key: 'iss', label: 'Issued by', children: order.issuedByName || '—' },
+            { key: 'rec', label: 'Received', children: fmtDay(order.receivedDate) },
+            { key: 'sub', label: 'Subtotal', children: fmtMoney(order.subtotal) },
+            {
+              key: 'vat',
+              label: 'VAT',
+              children: editableDraft ? (
+                <InputNumber
+                  size="small"
+                  min={0}
+                  max={100}
+                  placeholder="None"
+                  value={vatRate}
+                  onChange={(v) => setVatRate(v)}
+                  addonAfter="%"
+                  style={{ width: 120 }}
+                />
+              ) : order.vatRate ? (
+                `${order.vatRate}%`
+              ) : (
+                'None'
+              ),
+            },
+            {
+              key: 'terms',
+              label: 'Terms of payment',
+              children: printTermsEditable ? (
+                <Input
+                  size="small"
+                  maxLength={100}
+                  value={terms}
+                  disabled={busy}
+                  onChange={(e) => setTerms(e.target.value)}
+                  onBlur={commitTerms}
+                  onPressEnter={commitTerms}
+                  style={{ width: 180 }}
+                />
+              ) : (
+                order.termsOfPayment || 'PDC'
+              ),
+            },
+            {
+              key: 'mode',
+              label: 'Mode of delivery',
+              children: printTermsEditable ? (
+                <Select<DeliveryMode>
+                  size="small"
+                  value={order.deliveryMode || 'DELIVERY'}
+                  disabled={busy}
+                  onChange={(v) => void savePrintTerms({ deliveryMode: v })}
+                  options={DELIVERY_MODE_OPTIONS}
+                  style={{ width: 140 }}
+                />
+              ) : (
+                DELIVERY_MODE_OPTIONS.find((o) => o.value === (order.deliveryMode || 'DELIVERY'))
+                  ?.label
+              ),
+            },
+            {
+              key: 'notes',
+              label: 'Notes',
+              children: editableDraft ? (
+                <Input.TextArea
+                  autoSize={{ minRows: 1, maxRows: 4 }}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+              ) : (
+                order.notes || '—'
+              ),
+            },
+          ]}
         />
-      ) : null}
 
-      <ResponsiveTable<MaterialPurchase>
-        card={{ title: 'material', subtitle: ['job'], badge: 'status', actions: 'act' }}
-        size="small"
-        rowKey="id"
-        pagination={false}
-        dataSource={lines}
-        columns={columns}
-        locale={{ emptyText: editableDraft ? 'No lines yet. Add lines to this draft.' : 'No lines yet.' }}
-      />
+        {order.expectedDeliveryChanges && order.expectedDeliveryChanges.length > 0 ? (
+          <div
+            style={{
+              background: '#fff',
+              border: '1px solid #e2e8f0',
+              borderRadius: 8,
+              padding: '10px 14px',
+              marginTop: 16,
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
+              Expected delivery changes
+            </div>
+            {order.expectedDeliveryChanges.map((c, i) => (
+              <div
+                key={`${c.changedAt}-${i}`}
+                style={{
+                  fontSize: 13,
+                  padding: '6px 0',
+                  borderTop: i ? '1px solid #f1f5f9' : undefined,
+                }}
+              >
+                <div>
+                  {fmtDay(c.from)} → <strong>{fmtDay(c.to)}</strong>
+                  {c.note ? <span style={{ color: '#334155' }}> · {c.note}</span> : null}
+                </div>
+                <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                  {c.changedByName || 'Unknown'}
+                  {c.changedAt ? `, ${formatShop(c.changedAt, 'D MMM YYYY, h:mm A')}` : ''}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {draftDirty ? (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 16 }}
+            title="Notes or VAT changed"
+            action={
+              <Button
+                size="small"
+                type="primary"
+                loading={busy}
+                onClick={() =>
+                  run(() => supplierOrdersApi.update(order.id, { notes, vatRate }), 'Order saved').catch(
+                    () => {}
+                  )
+                }
+              >
+                Save
+              </Button>
+            }
+          />
+        ) : null}
+
+        {!isDraft && order.status !== 'CANCELLED' ? (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 16 }}
+            title={
+              order.status === 'PARTIALLY_RECEIVED'
+                ? 'Part of this order was received earlier. Complete it with Receive order.'
+                : 'Lines are locked after issue. To change the order, cancel it and issue a new one. Deliveries arrive complete: Receive order receives every line on one date.'
+            }
+          />
+        ) : null}
+
+      </section>
+
+      <SectionCard
+        title="Lines"
+        subtitle={lines.length ? `${lines.length} line${lines.length === 1 ? '' : 's'}` : undefined}
+        flush
+      >
+        <ResponsiveTable<MaterialPurchase>
+          card={{ title: 'material', subtitle: ['job'], badge: 'status', actions: 'act' }}
+          size="small"
+          rowKey="id"
+          pagination={false}
+          dataSource={lines}
+          columns={columns}
+          locale={{ emptyText: editableDraft ? 'No lines yet. Add lines to this draft.' : 'No lines yet.' }}
+        />
+      </SectionCard>
 
       <OrderMaterialsModal
         open={addOpen}
@@ -741,6 +750,6 @@ export default function SupplierOrderDetailPage() {
           </div>
         </div>
       </Modal>
-    </div>
+    </Page>
   );
 }

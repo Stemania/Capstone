@@ -399,6 +399,8 @@ export interface ClientDetail extends Client {
     jobNumber?: string | null;
     title: string;
     createdAt?: string | null;
+    /** Client's PO date (date only). */
+    poDate?: string | null;
     dueDate?: string | null;
     amount?: number | null;
     status: JobOrderStatus;

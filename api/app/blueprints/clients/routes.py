@@ -114,6 +114,7 @@ def get_client(client_id):
                 "jobNumber": job_number,
                 "title": job.title,
                 "createdAt": job.created_at.isoformat() if job.created_at else None,
+                "poDate": job.po_date.isoformat() if job.po_date else None,
                 "dueDate": job.due_date.isoformat() if job.due_date else None,
                 "amount": amount,
                 "status": job.status.value,

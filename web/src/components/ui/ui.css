@@ -422,6 +422,10 @@ a.ui-id:hover {
   padding: 0 16px 12px;
 }
 
+.ui-card__body--flush > .ui-cardlist-wrap {
+  padding: 12px;
+}
+
 .ui-rowmenu.ant-btn {
   color: var(--c-text-muted);
 }

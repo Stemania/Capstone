@@ -1,25 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Button,
-  Modal,
-  Form,
-  Input,
-  Switch,
-  Space,
-  Select,
-  Dropdown,
-  Row,
-  Col,
-  message,
-  Tooltip,
-} from 'antd';
+import { Button, Input, Space, Select, Dropdown, message, Tooltip } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
   PlusOutlined,
   EditOutlined,
   SearchOutlined,
   MoreOutlined,
-  ContactsOutlined,
 } from '@ant-design/icons';
 import { clientsApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
@@ -29,14 +15,9 @@ import { ResponsiveTable } from '../../components/ui';
 import { useAuth } from '../../hooks/useAuth';
 import type { Client } from '../../types';
 import { useNavigate } from 'react-router-dom';
+import ClientFormModal from './ClientFormModal';
 
 type NotifyFilter = 'email' | 'sms' | 'off';
-
-function sectionLabel(text: string) {
-  return (
-    <div className="app-form-section">{text}</div>
-  );
-}
 
 function notifyLabel(r: Client) {
   const parts = [r.notifyByEmail ? 'Email' : null, r.notifyBySms ? 'SMS' : null].filter(Boolean);
@@ -50,12 +31,10 @@ export default function ClientsPage() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
-  const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [notifyFilter, setNotifyFilter] = useState<NotifyFilter[]>([]);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  const [form] = Form.useForm();
 
   const fetchClients = async () => {
     setLoading(true);
@@ -101,54 +80,12 @@ export default function ClientsPage() {
 
   const openCreate = () => {
     setEditing(null);
-    form.resetFields();
-    form.setFieldsValue({
-      notifyByEmail: false,
-      notifyBySms: false,
-    });
     setModalOpen(true);
   };
 
   const openEdit = (c: Client) => {
     setEditing(c);
-    form.setFieldsValue({
-      name: c.name,
-      contact: c.contact,
-      email: c.email,
-      mobileNumber: c.mobileNumber,
-      notifyByEmail: !!c.notifyByEmail,
-      notifyBySms: !!c.notifyBySms,
-    });
     setModalOpen(true);
-  };
-
-  const onSave = async () => {
-    try {
-      const values = await form.validateFields();
-      setSaving(true);
-      const payload = {
-        name: values.name,
-        contact: values.contact || undefined,
-        email: values.email || undefined,
-        mobileNumber: values.mobileNumber || undefined,
-        notifyByEmail: !!values.notifyByEmail,
-        notifyBySms: !!values.notifyBySms,
-      };
-      if (editing) {
-        await clientsApi.update(editing.id, payload);
-        message.success('Client updated');
-      } else {
-        await clientsApi.create(payload);
-        message.success('Client registered');
-      }
-      setModalOpen(false);
-      fetchClients();
-    } catch (err) {
-      if (err && typeof err === 'object' && 'errorFields' in err) return;
-      message.error(getErrorMessage(err));
-    } finally {
-      setSaving(false);
-    }
   };
 
   const columns: TableColumnsType<Client> = [
@@ -350,102 +287,15 @@ export default function ClientsPage() {
         }
       />
 
-      <Modal
+      <ClientFormModal
         open={modalOpen}
-        onCancel={closeModal}
-        footer={null}
-        width={560}
-        centered
-        destroyOnHidden
-        className="app-form-modal"
-        styles={{
-          container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
-          body: { padding: 0 },
+        client={editing}
+        onClose={closeModal}
+        onSaved={() => {
+          setModalOpen(false);
+          fetchClients();
         }}
-        closable={false}
-      >
-        <div className="app-form-modal__head">
-          <div className="app-form-modal__icon">
-            <ContactsOutlined />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="app-form-modal__title">{editing ? 'Edit client' : 'Register client'}</div>
-            <div className="app-form-modal__sub">
-              {editing
-                ? 'Update contact details and how they get job updates.'
-                : 'Company or person, plus how they should get job updates.'}
-            </div>
-          </div>
-          <button type="button" className="app-form-modal__close" onClick={closeModal} aria-label="Close">
-            ×
-          </button>
-        </div>
-
-        <Form form={form} layout="vertical" style={{ padding: '20px 24px 8px' }}>
-          {sectionLabel('Client')}
-          <Form.Item
-            name="name"
-            label="Name"
-            rules={[{ required: true, message: 'Name is required' }]}
-            style={{ marginBottom: 14 }}
-          >
-            <Input placeholder="Company or person name" />
-          </Form.Item>
-          <Form.Item name="contact" label="Contact person / notes" style={{ marginBottom: 18 }}>
-            <Input placeholder="Optional — who to ask for, or a short note" />
-          </Form.Item>
-
-          {sectionLabel('Reach them')}
-          <Row gutter={12}>
-            <Col xs={24} sm={14}>
-              <Form.Item
-                name="email"
-                label="Email"
-                rules={[{ type: 'email', message: 'Enter a valid email' }]}
-                style={{ marginBottom: 14 }}
-              >
-                <Input placeholder="client@example.com" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={10}>
-              <Form.Item name="mobileNumber" label="Mobile" style={{ marginBottom: 14 }}>
-                <Input placeholder="+63917…" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          {sectionLabel('Job updates')}
-          <div className="client-notify">
-            <div className="client-notify__row">
-              <div className="client-notify__copy">
-                <div className="client-notify__title">Email</div>
-                <div className="client-notify__hint">Send status updates to the address above</div>
-              </div>
-              <Form.Item name="notifyByEmail" valuePropName="checked" style={{ marginBottom: 0 }}>
-                <Switch />
-              </Form.Item>
-            </div>
-            <div className="client-notify__row">
-              <div className="client-notify__copy">
-                <div className="client-notify__title">SMS</div>
-                <div className="client-notify__hint">Send status updates to the mobile number</div>
-              </div>
-              <Form.Item name="notifyBySms" valuePropName="checked" style={{ marginBottom: 0 }}>
-                <Switch />
-              </Form.Item>
-            </div>
-          </div>
-        </Form>
-
-        <div className="app-form-modal__footer">
-          <Button onClick={closeModal} style={{ minWidth: 96 }}>
-            Cancel
-          </Button>
-          <Button type="primary" loading={saving} onClick={onSave} style={{ fontWeight: 700, minWidth: 120 }}>
-            {editing ? 'Save' : 'Register'}
-          </Button>
-        </div>
-      </Modal>
+      />
     </div>
   );
 }

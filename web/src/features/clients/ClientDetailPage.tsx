@@ -1,40 +1,38 @@
-import { formatShop } from '../../utils/shopTime';
+import { formatShop, shopToday, toShopDayjs } from '../../utils/shopTime';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Button, Typography, message } from 'antd';
+import { Button, Tooltip, message } from 'antd';
+import type { TableColumnsType } from 'antd';
 import {
-  ArrowLeftOutlined,
-  BellOutlined,
+  CheckCircleOutlined,
+  CopyOutlined,
+  EditOutlined,
+  FileTextOutlined,
   MailOutlined,
   PhoneOutlined,
+  PlusOutlined,
+  ToolOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { clientsApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import type { ClientDetail } from '../../types';
-import StatusPill, { type PillColor } from '../../components/StatusPill';
-import { PageSkeleton } from '../../components/ui';
-import ResponsiveTable from '../../components/ui/ResponsiveTable';
+import { DataTable, EmptyState, IdChip, Page, PageSkeleton, SectionCard, StatCard, StatusPill, TabBar } from '../../components/ui';
+import { JOB_STATUS } from '../../theme/statuses';
+import type { Tone } from '../../theme/tokens';
+import { useAuth } from '../../hooks/useAuth';
+import ClientFormModal from './ClientFormModal';
 
-const { Text } = Typography;
+type Job = ClientDetail['jobs'][number];
+type JobFilter = 'all' | 'draft' | 'active' | 'completed' | 'delivered';
 
-const NAVY = '#0f1c2e';
-const MUTED = '#64748b';
-const BORDER = '#e2e8f0';
-
-const STATUS_PILL: Record<string, { label: string; color: PillColor }> = {
-  DRAFT: { label: 'Pending', color: 'gray' },
-  SCHEDULED: { label: 'Scheduled', color: 'blue' },
-  IN_PROGRESS: { label: 'In Progress', color: 'teal' },
-  COMPLETED: { label: 'Completed', color: 'green' },
-  DELIVERED: { label: 'For Delivery', color: 'green' },
-};
-
-const CARD_STYLE = {
-  background: '#fff',
-  border: `1px solid ${BORDER}`,
-  borderRadius: 12,
-} as const;
+const FILTERS: { value: JobFilter; label: string; match: (j: Job) => boolean }[] = [
+  { value: 'all', label: 'All', match: () => true },
+  { value: 'draft', label: 'To plan', match: (j) => j.status === 'DRAFT' },
+  { value: 'active', label: 'Active', match: (j) => j.status === 'SCHEDULED' || j.status === 'IN_PROGRESS' },
+  { value: 'completed', label: 'Completed', match: (j) => j.status === 'COMPLETED' },
+  { value: 'delivered', label: 'For Delivery', match: (j) => j.status === 'DELIVERED' },
+];
 
 function money(v: number | null | undefined) {
   if (v == null) return '—';
@@ -46,51 +44,81 @@ function initials(name: string) {
   return (parts.length > 1 ? parts[0][0] + parts[1][0] : name.slice(0, 2)).toUpperCase();
 }
 
-function ContactItem({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-      <span
-        style={{
-          width: 32,
-          height: 32,
-          borderRadius: 8,
-          background: '#f1f5f9',
-          color: MUTED,
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-        }}
-      >
-        {icon}
-      </span>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-          {label}
-        </div>
-        <div
-          style={{
-            fontSize: 13,
-            color: NAVY,
-            fontWeight: 500,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {children}
-        </div>
-      </div>
-    </div>
-  );
+/** Shop calendar date (YYYY-MM-DD) the job was ordered: the client's PO date, else when it was entered. */
+function orderDay(j: Job): string | null {
+  if (j.poDate) return j.poDate.slice(0, 10);
+  return j.createdAt ? toShopDayjs(j.createdAt).format('YYYY-MM-DD') : null;
 }
 
-function StatTile({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
+function isOverdue(j: Job) {
+  if (!j.dueDate || j.status === 'DRAFT' || j.status === 'COMPLETED' || j.status === 'DELIVERED') return false;
+  return j.dueDate.slice(0, 10) < shopToday().format('YYYY-MM-DD');
+}
+
+function onTimeTone(pct: number): Tone {
+  if (pct >= 90) return 'green';
+  if (pct >= 70) return 'amber';
+  return 'red';
+}
+
+async function copy(text: string, what: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    message.success(`${what} copied`);
+  } catch {
+    message.error(`Could not copy the ${what.toLowerCase()}`);
+  }
+}
+
+function None({ children }: { children: ReactNode }) {
+  return <span className="client-stats__none">{children}</span>;
+}
+
+function ContactRow({
+  icon,
+  label,
+  value,
+  href,
+  copyAs,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string | null | undefined;
+  href?: string;
+  copyAs?: string;
+}) {
+  const body = (
+    <>
+      <span className="client-contact__icon" aria-hidden>
+        {icon}
+      </span>
+      <span className="client-contact__text">
+        <span className="client-contact__label">{label}</span>
+        <span className={`client-contact__value${value ? '' : ' is-empty'}`}>{value || 'Not added'}</span>
+      </span>
+    </>
+  );
   return (
-    <div style={{ ...CARD_STYLE, padding: '14px 16px' }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: MUTED }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: NAVY, lineHeight: 1.3, marginTop: 4 }}>{value}</div>
-      {hint ? <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{hint}</div> : null}
+    <div className="client-contact">
+      {value && href ? (
+        <a className="client-contact__main is-link" href={href}>
+          {body}
+        </a>
+      ) : (
+        <div className="client-contact__main">{body}</div>
+      )}
+      {value && copyAs ? (
+        <Tooltip title={`Copy ${copyAs.toLowerCase()}`}>
+          <Button
+            type="text"
+            size="small"
+            className="client-contact__copy"
+            icon={<CopyOutlined />}
+            aria-label={`Copy ${copyAs.toLowerCase()}`}
+            onClick={() => void copy(value, copyAs)}
+          />
+        </Tooltip>
+      ) : null}
     </div>
   );
 }
@@ -98,8 +126,11 @@ function StatTile({ label, value, hint }: { label: string; value: ReactNode; hin
 export default function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { isAdmin, isOfficeStaff: canEdit } = useAuth();
   const [data, setData] = useState<ClientDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<JobFilter>('all');
+  const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -120,212 +151,288 @@ export default function ClientDetailPage() {
     };
   }, [id]);
 
+  const jobs = useMemo(
+    () => [...(data?.jobs ?? [])].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
+    [data]
+  );
+
   const stats = useMemo(() => {
-    const jobs = data?.jobs ?? [];
     const active = jobs.filter((j) => j.status === 'SCHEDULED' || j.status === 'IN_PROGRESS').length;
-    const delivered = jobs.filter((j) => j.status === 'DELIVERED');
-    const judged = delivered.filter((j) => j.deliveredOnTime != null);
+    const draft = jobs.filter((j) => j.status === 'DRAFT').length;
+    const judged = jobs.filter((j) => j.status === 'DELIVERED' && j.deliveredOnTime != null);
     const onTime = judged.filter((j) => j.deliveredOnTime).length;
+    const days = jobs.map(orderDay).filter((d): d is string => Boolean(d)).sort();
     return {
       active,
-      delivered: delivered.length,
-      onTimePct: judged.length ? Math.round((onTime / judged.length) * 100) : null,
+      draft,
       onTime,
       judged: judged.length,
+      onTimePct: judged.length ? Math.round((onTime / judged.length) * 100) : null,
+      firstOrder: days[0] ?? null,
+      lastOrder: days[days.length - 1] ?? null,
     };
-  }, [data]);
+  }, [jobs]);
 
   if (loading && !data) {
-    return (
-      <PageSkeleton variant="detail" />
-    );
+    return <PageSkeleton variant="detail" />;
   }
   if (!data) {
     return (
-      <div style={{ padding: 24 }}>
-        <Text type="secondary">Client not found.</Text>
-        <div style={{ marginTop: 12 }}>
-          <Button onClick={() => navigate('/clients')}>Back to clients</Button>
-        </div>
-      </div>
+      <Page>
+        <EmptyState title="Client not found" description="It may have been removed, or the link is wrong." />
+      </Page>
     );
   }
 
-  const notify =
-    [data.notifyByEmail ? 'Email' : null, data.notifyBySms ? 'SMS' : null].filter(Boolean).join(' · ') ||
-    'Off';
+  const newJob = () => navigate(`/job-orders/new?client=${data.id}`);
+  const since = stats.firstOrder ?? data.createdAt ?? null;
+  const counts = Object.fromEntries(FILTERS.map((f) => [f.value, jobs.filter(f.match).length])) as Record<JobFilter, number>;
+  const shown = jobs.filter(FILTERS.find((f) => f.value === filter)!.match);
+  const draftLabel = isAdmin ? 'To plan' : 'Pending';
+  const notify = [data.notifyByEmail ? 'Email' : null, data.notifyBySms ? 'SMS' : null].filter((n): n is string => Boolean(n));
+
+  const columns: TableColumnsType<Job> = [
+    {
+      title: 'Job #',
+      dataIndex: 'jobNumber',
+      width: '13%',
+      render: (v: string | null, r) => (
+        <IdChip to={`/job-orders/${r.id}`} onClick={(e) => e.stopPropagation()}>
+          {v || r.id.slice(0, 8).toUpperCase()}
+        </IdChip>
+      ),
+    },
+    {
+      title: 'Title',
+      dataIndex: 'title',
+      ellipsis: true,
+      render: (v: string) => <span className="client-jobs__title">{v}</span>,
+    },
+    {
+      title: 'Ordered',
+      key: 'ordered',
+      width: '12%',
+      sorter: (a, b) => (orderDay(a) || '').localeCompare(orderDay(b) || ''),
+      render: (_: unknown, r) => formatShop(orderDay(r), 'MMM D, YYYY'),
+    },
+    {
+      title: 'Date required',
+      dataIndex: 'dueDate',
+      width: '13%',
+      sorter: (a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''),
+      render: (v: string | null, r) =>
+        isOverdue(r) ? (
+          <span className="tone-text--red" title="Past the date required">
+            {formatShop(v, 'MMM D, YYYY')}
+          </span>
+        ) : (
+          formatShop(v, 'MMM D, YYYY')
+        ),
+    },
+    {
+      title: 'Value',
+      dataIndex: 'amount',
+      width: '11%',
+      align: 'right',
+      sorter: (a, b) => (a.amount ?? 0) - (b.amount ?? 0),
+      render: (v: number | null) => <span className="ui-tabular client-jobs__value">{money(v)}</span>,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      width: '12%',
+      render: (s: string) => (
+        <StatusPill status={s} map={JOB_STATUS} compact>
+          {s === 'DRAFT' ? draftLabel : undefined}
+        </StatusPill>
+      ),
+    },
+    {
+      title: 'On time',
+      dataIndex: 'deliveredOnTime',
+      width: '9%',
+      render: (v: boolean | null) => {
+        if (v === true) return <StatusPill tone="green" compact>On time</StatusPill>;
+        if (v === false) return <StatusPill tone="red" compact>Late</StatusPill>;
+        return <span className="client-jobs__muted">—</span>;
+      },
+    },
+  ];
 
   return (
-    <div>
-      <Button
-        color="primary"
-        variant="outlined"
-        icon={<ArrowLeftOutlined />}
-        onClick={() => navigate('/clients')}
-        style={{ marginBottom: 12, borderRadius: 8 }}
-      >
-        Exit
-      </Button>
-
-      <div style={{ ...CARD_STYLE, padding: 20, marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div
-            aria-hidden
-            style={{
-              width: 52,
-              height: 52,
-              borderRadius: 14,
-              background: NAVY,
-              color: '#fff',
-              fontSize: 18,
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
+    <Page className="client-page">
+      <section className="ui-card client-head">
+        <div className="client-head__top">
+          <div className="client-head__avatar" aria-hidden>
             {initials(data.name)}
           </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: NAVY, lineHeight: 1.2 }}>{data.name}</div>
-            <div style={{ fontSize: 13, color: MUTED, marginTop: 2 }}>
-              {data.createdAt ? `Client since ${formatShop(data.createdAt, 'MMMM YYYY')}` : 'Client'}
+          <div className="client-head__titles">
+            <h2 className="client-head__name">{data.name}</h2>
+            <div className="client-head__meta">
+              {since ? <span>Client since {formatShop(since, 'MMMM YYYY')}</span> : null}
+              <span>
+                {stats.lastOrder ? `Last order ${formatShop(stats.lastOrder, 'MMM D, YYYY')}` : 'No orders yet'}
+              </span>
             </div>
           </div>
+          {canEdit ? (
+            <div className="client-head__actions m-action-bar">
+              <Button icon={<EditOutlined />} onClick={() => setEditOpen(true)}>
+                Edit client
+              </Button>
+              <Button type="primary" icon={<PlusOutlined />} onClick={newJob}>
+                New job order
+              </Button>
+            </div>
+          ) : null}
         </div>
 
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: 16,
-            marginTop: 18,
-            paddingTop: 18,
-            borderTop: `1px solid #f1f5f9`,
-          }}
-        >
-          <ContactItem icon={<UserOutlined />} label="Contact person">
-            {data.contact || '—'}
-          </ContactItem>
-          <ContactItem icon={<MailOutlined />} label="Email">
-            {data.email ? <a href={`mailto:${data.email}`}>{data.email}</a> : '—'}
-          </ContactItem>
-          <ContactItem icon={<PhoneOutlined />} label="Mobile">
-            {data.mobileNumber ? <a href={`tel:${data.mobileNumber}`}>{data.mobileNumber}</a> : '—'}
-          </ContactItem>
-          <ContactItem icon={<BellOutlined />} label="Notifications">
-            {notify}
-          </ContactItem>
+        <div className="client-head__contacts">
+          <ContactRow icon={<UserOutlined />} label="Contact person" value={data.contact} />
+          <ContactRow
+            icon={<MailOutlined />}
+            label="Email"
+            value={data.email}
+            href={data.email ? `mailto:${data.email}` : undefined}
+            copyAs="Email"
+          />
+          <ContactRow
+            icon={<PhoneOutlined />}
+            label="Mobile"
+            value={data.mobileNumber}
+            href={data.mobileNumber ? `tel:${data.mobileNumber.replace(/\s+/g, '')}` : undefined}
+            copyAs="Mobile number"
+          />
+          <div className="client-contact client-contact--notify">
+            <span className="client-contact__text">
+              <span className="client-contact__label">Job updates by</span>
+              <span className="client-contact__pills">
+                {notify.length ? (
+                  notify.map((n) => (
+                    <StatusPill key={n} tone="blue" compact>
+                      {n}
+                    </StatusPill>
+                  ))
+                ) : (
+                  <StatusPill tone="grey" compact>
+                    Off
+                  </StatusPill>
+                )}
+              </span>
+            </span>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-          gap: 12,
-          marginBottom: 16,
-        }}
-      >
-        <StatTile label="Job orders" value={data.totals.jobCount} hint="All time, including pending" />
-        <StatTile label="Active" value={stats.active} hint="Scheduled or in progress" />
-        <StatTile label="For Delivery" value={stats.delivered} />
-        <StatTile
-          label="On time"
-          value={stats.onTimePct == null ? '—' : `${stats.onTimePct}%`}
+      <div className="ui-stat-grid client-stats">
+        <StatCard
+          icon={<FileTextOutlined />}
+          tone="blue"
+          label="Job orders"
+          value={jobs.length ? jobs.length : <None>None yet</None>}
+          hint={
+            jobs.length
+              ? [stats.draft ? `${stats.draft} ${draftLabel.toLowerCase()}` : null, `${stats.active} active`]
+                  .filter(Boolean)
+                  .join(' · ')
+              : 'Their first order will show here'
+          }
+        />
+        <StatCard
+          icon={<ToolOutlined />}
+          tone="indigo"
+          label="In production"
+          value={stats.active ? stats.active : <None>Nothing running</None>}
+          hint="Scheduled or in progress"
+        />
+        <StatCard
+          icon={<CheckCircleOutlined />}
+          tone={stats.onTimePct == null ? 'slate' : onTimeTone(stats.onTimePct)}
+          label="On-time delivery"
+          value={stats.onTimePct == null ? <None>No deliveries yet</None> : `${stats.onTimePct}%`}
+          valueTone={stats.onTimePct == null ? undefined : onTimeTone(stats.onTimePct)}
           hint={
             stats.judged
               ? `${stats.onTime} of ${stats.judged} set For Delivery by the date required`
-              : 'None set For Delivery yet'
+              : 'Measured when a job is set For Delivery'
           }
         />
-        <StatTile label="Total value" value={money(data.totals.totalValue)} hint="Excludes pending jobs" />
-      </div>
-
-      <div style={{ ...CARD_STYLE, overflow: 'hidden' }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'baseline',
-            justifyContent: 'space-between',
-            padding: '14px 16px',
-            borderBottom: `1px solid ${BORDER}`,
-          }}
-        >
-          <div style={{ fontSize: 15, fontWeight: 700, color: NAVY }}>Job orders</div>
-          <div style={{ fontSize: 12, color: MUTED }}>
-            {data.jobs.length} job{data.jobs.length === 1 ? '' : 's'}
-          </div>
-        </div>
-        <ResponsiveTable
-          card={{ badge: 'status' }}
-          className="std-list-table"
-          rowKey="id"
-          size="middle"
-          scroll={{ x: 760 }}
-          pagination={{ pageSize: 20, hideOnSinglePage: true }}
-          dataSource={data.jobs}
-          locale={{ emptyText: 'No job orders for this client yet.' }}
-          onRow={(r) => ({
-            onClick: () => navigate(`/job-orders/${r.id}`),
-            style: { cursor: 'pointer' },
-          })}
-          columns={[
-            {
-              title: 'Job #',
-              dataIndex: 'jobNumber',
-              width: 140,
-              render: (v: string | null) => (
-                <span style={{ fontWeight: 600, color: NAVY }}>{v || '—'}</span>
-              ),
-            },
-            { title: 'Title', dataIndex: 'title', ellipsis: true },
-            {
-              title: 'Created',
-              dataIndex: 'createdAt',
-              width: 120,
-              render: (v: string | null) => (v ? formatShop(v, 'MMM D, YYYY') : '—'),
-            },
-            {
-              title: 'Date required',
-              dataIndex: 'dueDate',
-              width: 130,
-              render: (v: string | null) => (v ? formatShop(v, 'MMM D, YYYY') : '—'),
-            },
-            {
-              title: 'Value',
-              dataIndex: 'amount',
-              width: 110,
-              align: 'right',
-              render: (v: number | null) => <span style={{ fontWeight: 600 }}>{money(v)}</span>,
-            },
-            {
-              title: 'Status',
-              dataIndex: 'status',
-              width: 120,
-              render: (s: string) => {
-                const pill = STATUS_PILL[s] || { label: s, color: 'gray' as PillColor };
-                return (
-                  <StatusPill color={pill.color} compact>
-                    {pill.label}
-                  </StatusPill>
-                );
-              },
-            },
-            {
-              title: 'On time',
-              dataIndex: 'deliveredOnTime',
-              width: 100,
-              render: (v: boolean | null) => {
-                if (v === true) return <StatusPill color="green" compact>On time</StatusPill>;
-                if (v === false) return <StatusPill color="red" compact>Late</StatusPill>;
-                return <Text type="secondary">—</Text>;
-              },
-            },
-          ]}
+        <StatCard
+          icon={<span className="client-stats__peso">₱</span>}
+          tone="teal"
+          label="Total value"
+          value={data.totals.totalValue ? money(data.totals.totalValue) : <None>No released jobs</None>}
+          hint="Excludes pending jobs"
         />
       </div>
-    </div>
+
+      <SectionCard
+        className="client-jobs"
+        title="Job orders"
+        subtitle={jobs.length ? `${jobs.length} job${jobs.length === 1 ? '' : 's'}, newest first` : undefined}
+      >
+        {jobs.length ? (
+          <>
+            <div className="client-jobs__filters">
+              <TabBar<JobFilter>
+                size="small"
+                value={filter}
+                onChange={setFilter}
+                items={FILTERS.map((f) => ({
+                  value: f.value,
+                  label: f.value === 'draft' ? draftLabel : f.label,
+                  count: counts[f.value],
+                }))}
+              />
+            </div>
+            <DataTable<Job>
+              card={{ title: 'jobNumber', subtitle: ['title'], badge: 'status' }}
+              cardsBelow="narrow"
+              className="client-jobs__table"
+              rowKey="id"
+              tableLayout="fixed"
+              pagination={{ pageSize: 20, hideOnSinglePage: true, showSizeChanger: false }}
+              dataSource={shown}
+              locale={{
+                emptyText: (
+                  <EmptyState
+                    compact
+                    title={`No ${(filter === 'draft' ? draftLabel : FILTERS.find((f) => f.value === filter)!.label).toLowerCase()} job orders`}
+                  />
+                ),
+              }}
+              onRow={(r) => ({
+                onClick: () => navigate(`/job-orders/${r.id}`),
+                style: { cursor: 'pointer' },
+              })}
+              columns={columns}
+            />
+          </>
+        ) : (
+          <EmptyState
+            icon={<FileTextOutlined />}
+            title="No job orders yet"
+            description={`Job orders for ${data.name} will be listed here.`}
+            action={
+              canEdit ? (
+                <Button type="primary" icon={<PlusOutlined />} onClick={newJob}>
+                  New job order
+                </Button>
+              ) : undefined
+            }
+          />
+        )}
+      </SectionCard>
+
+      <ClientFormModal
+        open={editOpen}
+        client={data}
+        onClose={() => setEditOpen(false)}
+        onSaved={(saved) => {
+          setEditOpen(false);
+          setData((d) => (d ? { ...d, ...saved } : d));
+        }}
+      />
+    </Page>
   );
 }
