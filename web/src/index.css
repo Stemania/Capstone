@@ -400,7 +400,7 @@ body {
   gap: 10px;
   width: 100%;
   min-height: 64px;
-  padding: 10px 12px 10px 0;
+  padding: 10px 12px;
   border: 1px solid var(--c-border);
   border-radius: 12px;
   background: #fff;
@@ -419,9 +419,11 @@ body {
   border-color: #e8a3ae;
 }
 
-.sched-agenda__stripe {
-  flex: 0 0 5px;
-  margin: -10px 0;
+.sched-agenda__dot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
 }
 
 .sched-agenda__body {
@@ -440,6 +442,9 @@ body {
 }
 
 .sched-agenda__time {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   font-weight: 700;
   color: #334155;
@@ -3572,11 +3577,11 @@ button.admin-card {
 }
 
 .machine-card--running {
-  box-shadow: inset 3px 0 0 var(--tone-indigo-solid, #4f46e5), var(--shadow-card);
+  border-color: var(--tone-indigo-bd, #d2d6fb);
 }
 
 .machine-card--breakdown {
-  box-shadow: inset 3px 0 0 var(--tone-red-solid, #dc2626), var(--shadow-card);
+  border-color: var(--tone-red-bd, #f7caca);
 }
 
 .machine-card--retired {
@@ -3914,20 +3919,17 @@ button.admin-card {
 
 .work-calendar__cell--overtime {
   background: #eff6ff;
-  border-color: #dbeafe;
-  box-shadow: inset 3px 0 0 #2563eb;
+  border-color: var(--tone-blue-bd);
 }
 
 .work-calendar__cell--special_working_day {
   background: #f0fdfa;
-  border-color: #ccfbf1;
-  box-shadow: inset 3px 0 0 #0f766e;
+  border-color: var(--tone-teal-bd);
 }
 
 .work-calendar__cell--holiday_no_work {
   background: var(--tone-red-bg);
   border-color: var(--tone-red-bd);
-  box-shadow: inset 3px 0 0 var(--tone-red-solid);
 }
 
 .work-calendar__day-num {
@@ -4026,23 +4028,25 @@ button.admin-card {
   background: #fff;
   text-align: left;
   cursor: pointer;
-  border-left-width: 3px;
 }
 
 .work-calendar__aside-item:hover {
-  background: #f8fafc;
+  filter: brightness(0.98);
 }
 
 .work-calendar__aside-item--overtime {
-  border-left-color: #2563eb;
+  background: #eff6ff;
+  border-color: var(--tone-blue-bd);
 }
 
 .work-calendar__aside-item--special_working_day {
-  border-left-color: #0f766e;
+  background: #f0fdfa;
+  border-color: var(--tone-teal-bd);
 }
 
 .work-calendar__aside-item--holiday_no_work {
-  border-left-color: var(--tone-red-solid);
+  background: var(--tone-red-bg);
+  border-color: var(--tone-red-bd);
 }
 
 .work-calendar__aside-date {

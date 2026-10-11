@@ -1103,7 +1103,7 @@ export default function JobOrderDetailPage() {
                           padding: '12px 14px',
                           borderRadius: 8,
                           background: active ? tones.blue.bg : colors.surfaceMuted,
-                          borderLeft: `3px solid ${active ? tones.blue.solid : 'transparent'}`,
+                          border: `1px solid ${active ? tones.blue.border : 'transparent'}`,
                         }}
                       >
                         <div

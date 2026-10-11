@@ -120,10 +120,12 @@ export default function ScheduleAgenda({ operations, downtimes, from, to, onOpen
                   className={`sched-agenda__item${op.isLate ? ' is-late' : ''}`}
                   onClick={() => onOpenJob(op.jobOrderId)}
                 >
-                  <span className="sched-agenda__stripe" style={{ background: color }} aria-hidden />
                   <span className="sched-agenda__body">
                     <span className="sched-agenda__row">
-                      <span className="sched-agenda__time">{timeRange(start, end)}</span>
+                      <span className="sched-agenda__time">
+                        <span className="sched-agenda__dot" style={{ background: color }} aria-hidden />
+                        {timeRange(start, end)}
+                      </span>
                       <StatusPill status={op.status} map={OPERATION_STATUS} compact />
                     </span>
                     <span className="sched-agenda__title">
