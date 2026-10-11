@@ -185,6 +185,29 @@ input[type='number'],
   background: var(--c-primary);
 }
 
+/* Layer order: pill backgrounds, then the sliding thumb, then the labels on top. */
+.ant-segmented .ant-segmented-group {
+  isolation: isolate;
+}
+
+.ant-segmented .ant-segmented-item {
+  transform: none;
+}
+
+.ant-segmented .ant-segmented-item::after {
+  z-index: 0;
+}
+
+.ant-segmented .ant-segmented-thumb {
+  z-index: 1;
+}
+
+.ant-segmented .ant-segmented-item-label {
+  position: relative;
+  z-index: 2;
+  transform: translateZ(0);
+}
+
 .ant-segmented.ant-segmented-sm .ant-segmented-item-label {
   min-height: 26px;
   line-height: 26px;
