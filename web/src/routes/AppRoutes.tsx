@@ -5,7 +5,9 @@ import { AuthProvider, useAuth } from '../hooks/useAuth';
 import { ProtectedRoute } from './ProtectedRoute';
 import RoleAwareLayout from './RoleAwareLayout';
 import { NavMemoryProvider } from '../navigation/navMemory';
-import MyToolsPage from '../features/tool-tracking/MyToolsPage';
+import InventoryPage from '../features/worker/InventoryPage';
+import WorkerHomePage from '../features/worker/WorkerHomePage';
+import WorkerProfilePage from '../features/worker/WorkerProfilePage';
 import LoginPage from '../features/auth/LoginPage';
 import SetPasswordPage from '../features/auth/SetPasswordPage';
 import ForgotPasswordPage from '../features/auth/ForgotPasswordPage';
@@ -192,8 +194,11 @@ export default function AppRoutes() {
                   </Route>
 
                   <Route element={<ProtectedRoute roles={['PRODUCTION_WORKER']} />}>
+                    <Route path="/home" element={<WorkerHomePage />} />
                     <Route path="/scan" element={<ScanToolPage />} />
-                    <Route path="/my-tools" element={<MyToolsPage />} />
+                    <Route path="/inventory" element={<InventoryPage />} />
+                    <Route path="/my-tools" element={<Navigate to="/inventory" replace />} />
+                    <Route path="/account/profile" element={<WorkerProfilePage />} />
                   </Route>
 
                   <Route path="/" element={<Navigate to="/login" replace />} />

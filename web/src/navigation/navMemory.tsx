@@ -29,7 +29,8 @@ export const NAV_SECTIONS = [
   '/tools',
   '/users',
   '/scan',
-  '/my-tools',
+  '/home',
+  '/inventory',
   '/account',
 ] as const;
 

@@ -14,6 +14,7 @@ from app.models.operation_time import MachineDowntime
 from app.models.client import Client
 from app.services.schedule_calendar import (
     serialize_segments,
+    shop_break,
     shop_available_hours,
     shop_day_windows_union,
     shop_local_to_utc,
@@ -364,6 +365,10 @@ def schedule_board(
         "workerDayWindows": (
             worker_day_windows(worker_id, period_from, period_to) if worker_id else None
         ),
+        "shopBreak": {
+            "start": shop_break()[0].strftime("%H:%M"),
+            "end": shop_break()[1].strftime("%H:%M"),
+        },
         "machineUnits": machine_units_out,
         "workers": workers_out,
         "clients": clients_out,

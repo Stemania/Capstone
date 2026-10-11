@@ -276,11 +276,67 @@ def _worker_period_figures(worker_id, period_from: date, period_to: date) -> dic
     }
 
 
+def _logged_hours(worker_id, start_utc, end_utc, now_utc) -> float:
+    """Hours the worker's operations were running in [start, end), minus the daily break.
+
+    An operation still running counts up to now.
+    """
+    from app.services.schedule_calendar import hours_excluding_break, merge_intervals
+
+    op_ids = [
+        oid
+        for (oid,) in db.session.query(OperationTimeLog.operation_id)
+        .join(JobOperation, JobOperation.id == OperationTimeLog.operation_id)
+        .filter(
+            JobOperation.crew_includes(worker_id),
+            OperationTimeLog.event_at >= start_utc - timedelta(days=31),
+            OperationTimeLog.event_at < end_utc,
+        )
+        .distinct()
+    ]
+    if not op_ids:
+        return 0.0
+    logs_by_op = defaultdict(list)
+    for log in OperationTimeLog.query.filter(OperationTimeLog.operation_id.in_(op_ids)):
+        logs_by_op[log.operation_id].append(log)
+    intervals = []
+    for logs in logs_by_op.values():
+        spans = worked_intervals(logs)
+        last = max(logs, key=lambda L: (ensure_utc(L.event_at), L.created_at or ensure_utc(L.event_at)))
+        if last.event in (OperationTimeEvent.START, OperationTimeEvent.RESUME):
+            spans.append((ensure_utc(last.event_at), now_utc))
+        for s, e in spans:
+            s, e = max(s, start_utc), min(e, end_utc, now_utc)
+            if e > s:
+                intervals.append((s, e))
+    return sum(hours_excluding_break(s, e) for s, e in merge_intervals(intervals))
+
+
+def _worker_week(worker_id, monday: date, through: date, now_utc) -> dict:
+    figures = _worker_period_figures(worker_id, monday, through)
+    figures["loggedHours"] = _num(
+        _logged_hours(
+            worker_id,
+            shop_local_to_utc(monday, time(0, 0)),
+            shop_local_to_utc(through + timedelta(days=1), time(0, 0)),
+            now_utc,
+        ),
+        2,
+    )
+    return figures
+
+
 def my_summary(worker_id):
-    """A production worker's own figures for this week (from Monday) and this month."""
-    today = shop_now().date()
+    """A production worker's own figures for this week (from Monday), the same days
+    of last week (for a fair comparison), and this month."""
+    now = shop_now()
+    today = now.date()
+    now_utc = now.astimezone(timezone.utc)
+    monday = today - timedelta(days=today.weekday())
+    week_ago = timedelta(days=7)
     return {
-        "thisWeek": _worker_period_figures(worker_id, today - timedelta(days=today.weekday()), today),
+        "thisWeek": _worker_week(worker_id, monday, today, now_utc),
+        "lastWeek": _worker_week(worker_id, monday - week_ago, today - week_ago, now_utc),
         "thisMonth": _worker_period_figures(worker_id, today.replace(day=1), today),
     }
 

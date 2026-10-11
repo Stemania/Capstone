@@ -67,6 +67,8 @@ export type ScheduleBoardResponse = {
   shopDayWindows: ShopDayWindow[];
   /** Present when board is filtered by workerId — that worker's hours + exceptions. */
   workerDayWindows?: ShopDayWindow[] | null;
+  /** The shop's daily break, HH:MM shop time. */
+  shopBreak?: { start: string; end: string };
   machineUnits: {
     id: string;
     label: string;

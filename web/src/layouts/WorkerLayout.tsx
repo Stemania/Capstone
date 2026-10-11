@@ -1,17 +1,18 @@
 import { ConfigProvider, Popover } from 'antd';
 import {
+  CalendarOutlined,
+  HomeOutlined,
+  IdcardOutlined,
+  LeftOutlined,
+  LockOutlined,
   LogoutOutlined,
-  UnorderedListOutlined,
+  ProfileOutlined,
   QrcodeOutlined,
   ToolOutlined,
-  CalendarOutlined,
-  LeftOutlined,
-  UserOutlined,
 } from '@ant-design/icons';
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { TOUCH_QUERY, useMediaQuery } from '../hooks/useViewport';
 import { confirmLogout } from '../utils/confirmLogout';
 import { workerTheme } from '../theme/antTheme';
 import { colors as tokenColors, tones } from '../theme/tokens';
@@ -22,6 +23,10 @@ import NeedsConnection from '../offline/NeedsConnection';
 import OfflineStatusBar from '../offline/OfflineStatusBar';
 import { useOffline } from '../offline/OfflineProvider';
 import { offlineCache } from '../offline/offlineCache';
+import { PersonAvatar } from '../components/PersonAvatar';
+import { MyOperationsProvider } from '../features/my-assignments/useMyOperations';
+import WorkerBell from '../features/worker/WorkerBell';
+import '../features/worker/worker.css';
 
 export interface WorkerPalette {
   bg: string;
@@ -82,81 +87,47 @@ export function WorkerPageHeader({
   subtitle,
   onBack,
   right,
-  showSchedule = true,
 }: {
-  title: string;
-  subtitle?: string;
+  title: ReactNode;
+  subtitle?: ReactNode;
   onBack?: () => void;
   right?: ReactNode;
-  /** Schedule shortcut in the old dark-mode slot. Hide on the schedule page itself. */
-  showSchedule?: boolean;
 }) {
-  const { colors, logout } = useWorkerTheme();
-  const { user } = useAuth();
+  const { logout } = useWorkerTheme();
+  const { user, isWorker } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
-  const { resolveSectionNav, clearSectionCache } = useNavMemory();
-  const onSchedule = location.pathname.startsWith('/schedule');
+  const { clearSectionCache } = useNavMemory();
   const [accountOpen, setAccountOpen] = useState(false);
 
-  const accountPanel = (
-    <div style={{ width: 240, padding: '4px 2px 2px' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: '10px 8px 14px',
-          borderBottom: '1px solid #e2e8f0',
-          marginBottom: 10,
-        }}
-      >
-        <div
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: '50%',
-            background: '#0f1c2e',
-            color: '#fff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 20,
-            flexShrink: 0,
-          }}
-        >
-          <UserOutlined />
-        </div>
+  const go = (path: string) => {
+    setAccountOpen(false);
+    clearSectionCache('/account');
+    navigate(path);
+  };
+
+  const accountPanel = user ? (
+    <div className="w-menu">
+      <div className="w-menu__who">
+        <PersonAvatar userId={user.id} fullName={user.fullName} photoVersion={user.photoVersion} size={40} />
         <div style={{ minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: 15,
-              fontWeight: 700,
-              color: '#0f172a',
-              lineHeight: 1.25,
-              wordBreak: 'break-word',
-            }}
-          >
-            {user?.fullName}
-          </div>
-          <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>Worker</div>
+          <div className="w-menu__name">{user.fullName}</div>
+          <div className="w-menu__role">{isWorker ? 'Production worker' : 'Admin'}</div>
         </div>
       </div>
-      <button
-        type="button"
-        className="acct-sheet-btn"
-        style={{ marginBottom: 8 }}
-        onClick={() => {
-          setAccountOpen(false);
-          clearSectionCache('/account');
-          navigate('/account/security');
-        }}
-      >
+      {isWorker && (
+        <button type="button" className="w-menu__item" onClick={() => go('/account/profile')}>
+          <IdcardOutlined />
+          My profile
+        </button>
+      )}
+      <button type="button" className="w-menu__item" onClick={() => go('/account/security')}>
+        <LockOutlined />
         Account security
       </button>
+      <div className="w-menu__sep" />
       <button
         type="button"
-        className="acct-sheet-btn acct-sheet-btn--danger"
+        className="w-menu__item w-menu__item--danger"
         onClick={() => {
           setAccountOpen(false);
           logout();
@@ -166,148 +137,72 @@ export function WorkerPageHeader({
         Log out
       </button>
     </div>
-  );
+  ) : null;
 
   return (
-    <header
-      style={{
-        background: colors.headerBg,
-        color: colors.headerText,
-        padding: '14px 16px 14px',
-        position: 'sticky',
-        top: 0,
-        zIndex: 10,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+    <header className={`w-top${onBack ? ' w-top--with-back' : ''}`}>
+      <div className="w-top__row">
         {onBack && (
-          <button
-            onClick={onBack}
-            aria-label="Back"
-            style={{
-              background: 'none',
-              border: 'none',
-              color: colors.headerText,
-              fontSize: 18,
-              width: 48,
-              height: 48,
-              margin: '-8px 0 -8px -12px',
-              padding: 0,
-              cursor: 'pointer',
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <LeftOutlined />
+          <button type="button" className="w-iconbtn" onClick={onBack} aria-label="Back">
+            <LeftOutlined style={{ fontSize: 18 }} />
           </button>
         )}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.2 }}>{title}</div>
-          {subtitle && (
-            <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>{subtitle}</div>
-          )}
+        <div className="w-top__titles">
+          <div className="w-top__title">{title}</div>
+          {subtitle && <div className="w-top__sub">{subtitle}</div>}
         </div>
         {right}
-        {showSchedule && !onSchedule && (
-          <button
-            type="button"
-            onClick={() => {
-              const { to } = resolveSectionNav('/schedule');
-              navigate(to);
-            }}
-            aria-label="Schedule"
-            title="Schedule"
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: colors.headerText,
-              width: 48,
-              height: 48,
-              padding: 0,
-              cursor: 'pointer',
-              fontSize: 24,
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <CalendarOutlined />
-          </button>
-        )}
-        {user?.fullName && (
+        <OfflineStatusBar />
+        <WorkerBell />
+        {user && (
           <Popover
             trigger="click"
             placement="bottomRight"
             open={accountOpen}
             onOpenChange={setAccountOpen}
-            arrow={{ pointAtCenter: true }}
+            arrow={false}
             content={accountPanel}
             styles={{
               container: {
-                padding: 12,
+                padding: 10,
                 borderRadius: 14,
                 boxShadow: '0 8px 28px rgba(15,23,42,0.18)',
               },
             }}
           >
-            <button
-              type="button"
-              style={{
-                maxWidth: 168,
-                minHeight: 48,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '7px 8px 7px 12px',
-                flexShrink: 0,
-                background: 'rgba(255,255,255,0.1)',
-                border: accountOpen ? '1px solid rgba(255,255,255,0.35)' : '1px solid transparent',
-                borderRadius: 999,
-                color: colors.headerText,
-                cursor: 'pointer',
-              }}
-            >
-              <div style={{ minWidth: 0, textAlign: 'right' }}>
-                <div
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 700,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {user.fullName}
-                </div>
-                <div style={{ fontSize: 11, opacity: 0.7 }}>Worker</div>
-              </div>
-              <span
-                aria-hidden
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: '50%',
-                  flexShrink: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: '#94a3b8',
-                  color: '#fff',
-                  fontSize: 14,
-                }}
-              >
-                <UserOutlined />
+            <button type="button" className="w-iconbtn" aria-label="Account menu">
+              <span className="w-avatar">
+                <PersonAvatar
+                  userId={user.id}
+                  fullName={user.fullName}
+                  photoVersion={user.photoVersion}
+                  size={30}
+                />
               </span>
             </button>
           </Popover>
         )}
       </div>
-      <OfflineStatusBar />
     </header>
   );
+}
+
+/** Pages that work offline: the dashboard and the jobs (with their job pages). */
+const OFFLINE_PATHS = ['/home', '/my-assignments'];
+
+const TABS = [
+  { key: '/home', label: 'Dashboard', icon: <HomeOutlined /> },
+  { key: '/my-assignments', label: 'Jobs', icon: <ProfileOutlined /> },
+  { key: '/scan', label: 'Scan', icon: <QrcodeOutlined />, center: true },
+  { key: '/schedule', label: 'Schedule', icon: <CalendarOutlined /> },
+  { key: '/inventory', label: 'Inventory', icon: <ToolOutlined /> },
+];
+
+function isTabActive(key: string, pathname: string) {
+  if (key === '/my-assignments') {
+    return pathname.startsWith('/my-assignments') || pathname.startsWith('/job-orders/');
+  }
+  return pathname === key || pathname.startsWith(`${key}/`);
 }
 
 export default function WorkerLayout() {
@@ -318,10 +213,7 @@ export default function WorkerLayout() {
   const { online, pending } = useOffline();
   const colors = lightPalette;
   const isScan = location.pathname.startsWith('/scan');
-  // Touch screens get a taller bar so the side tabs are at least 48px tall.
-  const navH = useMediaQuery(TOUCH_QUERY) ? 64 : 56;
-  // Only My Assignments and its job pages work without a connection.
-  const needsConnection = !online && !location.pathname.startsWith('/my-assignments');
+  const needsConnection = !online && !OFFLINE_PATHS.some((p) => location.pathname.startsWith(p));
 
   const logout = () => {
     const waiting = pending.length;
@@ -348,177 +240,68 @@ export default function WorkerLayout() {
     navigate(to);
   };
 
-  const tabs = [
-    {
-      key: '/my-assignments',
-      label: 'Jobs',
-      icon: <UnorderedListOutlined style={{ fontSize: 24 }} />,
-    },
-    {
-      key: '/scan',
-      label: 'Scan',
-      icon: <QrcodeOutlined style={{ fontSize: 28 }} />,
-      center: true,
-    },
-    {
-      key: '/my-tools',
-      label: 'Tools',
-      icon: <ToolOutlined style={{ fontSize: 24 }} />,
-    },
-  ];
-
   return (
     <WorkerThemeContext.Provider value={{ colors, logout }}>
       <ConfigProvider theme={workerTheme}>
-        <div
-          className="worker-shell"
-          style={{
-            height: '100%',
-            background: isScan ? '#000' : colors.bg,
-            color: colors.text,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-          }}
-        >
-          <main
+        <MyOperationsProvider>
+          <div
+            className="worker-shell"
             style={{
-              flex: 1,
-              minHeight: 0,
-              overflowY: 'auto',
-              WebkitOverflowScrolling: 'touch',
-              // Clear fixed nav (~56) + Scan FAB peek (~22) without a large empty strip
-              paddingBottom: `calc(${navH + 24}px + env(safe-area-inset-bottom, 0px))`,
-            }}
-          >
-            {needsConnection && (
-              <>
-                <WorkerPageHeader title="Offline" />
-                <NeedsConnection />
-              </>
-            )}
-            <div style={needsConnection ? { display: 'none' } : undefined}>
-              <KeepAliveOutlet />
-            </div>
-          </main>
-          <PinOfferModal />
-
-          <nav
-            style={{
-              position: 'fixed',
-              bottom: 0,
-              left: 0,
-              right: 0,
+              height: '100%',
+              background: isScan ? '#000' : colors.bg,
+              color: colors.text,
               display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'flex-end',
-              gap: 72,
-              background: colors.navBg,
-              borderTop: `1px solid ${colors.cardBorder}`,
-              padding: '6px 24px',
-              paddingBottom: 'calc(6px + env(safe-area-inset-bottom))',
-              zIndex: 20,
-              boxShadow: '0 -2px 10px rgba(15,23,42,0.04)',
-              height: `calc(${navH}px + env(safe-area-inset-bottom))`,
-              overflow: 'visible',
+              flexDirection: 'column',
+              overflow: 'hidden',
             }}
           >
-            {tabs.map((tab) => {
-              const active =
-                tab.key === '/my-assignments'
-                  ? location.pathname.startsWith('/my-assignments') ||
-                    location.pathname.startsWith('/job-orders/')
-                  : location.pathname.startsWith(tab.key);
+            <main className={`w-main${isScan && !needsConnection ? ' w-main--scan' : ''}`}>
+              {needsConnection && (
+                <>
+                  <WorkerPageHeader title="Offline" />
+                  <NeedsConnection />
+                </>
+              )}
+              <div style={needsConnection ? { display: 'none' } : undefined}>
+                <KeepAliveOutlet />
+              </div>
+            </main>
+            <PinOfferModal />
 
-              if (tab.center) {
-                return (
-                  <div
-                    key={tab.key}
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'flex-end',
-                      width: 72,
-                      height: '100%',
-                      position: 'relative',
-                      overflow: 'visible',
-                      paddingBottom: 2,
-                      flexShrink: 0,
-                    }}
-                  >
+            <nav className="w-nav" aria-label="Main">
+              {TABS.map((tab) => {
+                const active = isTabActive(tab.key, location.pathname);
+                if (tab.center) {
+                  return (
                     <button
+                      key={tab.key}
                       type="button"
+                      className={`w-nav__scan${active ? ' is-active' : ''}`}
                       onClick={() => goSection(tab.key)}
                       aria-label={tab.label}
-                      style={{
-                        width: 56,
-                        height: 56,
-                        borderRadius: '50%',
-                        position: 'absolute',
-                        bottom: 22,
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        border: `3px solid ${colors.navBg}`,
-                        background: colors.accent,
-                        color: '#fff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        boxShadow: '0 4px 12px rgba(37,99,235,0.35)',
-                        zIndex: 2,
-                      }}
+                      aria-current={active ? 'page' : undefined}
                     >
-                      {tab.icon}
+                      <span className="w-nav__fab">{tab.icon}</span>
+                      <span>{tab.label}</span>
                     </button>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: active ? 700 : 500,
-                        color: active ? colors.accent : colors.textSecondary,
-                        whiteSpace: 'nowrap',
-                        lineHeight: 1.2,
-                        position: 'relative',
-                        zIndex: 1,
-                      }}
-                    >
-                      {tab.label}
-                    </span>
-                  </div>
+                  );
+                }
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    className={`w-nav__item${active ? ' is-active' : ''}`}
+                    onClick={() => goSection(tab.key)}
+                    aria-current={active ? 'page' : undefined}
+                  >
+                    {tab.icon}
+                    <span>{tab.label}</span>
+                  </button>
                 );
-              }
-
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => goSection(tab.key)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: active ? colors.accent : colors.textSecondary,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'flex-end',
-                    gap: 2,
-                    fontSize: 11,
-                    fontWeight: active ? 700 : 500,
-                    cursor: 'pointer',
-                    padding: '4px 12px 2px',
-                    height: '100%',
-                    minWidth: 64,
-                    flexShrink: 0,
-                  }}
-                >
-                  {tab.icon}
-                  <span style={{ lineHeight: 1.2 }}>{tab.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </div>
+              })}
+            </nav>
+          </div>
+        </MyOperationsProvider>
       </ConfigProvider>
     </WorkerThemeContext.Provider>
   );

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Modal, message } from 'antd';
+import { Button, message } from 'antd';
 import { CheckCircleFilled, FileTextOutlined, WarningOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
-import { getErrorCode, getErrorMessage } from '../../api/client';
+import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { useWorkerTheme, WorkerPageHeader } from '../../layouts/WorkerLayout';
 import { useOffline, type RecordInput } from '../../offline/OfflineProvider';
@@ -17,6 +17,12 @@ import { DOWNTIME_REASONS, type DowntimeCategory } from '../../constants/downtim
 import { SHOP_TZ, formatShop, shopToday } from '../../utils/shopTime';
 import type { JobOrder, Operation, OperationPauseReason, PartCondition } from '../../types';
 import { PageSkeleton } from '../../components/ui';
+import {
+  announceRecorded,
+  canStartOperation,
+  operationActionLabel,
+  showActionError,
+} from './operationActions';
 
 const PAUSE_REASONS: { value: OperationPauseReason; label: string }[] = [
   { value: 'END_OF_SHIFT', label: 'End of shift' },
@@ -117,9 +123,7 @@ export default function AssignmentDetailPage() {
     [loadedJob, pending]
   );
 
-  const labelFor = (op: Operation, verb: string) =>
-    `${verb} ${op.operationName || op.name || 'operation'}` +
-    (job?.jobNumber ? ` (${job.jobNumber})` : '');
+  const labelFor = (op: Operation, verb: string) => operationActionLabel(op, verb, job?.jobNumber);
 
   /** Records the action; a refusal while online is thrown to the caller. */
   const recordAction = async (
@@ -128,13 +132,7 @@ export default function AssignmentDetailPage() {
     sentText: string
   ) => {
     const outcome = await record({ ...input, operationId: op.id, jobOrderId: op.jobOrderId });
-    if (outcome === 'sent') message.success(sentText);
-    else
-      message.info(
-        online
-          ? 'Saved on this phone. It is sent right after the earlier waiting actions.'
-          : 'Saved on this phone. It is sent when the connection returns.'
-      );
+    announceRecorded(outcome, online, sentText);
   };
 
   useEffect(() => {
@@ -164,19 +162,7 @@ export default function AssignmentDetailPage() {
         );
       }
     } catch (err) {
-      const code = getErrorCode(err);
-      if (code === 'MATERIALS_NOT_RECEIVED' || code === 'MATERIALS_NOT_ORDERED') {
-        Modal.warning({
-          title:
-            code === 'MATERIALS_NOT_ORDERED'
-              ? 'Materials have not been ordered'
-              : 'Materials have not arrived',
-          content: getErrorMessage(err),
-          okText: 'OK',
-        });
-      } else {
-        message.error(getErrorMessage(err));
-      }
+      showActionError(err);
     } finally {
       setActionLoading(null);
     }
@@ -420,10 +406,7 @@ export default function AssignmentDetailPage() {
               user?.id &&
                 (op.assignedWorkerId === user.id || (op.helperIds || []).includes(user.id))
             );
-            const canStart =
-              isMine &&
-              (op.status === 'PENDING' || op.status === 'SCHEDULED' || op.status === 'REWORK') &&
-              ops.slice(0, index).every((o) => o.status === 'COMPLETED');
+            const canStart = canStartOperation(op, ops, user?.id);
             const isLast = index === ops.length - 1;
             const opName = op.operationName || op.name || 'Operation';
             const seq = op.sequenceNo ?? op.seq ?? index + 1;

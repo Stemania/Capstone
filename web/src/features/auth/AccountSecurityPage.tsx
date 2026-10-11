@@ -482,7 +482,7 @@ export default function AccountSecurityPage() {
         <WorkerPageHeader
           title="Security"
           subtitle="Password and PIN"
-          onBack={() => (window.history.length > 1 ? navigate(-1) : navigate('/my-assignments'))}
+          onBack={() => (window.history.length > 1 ? navigate(-1) : navigate('/home'))}
         />
       ) : null}
       {modalHolder}

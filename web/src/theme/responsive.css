@@ -172,14 +172,14 @@
     min-width: 44px;
   }
 
-  /* Worker screens: gloved thumbs. */
+  /* Worker screens: search and toggles stay compact; work actions keep 48px. */
   .worker-search.ant-input-affix-wrapper {
-    min-height: 48px;
+    min-height: 42px;
   }
 
   .worker-shell .ant-segmented .ant-segmented-item-label {
-    min-height: 48px;
-    line-height: 48px;
+    min-height: 34px;
+    line-height: 34px;
   }
   .ant-checkbox-wrapper:not(:has(> span + span)) {
     min-width: 44px;

@@ -3,7 +3,8 @@ from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required
 
 from app.extensions import limiter
 from app.middleware.rbac import get_current_user_id
-from app.models.user import User
+from app.models.machine import MachineUnit
+from app.models.user import User, UserRole
 from app.services.auth_service import (
     authenticate_user,
     change_own_password,
@@ -114,7 +115,16 @@ def refresh():
 @jwt_required()
 def me():
     user = get_user_by_id(get_current_user_id())
-    return jsonify(user.to_dict(include_profile=True))
+    if user.role != UserRole.PRODUCTION_WORKER:
+        return jsonify(user.to_dict(include_profile=True))
+    payload = user.to_dict(include_profile=True, include_schedule=True)
+    payload["assignedMachines"] = [
+        {"id": u.id, "label": u.label, "machineTypeName": u.machine_type.name if u.machine_type else None}
+        for u in MachineUnit.query.filter_by(default_operator_id=user.id, active=True)
+        .order_by(MachineUnit.label)
+        .all()
+    ]
+    return jsonify(payload)
 
 
 @auth_bp.route("/invitation/validate", methods=["POST"])

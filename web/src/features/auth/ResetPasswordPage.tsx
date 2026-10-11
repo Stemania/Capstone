@@ -98,7 +98,7 @@ export default function ResetPasswordPage() {
       );
       applySession(data);
       localStorage.removeItem('bmsc_has_pin');
-      navigate(data.user.role === 'PRODUCTION_WORKER' ? '/my-assignments' : '/dashboard', {
+      navigate(data.user.role === 'PRODUCTION_WORKER' ? '/home' : '/dashboard', {
         replace: true,
       });
     } catch (err) {

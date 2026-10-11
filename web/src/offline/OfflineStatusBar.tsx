@@ -1,28 +1,25 @@
 import { useState } from 'react';
 import { Button, Modal } from 'antd';
-import { CloudUploadOutlined, DisconnectOutlined, ExclamationCircleFilled } from '@ant-design/icons';
+import {
+  CloudUploadOutlined,
+  DisconnectOutlined,
+  ExclamationCircleFilled,
+  SyncOutlined,
+} from '@ant-design/icons';
 import { formatShop } from '../utils/shopTime';
 import { useOfflineOptional, type OfflineContextValue } from './OfflineProvider';
 
-const barStyle = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  marginTop: 10,
-  padding: '8px 12px',
-  borderRadius: 10,
-  fontSize: 13,
-  fontWeight: 600,
-  lineHeight: 1.35,
-} as const;
-
-/** Connection, waiting actions, and the first refused action, in the worker header. */
+/**
+ * Connection and waiting actions as a small pill in the worker top bar.
+ * Hidden when online with nothing waiting; tap for details (and to retry or
+ * discard an action the server did not accept).
+ */
 export default function OfflineStatusBar() {
   const offline = useOfflineOptional();
-  return offline ? <StatusBar {...offline} /> : null;
+  return offline ? <SyncPill {...offline} /> : null;
 }
 
-function StatusBar({
+function SyncPill({
   online,
   lastUpdated,
   pending,
@@ -34,6 +31,7 @@ function StatusBar({
 }: OfflineContextValue) {
   const [open, setOpen] = useState(false);
   const waiting = pending.filter((a) => a.state === 'waiting').length + (refused ? 1 : 0);
+  if (online && !waiting && !refused && !otherUsersPending) return null;
 
   const confirmDiscard = () => {
     if (!refused) return;
@@ -50,103 +48,116 @@ function StatusBar({
     });
   };
 
+  let variant = '';
+  let icon = <CloudUploadOutlined />;
+  let text = `${waiting} waiting`;
+  if (refused) {
+    variant = ' w-sync--refused';
+    icon = <ExclamationCircleFilled />;
+    text = 'Not accepted';
+  } else if (!online) {
+    variant = ' w-sync--offline';
+    icon = <DisconnectOutlined />;
+    text = waiting ? `Offline · ${waiting}` : 'Offline';
+  } else if (syncing && waiting) {
+    icon = <SyncOutlined className="w-sync__spin" />;
+    text = `Sending ${waiting}`;
+  } else if (!waiting) {
+    text = 'Other user';
+  }
+
+  const label = [
+    online ? null : 'Offline',
+    waiting ? `${waiting} ${waiting === 1 ? 'action' : 'actions'} waiting to send` : null,
+    refused ? 'one was not accepted' : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
   return (
     <>
-      {!online && (
-        <div style={{ ...barStyle, background: 'rgba(217,119,6,0.18)', color: '#fde68a' }}>
-          <DisconnectOutlined />
-          <span>
-            {lastUpdated
-              ? `Offline, last updated ${formatShop(lastUpdated, 'MMM D, h:mm A')}`
-              : 'Offline, nothing saved on this phone yet'}
-          </span>
-        </div>
-      )}
-      {waiting > 0 && !refused && (
-        <div style={{ ...barStyle, background: 'rgba(255,255,255,0.12)', color: '#fff' }}>
-          <CloudUploadOutlined />
-          <span>
-            {waiting === 1 ? '1 action waiting to send' : `${waiting} actions waiting to send`}
-            {online && syncing ? ' · sending…' : ''}
-          </span>
-        </div>
-      )}
-      {refused && (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          style={{
-            ...barStyle,
-            width: '100%',
-            border: 'none',
-            cursor: 'pointer',
-            textAlign: 'left',
-            background: '#fee2e2',
-            color: '#7A1528',
-          }}
-        >
-          <ExclamationCircleFilled />
-          <span>
-            Not accepted: {refused.label}. Tap to see why.
-            {waiting > 1 ? ` ${waiting - 1} more waiting behind it.` : ''}
-          </span>
-        </button>
-      )}
-      {otherUsersPending > 0 && (
-        <div style={{ ...barStyle, background: 'rgba(255,255,255,0.08)', color: '#cbd5e1' }}>
-          {otherUsersPending === 1 ? '1 action' : `${otherUsersPending} actions`} from another
-          worker on this phone will be sent when they sign in.
-        </div>
-      )}
+      <button
+        type="button"
+        className={`w-sync${variant}`}
+        onClick={() => setOpen(true)}
+        aria-label={label || 'Connection status'}
+      >
+        {icon}
+        <span>{text}</span>
+      </button>
 
       <Modal
-        open={open && !!refused}
+        open={open}
         onCancel={() => setOpen(false)}
-        title="This action was not accepted"
+        title={refused ? 'This action was not accepted' : online ? 'Waiting to send' : 'You are offline'}
         footer={null}
         destroyOnHidden
       >
-        {refused && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>{refused.label}</div>
-              <div style={{ color: '#64748b', fontSize: 13 }}>
-                Recorded on this phone {formatShop(refused.at, 'MMM D, h:mm A')}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {!online && (
+            <div style={{ fontSize: 14, color: '#334155' }}>
+              {lastUpdated
+                ? `Your jobs were last updated ${formatShop(lastUpdated, 'MMM D, h:mm A')}. `
+                : 'Nothing is saved on this phone yet. '}
+              Start, pause, resume and complete still work: they are saved on this phone and sent when
+              the connection returns.
+            </div>
+          )}
+          {waiting > 0 && !refused && (
+            <div style={{ fontSize: 14, color: '#334155' }}>
+              {waiting === 1 ? '1 action is' : `${waiting} actions are`} waiting to send
+              {online && syncing ? ' and sending now.' : '.'} They are sent in the order you did them.
+            </div>
+          )}
+          {refused && (
+            <>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{refused.label}</div>
+                <div style={{ color: '#64748b', fontSize: 13 }}>
+                  Recorded on this phone {formatShop(refused.at, 'MMM D, h:mm A')}
+                </div>
               </div>
-            </div>
-            <div
-              style={{
-                background: '#fef2f2',
-                border: '1px solid #fecaca',
-                borderRadius: 10,
-                padding: '10px 12px',
-                color: '#7A1528',
-                fontSize: 14,
-              }}
-            >
-              {refused.error?.message || 'The server refused this action.'}
-            </div>
+              <div
+                style={{
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  borderRadius: 10,
+                  padding: '10px 12px',
+                  color: '#7A1528',
+                  fontSize: 14,
+                }}
+              >
+                {refused.error?.message || 'The server refused this action.'}
+              </div>
+              <div style={{ fontSize: 13, color: '#64748b' }}>
+                Actions after this one wait until you try again or discard it, so nothing is recorded
+                out of order.
+                {waiting > 1 ? ` ${waiting - 1} more waiting behind it.` : ''}
+              </div>
+              <Button
+                type="primary"
+                block
+                size="large"
+                disabled={!online}
+                onClick={() => {
+                  retry(refused.id);
+                  setOpen(false);
+                }}
+              >
+                {online ? 'Try again' : 'Try again (needs a connection)'}
+              </Button>
+              <Button danger block size="large" onClick={confirmDiscard}>
+                Discard
+              </Button>
+            </>
+          )}
+          {otherUsersPending > 0 && (
             <div style={{ fontSize: 13, color: '#64748b' }}>
-              Actions after this one wait until you try again or discard it, so nothing is
-              recorded out of order.
+              {otherUsersPending === 1 ? '1 action' : `${otherUsersPending} actions`} from another worker
+              on this phone will be sent when they sign in.
             </div>
-            <Button
-              type="primary"
-              block
-              size="large"
-              disabled={!online}
-              onClick={() => {
-                retry(refused.id);
-                setOpen(false);
-              }}
-            >
-              {online ? 'Try again' : 'Try again (needs a connection)'}
-            </Button>
-            <Button danger block size="large" onClick={confirmDiscard}>
-              Discard
-            </Button>
-          </div>
-        )}
+          )}
+        </div>
       </Modal>
     </>
   );

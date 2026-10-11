@@ -58,6 +58,8 @@ export interface User {
   workerProfile?: WorkerProfile;
   skills?: WorkerSkill[];
   schedules?: WorkerSchedule[];
+  /** Machine units the worker is the default operator of (own /auth/me only). */
+  assignedMachines?: { id: string; label: string; machineTypeName?: string | null }[];
   available?: boolean;
   activeJobId?: string;
   activeJobTitle?: string;
@@ -1245,10 +1247,14 @@ export interface MyWorkFigures {
   hoursWorked: number | null;
   targetHours: number | null;
   laborEfficiencyPct: number | null;
+  /** Hours the worker's operations were running (weeks only), minus the daily break. */
+  loggedHours?: number | null;
 }
 
 export interface MyWorkSummary {
   thisWeek: MyWorkFigures;
+  /** The same days of last week, Monday up to today's weekday. */
+  lastWeek?: MyWorkFigures;
   thisMonth: MyWorkFigures;
 }
 
