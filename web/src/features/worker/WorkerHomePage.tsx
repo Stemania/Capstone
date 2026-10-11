@@ -309,7 +309,7 @@ export default function WorkerHomePage() {
           <div className="w-hero__hint">Starts after Op {blockedBy.sequenceNo} is finished.</div>
         )}
         {(paused || startable) && (
-          <button type="button" className="w-link" style={{ margin: '6px auto 0', display: 'flex' }} onClick={() => openJob(hero)}>
+          <button type="button" className="w-link w-hero__details" onClick={() => openJob(hero)}>
             Job details <RightOutlined style={{ fontSize: 10 }} />
           </button>
         )}

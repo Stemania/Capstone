@@ -3512,16 +3512,16 @@ a.client-contact__main:hover .client-contact__value {
   background: #f8fafc;
 }
 
-/* Worker mobile: schedule-style segmented toggle (gray track + sliding white pill) */
+/* Worker mobile: full-width pill toggle; the blue thumb slides between the pills. */
 .worker-seg.ant-segmented {
   width: 100%;
-  padding: 3px;
-  border-radius: 10px;
-  background: #e2e8f0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .worker-seg .ant-segmented-group {
-  gap: 0;
+  gap: 6px;
 }
 
 .worker-seg .ant-segmented-item {
@@ -3538,15 +3538,19 @@ a.client-contact__main:hover .client-contact__value {
   padding: 0 6px;
 }
 
-.worker-seg .ant-segmented-item-selected,
 .worker-seg .ant-segmented-item:hover {
   color: #0f1c2e;
 }
 
+.worker-seg .ant-segmented-item-selected,
+.worker-seg .ant-segmented-item-selected:hover {
+  color: #fff;
+}
+
 .worker-seg .ant-segmented-thumb {
   border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
+  background: var(--c-primary);
+  box-shadow: none;
 }
 
 .worker-search.ant-input-affix-wrapper {

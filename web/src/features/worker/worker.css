@@ -641,6 +641,24 @@
   overflow-wrap: anywhere;
 }
 
+/* Text button that underlines on hover instead of filling a background. */
+.ant-btn.w-textlink,
+.ant-btn.w-textlink:not(:disabled):hover,
+.ant-btn.w-textlink:not(:disabled):active {
+  background: transparent !important;
+}
+
+.ant-btn.w-textlink:not(:disabled):hover > span:not(.ant-btn-icon),
+.ant-btn.w-textlink:focus-visible > span:not(.ant-btn-icon) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.w-hero__details {
+  display: flex;
+  margin: 4px auto -10px;
+}
+
 .w-hero__hint {
   margin-top: 8px;
   font-size: 12px;
@@ -809,7 +827,7 @@
   flex-direction: column;
   align-items: center;
   gap: 1px;
-  padding: 5px 0 6px;
+  padding: 3px 0 4px;
   border: 0;
   border-radius: 10px;
   background: none;
@@ -826,9 +844,14 @@
 }
 
 .w-week__num {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
   font-size: 16px;
   font-weight: 800;
-  line-height: 1.2;
+  line-height: 1;
 }
 
 .w-week__dot {
@@ -850,18 +873,13 @@
   color: var(--c-primary);
 }
 
-.w-week__day.is-selected {
+.w-week__day.is-selected .w-week__dow {
+  color: var(--c-text);
+}
+
+.w-week__day.is-selected .w-week__num {
   background: var(--c-navy);
   color: #fff;
-}
-
-.w-week__day.is-selected .w-week__dow,
-.w-week__day.is-selected .w-week__num {
-  color: #fff;
-}
-
-.w-week__day.is-selected.has-work .w-week__dot {
-  background: #93c5fd;
 }
 
 .w-week__foot {

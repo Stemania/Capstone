@@ -752,6 +752,7 @@ export default function AssignmentDetailPage() {
                       <Button
                         type="text"
                         danger
+                        className="w-textlink"
                         icon={<WarningOutlined />}
                         disabled={actionLoading === op.id}
                         onClick={() => {
