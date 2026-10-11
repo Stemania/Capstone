@@ -216,12 +216,19 @@ def _load_suppliers(report):
 def _load_machines(report):
     by_code = {}
     for spec in MACHINE_CATALOG:
+        names = [spec["name"], *spec.get("old_names", [])]
         mt = MachineType.query.filter_by(code=spec["code"]).first()
+        if mt is None:
+            mt = MachineType.query.filter(
+                func.lower(MachineType.name).in_([n.lower() for n in names])
+            ).first()
         if mt is None:
             mt = MachineType(code=spec["code"], name=spec["name"], units=0)
             db.session.add(mt)
             db.session.flush()
             report.change(f"Machine type {spec['code']}: created {spec['name']!r}")
+        elif mt.name in spec.get("old_names", []):
+            _set(mt, "name", spec["name"], report, f"Machine type {mt.code}")
         by_code[spec["code"]] = mt
 
         labels = {

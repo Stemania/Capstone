@@ -1,8 +1,8 @@
 """Import the shop's employees from a git-ignored CSV (`flask import-employees`).
 
 Columns: full_name, nickname, role (ADMIN, OFFICE, WORKER), machine_skills
-(machine type names separated by ";", or ALL), default_units (unit names
-separated by ";").
+(machine type names separated by ";", or ALL; "Lathe" and "Lathe Machine" both
+match), default_units (unit names separated by ";").
 
 People are matched to existing accounts by full name. New accounts are not
 activated and have no password or email; the Admin invites each person once
@@ -16,6 +16,7 @@ import csv
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app.constants.machines import machine_type_name_aliases
 from app.extensions import db
 from app.models.machine import MachineType, MachineUnit
 from app.models.user import User, UserRole, UserStatus
@@ -80,6 +81,9 @@ def import_employees(path: Path, dry_run: bool = False) -> ImportReport:
 
     machine_types = MachineType.query.order_by(MachineType.name).all()
     type_by_key = {}
+    for mt in machine_types:
+        for alias in machine_type_name_aliases(mt):
+            type_by_key.setdefault(_key(alias), mt)
     for mt in machine_types:
         type_by_key[_key(mt.name)] = mt
         type_by_key[_key(mt.code)] = mt

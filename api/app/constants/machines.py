@@ -3,20 +3,50 @@
 from collections import Counter
 
 # Actual shop floor machines at Brothers Machine Shop (seed source of truth).
-# Units are labelled "<unit_label> #<n>"; unit_label defaults to the name.
+# Units are labelled "<unit_label> #<n>". old_names are earlier type names that
+# are still accepted wherever a type is matched by name (employee import,
+# reference loader).
 MACHINE_CATALOG = [
-    {"code": "LATHE", "name": "Lathe", "units": 8},
-    {"code": "MILLING", "name": "Milling", "units": 8},
-    {"code": "SHAPER", "name": "Shaper", "units": 1},
-    {"code": "GRINDING", "name": "Grinding", "units": 2},
-    {"code": "DRILLING", "name": "Drilling", "units": 1},
-    {"code": "BENDING", "name": "Bending Machine", "units": 1, "unit_label": "Bending"},
-    {"code": "LASER", "name": "Laser Machine", "units": 1, "unit_label": "Laser"},
+    {"code": "LATHE", "name": "Lathe Machine", "units": 8, "unit_label": "Lathe", "old_names": ["Lathe"]},
+    {"code": "MILLING", "name": "Milling Machine", "units": 8, "unit_label": "Milling", "old_names": ["Milling"]},
+    {"code": "SHAPER", "name": "Shaper Machine", "units": 1, "unit_label": "Shaper", "old_names": ["Shaper"]},
+    {"code": "GRINDING", "name": "Grinding Machine", "units": 2, "unit_label": "Grinding", "old_names": ["Grinding"]},
+    {"code": "DRILLING", "name": "Drilling Machine", "units": 1, "unit_label": "Drilling", "old_names": ["Drilling"]},
+    {"code": "BENDING", "name": "Bending Machine", "units": 1, "unit_label": "Bending", "old_names": ["Bending"]},
+    {"code": "LASER", "name": "Laser Machine", "units": 1, "unit_label": "Laser", "old_names": ["Laser"]},
 ]
+
+_CATALOG_BY_CODE = {m["code"]: m for m in MACHINE_CATALOG}
+_MACHINE_SUFFIX = " machine"
 
 
 def machine_unit_label(machine: dict, n: int) -> str:
     return f"{machine.get('unit_label') or machine['name']} #{n}"
+
+
+def machine_unit_prefix(machine_type) -> str:
+    """Short unit name for a type: "Lathe" for "Lathe Machine"."""
+    spec = _CATALOG_BY_CODE.get(machine_type.code or "")
+    if spec and spec.get("unit_label"):
+        return spec["unit_label"]
+    name = (machine_type.name or "").strip()
+    if name.lower().endswith(_MACHINE_SUFFIX) and len(name) > len(_MACHINE_SUFFIX):
+        return name[: -len(_MACHINE_SUFFIX)].strip()
+    return name
+
+
+def machine_type_name_aliases(machine_type) -> set[str]:
+    """Every name a type answers to: its name and code, the name with and
+    without "Machine", and the catalog's old names."""
+    name = (machine_type.name or "").strip()
+    names = {name, machine_type.code or "", machine_unit_prefix(machine_type)}
+    if not name.lower().endswith(_MACHINE_SUFFIX):
+        names.add(f"{name} Machine")
+    spec = _CATALOG_BY_CODE.get(machine_type.code or "")
+    if spec:
+        names.add(spec["name"])
+        names.update(spec.get("old_names", []))
+    return {n for n in names if n}
 
 VALID_MACHINE_CODES = {m["code"] for m in MACHINE_CATALOG}
 

@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from app.constants.machines import machine_unit_prefix
 from app.extensions import db
 from app.models.job_order import JobOrder, JobOrderStatus
 from app.models.operation import JobOperation, OperationStatus
@@ -1125,7 +1126,7 @@ def _next_machine_unit_label(machine_type):
         if m:
             nums.append(int(m.group(1)))
     next_n = (max(nums) if nums else len(units)) + 1
-    return f"{machine_type.name} #{next_n}"
+    return f"{machine_unit_prefix(machine_type)} #{next_n}"
 
 
 def create_machine_unit(machine_type_id, label=None):

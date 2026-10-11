@@ -187,4 +187,11 @@ SKILL_TOKEN_TO_MACHINE = {
     "shaper": "SHAPER",
     "bending": "BENDING",
     "laser": "LASER",
+    "lathe machine": "LATHE",
+    "milling machine": "MILLING",
+    "grinding machine": "GRINDING",
+    "drilling machine": "DRILLING",
+    "shaper machine": "SHAPER",
+    "bending machine": "BENDING",
+    "laser machine": "LASER",
 }
