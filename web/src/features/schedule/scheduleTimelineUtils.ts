@@ -100,7 +100,7 @@ export function defaultShopDayWindows(from: Dayjs, to: Dayjs): ShopDayWindow[] {
 }
 
 /**
- * Week and month columns start at the fixed 08:00 opening so a job that starts at
+ * Week columns start at the fixed 08:00 opening so a job that starts at
  * opening sits flush on every day (the per-day union of worker hours can start
  * earlier on some weekdays and would inset bars — the Tuesday gap). A day that
  * runs past 17:00 (overtime) gets a proportionally wider column so bars are
@@ -110,14 +110,9 @@ export function buildWeekTimelineLayout(
   from: Dayjs,
   to: Dayjs,
   windows: ShopDayWindow[],
-  mobile: boolean,
-  mode: 'week' | 'month' = 'week'
+  mobile: boolean
 ): WeekTimelineLayout {
-  // Month keeps its usual day width; only the working hours fill it.
-  const pph =
-    mode === 'month'
-      ? dayWidthPx('month', mobile) / ((DEFAULT_DAY_END_MIN - DEFAULT_DAY_START_MIN) / 60)
-      : pxPerHour('week', mobile);
+  const pph = pxPerHour('week', mobile);
   const byDate = new Map(windows.map((w) => [w.date, w]));
   const count = to.diff(from, 'day') + 1;
   const colW = defaultWorkingDayWidth(pph);
@@ -147,6 +142,42 @@ export function buildWeekTimelineLayout(
   }
 
   return { days, totalWidth: cursor, pph };
+}
+
+/**
+ * Month columns: equal width, each mapped to that day's working hours (08:00
+ * to closing, or later on overtime days) so bars run edge to edge like week.
+ */
+export function buildMonthTimelineLayout(
+  from: Dayjs,
+  to: Dayjs,
+  windows: ShopDayWindow[],
+  mobile: boolean
+): WeekTimelineLayout {
+  const pph = pxPerHour('month', mobile);
+  const colW = (HOUR_END - HOUR_START) * pph;
+  const byDate = new Map(windows.map((w) => [w.date, w]));
+  const count = to.diff(from, 'day') + 1;
+  const days: WeekDayColumn[] = [];
+  for (let i = 0; i < count; i++) {
+    const d = from.add(i, 'day');
+    const date = d.format('YYYY-MM-DD');
+    const w = byDate.get(date);
+    const isWorking = w?.isWorking ?? d.day() !== 0;
+    const endMinutes = isWorking
+      ? Math.max(DEFAULT_DAY_END_MIN, w?.endTime ? parseHm(w.endTime) : 0)
+      : 0;
+    days.push({
+      date,
+      isWorking,
+      startMinutes: isWorking ? DEFAULT_DAY_START_MIN : 0,
+      endMinutes,
+      durationHours: isWorking ? (endMinutes - DEFAULT_DAY_START_MIN) / 60 : 0,
+      left: i * colW,
+      width: colW,
+    });
+  }
+  return { days, totalWidth: count * colW, pph };
 }
 
 /**

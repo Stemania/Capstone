@@ -19,6 +19,7 @@ import {
   TIMELINE_NAVY,
   WORKING_HOURS_NOTE,
   assignOverlapLanes,
+  buildMonthTimelineLayout,
   buildWeekTimelineLayout,
   clipSegmentToPeriod,
   dayColumnsForView,
@@ -157,7 +158,9 @@ function ScheduleTimelineBoard({
       shopDayWindows && shopDayWindows.length > 0
         ? shopDayWindows
         : defaultShopDayWindows(from, to);
-    return buildWeekTimelineLayout(from, to, windows, isMobile, viewMode);
+    return viewMode === 'week'
+      ? buildWeekTimelineLayout(from, to, windows, isMobile)
+      : buildMonthTimelineLayout(from, to, windows, isMobile);
   }, [viewMode, shopDayWindows, from, to, isMobile]);
 
   const weekLayout = useMemo(() => {

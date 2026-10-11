@@ -46,6 +46,7 @@ import {
   TIMELINE_NAVY as NAVY,
   WORKING_HOURS_NOTE,
   assignOverlapLanes,
+  buildMonthTimelineLayout,
   buildWeekTimelineLayout,
   clipSegmentToPeriod,
   dayColumnsForView,
@@ -361,7 +362,9 @@ function AdminOfficeScheduleBoard() {
       data?.shopDayWindows && data.shopDayWindows.length > 0
         ? data.shopDayWindows
         : defaultShopDayWindows(from, to);
-    return buildWeekTimelineLayout(from, to, windows, isMobile, viewMode);
+    return viewMode === 'week'
+      ? buildWeekTimelineLayout(from, to, windows, isMobile)
+      : buildMonthTimelineLayout(from, to, windows, isMobile);
   }, [viewMode, data?.shopDayWindows, from, to, isMobile]);
 
   const weekLayout = useMemo(() => {
