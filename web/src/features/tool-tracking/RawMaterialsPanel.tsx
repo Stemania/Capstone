@@ -1,17 +1,6 @@
 import { formatShop, shopToday } from '../../utils/shopTime';
 import { useCallback, useEffect, useState } from 'react';
-import {
-  Alert,
-  Button,
-  DatePicker,
-  Input,
-  Modal,
-  Select,
-  Table,
-  Tooltip,
-  Typography,
-  message,
-} from 'antd';
+import { Alert, Button, DatePicker, Input, Modal, Select, Tooltip, Typography, message } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { DownloadOutlined, LinkOutlined } from '@ant-design/icons';
 import { type Dayjs } from 'dayjs';
@@ -32,6 +21,7 @@ import type {
 } from '../../types';
 import { exportCsv } from '../../utils/csvExport';
 import { useAuth } from '../../hooks/useAuth';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const { Text } = Typography;
 
@@ -435,7 +425,7 @@ export default function RawMaterialsPanel() {
         <Link to="/analytics/suppliers">Analytics → Suppliers</Link>.
       </Text>
 
-      <Table
+      <ResponsiveTable
         className="std-list-table raw-materials-table"
         rowKey="id"
         loading={loading}

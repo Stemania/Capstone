@@ -1,6 +1,6 @@
 import { chart, chartPalette } from '../../theme/tokens';
 import { useEffect, useMemo, useState } from 'react';
-import { Segmented, Spin, Table, Typography, message } from 'antd';
+import { Segmented, Spin, Typography, message } from 'antd';
 import {
   Bar,
   BarChart,
@@ -25,6 +25,7 @@ import {
   type AnalyticsSpan,
 } from './AnalyticsSection';
 import { formatInt, formatMoney, useAnalyticsPeriod } from './analyticsPeriod';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const { Text } = Typography;
 
@@ -254,7 +255,7 @@ function MonthView({ rows }: { rows: MonthRow[] }) {
         </ResponsiveContainer>
       </div>
       <ShowDetails>
-        <Table
+        <ResponsiveTable
           size="small"
           pagination={false}
           rowKey="month"
@@ -312,7 +313,7 @@ function ClientView({ rows }: { rows: ClientRow[] }) {
         </ResponsiveContainer>
       </div>
       <ShowDetails>
-        <Table
+        <ResponsiveTable
           size="small"
           pagination={false}
           rowKey="clientId"
@@ -371,7 +372,7 @@ function JobTypeView({ rows }: { rows: JobTypeRow[] }) {
         </ResponsiveContainer>
       </div>
       <ShowDetails>
-        <Table
+        <ResponsiveTable
           size="small"
           pagination={false}
           rowKey="jobType"

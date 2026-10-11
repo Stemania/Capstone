@@ -1,17 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  InputNumber,
-  Button,
-  Select,
-  Typography,
-  Alert,
-  Tag,
-  Table,
-  Tooltip,
-  Space,
-  message,
-  Input,
-} from 'antd';
+import { InputNumber, Button, Select, Typography, Alert, Tag, Tooltip, Space, message, Input } from 'antd';
 import SplitActionButton from '../../components/SplitActionButton';
 import InfoTip from '../../components/InfoTip';
 import type { ColumnsType } from 'antd/es/table';
@@ -55,6 +43,7 @@ import type {
   WorkerSuggestion,
 } from '../../types';
 import { PageSkeleton } from '../../components/ui';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const { Title, Text } = Typography;
 
@@ -1244,7 +1233,7 @@ export default function JobOrderPlanningPage() {
       {wizardStep === 2 ? (
       <div className="jo-plan__panel">
         <div className="jo-plan__section-title">Operations</div>
-        <Table
+        <ResponsiveTable
           size="middle"
           pagination={false}
           rowKey="key"

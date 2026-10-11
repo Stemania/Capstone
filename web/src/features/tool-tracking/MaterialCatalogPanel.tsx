@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Col, Form, Input, Modal, Row, Select, Switch, Table, Tag, message } from 'antd';
+import { Button, Col, Form, Input, Modal, Row, Select, Switch, Tag, message } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { EditOutlined, PlusOutlined, SearchOutlined, ExperimentOutlined } from '@ant-design/icons';
 import {
@@ -12,6 +12,7 @@ import {
 import { getErrorMessage } from '../../api/client';
 import { invalidateMaterialCatalog } from '../../hooks/useMaterialCatalog';
 import StatusPill from '../../components/StatusPill';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 function sectionLabel(text: string) {
   return <div className="app-form-section">{text}</div>;
@@ -163,7 +164,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
         </div>
       </div>
 
-      <Table
+      <ResponsiveTable
         className="std-list-table"
         rowKey="id"
         size="small"

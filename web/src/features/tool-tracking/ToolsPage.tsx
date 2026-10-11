@@ -1,25 +1,6 @@
 import { shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Table,
-  Button,
-  Modal,
-  Form,
-  Input,
-  InputNumber,
-  Space,
-  Select,
-  Segmented,
-  DatePicker,
-  Alert,
-  Dropdown,
-  Drawer,
-  Row,
-  Col,
-  Spin,
-  message,
-  Tooltip,
-} from 'antd';
+import { Button, Modal, Form, Input, InputNumber, Space, Select, Segmented, DatePicker, Alert, Dropdown, Drawer, Row, Col, message, Tooltip } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
   PlusOutlined,
@@ -46,6 +27,7 @@ import ToolEventsPage from './ToolEventsPage';
 import ToolsAssetsPanel from './ToolsAssetsPanel';
 import RawMaterialsPanel from './RawMaterialsPanel';
 import MaterialCatalogPanel from './MaterialCatalogPanel';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 type PageTab = 'tools' | 'consumables' | 'raw-materials' | 'catalog';
 type StockFilter = 'low' | 'ok';
@@ -443,49 +425,8 @@ export default function ToolsPage() {
               />
             )}
 
-            {isPhone ? (
-              <div className="admin-cards">
-                {loading && (
-                  <div className="page-spinner">
-                    <Spin />
-                  </div>
-                )}
-                {!loading && filtered.length === 0 && (
-                  <div className="admin-cards__empty">{stockEmpty}</div>
-                )}
-                {!loading &&
-                  filtered.map((r) => (
-                    <div key={r.id} className="admin-card">
-                      <div className="admin-card__top">
-                        <div>
-                          <div className="admin-card__title">{r.name}</div>
-                          <div className="admin-card__meta">
-                            {[r.shopTerm && `“${r.shopTerm}”`, r.sizeSpec, r.code]
-                              .filter(Boolean)
-                              .join(' · ')}
-                          </div>
-                        </div>
-                        {canEdit && (
-                          <Dropdown menu={{ items: actionItems(r) }} trigger={['click']}>
-                            <Button type="text" size="small" icon={<MoreOutlined />} />
-                          </Dropdown>
-                        )}
-                      </div>
-                      <div className="admin-card__row">
-                        <span style={{ fontWeight: r.lowStock ? 800 : 600 }}>
-                          {r.quantityOnHand} {r.unit}
-                        </span>
-                        {r.lowStock ? (
-                          <StatusPill color="amber" compact>Low stock</StatusPill>
-                        ) : (
-                          <StatusPill color="green" compact>OK</StatusPill>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            ) : (
-              <Table
+              <ResponsiveTable
+                card={{ subtitle: ['sizeSpec'], badge: 'status' }}
                 className="std-list-table"
                 rowKey="id"
                 size="small"
@@ -505,7 +446,6 @@ export default function ToolsPage() {
                     : undefined
                 }
               />
-            )}
           </div>
 
           <Drawer
@@ -555,7 +495,7 @@ export default function ToolsPage() {
                     Refresh
                   </Button>
                 </Space>
-                <Table
+                <ResponsiveTable
                   className="std-list-table"
                   size="small"
                   rowKey="toolId"

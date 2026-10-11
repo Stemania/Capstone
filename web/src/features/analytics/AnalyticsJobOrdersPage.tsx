@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Table, Typography, message } from 'antd';
+import { Typography, message } from 'antd';
 import { analyticsApi } from '../../api/analytics.api';
 import { getErrorMessage } from '../../api/client';
 import type { AnalyticsJobOrders } from '../../types';
@@ -9,6 +9,7 @@ import { AnalyticsGrid, AnalyticsSection } from './AnalyticsSection';
 import SalesSection from './SalesSection';
 import { formatInt, formatMoney, formatPct, useAnalyticsPeriod } from './analyticsPeriod';
 import { PageSkeleton } from '../../components/ui';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const { Text } = Typography;
 
@@ -113,7 +114,7 @@ export default function AnalyticsJobOrdersPage() {
           }
           exportDisabled={!received.byJobType.length}
         >
-          <Table
+          <ResponsiveTable
             size="small"
             pagination={false}
             rowKey="jobType"
@@ -135,7 +136,7 @@ export default function AnalyticsJobOrdersPage() {
               },
             ]}
           />
-          <Table
+          <ResponsiveTable
             size="small"
             style={{ marginTop: 16 }}
             pagination={false}

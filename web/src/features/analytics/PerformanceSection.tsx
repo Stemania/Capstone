@@ -1,6 +1,6 @@
 import { chartPalette } from '../../theme/tokens';
 import { useEffect, useMemo, useState } from 'react';
-import { Segmented, Spin, Table, Typography, message } from 'antd';
+import { Segmented, Spin, Typography, message } from 'antd';
 import {
   Bar,
   BarChart,
@@ -21,6 +21,7 @@ import type {
   AnalyticsByWorker,
 } from '../../types';
 import { exportCsv } from '../../utils/csvExport';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 import {
   AnalyticsSection,
   CHART_BOX,
@@ -293,7 +294,7 @@ function WorkerView({ rows }: { rows: AnalyticsByWorker['workers'] }) {
     <>
       <VarianceBarChart rows={chartRows} nameKey="Worker" />
       <ShowDetails>
-        <Table
+        <ResponsiveTable
           size="small"
           pagination={false}
           rowKey="workerId"
@@ -350,7 +351,7 @@ function OperationTypeView({ rows }: { rows: AnalyticsByOperationType['operation
     <>
       <VarianceBarChart rows={chartRows} nameKey="Operation type" />
       <ShowDetails>
-        <Table
+        <ResponsiveTable
           size="small"
           pagination={false}
           rowKey="operationTypeId"
@@ -456,7 +457,7 @@ function MachineView({
         </div>
       )}
       <ShowDetails>
-        <Table
+        <ResponsiveTable
           size="small"
           pagination={false}
           rowKey="machineUnitId"

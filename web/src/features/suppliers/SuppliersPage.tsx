@@ -169,6 +169,7 @@ export default function SuppliersPage() {
       />
 
       <DataTable<Supplier>
+        card={{ badge: 'active' }}
         rowKey="id"
         loading={loading}
         dataSource={filtered}

@@ -4,6 +4,7 @@ export { default as StatCard, StatGrid } from './StatCard';
 export { default as TabBar, type TabItem } from './TabBar';
 export { default as FilterBar, FilterSelect } from './FilterBar';
 export { default as DataTable, RowMenu } from './DataTable';
+export { default as ResponsiveTable, type CardLayout } from './ResponsiveTable';
 export { default as EmptyState } from './EmptyState';
 export { default as SectionCard } from './SectionCard';
 export { default as IdChip } from './IdChip';

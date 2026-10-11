@@ -31,6 +31,7 @@ import SelectMultipleIcon from '../../components/SelectMultipleIcon';
 import { useAuth } from '../../hooks/useAuth';
 import { useOverdueCheck } from '../../hooks/useOverdueCheck';
 import { useIsPhone } from '../../hooks/useIsPhone';
+import { NARROW_QUERY } from '../../hooks/useViewport';
 import type { JobOrder, JobOrderStatus } from '../../types';
 
 type ListTab = 'production' | 'drafts';
@@ -135,7 +136,9 @@ type ViewMode = 'cards' | 'list';
 const VIEW_STORAGE_KEY = 'jobOrders.view';
 
 function readViewMode(): ViewMode {
-  return localStorage.getItem(VIEW_STORAGE_KEY) === 'cards' ? 'cards' : 'list';
+  const stored = localStorage.getItem(VIEW_STORAGE_KEY);
+  if (stored === 'cards' || stored === 'list') return stored;
+  return window.matchMedia(NARROW_QUERY).matches ? 'cards' : 'list';
 }
 
 const VIEW_OPTIONS: { key: ViewMode; label: string; icon: ReactNode }[] = [

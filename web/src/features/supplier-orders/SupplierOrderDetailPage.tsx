@@ -1,19 +1,6 @@
 import { formatShop, shopToday } from '../../utils/shopTime';
 import { useCallback, useEffect, useState } from 'react';
-import {
-  Alert,
-  Button,
-  DatePicker,
-  Descriptions,
-  Input,
-  InputNumber,
-  Modal,
-  Select,
-  Space,
-  Table,
-  Tooltip,
-  message,
-} from 'antd';
+import { Alert, Button, DatePicker, Descriptions, Input, InputNumber, Modal, Select, Space, Tooltip, message } from 'antd';
 import type { TableColumnsType } from 'antd';
 import {
   CheckOutlined,
@@ -35,6 +22,7 @@ import { GradeInput } from '../../components/MaterialInputs';
 import type { DeliveryMode, MaterialPurchase, SupplierOrder } from '../../types';
 import OrderMaterialsModal from './OrderMaterialsModal';
 import { LINE_STATUS_PILL, ORDER_STATUS_PILL, fmtDay, fmtMoney, fmtQty } from './supplierOrderUi';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const DELIVERY_MODE_OPTIONS: { value: DeliveryMode; label: string }[] = [
   { value: 'PICKUP', label: 'Pick-up' },
@@ -384,7 +372,7 @@ export default function SupplierOrderDetailPage() {
           </span>
           <StatusPill color={pill.color}>{pill.label}</StatusPill>
         </Space>
-        <Space wrap>
+        <Space wrap className="m-action-bar">
           {editableDraft ? (
             <Button icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>
               Add lines
@@ -645,7 +633,8 @@ export default function SupplierOrderDetailPage() {
         />
       ) : null}
 
-      <Table<MaterialPurchase>
+      <ResponsiveTable<MaterialPurchase>
+        card={{ title: 'material', subtitle: ['job'], badge: 'status', actions: 'act' }}
         size="small"
         rowKey="id"
         pagination={false}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Table, Button, Modal, Form, Input, Select, Dropdown, message, Spin, Tooltip,
+  Button, Modal, Form, Input, Select, Dropdown, message, Tooltip,
 } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
@@ -16,7 +16,7 @@ import { usersApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
-import { useIsPhone } from '../../hooks/useIsPhone';
+import { ResponsiveTable } from '../../components/ui';
 import { PersonAvatar, PersonChip } from '../../components/PersonAvatar';
 import PhotoUploadControl from '../../components/PhotoUploadControl';
 import type { User, UserRole } from '../../types';
@@ -46,8 +46,6 @@ export default function UsersPage() {
   const [editSaving, setEditSaving] = useState(false);
   const [editForm] = Form.useForm();
   const editRole = Form.useWatch('role', editForm) as UserRole | undefined;
-  const isPhone = useIsPhone();
-
   const fetchUsers = async () => {
     setLoading(true);
     try {
@@ -439,91 +437,9 @@ export default function UsersPage() {
         </div>
       )}
 
-      {isPhone ? (
-        <div className="admin-cards">
-          {loading && (
-            <div className="page-spinner">
-              <Spin />
-            </div>
-          )}
-          {!loading && filtered.length === 0 && (
-            <div className="admin-cards__empty">No users match your filters yet</div>
-          )}
-          {!loading &&
-            filtered.map((u) => {
-              const st = roleStyle[u.role] || { label: u.role.replace('_', ' '), color: 'gray' as PillColor };
-              return (
-                <div key={u.id} className="admin-card">
-                  <div className="admin-card__top">
-                    <div>
-                      <div className="admin-card__title">
-                        <PersonChip
-                          userId={u.id}
-                          fullName={u.fullName}
-                          nickname={u.nickname}
-                          photoVersion={u.photoVersion}
-                          size={26}
-                        />
-                      </div>
-                      <div className="admin-card__meta">{u.email || 'No email yet'}</div>
-                    </div>
-                    <Dropdown
-                      menu={{
-                        items: [
-                          {
-                            key: 'edit',
-                            icon: <EditOutlined />,
-                            label: 'Edit details',
-                            onClick: () => openEdit(u),
-                          },
-                          ...((u.status || (u.active ? 'ACTIVE' : 'DISABLED')) === 'DISABLED'
-                            ? [
-                                {
-                                  key: 'reenable',
-                                  icon: <CheckCircleOutlined />,
-                                  label: 'Re-enable',
-                                  onClick: () => {
-                                    Modal.confirm({
-                                      title: `Re-enable ${u.fullName}?`,
-                                      content:
-                                        'They will be able to sign in again with their existing password.',
-                                      okText: 'Re-enable',
-                                      onOk: () => onReenable(u.id),
-                                    });
-                                  },
-                                },
-                              ]
-                            : [
-                                {
-                                  key: 'deactivate',
-                                  icon: <StopOutlined />,
-                                  danger: true,
-                                  label: 'Disable',
-                                  onClick: () => confirmDisable(u.id, u.fullName),
-                                },
-                              ]),
-                        ],
-                      }}
-                      trigger={['click']}
-                      placement="bottomRight"
-                    >
-                      <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} aria-label="More actions" />
-                    </Dropdown>
-                  </div>
-                  <div className="admin-card__row">
-                    <StatusPill color={st.color} compact>
-                      {st.label}
-                    </StatusPill>
-                    <StatusPill color={u.active ? 'green' : 'red'} compact>
-                      {u.active ? 'Active' : 'Inactive'}
-                    </StatusPill>
-                  </div>
-                </div>
-              );
-            })}
-        </div>
-      ) : (
-      <Table
+      <ResponsiveTable
+        card={{ subtitle: ['email'], badge: 'status' }}
+        cardsBelow="narrow"
         className="std-list-table"
         rowKey="id"
         columns={columns}
@@ -547,7 +463,6 @@ export default function UsersPage() {
             : undefined
         }
       />
-      )}
 
       <Modal
         open={modalOpen}

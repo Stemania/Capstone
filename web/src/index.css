@@ -806,6 +806,11 @@ button.admin-card {
     flex: 1;
   }
 
+  .std-list-actions .ant-btn-icon-only,
+  .jo-list-actions .ant-btn-icon-only {
+    flex: 0 0 auto;
+  }
+
   .jo-list-bulk {
     padding: 4px 8px;
     gap: 8px;

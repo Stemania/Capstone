@@ -65,7 +65,6 @@
   .ui-infotip,
   .ant-modal-close,
   .ant-drawer-close,
-  .ant-table-row-expand-icon,
   .ant-picker-clear,
   .ant-select-clear,
   .ant-input-clear-icon {
@@ -73,8 +72,7 @@
   }
 
   .ant-switch::after,
-  .ui-infotip::after,
-  .ant-table-row-expand-icon::after {
+  .ui-infotip::after {
     content: '';
     position: absolute;
     inset: -11px;
@@ -182,16 +180,33 @@
   .ui-crumbs a,
   .jo-mini-steps__node,
   .jo-info__toggle,
-  .jo-sched-color-btn {
+  .jo-sched-color-btn,
+  .acct-sec__device-revoke,
+  .ant-table-cell a,
+  .ant-table-cell .ant-btn-link,
+  .ui-rowcard a,
+  .client-name-link,
+  .ant-descriptions a,
+  a[href^='mailto:'],
+  a[href^='tel:'] {
     position: relative;
   }
 
   .ui-crumbs a::after,
   .jo-mini-steps__node::after,
-  .jo-info__toggle::after {
+  .jo-info__toggle::after,
+  .acct-sec__device-revoke::after,
+  .ant-table-cell a::after,
+  .ant-table-cell .ant-btn-link::after,
+  .ui-rowcard a::after,
+  .client-name-link::after,
+  .ant-descriptions a::after,
+  a[href^='mailto:']::after,
+  a[href^='tel:']::after {
     content: '';
     position: absolute;
-    inset: -14px -4px;
+    inset: -15px -6px;
+    min-width: 44px;
   }
 
   .jo-sched-color-btn::after {
@@ -201,7 +216,7 @@
   }
 
   .ui-infotip::after {
-    inset: -12px;
+    inset: -13px;
   }
 
   /* Phone/tablet chrome on the schedule and job lists. */
@@ -413,6 +428,81 @@
   .ant-modal-confirm .ant-modal-confirm-btns > .ant-btn {
     flex: 1 1 0;
     margin-inline-start: 0 !important;
+  }
+
+  /* Main page actions pinned above the bottom tab bar, within thumb reach. */
+  .app-shell--phone .m-action-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(61px + env(safe-area-inset-bottom, 0px));
+    z-index: 25;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    gap: 8px !important;
+    margin: 0 !important;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.97);
+    border-top: 1px solid var(--c-border);
+    box-shadow: 0 -4px 12px rgba(15, 23, 42, 0.06);
+  }
+
+  .app-shell--phone .m-action-bar > *,
+  .app-shell--phone .m-action-bar > .ant-space-item {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .app-shell--phone .m-action-bar .ant-btn {
+    width: 100%;
+    min-width: 0 !important;
+    padding-inline: 8px;
+  }
+
+  .app-shell--phone .m-action-bar .ant-btn > span:not(.ant-btn-icon) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Three or more actions: the primary one gets its own full-width row. */
+  .app-shell--phone .m-action-bar:has(> :nth-child(3)) {
+    flex-wrap: wrap !important;
+  }
+
+  .app-shell--phone .m-action-bar:has(> :nth-child(3)) > :has(.ant-btn-primary) {
+    order: -1;
+    flex-basis: 100%;
+  }
+
+  .app-shell--phone .app-shell__scroll:has(.nav-keep-alive--active .m-action-bar),
+  .app-shell--phone .app-shell__scroll:has(> .app-shell__content > :not(.nav-keep-alive) .m-action-bar) {
+    padding-bottom: calc(136px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .app-shell--phone .app-shell__scroll:has(.nav-keep-alive--active .m-action-bar > :nth-child(3)),
+  .app-shell--phone .app-shell__scroll:has(> .app-shell__content > :not(.nav-keep-alive) .m-action-bar > :nth-child(3)) {
+    padding-bottom: calc(188px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Attendance: date stepper fills the row; export drops below. */
+  .att-toolbar {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .att-toolbar > .ant-picker {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .att-toolbar > .ant-btn:last-child:not(.ant-btn-icon-only) {
+    flex: 1 1 100%;
+  }
+
+  .att-toolbar--history > .ant-select,
+  .att-toolbar--history > .ant-picker {
+    flex: 1 1 100%;
+    width: 100% !important;
   }
 
   /* Pagination centred and compact. */

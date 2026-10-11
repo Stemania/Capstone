@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Modal, Spin, Table, message } from 'antd';
+import { Alert, Button, Modal, Spin, message } from 'antd';
 import { CheckOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -9,6 +9,7 @@ import { getErrorMessage } from '../../api/client';
 import type { JobOrder, MachineUnitInfo, ProposedOperation, ScheduleProposeResult } from '../../types';
 import { SHOP_TZ, scheduleFlagStyle, formatShop } from '../../utils/shopTime';
 import ScheduleWeekView from '../job-orders/ScheduleWeekView';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 function fmtWindow(start?: string | null, end?: string | null): string {
   if (!start || !end) return '—';
@@ -264,7 +265,7 @@ export function ReproposeModal({
               }
             />
           ) : null}
-          <Table
+          <ResponsiveTable
             size="small"
             pagination={false}
             rowKey={(op) => op.id || String(op.sequenceNo)}

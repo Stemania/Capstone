@@ -1,20 +1,12 @@
 import { formatShop, shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Button,
-  DatePicker,
-  Input,
-  InputNumber,
-  Space,
-  Table,
-  Typography,
-  message,
-} from 'antd';
+import { Button, DatePicker, Input, InputNumber, Space, Typography, message } from 'antd';
 import { type Dayjs } from 'dayjs';
 import { inventoryApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
 import InfoTip from '../../components/InfoTip';
 import type { StocktakeFormItem, StocktakeSummary } from '../../types';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 type Props = {
   onSaved?: () => void;
@@ -159,7 +151,7 @@ export default function StocktakePanel({ onSaved, hideTitle, readOnly }: Props) 
       </Space>
       )}
 
-      <Table
+      <ResponsiveTable
         className="std-list-table"
         size="small"
         rowKey="toolId"
@@ -223,7 +215,7 @@ export default function StocktakePanel({ onSaved, hideTitle, readOnly }: Props) 
           <Typography.Title level={5} style={{ marginTop: 28, color: '#0f1c2e' }}>
             Recent stocktakes
           </Typography.Title>
-          <Table
+          <ResponsiveTable
             className="std-list-table"
             size="small"
             rowKey="id"

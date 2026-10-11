@@ -1,6 +1,6 @@
 import { formatShop } from '../../utils/shopTime';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Button, Table, Typography, message } from 'antd';
+import { Button, Typography, message } from 'antd';
 import {
   ArrowLeftOutlined,
   BellOutlined,
@@ -14,6 +14,7 @@ import { getErrorMessage } from '../../api/client';
 import type { ClientDetail } from '../../types';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import { PageSkeleton } from '../../components/ui';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const { Text } = Typography;
 
@@ -257,7 +258,8 @@ export default function ClientDetailPage() {
             {data.jobs.length} job{data.jobs.length === 1 ? '' : 's'}
           </div>
         </div>
-        <Table
+        <ResponsiveTable
+          card={{ badge: 'status' }}
           className="std-list-table"
           rowKey="id"
           size="middle"

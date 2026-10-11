@@ -369,7 +369,7 @@ export default function AttendancePage() {
           ]}
         />
         {view === 'day' ? (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="att-toolbar" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <Button icon={<LeftOutlined />} onClick={() => setDay(day.subtract(1, 'day'))} aria-label="Previous day" />
             <DatePicker
               value={day}
@@ -395,7 +395,7 @@ export default function AttendancePage() {
             </Button>
           </div>
         ) : (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="att-toolbar att-toolbar--history" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <Select
               showSearch
               optionFilterProp="label"
@@ -475,6 +475,8 @@ export default function AttendancePage() {
             </StatGrid>
           </div>
           <DataTable<AttendanceRow>
+            card={{ badge: 'status', full: ['note'] }}
+            cardsBelow="narrow"
             rowKey="workerId"
             loading={loading}
             dataSource={sheet?.rows || []}
@@ -497,6 +499,8 @@ export default function AttendancePage() {
             </StatGrid>
           </div>
           <DataTable<AttendanceRow>
+            card={{ badge: 'status', full: ['note'] }}
+            cardsBelow="narrow"
             rowKey="date"
             loading={historyLoading}
             dataSource={history?.rows || []}

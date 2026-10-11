@@ -1,7 +1,7 @@
 import { chart, chartPalette } from '../../theme/tokens';
 import { formatShop } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Table, Typography, message } from 'antd';
+import { Alert, Typography, message } from 'antd';
 import {
   Bar,
   BarChart,
@@ -35,6 +35,7 @@ import {
 } from './AnalyticsSection';
 import { formatInt, formatMoney, formatNum, useAnalyticsPeriod } from './analyticsPeriod';
 import { PageSkeleton } from '../../components/ui';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const { Text } = Typography;
 
@@ -68,7 +69,7 @@ function estimateHint(f: MovingAverageForecast, fmt: Fmt) {
 
 function BacktestTable({ forecast, fmt }: { forecast: MovingAverageForecast; fmt: Fmt }) {
   return (
-    <Table
+    <ResponsiveTable
       size="small"
       pagination={false}
       rowKey="month"
@@ -255,7 +256,7 @@ export default function AnalyticsForecastPage() {
           <Text strong style={{ display: 'block', margin: '12px 0 6px' }}>
             Accepted jobs by expected completion month
           </Text>
-          <Table
+          <ResponsiveTable
             size="small"
             pagination={false}
             rowKey="month"
@@ -388,7 +389,7 @@ export default function AnalyticsForecastPage() {
                 </ResponsiveContainer>
               </div>
               <ShowDetails>
-                <Table
+                <ResponsiveTable
                   size="small"
                   pagination={false}
                   rowKey="code"
@@ -474,7 +475,7 @@ export default function AnalyticsForecastPage() {
           }
           exportDisabled={!runOutItems.length}
         >
-          <Table
+          <ResponsiveTable
             size="small"
             pagination={runOutItems.length > 15 ? { pageSize: 15, size: 'small' } : false}
             rowKey="toolId"
@@ -586,7 +587,7 @@ export default function AnalyticsForecastPage() {
                 hint={estimateHint(demand, formatCount)}
               />
             </div>
-            <Table
+            <ResponsiveTable
               size="small"
               pagination={false}
               rowKey="jobType"

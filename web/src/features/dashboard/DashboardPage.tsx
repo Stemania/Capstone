@@ -336,6 +336,7 @@ export default function DashboardPage() {
           <CardError what="job orders" />
         ) : (
           <DataTable<JobOrder>
+            card={{ title: 'title', subtitle: ['jobNumber', 'clientName'], badge: 'status' }}
             rowKey="id"
             loading={jobsLoading}
             dataSource={recent}

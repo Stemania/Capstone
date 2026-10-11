@@ -1,16 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Button,
-  Checkbox,
-  Input,
-  InputNumber,
-  Select,
-  Spin,
-  Switch,
-  Table,
-  Typography,
-  message,
-} from 'antd';
+import { Button, Checkbox, Input, InputNumber, Select, Spin, Switch, Typography, message } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useSearchParams } from 'react-router-dom';
 import { jobOrdersApi } from '../../api/jobOrders.api';
@@ -23,6 +12,7 @@ import { personLabel } from '../../utils/people';
 import WorkerHistoryPanel from './WorkerHistoryPanel';
 import InfoTip from '../../components/InfoTip';
 import { LevelBar, TabBar, PageSkeleton } from '../../components/ui';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const { Text } = Typography;
 
@@ -485,7 +475,7 @@ export default function WorkerSetupPage() {
                       Save skills
                     </Button>
                   </div>
-                  <Table
+                  <ResponsiveTable
                     size="small"
                     rowKey="key"
                     pagination={false}
@@ -508,7 +498,7 @@ export default function WorkerSetupPage() {
                       Save hours
                     </Button>
                   </div>
-                  <Table
+                  <ResponsiveTable
                     size="small"
                     rowKey="dayOfWeek"
                     pagination={false}

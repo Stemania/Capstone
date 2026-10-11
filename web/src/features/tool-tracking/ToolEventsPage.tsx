@@ -1,9 +1,10 @@
 import { formatShop } from '../../utils/shopTime';
 import { useEffect, useState } from 'react';
-import { Table } from 'antd';
+import {  } from 'antd';
 import { toolsApi } from '../../api/tools.api';
 import StatusPill from '../../components/StatusPill';
 import type { ToolEvent, ToolEventType } from '../../types';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 function eventLabel(t: ToolEventType) {
   switch (t) {
@@ -68,7 +69,7 @@ export default function ToolEventsPage({ category }: Props) {
       : 'No borrow, return, or unit events yet.';
 
   return (
-    <Table
+    <ResponsiveTable
       className="std-list-table"
       rowKey="id"
       size="small"

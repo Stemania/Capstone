@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Table, message } from 'antd';
+import { Button, message } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -13,6 +13,7 @@ import { useOverdueCheck } from '../../hooks/useOverdueCheck';
 import type { SupplierOrder, SupplierOrderStatus } from '../../types';
 import OrderMaterialsModal from './OrderMaterialsModal';
 import { ORDER_STATUS_PILL, fmtDay, fmtMoney } from './supplierOrderUi';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 type Filter = 'ALL' | 'OVERDUE' | SupplierOrderStatus;
 
@@ -147,7 +148,9 @@ export default function SupplierOrdersPage() {
         )}
       </div>
 
-      <Table
+      <ResponsiveTable
+        card={{ subtitle: ['supplierName'], badge: 'status' }}
+        cardsBelow="narrow"
         className="std-list-table"
         rowKey="id"
         loading={loading}

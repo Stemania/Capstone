@@ -1,13 +1,19 @@
-import { Button, Dropdown, Table, Tooltip, type MenuProps, type TableProps } from 'antd';
+import { Button, Dropdown, Tooltip, type MenuProps, type TableProps } from 'antd';
 import { MoreOutlined } from '@ant-design/icons';
+import ResponsiveTable, { type CardLayout } from './ResponsiveTable';
 
 /**
  * Table with the shared header style, 44px rows, hover and pagination.
- * Pass `pagination={false}` for short tables.
+ * Pass `pagination={false}` for short tables. Rows become cards on phones.
  */
-export default function DataTable<T extends object>({ className, pagination, size, ...rest }: TableProps<T>) {
+export default function DataTable<T extends object>({
+  className,
+  pagination,
+  size,
+  ...rest
+}: TableProps<T> & { card?: CardLayout; cardsBelow?: 'phone' | 'narrow' }) {
   return (
-    <Table<T>
+    <ResponsiveTable<T>
       {...rest}
       size={size ?? 'middle'}
       className={`ui-table${className ? ` ${className}` : ''}`}

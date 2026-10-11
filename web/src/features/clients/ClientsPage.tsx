@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Table,
   Button,
   Modal,
   Form,
@@ -11,7 +10,6 @@ import {
   Dropdown,
   Row,
   Col,
-  Spin,
   message,
   Tooltip,
 } from 'antd';
@@ -27,7 +25,7 @@ import { clientsApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
-import { useIsPhone } from '../../hooks/useIsPhone';
+import { ResponsiveTable } from '../../components/ui';
 import { useAuth } from '../../hooks/useAuth';
 import type { Client } from '../../types';
 import { useNavigate } from 'react-router-dom';
@@ -58,7 +56,6 @@ export default function ClientsPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [form] = Form.useForm();
-  const isPhone = useIsPhone();
 
   const fetchClients = async () => {
     setLoading(true);
@@ -163,6 +160,7 @@ export default function ClientsPage() {
       render: (n: string, r: Client) => (
         <button
           type="button"
+          className="client-name-link"
           onClick={() => navigate(`/clients/${r.id}`)}
           style={{
             fontWeight: 600,
@@ -325,63 +323,9 @@ export default function ClientsPage() {
         </div>
       )}
 
-      {isPhone ? (
-        <div className="admin-cards">
-          {loading && (
-            <div className="page-spinner">
-              <Spin />
-            </div>
-          )}
-          {!loading && filtered.length === 0 && (
-            <div className="admin-cards__empty">No clients match your filters yet</div>
-          )}
-          {!loading &&
-            filtered.map((c) => (
-              <div
-                key={c.id}
-                className="admin-card"
-                onClick={() => (canEdit ? openEdit(c) : navigate(`/clients/${c.id}`))}
-                role="button"
-                tabIndex={0}
-              >
-                <div className="admin-card__top">
-                  <div>
-                    <div className="admin-card__title">{c.name}</div>
-                    <div className="admin-card__meta">
-                      {[c.contact, c.email, c.mobileNumber].filter(Boolean).join(' · ') || 'No contact details'}
-                    </div>
-                  </div>
-                  <div onClick={(e) => e.stopPropagation()}>
-                    <Dropdown
-                      menu={{
-                        items: [
-                          { key: 'view', label: 'View history', onClick: () => navigate(`/clients/${c.id}`) },
-                          ...(canEdit
-                            ? [{ key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => openEdit(c) }]
-                            : []),
-                        ],
-                      }}
-                      trigger={['click']}
-                      placement="bottomRight"
-                    >
-                      <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} aria-label="More actions" />
-                    </Dropdown>
-                  </div>
-                </div>
-                <div className="admin-card__row">
-                  {c.notifyByEmail || c.notifyBySms ? (
-                    <StatusPill color="blue" compact>
-                      {notifyLabel(c)}
-                    </StatusPill>
-                  ) : (
-                    <span style={{ fontSize: 12, color: '#94a3b8' }}>Notify off</span>
-                  )}
-                </div>
-              </div>
-            ))}
-        </div>
-      ) : (
-      <Table
+      <ResponsiveTable
+        card={{ subtitle: ['contact'], badge: 'notify' }}
+        cardsBelow="narrow"
         className="std-list-table"
         rowKey="id"
         size="small"
@@ -405,7 +349,6 @@ export default function ClientsPage() {
             : undefined
         }
       />
-      )}
 
       <Modal
         open={modalOpen}
@@ -454,7 +397,7 @@ export default function ClientsPage() {
 
           {sectionLabel('Reach them')}
           <Row gutter={12}>
-            <Col span={14}>
+            <Col xs={24} sm={14}>
               <Form.Item
                 name="email"
                 label="Email"
@@ -464,7 +407,7 @@ export default function ClientsPage() {
                 <Input placeholder="client@example.com" />
               </Form.Item>
             </Col>
-            <Col span={10}>
+            <Col xs={24} sm={10}>
               <Form.Item name="mobileNumber" label="Mobile" style={{ marginBottom: 14 }}>
                 <Input placeholder="+63917…" />
               </Form.Item>

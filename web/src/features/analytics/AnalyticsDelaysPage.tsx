@@ -1,6 +1,6 @@
 import { chartPalette } from '../../theme/tokens';
 import { useEffect, useState } from 'react';
-import { Table, Tag, Typography, message } from 'antd';
+import { Tag, Typography, message } from 'antd';
 import dayjs from 'dayjs';
 import { Link } from 'react-router-dom';
 import { SHOP_TZ, formatShop } from '../../utils/shopTime';
@@ -32,6 +32,7 @@ import {
 } from './AnalyticsSection';
 import { formatInt, useAnalyticsPeriod } from './analyticsPeriod';
 import { PageSkeleton } from '../../components/ui';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const { Text } = Typography;
 const AXIS = { fontSize: 13, fill: '#334155' };
@@ -222,7 +223,7 @@ export default function AnalyticsDelaysPage() {
                 </ResponsiveContainer>
               </div>
               <ShowDetails>
-                <Table
+                <ResponsiveTable
                   size="small"
                   pagination={false}
                   rowKey={(r) => `${r.causeType}-${r.name}`}
@@ -342,7 +343,7 @@ export default function AnalyticsDelaysPage() {
                 </ResponsiveContainer>
               </div>
               <ShowDetails>
-                <Table
+                <ResponsiveTable
                   size="small"
                   pagination={false}
                   rowKey="machineUnitId"
@@ -465,7 +466,7 @@ export default function AnalyticsDelaysPage() {
           {materialDelays.length === 0 ? (
             <Text type="secondary">No material delays in this period.</Text>
           ) : (
-            <Table
+            <ResponsiveTable
               size="small"
               pagination={materialDelays.length > 10 ? { pageSize: 10 } : false}
               rowKey={(r) => `${r.jobOrderId}-${r.cause}`}
@@ -556,7 +557,7 @@ export default function AnalyticsDelaysPage() {
           {lateJobs.length === 0 ? (
             <Text type="secondary">No job orders set For Delivery late in this period.</Text>
           ) : (
-            <Table
+            <ResponsiveTable
               size="small"
               pagination={lateJobs.length > 10 ? { pageSize: 10 } : false}
               rowKey="jobOrderId"

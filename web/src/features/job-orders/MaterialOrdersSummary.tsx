@@ -1,9 +1,10 @@
 import { formatShop } from '../../utils/shopTime';
 import type { ReactNode } from 'react';
-import { Table, Tooltip } from 'antd';
+import { Tooltip } from 'antd';
 import { Link } from 'react-router-dom';
 import OverdueTag from '../../components/OverdueTag';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 import type {
   JobMaterialLine,
   MaterialLineArrival,
@@ -165,7 +166,7 @@ export function JobMaterialsTable({
   renderLineAction?: (row: MaterialLineRow) => ReactNode;
 }) {
   return (
-    <Table<MaterialLineRow>
+    <ResponsiveTable<MaterialLineRow>
       size="small"
       rowKey="id"
       pagination={false}

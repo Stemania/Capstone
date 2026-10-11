@@ -1,22 +1,6 @@
 import { formatShop, shopToday } from '../../utils/shopTime';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Button,
-  Col,
-  DatePicker,
-  Drawer,
-  Dropdown,
-  Form,
-  Input,
-  InputNumber,
-  Modal,
-  Row,
-  Select,
-  Space,
-  Table,
-  Typography,
-  message,
-} from 'antd';
+import { Button, Col, DatePicker, Drawer, Dropdown, Form, Input, InputNumber, Modal, Row, Select, Space, Typography, message } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
   AppstoreAddOutlined,
@@ -37,6 +21,7 @@ import type { InventoryUsageByWorker, ToolType, ToolUnit, ToolUnitStatus } from 
 import { exportCsv } from '../../utils/csvExport';
 import ToolEventsPage from './ToolEventsPage';
 import { useAuth } from '../../hooks/useAuth';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 function sectionLabel(text: string) {
   return <div className="app-form-section">{text}</div>;
@@ -279,7 +264,7 @@ export default function ToolsAssetsPanel() {
   const expandedRowRender = (record: ToolType) => {
     const units = unitsByType[record.id] || [];
     return (
-      <Table
+      <ResponsiveTable
         size="small"
         rowKey="id"
         pagination={false}
@@ -425,7 +410,7 @@ export default function ToolsAssetsPanel() {
         </div>
       </div>
 
-      <Table
+      <ResponsiveTable
         className="std-list-table"
         size="small"
         rowKey="id"
@@ -466,7 +451,7 @@ export default function ToolsAssetsPanel() {
             Refresh
           </Button>
         </Space>
-        <Table
+        <ResponsiveTable
           className="std-list-table"
           size="small"
           rowKey={(r) => `${r.workerId}-${r.toolId}`}

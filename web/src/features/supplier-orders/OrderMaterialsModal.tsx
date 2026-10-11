@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Input, InputNumber, Modal, Select, Table, Typography, message } from 'antd';
+import { Alert, Button, Input, InputNumber, Modal, Select, Typography, message } from 'antd';
 import { DeleteOutlined, PlusOutlined, ShoppingCartOutlined } from '@ant-design/icons';
 import { supplierOrdersApi } from '../../api/supplierOrders.api';
 import { suppliersApi } from '../../api/suppliers.api';
@@ -17,6 +17,7 @@ import type {
 } from '../../types';
 import { fmtDay, fmtQty } from './supplierOrderUi';
 import { GradeInput, MaterialNameInput } from '../../components/MaterialInputs';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const { Text } = Typography;
 
@@ -371,7 +372,7 @@ export default function OrderMaterialsModal({
               }
             />
           ) : (
-            <Table<MaterialLineDraft>
+            <ResponsiveTable<MaterialLineDraft>
               size="small"
               loading={loading}
               rowKey="key"
@@ -535,7 +536,7 @@ export default function OrderMaterialsModal({
                     }))}
                 />
               </div>
-              <Table<ConsumableRow>
+              <ResponsiveTable<ConsumableRow>
                 size="small"
                 loading={loading}
                 rowKey="toolId"

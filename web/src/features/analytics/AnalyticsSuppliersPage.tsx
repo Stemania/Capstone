@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Segmented, Table, Typography, message } from 'antd';
+import { Segmented, Typography, message } from 'antd';
 import {
   Bar,
   BarChart,
@@ -26,6 +26,7 @@ import {
 } from './AnalyticsSection';
 import { formatInt, formatMoney, useAnalyticsPeriod } from './analyticsPeriod';
 import { PageSkeleton } from '../../components/ui';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const { Text } = Typography;
 const AXIS = { fontSize: 13, fill: '#334155' };
@@ -153,7 +154,7 @@ export default function AnalyticsSuppliersPage() {
           }
           exportDisabled={!reliability.length}
         >
-          <Table
+          <ResponsiveTable
             size="small"
             pagination={false}
             rowKey="supplierId"
@@ -251,7 +252,7 @@ export default function AnalyticsSuppliersPage() {
                 </ResponsiveContainer>
               </div>
               <ShowDetails>
-                <Table
+                <ResponsiveTable
                   size="small"
                   pagination={false}
                   rowKey="supplierId"
@@ -332,7 +333,7 @@ export default function AnalyticsSuppliersPage() {
                 </ResponsiveContainer>
               </div>
               <ShowDetails>
-                <Table
+                <ResponsiveTable
                   size="small"
                   pagination={false}
                   rowKey="supplierId"
@@ -429,7 +430,7 @@ export default function AnalyticsSuppliersPage() {
                 </ResponsiveContainer>
               </div>
               <ShowDetails>
-                <Table
+                <ResponsiveTable
                   size="small"
                   pagination={false}
                   rowKey="materialName"

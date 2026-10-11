@@ -1,12 +1,13 @@
 import { formatShop } from '../../utils/shopTime';
 import { useEffect, useState } from 'react';
-import { DatePicker, Skeleton, Table, Tag, Tooltip, Typography, message } from 'antd';
+import { DatePicker, Skeleton, Tag, Tooltip, Typography, message } from 'antd';
 import { WarningOutlined } from '@ant-design/icons';
 import { EmptyState } from '../../components/ui';
 import { type Dayjs } from 'dayjs';
 import { workerProfileApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import type { WorkerHistoryOperation, WorkerWorkHistory } from '../../types';
+import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const { Text } = Typography;
 
@@ -108,7 +109,7 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
       ) : null}
 
       <div style={{ fontWeight: 700, marginBottom: 8, color: '#0f1c2e' }}>Completed operations</div>
-      <Table<WorkerHistoryOperation>
+      <ResponsiveTable<WorkerHistoryOperation>
         size="small"
         rowKey="id"
         loading={loading}
@@ -210,7 +211,7 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
           No tool events yet
         </Text>
       ) : (
-        <Table
+        <ResponsiveTable
           size="small"
           rowKey="id"
           pagination={false}
