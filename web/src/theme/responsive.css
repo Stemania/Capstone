@@ -31,6 +31,11 @@
     display: none;
   }
 
+  /* The scroll container would clip the end items to a pill; the items carry their own radius. */
+  .ant-segmented:not(.worker-seg) {
+    border-radius: 0;
+  }
+
   .ant-segmented .ant-segmented-item {
     flex-shrink: 0;
     scroll-snap-align: start;
@@ -167,6 +172,11 @@
     min-width: 44px;
   }
 
+  /* Worker screens: gloved thumbs. */
+  .worker-search.ant-input-affix-wrapper {
+    min-height: 48px;
+  }
+
   .ant-checkbox-wrapper:not(:has(> span + span)) {
     min-width: 44px;
     justify-content: center;
@@ -248,7 +258,7 @@
   }
 
   .sched-m__pill {
-    min-height: 40px;
+    min-height: 44px;
   }
 
   .jo-m__bulk .ant-btn {
@@ -281,6 +291,83 @@
   .ant-drawer-right .ant-drawer-section,
   .ant-drawer-left .ant-drawer-section {
     max-width: 100vw;
+  }
+}
+
+/* Work calendar on touch screens: month grid, then the month's exceptions as a list. */
+@media (max-width: 1024px) {
+  .work-calendar__shell {
+    height: auto !important;
+    min-height: 0;
+  }
+
+  .work-calendar__body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .work-calendar__cell {
+    min-height: 84px;
+  }
+
+  .work-calendar__aside {
+    display: block;
+    overflow: visible;
+    border-left: 0;
+    padding-left: 0;
+    border-top: 1px solid #eef2f7;
+    padding-top: 12px;
+  }
+
+  .work-calendar__aside-item {
+    min-height: 48px;
+    justify-content: center;
+  }
+
+  .work-calendar__aside-date {
+    font-size: 14px;
+  }
+
+  .work-calendar__aside-what {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 767px) {
+  .work-calendar__cell {
+    min-height: 48px;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 3px;
+    padding: 5px 2px;
+  }
+
+  .work-calendar__day-num {
+    margin: 0;
+  }
+
+  .work-calendar__event {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .work-calendar__event > * {
+    display: none;
+  }
+
+  .work-calendar__cell--overtime .work-calendar__event {
+    color: #2563eb;
+  }
+
+  .work-calendar__cell--special_working_day .work-calendar__event {
+    color: #0f766e;
+  }
+
+  .work-calendar__cell--holiday_no_work .work-calendar__event {
+    color: var(--tone-red-solid);
   }
 }
 

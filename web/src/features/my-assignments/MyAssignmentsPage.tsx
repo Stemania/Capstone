@@ -83,10 +83,11 @@ function MyWorkSummaryCard() {
         boxShadow: colors.shadow,
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
         <div style={{ fontWeight: 700, color: colors.text }}>My work</div>
         <Segmented
           size="small"
+          style={{ flexShrink: 0 }}
           value={period}
           onChange={(v) => setPeriod(v as 'thisWeek' | 'thisMonth')}
           options={[

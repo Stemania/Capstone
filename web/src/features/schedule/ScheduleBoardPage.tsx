@@ -67,6 +67,8 @@ import {
 import { formatShopDateTime, SHOP_TZ } from '../../utils/shopTime';
 import ScheduleExpandShell from './ScheduleExpandShell';
 import WorkerPersonalSchedule from './WorkerPersonalSchedule';
+import ScheduleAgenda from './ScheduleAgenda';
+import { TOUCH_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import { PersonAvatar, crewNames } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
 
@@ -148,6 +150,17 @@ function useShopNow(): Dayjs {
   return now;
 }
 
+type PhoneView = 'list' | 'board';
+const PHONE_VIEW_KEY = 'schedule.phoneView';
+
+function readPhoneView(): PhoneView {
+  try {
+    return localStorage.getItem(PHONE_VIEW_KEY) === 'board' ? 'board' : 'list';
+  } catch {
+    return 'list';
+  }
+}
+
 const NO_MACHINE_KEY = '__none__';
 const NO_OPS: ScheduleBoardOperation[] = [];
 const NO_DOWNTIMES: ScheduleBoardDowntime[] = [];
@@ -195,7 +208,9 @@ function AdminOfficeScheduleBoard() {
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
   const labelW = isMobile ? adminPx(96) : adminPx(168);
-  const rowH = isMobile ? adminPx(40) : adminPx(44);
+  const isTouch = useMediaQuery(TOUCH_QUERY);
+  // Bars are rowH - 8 tall; touch screens get 44px bars.
+  const rowH = isTouch ? 52 : isMobile ? adminPx(40) : adminPx(44);
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [rowMode, setRowMode] = useState<RowMode>('machine');
   const [anchor, setAnchor] = useState(() => dayjs().tz(SHOP_TZ));
@@ -204,6 +219,15 @@ function AdminOfficeScheduleBoard() {
   const [workerId, setWorkerId] = useState<string | undefined>();
   const [clientId, setClientId] = useState<string | undefined>();
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [phoneView, setPhoneView] = useState<PhoneView>(readPhoneView);
+  const changePhoneView = (next: PhoneView) => {
+    setPhoneView(next);
+    try {
+      localStorage.setItem(PHONE_VIEW_KEY, next);
+    } catch {
+      /* storage unavailable */
+    }
+  };
   const [data, setData] = useState<ScheduleBoardResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -329,7 +353,7 @@ function AdminOfficeScheduleBoard() {
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [loading, data]);
+  }, [loading, data, phoneView]);
 
   const naturalWeekLayout = useMemo(() => {
     if (viewMode !== 'week') return null;
@@ -510,24 +534,45 @@ function AdminOfficeScheduleBoard() {
                   </button>
                 ))}
               </div>
-              <div className="sched-m__pills" role="tablist" aria-label="Rows">
+              <div className="sched-m__pills" role="tablist" aria-label="View">
                 {([
-                  ['machine', 'Machine'],
-                  ['worker', 'Worker'],
+                  ['list', 'List'],
+                  ['board', 'Board'],
                 ] as const).map(([value, label]) => (
                   <button
                     key={value}
                     type="button"
                     role="tab"
-                    aria-selected={rowMode === value}
-                    className={`sched-m__pill${rowMode === value ? ' is-on' : ''}`}
-                    onClick={() => setRowMode(value)}
+                    aria-selected={phoneView === value}
+                    className={`sched-m__pill${phoneView === value ? ' is-on' : ''}`}
+                    onClick={() => changePhoneView(value)}
                   >
                     {label}
                   </button>
                 ))}
               </div>
             </div>
+            {phoneView === 'board' ? (
+              <div className="sched-m__groups">
+                <div className="sched-m__pills" role="tablist" aria-label="Rows">
+                  {([
+                    ['machine', 'By machine'],
+                    ['worker', 'By worker'],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="tab"
+                      aria-selected={rowMode === value}
+                      className={`sched-m__pill${rowMode === value ? ' is-on' : ''}`}
+                      onClick={() => setRowMode(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
           <div className="sched-m__stats">
             <div className="sched-m__stat">
@@ -629,6 +674,14 @@ function AdminOfficeScheduleBoard() {
         <div className="sched-page__loading" aria-busy>
           <Skeleton active paragraph={{ rows: 8 }} title={false} />
         </div>
+      ) : isPhoneBoard && phoneView === 'list' ? (
+        <ScheduleAgenda
+          operations={data?.operations ?? NO_OPS}
+          downtimes={data?.downtimes ?? NO_DOWNTIMES}
+          from={from}
+          to={to}
+          onOpenJob={openJob}
+        />
       ) : (
         <ScheduleExpandShell
           collapsedMaxHeight={boardCollapsedMaxHeight}

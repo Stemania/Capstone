@@ -11,6 +11,7 @@ import {
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { TOUCH_QUERY, useMediaQuery } from '../hooks/useViewport';
 import { confirmLogout } from '../utils/confirmLogout';
 import { workerTheme } from '../theme/antTheme';
 import { colors as tokenColors, tones } from '../theme/tokens';
@@ -316,6 +317,8 @@ export default function WorkerLayout() {
   const { online, pending } = useOffline();
   const colors = lightPalette;
   const isScan = location.pathname.startsWith('/scan');
+  // Touch screens get a taller bar so the side tabs are at least 48px tall.
+  const navH = useMediaQuery(TOUCH_QUERY) ? 64 : 56;
   // Only My Assignments and its job pages work without a connection.
   const needsConnection = !online && !location.pathname.startsWith('/my-assignments');
 
@@ -383,7 +386,7 @@ export default function WorkerLayout() {
               overflowY: 'auto',
               WebkitOverflowScrolling: 'touch',
               // Clear fixed nav (~56) + Scan FAB peek (~22) without a large empty strip
-              paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
+              paddingBottom: `calc(${navH + 24}px + env(safe-area-inset-bottom, 0px))`,
             }}
           >
             {needsConnection && (
@@ -414,7 +417,7 @@ export default function WorkerLayout() {
               paddingBottom: 'calc(6px + env(safe-area-inset-bottom))',
               zIndex: 20,
               boxShadow: '0 -2px 10px rgba(15,23,42,0.04)',
-              height: 'calc(56px + env(safe-area-inset-bottom))',
+              height: `calc(${navH}px + env(safe-area-inset-bottom))`,
               overflow: 'visible',
             }}
           >

@@ -336,6 +336,189 @@ body {
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 
+.sched-m__groups + .sched-m__groups {
+  margin-top: 6px;
+}
+
+.sched-m__groups + .sched-m__groups .sched-m__pills {
+  flex: 1;
+}
+
+/* Phone agenda: the schedule as a list per day. */
+.sched-agenda {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sched-agenda__empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: #64748b;
+  font-size: 14px;
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+}
+
+.sched-agenda__day {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sched-agenda__date {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0 2px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f1c2e;
+}
+
+.sched-agenda__today {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sched-agenda__count {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.sched-agenda__item {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 12px 10px 0;
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+  background: #fff;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.sched-agenda__item:active {
+  background: #f8fafc;
+}
+
+.sched-agenda__item.is-late {
+  border-color: #e8a3ae;
+}
+
+.sched-agenda__stripe {
+  flex: 0 0 5px;
+  margin: -10px 0;
+}
+
+.sched-agenda__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sched-agenda__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sched-agenda__time {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  font-variant-numeric: tabular-nums;
+}
+
+.sched-agenda__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f1c2e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sched-agenda__meta {
+  font-size: 13px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sched-agenda__who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sched-agenda__who > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sched-agenda__flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.sched-agenda__flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sched-agenda__flag.is-amber {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.sched-agenda__flag.is-red {
+  background: #fde8eb;
+  color: #9f1239;
+}
+
+.sched-agenda__chev {
+  align-self: center;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.sched-agenda__downtime {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #e8c5cb;
+  border-radius: 12px;
+  background: repeating-linear-gradient(-45deg, #fbf1f3, #fbf1f3 6px, #fff 6px, #fff 12px);
+  font-size: 13px;
+  color: #7a1528;
+}
+
 .sched-m__stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
