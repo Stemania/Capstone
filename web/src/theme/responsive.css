@@ -177,6 +177,10 @@
     min-height: 48px;
   }
 
+  .worker-shell .ant-segmented .ant-segmented-item-label {
+    min-height: 48px;
+    line-height: 48px;
+  }
   .ant-checkbox-wrapper:not(:has(> span + span)) {
     min-width: 44px;
     justify-content: center;
@@ -275,8 +279,8 @@
   }
 
   .acct-sec__back {
-    width: 44px !important;
-    height: 44px !important;
+    width: 48px !important;
+    height: 48px !important;
   }
 
   .analytics-card__tools {

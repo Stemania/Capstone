@@ -370,6 +370,7 @@ export default function WorkerLayout() {
     <WorkerThemeContext.Provider value={{ colors, logout }}>
       <ConfigProvider theme={workerTheme}>
         <div
+          className="worker-shell"
           style={{
             height: '100%',
             background: isScan ? '#000' : colors.bg,
