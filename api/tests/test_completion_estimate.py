@@ -147,6 +147,54 @@ def test_type_with_fewer_than_five_samples_uses_ratio_one(shop):
     assert "1.0" in estimate["notEnoughHistoryNote"]
 
 
+def test_worker_with_enough_history_uses_their_own_ratio(shop):
+    fast = _user("ce_fast@test.local", UserRole.PRODUCTION_WORKER)
+    done = _job(shop, JobOrderStatus.DELIVERED)
+    for i in range(5):
+        op = _op(shop, done, shop["turning"], i + 1, 4, OperationStatus.COMPLETED, worked=2)
+        op.assigned_worker_id = fast.id
+    db.session.commit()
+
+    # Type: (5x6 + 5x2) / (10x4) = 1.0. Worker 1: 30/20 = 1.5. Fast worker: 10/20 = 0.5.
+    assert est.type_ratios()[shop["turning"].id]["ratio"] == pytest.approx(1.0)
+    details = est.detail_ratios()
+    assert details[("WORKER", shop["turning"].id, shop["worker"].id)]["ratio"] == pytest.approx(1.5)
+    assert details[("WORKER", shop["turning"].id, fast.id)]["ratio"] == pytest.approx(0.5)
+    # Facing has only three samples, so no worker pair qualifies.
+    assert ("WORKER", shop["facing"].id, shop["worker"].id) not in details
+
+    job = _job(shop, JobOrderStatus.SCHEDULED)
+    _op(shop, job, shop["turning"], 1, 4, OperationStatus.SCHEDULED)
+    db.session.commit()
+    first = est.predict_job(job, now=_at(MONDAY, 8))["operations"][0]
+    assert first["basis"] == "WORKER" and first["ratio"] == pytest.approx(1.5)
+
+
+def test_ratio_falls_back_from_worker_to_machine_to_type():
+    def info(ratio):
+        return {"ratio": ratio, "samples": 5, "enoughHistory": True}
+
+    types = {"t": info(1.2)}
+    details = {("WORKER", "t", "w"): info(0.8), ("MACHINE", "t", "m"): info(1.4)}
+
+    class Op:
+        operation_type_id = "t"
+        operation_type = None
+
+    op = Op()
+    op.assigned_worker_id, op.machine_unit_id = "w", "m"
+    assert est.ratio_for(op, types, details)["basis"] == "WORKER"
+    op.assigned_worker_id = "other"
+    assert est.ratio_for(op, types, details)["ratio"] == 1.4
+    op.machine_unit_id = None
+    assert est.ratio_for(op, types, details)["basis"] == "TYPE"
+    op.operation_type_id = "unknown"
+    assert est.ratio_for(op, types, details) | {"operationTypeId": None} == {
+        "operationTypeId": None, "operationTypeName": None, "samples": 0,
+        "enoughHistory": False, "ratio": 1.0, "basis": "DEFAULT",
+    }
+
+
 def test_in_progress_operation_takes_what_is_left_after_hours_worked(shop):
     job = _job(shop, JobOrderStatus.IN_PROGRESS)
     op = _op(shop, job, shop["turning"], 1, 4, OperationStatus.IN_PROGRESS)

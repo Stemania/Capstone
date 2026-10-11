@@ -78,6 +78,20 @@ def delays():
     return jsonify(analytics.delays(**_period()))
 
 
+@analytics_bp.route("/utilization/weekly", methods=["GET"])
+@jwt_required()
+@require_roles(*PRODUCTION)
+def utilization_weekly():
+    return jsonify(analytics.utilization_by_week(**_period()))
+
+
+@analytics_bp.route("/completion-estimates", methods=["GET"])
+@jwt_required()
+@require_roles(*PRODUCTION)
+def completion_estimates():
+    return jsonify(analytics.completion_estimates())
+
+
 @analytics_bp.route("/demand/capacity", methods=["GET"])
 @jwt_required()
 @require_roles(*PRODUCTION)

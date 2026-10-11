@@ -32,7 +32,7 @@ from app.services.delay_analysis_service import (
     outsourced_delays,
     pause_intervals,
 )
-from app.services import forecast_service
+from app.services import forecast_service, scoring_service
 from app.services.schedule_calendar import (
     SHOP_TZ,
     derive_working_segments,
@@ -537,6 +537,12 @@ def efficiency_by_worker(from_s=None, to_s=None, min_ops=None):
         }
         for wid, name, op_count, est, act, avg_v, on_est in rows
     ]
+    payload["recommendationWeights"] = {
+        "machineLead": dict(scoring_service.MACHINE_LEAD_WEIGHTS),
+        "noMachine": dict(scoring_service.NO_MACHINE_WEIGHTS),
+        "helper": dict(scoring_service.HELPER_WEIGHTS),
+        "minimumSamples": scoring_service.COLD_START_MIN_SAMPLES,
+    }
     return payload
 
 
@@ -1047,29 +1053,19 @@ def delays(from_s=None, to_s=None):
     # A row that rounds to 0.0 h (e.g. Machine down pauses fully covered by a
     # downtime record) explains no delay.
     cause_rows = [r for r in cause_rows if round(r["hours"], 1) > 0]
-    cause_rows.sort(key=lambda r: -r["hours"])
+    pareto = pareto_rows(cause_rows)
     total_cause_hours = sum(r["hours"] for r in cause_rows)
-    cumulative = 0.0
-    pareto = []
-    for row in cause_rows:
-        share = (row["hours"] / total_cause_hours * 100.0) if total_cause_hours else 0.0
-        cumulative += share
-        pareto.append(
-            {
-                "cause": row["cause"],
-                "causeType": row["causeType"],
-                "label": row["label"],
-                "hours": _num(row["hours"]),
-                "occurrenceCount": row["occurrenceCount"],
-                "shareOfTotalPct": _num(share),
-                "cumulativePct": _num(min(cumulative, 100.0)),
-            }
-        )
+    for row in pareto:
+        row["hours"] = _num(row["hours"])
+        row["shareOfTotalPct"] = _num(row["shareOfTotalPct"])
+        row["cumulativePct"] = _num(row["cumulativePct"])
 
     payload = _period_meta(period_from, period_to, excluded)
     payload["pauseReasons"] = pause_breakdown
     payload["machineDowntime"] = downtime_breakdown
     payload["causes"] = pareto
+    payload["paretoThresholdPct"] = PARETO_THRESHOLD_PCT
+    payload["vitalFewCount"] = vital_few_count(pareto)
     payload["totalDelayHours"] = _num(total_cause_hours)
     payload["reworkByReason"] = sorted(
         (
@@ -1101,6 +1097,31 @@ def delays(from_s=None, to_s=None):
         "totalHours": _num(sum(excluded_pause_hours.values())),
     }
     return payload
+
+
+PARETO_THRESHOLD_PCT = 80.0
+
+
+def pareto_rows(rows, value_key="hours"):
+    """Rows sorted by ``value_key`` (largest first), each with its share of the
+    total and the running cumulative share, both in %. Ties keep input order."""
+    ordered = sorted(rows, key=lambda r: -float(r[value_key] or 0))
+    total = sum(float(r[value_key] or 0) for r in ordered)
+    cumulative = 0.0
+    out = []
+    for row in ordered:
+        share = (float(row[value_key] or 0) / total * 100.0) if total else 0.0
+        cumulative += share
+        out.append({**row, "shareOfTotalPct": share, "cumulativePct": min(cumulative, 100.0)})
+    return out
+
+
+def vital_few_count(rows, threshold=PARETO_THRESHOLD_PCT):
+    """How many leading causes it takes to reach ``threshold`` % of the total."""
+    for i, row in enumerate(rows, start=1):
+        if float(row["cumulativePct"] or 0) >= threshold - 1e-9:
+            return i
+    return len(rows)
 
 
 NON_WORKING_PAUSE_REASONS = frozenset(
@@ -1603,4 +1624,191 @@ def purchasing_summary(from_s=None, to_s=None):
         "materialsBySpend": materials_by_spend,
         "spendBySupplier": spend_by_supplier,
         "supplierLeadTime": lead_time,
+    }
+
+
+# --- Resource usage by week (objective 4.1) ---
+
+
+def _period_weeks(period_from: date, period_to: date):
+    """[(monday, first day, last day)] for every Monday-start week in the period,
+    clipped to the period."""
+    out = []
+    monday = period_from - timedelta(days=period_from.weekday())
+    while monday <= period_to:
+        out.append((monday, max(monday, period_from), min(monday + timedelta(days=6), period_to)))
+        monday += timedelta(days=7)
+    return out
+
+
+def _running_spans(logs, now_utc):
+    """Worked intervals, plus the span still running when the last event is a
+    START or RESUME (up to now)."""
+    spans = worked_intervals(logs)
+    if logs:
+        last = max(logs, key=lambda L: (ensure_utc(L.event_at), L.created_at or ensure_utc(L.event_at)))
+        if last.event in (OperationTimeEvent.START, OperationTimeEvent.RESUME):
+            spans.append((ensure_utc(last.event_at), now_utc))
+    return spans
+
+
+def utilization_by_week(from_s=None, to_s=None):
+    """Machine unit x week: hours an operation was running on the unit inside the
+    crew's working hours, over the shop's available hours that week."""
+    period_from, period_to, start_utc, end_utc = _parse_period(from_s, to_s)
+    now_utc = shop_now().astimezone(timezone.utc)
+    exceptions = load_calendar_exceptions(period_from, period_to)
+    weeks = []
+    for monday, first, last in _period_weeks(period_from, period_to):
+        weeks.append(
+            {
+                "weekStart": monday.isoformat(),
+                "from": first.isoformat(),
+                "to": last.isoformat(),
+                "availableHours": float(shop_available_hours(first, last)),
+                "_start": shop_local_to_utc(first, time(0, 0)),
+                "_end": shop_local_to_utc(last + timedelta(days=1), time(0, 0)),
+            }
+        )
+
+    op_ids = [
+        oid
+        for (oid,) in db.session.query(OperationTimeLog.operation_id)
+        .filter(
+            OperationTimeLog.event_at >= start_utc - timedelta(days=31),
+            OperationTimeLog.event_at < end_utc,
+        )
+        .distinct()
+    ]
+    ops = (
+        JobOperation.query.options(joinedload(JobOperation.time_logs))
+        .filter(
+            JobOperation.id.in_(op_ids or ["__none__"]),
+            JobOperation.machine_unit_id.isnot(None),
+            not_outsourced_filter(),
+        )
+        .all()
+    )
+    busy = defaultdict(lambda: defaultdict(float))
+    schedules = {}
+    for op in ops:
+        spans = _running_spans(op.time_logs, now_utc)
+        if not spans:
+            continue
+        crew_key = tuple(op.crew_ids)
+        if crew_key not in schedules:
+            schedules[crew_key] = load_crew_schedule_map(crew_key)
+        for w in weeks:
+            for s, e in spans:
+                s, e = max(s, w["_start"]), min(e, w["_end"], now_utc)
+                if e <= s:
+                    continue
+                segments = derive_working_segments(s, e, schedules[crew_key], exceptions)
+                busy[op.machine_unit_id][w["weekStart"]] += (
+                    sum((se - ss).total_seconds() for ss, se in segments) / 3600.0
+                )
+
+    units = (
+        MachineUnit.query.filter_by(active=True)
+        .join(MachineType, MachineType.id == MachineUnit.machine_type_id)
+        .order_by(MachineType.code, MachineUnit.label)
+        .all()
+    )
+    machines = []
+    for u in units:
+        cells = []
+        for w in weeks:
+            hours = busy[u.id].get(w["weekStart"], 0.0)
+            avail = w["availableHours"]
+            cells.append(
+                {
+                    "weekStart": w["weekStart"],
+                    "busyHours": _num(hours, 1),
+                    "utilizationPct": _num(min(hours / avail * 100.0, 100.0), 1) if avail else None,
+                }
+            )
+        total_busy = sum(busy[u.id].values())
+        total_avail = sum(w["availableHours"] for w in weeks)
+        machines.append(
+            {
+                "machineUnitId": u.id,
+                "machineUnitLabel": u.label,
+                "machineTypeCode": u.machine_type.code if u.machine_type else None,
+                "machineTypeName": u.machine_type.name if u.machine_type else None,
+                "busyHours": _num(total_busy, 1),
+                "utilizationPct": _num(total_busy / total_avail * 100.0, 1) if total_avail else None,
+                "cells": cells,
+            }
+        )
+    return {
+        "period": {"from": period_from.isoformat(), "to": period_to.isoformat()},
+        "weeks": [{k: v for k, v in w.items() if not k.startswith("_")} for w in weeks],
+        "machines": machines,
+    }
+
+
+# --- Job-completion estimates for open jobs (objective 4.3) ---
+
+
+def completion_estimates():
+    """Released jobs: predicted finish from past performance vs the date required,
+    and the ratios the prediction uses."""
+    from app.services import completion_estimate_service as est
+    from app.services.job_order_service import job_list_load_options
+
+    jobs = (
+        JobOrder.query.options(*job_list_load_options())
+        .filter(JobOrder.status.in_(est.RELEASED))
+        .all()
+    )
+    ratios = est.type_ratios()
+    details = est.detail_ratios()
+    now = datetime.now(timezone.utc)
+    rows = []
+    for job in jobs:
+        state = est.risk_state(job, now)
+        predicted = state["predicted"]
+        scheduled = state["scheduled"]
+        later = max((d for d in (predicted, scheduled) if d), default=None)
+        finish_day = later.astimezone(SHOP_TZ).date() if later else None
+        bases = sorted(
+            {o.get("basis") for o in (state["estimate"] or {}).get("operations", []) if o.get("basis")}
+        )
+        rows.append(
+            {
+                "jobOrderId": job.id,
+                "jobNumber": job.job_number,
+                "title": job.title,
+                "clientName": job.client.name if job.client else None,
+                "status": job.status.value,
+                "dueDate": job.due_date.isoformat() if job.due_date else None,
+                "scheduledFinish": scheduled.isoformat() if scheduled else None,
+                "predictedFinish": predicted.isoformat() if predicted else None,
+                "basis": state["basis"],
+                "flag": state["flag"],
+                "slackDays": (job.due_date - finish_day).days if finish_day and job.due_date else None,
+                "ratioBases": bases,
+            }
+        )
+    flag_order = {"RED": 0, "AMBER": 1, "GREEN": 2, None: 3}
+    rows.sort(key=lambda r: (flag_order.get(r["flag"], 3), r["slackDays"] if r["slackDays"] is not None else 9999))
+    type_rows = sorted(
+        (
+            {
+                "operationTypeId": tid,
+                "operationTypeName": info["operationTypeName"],
+                "samples": info["samples"],
+                "ratio": info["ratio"],
+                "enoughHistory": info["enoughHistory"],
+                "workerRatios": sum(1 for k in details if k[0] == "WORKER" and k[1] == tid),
+                "machineRatios": sum(1 for k in details if k[0] == "MACHINE" and k[1] == tid),
+            }
+            for tid, info in ratios.items()
+        ),
+        key=lambda r: (-r["samples"], r["operationTypeName"] or ""),
+    )
+    return {
+        "minSamples": est.MIN_SAMPLES,
+        "jobs": rows,
+        "operationTypes": type_rows,
     }

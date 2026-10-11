@@ -2,7 +2,9 @@
 
 Each operation type has a ratio of hours worked to target hours, taken from
 completed original operations (redo operations are left out). With fewer than
-MIN_SAMPLES of them the ratio is 1.0 and the estimate says so.
+MIN_SAMPLES of them the ratio is 1.0 and the estimate says so. When the
+operation's lead worker has MIN_SAMPLES of that type, their own ratio is used;
+otherwise the machine unit's when it has MIN_SAMPLES; otherwise the type's.
 
 A released job's remaining operations are placed one after another from now,
 in operation order, across each worker's working hours, overtime and
@@ -20,6 +22,7 @@ over every released job with the page-open and daily overdue checks.
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 from flask import g, has_app_context
@@ -59,38 +62,77 @@ def _now():
     return datetime.now(timezone.utc)
 
 
-def _compute_type_ratios() -> dict:
+_HISTORY_FILTERS = (
+    JobOperation.status == OperationStatus.COMPLETED,
+    JobOperation.rework_of_operation_id.is_(None),
+    JobOperation.operation_type_id.isnot(None),
+    JobOperation.actual_worked_hours.isnot(None),
+    JobOperation.estimated_hours > 0,
+    OperationType.is_outsourced.is_(False),
+)
+
+
+def _ratio_info(n, worked, target, **extra) -> dict:
+    enough = n >= MIN_SAMPLES and target
+    return {
+        **extra,
+        "samples": int(n),
+        "enoughHistory": bool(enough),
+        "ratio": round(float(worked) / float(target), 3) if enough else 1.0,
+    }
+
+
+def _compute_ratios() -> tuple[dict, dict]:
+    """(type ratios, detail ratios) from one grouped query.
+
+    Type ratios: {operation type id: info}. Detail ratios:
+    {("WORKER", type id, worker id) | ("MACHINE", type id, unit id): info} for
+    pairs with at least MIN_SAMPLES completed operations.
+    """
     rows = (
         db.session.query(
             JobOperation.operation_type_id,
             OperationType.name,
+            JobOperation.assigned_worker_id,
+            JobOperation.machine_unit_id,
             func.count(JobOperation.id),
             func.sum(JobOperation.actual_worked_hours),
             func.sum(JobOperation.estimated_hours),
         )
         .join(OperationType, OperationType.id == JobOperation.operation_type_id)
-        .filter(
-            JobOperation.status == OperationStatus.COMPLETED,
-            JobOperation.rework_of_operation_id.is_(None),
-            JobOperation.operation_type_id.isnot(None),
-            JobOperation.actual_worked_hours.isnot(None),
-            JobOperation.estimated_hours > 0,
-            OperationType.is_outsourced.is_(False),
+        .filter(*_HISTORY_FILTERS)
+        .group_by(
+            JobOperation.operation_type_id,
+            OperationType.name,
+            JobOperation.assigned_worker_id,
+            JobOperation.machine_unit_id,
         )
-        .group_by(JobOperation.operation_type_id, OperationType.name)
         .all()
     )
-    out = {}
-    for type_id, type_name, n, worked, target in rows:
-        enough = n >= MIN_SAMPLES and target
-        out[type_id] = {
-            "operationTypeId": type_id,
-            "operationTypeName": type_name,
-            "samples": int(n),
-            "enoughHistory": bool(enough),
-            "ratio": round(float(worked) / float(target), 3) if enough else 1.0,
-        }
-    return out
+    names = {}
+    sums = defaultdict(lambda: [0, 0.0, 0.0])
+    for type_id, type_name, worker_id, unit_id, n, worked, target in rows:
+        names[type_id] = type_name
+        keys = [("TYPE", type_id, None)]
+        if worker_id:
+            keys.append(("WORKER", type_id, worker_id))
+        if unit_id:
+            keys.append(("MACHINE", type_id, unit_id))
+        for key in keys:
+            acc = sums[key]
+            acc[0] += int(n)
+            acc[1] += float(worked or 0)
+            acc[2] += float(target or 0)
+    types, details = {}, {}
+    for (basis, type_id, key), (n, worked, target) in sums.items():
+        info = _ratio_info(
+            n, worked, target, operationTypeId=type_id, operationTypeName=names[type_id]
+        )
+        if basis == "TYPE":
+            types[type_id] = info
+        elif n >= MIN_SAMPLES:
+            details[(basis, type_id, key)] = info
+    return types, details
 
 
 def _clear_ratio_cache(_session=None):
@@ -101,27 +143,43 @@ def _clear_ratio_cache(_session=None):
 event.listen(Session, "after_commit", _clear_ratio_cache)
 
 
-def type_ratios() -> dict:
-    """{operation type id: {ratio, samples, enoughHistory, ...}}, cached per request."""
+def _ratios() -> tuple[dict, dict]:
     if not has_app_context():
-        return _compute_type_ratios()
+        return _compute_ratios()
     cached = g.get(_RATIO_CACHE_KEY)
     if cached is None:
-        cached = _compute_type_ratios()
+        cached = _compute_ratios()
         setattr(g, _RATIO_CACHE_KEY, cached)
     return cached
 
 
-def ratio_for(op, ratios: dict) -> dict:
+def type_ratios() -> dict:
+    """{operation type id: {ratio, samples, enoughHistory, ...}}, cached per request."""
+    return _ratios()[0]
+
+
+def detail_ratios() -> dict:
+    """Worker and machine ratios (see ``_compute_ratios``), cached per request."""
+    return _ratios()[1]
+
+
+def ratio_for(op, ratios: dict, details: dict | None = None) -> dict:
+    """The lead worker's ratio for this type, else the machine unit's, else the type's."""
+    details = {} if details is None else details
+    for basis, key in (("WORKER", op.assigned_worker_id), ("MACHINE", op.machine_unit_id)):
+        info = details.get((basis, op.operation_type_id, key)) if key else None
+        if info and info["enoughHistory"]:
+            return {**info, "basis": basis}
     info = ratios.get(op.operation_type_id)
     if info:
-        return info
+        return {**info, "basis": "TYPE" if info["enoughHistory"] else "DEFAULT"}
     return {
         "operationTypeId": op.operation_type_id,
         "operationTypeName": op.operation_type.name if op.operation_type else None,
         "samples": 0,
         "enoughHistory": False,
         "ratio": 1.0,
+        "basis": "DEFAULT",
     }
 
 
@@ -154,12 +212,15 @@ def hours_worked_so_far(op, now: datetime) -> float:
     return total / 3600.0
 
 
-def predict_job(job, now: datetime | None = None, ratios: dict | None = None) -> dict | None:
+def predict_job(
+    job, now: datetime | None = None, ratios: dict | None = None, details: dict | None = None
+) -> dict | None:
     """Predicted finish of a released job's remaining operations, or None."""
     if job.status not in RELEASED:
         return None
     now = ensure_utc(now or _now())
     ratios = type_ratios() if ratios is None else ratios
+    details = detail_ratios() if details is None else details
     remaining = sorted(
         (o for o in job.operations or [] if o.status != OperationStatus.COMPLETED),
         key=lambda o: o.sequence_no or 0,
@@ -185,6 +246,7 @@ def predict_job(job, now: datetime | None = None, ratios: dict | None = None) ->
                     "ratio": 1.0,
                     "samples": 0,
                     "enoughHistory": True,
+                    "basis": "OUTSOURCED",
                     "targetHours": 0.0,
                     "hoursWorked": 0.0,
                     "predictedHoursLeft": 0.0,
@@ -196,7 +258,7 @@ def predict_job(job, now: datetime | None = None, ratios: dict | None = None) ->
             )
             cursor = end
             continue
-        info = ratio_for(op, ratios)
+        info = ratio_for(op, ratios, details)
         predicted_total = float(op.estimated_hours or 0) * info["ratio"]
         worked = hours_worked_so_far(op, now) if op.status == OperationStatus.IN_PROGRESS else 0.0
         hours_left = max(predicted_total - worked, 0.0)
@@ -216,6 +278,7 @@ def predict_job(job, now: datetime | None = None, ratios: dict | None = None) ->
                 "ratio": info["ratio"],
                 "samples": info["samples"],
                 "enoughHistory": info["enoughHistory"],
+                "basis": info["basis"],
                 "targetHours": float(op.estimated_hours or 0),
                 "hoursWorked": round(worked, 2),
                 "predictedHoursLeft": round(hours_left, 2),

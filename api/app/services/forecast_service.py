@@ -1,5 +1,6 @@
-"""Moving-average forecasts (Chapter 1: moving average analysis) with back-tested
-error, for monthly sales and job-order demand, and consumable run-out dates."""
+"""Monthly sales and job-order demand forecasts (3-month moving average, simple
+exponential smoothing and Holt's trend, picked by back-test error; see
+``forecast_methods``), and consumable run-out dates with reorder points."""
 
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ from sqlalchemy.orm import joinedload
 from app.models.job_order import JobOrder, JobOrderStatus, JobType
 from app.models.operation import OperationStatus
 from app.models.tool import Tool, ToolCategory
+from app.services import forecast_methods as fm
 from app.services.schedule_calendar import (
     SHOP_TZ,
     default_shop_schedule_by_dow,
@@ -23,6 +25,9 @@ from app.services.schedule_calendar import (
 )
 
 MONTHLY_WINDOW = 3
+# 3 months to fit the first forecast plus 3 back-tested months to compare methods.
+MIN_FORECAST_MONTHS = fm.MIN_TRAIN + 3
+FORECAST_HORIZON_MONTHS = 3
 STOCKTAKE_WINDOW = 3
 NOT_ENOUGH_HISTORY = "Not enough history yet"
 NOT_ENOUGH_DATA = "Not enough data"
@@ -103,34 +108,129 @@ def monthly_series(dated_values, current_month: date):
     return out
 
 
-def monthly_forecast(dated_values, today: date | None = None, window=MONTHLY_WINDOW, places=2):
-    """Moving-average forecast of the current month from complete past months."""
+def first_full_month(history_start: date) -> date:
+    """The first calendar month fully inside the history.
+
+    The month the records begin in counts only when they begin on its first
+    working day (Monday to Saturday); otherwise it is partial and left out.
+    """
+    first = _month_start(history_start)
+    first_working = first
+    while first_working.weekday() == 6:
+        first_working += timedelta(days=1)
+    return first if history_start <= first_working else _next_month(first)
+
+
+def full_month_series(dated_values, current_month: date, start_month: date):
+    """[(month_start, total)] for every complete month from ``start_month`` up to
+    the month before ``current_month``; months with nothing are 0."""
+    totals = defaultdict(float)
+    for on, value in dated_values:
+        m = _month_start(on)
+        if start_month <= m < current_month:
+            totals[m] += float(value)
+    out = []
+    m = start_month
+    while m < current_month:
+        out.append((m, totals.get(m, 0.0)))
+        m = _next_month(m)
+    return out
+
+
+def monthly_forecast(
+    dated_values,
+    today: date | None = None,
+    window=MONTHLY_WINDOW,
+    places=2,
+    history_start: date | None = None,
+    horizon=FORECAST_HORIZON_MONTHS,
+):
+    """Forecast of the current month and the next ones from complete past months.
+
+    The three methods in ``forecast_methods`` are back-tested on the same
+    months and the one with the lowest MAPE (MAE when MAPE is undefined) is
+    used. The current month is in progress and the first month of the history
+    is usually partial; neither is used as history.
+    """
     today = today or shop_now().date()
     current = _month_start(today)
-    series = monthly_series(dated_values, current)
+    dated_values = list(dated_values)
+    start = history_start or (min(on for on, _ in dated_values) if dated_values else None)
+    start_month = first_full_month(start) if start else current
+    series = full_month_series(dated_values, current, start_month) if start else []
     values = [v for _, v in series]
-    rows, mae, mape = backtest(values, window)
-    enough = len(series) >= window + 1
-    by_month = {r["index"]: r for r in rows}
+    so_far = sum(float(v) for on, v in dated_values if _month_start(on) == current and on <= today)
+
+    excluded = []
+    if start and _month_start(start) < start_month:
+        excluded.append({"month": _month_key(_month_start(start)), "reason": "PARTIAL_FIRST_MONTH"})
+    excluded.append({"month": _month_key(current), "reason": "IN_PROGRESS"})
+
+    enough = len(series) >= MIN_FORECAST_MONTHS
+    results = fm.evaluate(values) if enough else {}
+    chosen, metric = fm.select_method(results) if enough else (None, None)
+    best = results.get(chosen) if chosen else None
+    enough = enough and best is not None
+
+    horizon_rows = []
+    if enough:
+        for h in range(1, horizon + 1):
+            point = max(fm.forecast(chosen, values, h), 0.0)
+            lower, upper = fm.interval(point, best["rmse"], h)
+            m = current
+            for _ in range(h - 1):
+                m = _next_month(m)
+            horizon_rows.append(
+                {
+                    "month": _month_key(m),
+                    "forecast": _round(point, places),
+                    "lower": _round(lower, places),
+                    "upper": _round(upper, places),
+                }
+            )
+    by_index = {r["index"]: r for r in best["rows"]} if best else {}
+
     return {
-        "method": f"{window}-month moving average",
+        "method": fm.METHOD_NAMES[chosen] if enough else None,
+        "methodKey": chosen if enough else None,
+        "errorMetric": metric if enough else None,
+        "parameters": fm.parameters(chosen, values) if enough else {},
         "window": window,
         "monthsAvailable": len(series),
-        "monthsNeeded": window + 1,
+        "monthsNeeded": MIN_FORECAST_MONTHS,
         "enoughHistory": enough,
         "notEnoughHistoryNote": None if enough else NOT_ENOUGH_HISTORY,
         "forecastMonth": _month_key(current),
-        "forecast": _round(moving_average(values, window), places) if enough else None,
-        "mae": _round(mae, places) if enough else None,
-        "mapePct": _round(mape, 1) if enough else None,
-        "backtestedMonths": len(rows),
+        "forecast": horizon_rows[0]["forecast"] if enough else None,
+        "mae": _round(best["mae"], places) if enough else None,
+        "mapePct": _round(best["mapePct"], 1) if enough else None,
+        "backtestedMonths": best["backtestedMonths"] if enough else 0,
+        "intervalLevelPct": fm.INTERVAL_LEVEL,
+        "horizon": horizon_rows,
+        "currentMonthSoFar": _round(so_far, places),
+        "excludedMonths": excluded,
+        "methods": [
+            {
+                "key": m,
+                "name": fm.METHOD_NAMES[m],
+                "mae": _round(results[m]["mae"], places),
+                "mapePct": _round(results[m]["mapePct"], 1),
+                "backtestedMonths": results[m]["backtestedMonths"],
+                "selected": m == chosen,
+            }
+            for m in fm.METHOD_ORDER
+        ]
+        if enough
+        else [],
         "months": [
             {
                 "month": _month_key(m),
                 "actual": _round(v, places),
-                "forecast": _round(by_month[i]["forecast"], places) if i in by_month else None,
+                "forecast": _round(by_index[i]["forecast"], places) if i in by_index else None,
                 "absoluteError": (
-                    _round(by_month[i]["absoluteError"], places) if i in by_month else None
+                    _round(abs(by_index[i]["actual"] - by_index[i]["forecast"]), places)
+                    if i in by_index
+                    else None
                 ),
             }
             for i, (m, v) in enumerate(series)
@@ -167,16 +267,17 @@ def sales_forecast(today: date | None = None):
             dated.append((done, float(job.amount or 0)))
     return {
         "label": "salesForecast",
-        "description": (
-            "Estimate: monthly income from Completed and For Delivery jobs by completion "
-            "month; next month is the average of the previous 3 complete months."
-        ),
+        "description": "Monthly income from Completed and For Delivery jobs, by completion month.",
         **monthly_forecast(dated, today),
     }
 
 
 def demand_forecast(today: date | None = None):
-    """Monthly job orders received (PO date, else creation date), overall and by job type."""
+    """Monthly job orders received (PO date, else creation date), overall and by job type.
+
+    Every job type uses the overall start of the history, so a type with no
+    orders in the early months counts them as 0 instead of starting later.
+    """
     jobs = JobOrder.query.all()
     overall = []
     by_type = defaultdict(list)
@@ -184,16 +285,17 @@ def demand_forecast(today: date | None = None):
         on = _job_received_date(job)
         overall.append((on, 1))
         by_type[job.job_type.value if job.job_type else "UNSPECIFIED"].append((on, 1))
+    start = min((on for on, _ in overall), default=None)
     result = {
         "label": "demandForecast",
-        "description": (
-            "Estimate: job orders received per month by PO date (creation date when "
-            "there is no PO date); next month is the average of the previous 3 complete months."
-        ),
-        **monthly_forecast(overall, today, places=1),
+        "description": "Job orders received per month, by PO date (creation date when there is none).",
+        **monthly_forecast(overall, today, places=1, history_start=start),
     }
     result["byJobType"] = [
-        {"jobType": jt.value, **monthly_forecast(by_type.get(jt.value, []), today, places=1)}
+        {
+            "jobType": jt.value,
+            **monthly_forecast(by_type.get(jt.value, []), today, places=1, history_start=start),
+        }
         for jt in JobType
     ]
     return result
@@ -252,14 +354,93 @@ def run_out_date(on_hand: float, daily_usage: float, start: date, schedule=None,
     return days_left, shop_working_dates_after(start, nth, schedule, exceptions)[-1]
 
 
+# --- Reorder point -------------------------------------------------------------
+
+# z for a 95% chance of not running out during the lead time (cycle service level).
+SERVICE_LEVEL_Z = 1.65
+SERVICE_LEVEL_PCT = 95
+DEFAULT_LEAD_TIME_DAYS = 7
+STOCK_OK = "OK"
+STOCK_REORDER = "REORDER_NOW"
+STOCK_OUT = "LIKELY_OUT"
+STOCK_NO_DATA = "NO_DATA"
+
+
+def safety_stock(daily_usages, lead_working_days, z=SERVICE_LEVEL_Z):
+    """z x sample standard deviation of daily usage x sqrt(lead time in working days).
+
+    Needs at least two usage periods; with fewer it is 0.
+    """
+    n = len(daily_usages)
+    if n < 2 or not lead_working_days or lead_working_days <= 0:
+        return 0.0
+    mean = sum(daily_usages) / n
+    sd = math.sqrt(sum((u - mean) ** 2 for u in daily_usages) / (n - 1))
+    return z * sd * math.sqrt(lead_working_days)
+
+
+def reorder_point(daily_usage, lead_working_days, safety=0.0):
+    """Usage expected during the supplier lead time plus safety stock."""
+    if daily_usage is None:
+        return None
+    return float(daily_usage) * float(lead_working_days or 0) + float(safety or 0)
+
+
+def stock_status(estimated_on_hand, daily_usage, reorder_pt):
+    """OK, REORDER_NOW (at or below the reorder point), LIKELY_OUT (nothing left)
+    or NO_DATA (no usage history yet)."""
+    if daily_usage is None or estimated_on_hand is None:
+        return STOCK_NO_DATA
+    if estimated_on_hand <= 0:
+        return STOCK_OUT
+    if reorder_pt is not None and estimated_on_hand <= reorder_pt:
+        return STOCK_REORDER
+    return STOCK_OK
+
+
+def _restock_lead_times():
+    """{tool id: (measured lead days list, last supplier's stated lead days)} from
+    consumable restock lines (cancelled ones left out)."""
+    from app.models.material_purchase import MaterialPurchase
+
+    out = defaultdict(lambda: {"measured": [], "stated": None, "last": None})
+    lines = (
+        MaterialPurchase.query.options(joinedload(MaterialPurchase.supplier))
+        .filter(MaterialPurchase.tool_id.isnot(None), MaterialPurchase.cancelled_at.is_(None))
+        .all()
+    )
+    for line in lines:
+        row = out[line.tool_id]
+        if line.date_ordered and line.date_received and line.date_received >= line.date_ordered:
+            row["measured"].append((line.date_received - line.date_ordered).days)
+        on = line.date_ordered or (line.created_at.date() if line.created_at else None)
+        if line.supplier and line.supplier.typical_lead_time_days is not None:
+            if row["last"] is None or (on and on >= row["last"]):
+                row["last"] = on
+                row["stated"] = line.supplier.typical_lead_time_days
+    return out
+
+
+def lead_time_for(info):
+    """(calendar days, source): measured average, else the supplier's stated
+    lead time, else the default."""
+    if info and info["measured"]:
+        return sum(info["measured"]) / len(info["measured"]), "MEASURED"
+    if info and info["stated"] is not None:
+        return float(info["stated"]), "SUPPLIER"
+    return float(DEFAULT_LEAD_TIME_DAYS), "DEFAULT"
+
+
 def consumable_run_out(today: date | None = None):
     """Every consumable: moving-average daily usage over its last 3 stocktake
-    periods, days left and the run-out date on the shop calendar."""
+    periods, days left and the run-out date on the shop calendar, and the
+    reorder point (usage during the lead time + safety stock)."""
     from app.services import stocktake_service as st_svc
 
     today = today or shop_now().date()
     end_of_today_utc = shop_local_to_utc(today + timedelta(days=1), time(0, 0))
     schedule = default_shop_schedule_by_dow()
+    lead_info = _restock_lead_times()
     items = []
     for tool in (
         Tool.query.filter_by(category=ToolCategory.CONSUMABLE).order_by(Tool.name).all()
@@ -308,6 +489,20 @@ def consumable_run_out(today: date | None = None):
             "runOutDate": None,
             "likelyOut": False,
         }
+        lead_days, lead_source = lead_time_for(lead_info.get(tool.id))
+        lead_working = shop_working_days_between(
+            today, today + timedelta(days=math.ceil(lead_days)), schedule
+        )
+        row.update(
+            {
+                "leadTimeDays": _round(lead_days, 1),
+                "leadTimeSource": lead_source,
+                "leadTimeWorkingDays": lead_working,
+                "safetyStock": None,
+                "reorderPoint": None,
+                "status": STOCK_NO_DATA,
+            }
+        )
         if periods:
             usage = sum(p["dailyUsage"] for p in periods) / len(periods)
             counted = float(last_line.counted_quantity or 0)
@@ -330,12 +525,17 @@ def consumable_run_out(today: date | None = None):
                 days_left, out_on = run_out_date(estimate, usage, today, schedule)
                 row["daysLeft"] = _round(days_left, 1)
                 row["runOutDate"] = out_on.isoformat() if out_on else None
+            safety = safety_stock([p["dailyUsage"] for p in periods], lead_working)
+            rop = reorder_point(usage, lead_working, safety)
+            row["safetyStock"] = _round(safety, 2)
+            row["reorderPoint"] = _round(rop, 2)
+            row["status"] = stock_status(max(estimate, 0.0), usage, rop)
         items.append(row)
 
+    status_order = {STOCK_OUT: 0, STOCK_REORDER: 1, STOCK_OK: 2, STOCK_NO_DATA: 3}
     items.sort(
         key=lambda r: (
-            not r["enoughData"],
-            not r["likelyOut"],
+            status_order[r["status"]],
             r["runOutDate"] is None,
             r["runOutDate"] or "",
             r["name"] or "",
@@ -345,12 +545,11 @@ def consumable_run_out(today: date | None = None):
         "label": "consumableRunOut",
         "method": f"Moving average of the last {STOCKTAKE_WINDOW} stocktake periods",
         "description": (
-            "Estimate: daily usage per item is the moving average of its last 3 stocktake "
-            "periods (previous count + deliveries − current count, per shop working day). "
-            "Today's quantity = last count + deliveries since − daily usage × shop days "
-            "since the count. Days left = that estimate ÷ daily usage, counted forward on "
-            "the shop calendar from today to give the run-out date."
+            "Daily usage = average of the last 3 stocktake periods. Reorder point = "
+            "daily usage x lead time + safety stock."
         ),
+        "serviceLevelPct": SERVICE_LEVEL_PCT,
+        "defaultLeadTimeDays": DEFAULT_LEAD_TIME_DAYS,
         "today": today.isoformat(),
         "items": items,
     }

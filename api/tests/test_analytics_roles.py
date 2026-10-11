@@ -26,6 +26,8 @@ PRODUCTION_ONLY = [
     "/api/v1/analytics/efficiency/trend",
     "/api/v1/analytics/delays",
     "/api/v1/analytics/demand/capacity",
+    "/api/v1/analytics/utilization/weekly",
+    "/api/v1/analytics/completion-estimates",
 ]
 TRANSACTIONS = [
     "/api/v1/analytics/job-orders",
@@ -130,10 +132,13 @@ def test_admin_sees_production_and_transactions(client, shop):
     admin = _headers(client, "admin@roles.test")
     for url in PRODUCTION_ONLY + TRANSACTIONS:
         assert client.get(url, headers=admin).status_code == 200, url
-    names = {w["workerName"] for w in client.get(
-        "/api/v1/analytics/efficiency/by-worker?minOps=1", headers=admin
-    ).get_json()["workers"]}
+    body = client.get("/api/v1/analytics/efficiency/by-worker?minOps=1", headers=admin).get_json()
+    names = {w["workerName"] for w in body["workers"]}
     assert {"Ana Worker", "Ben Worker"} <= names
+    weights = body["recommendationWeights"]
+    assert weights["machineLead"] == {"operator": 0.4, "skill": 0.3, "efficiency": 0.2, "workload": 0.1}
+    assert weights["noMachine"] == {"efficiency": 0.6, "workload": 0.4}
+    assert weights["helper"] == {"efficiency": 0.5, "workload": 0.5}
 
 
 def test_worker_sees_only_their_own_figures(client, shop):

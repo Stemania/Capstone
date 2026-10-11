@@ -53,25 +53,31 @@ def test_backtest_needs_window_plus_one_values():
 
 def test_monthly_forecast_fills_gaps_and_excludes_current_month():
     dated = [
-        (date(2031, 1, 5), 100),
+        (date(2031, 1, 1), 100),
         (date(2031, 1, 20), 50),
         # February has nothing -> 0
         (date(2031, 3, 2), 300),
         (date(2031, 4, 9), 60),
-        (date(2031, 5, 3), 999),  # current, partial month: left out
+        (date(2031, 5, 9), 60),
+        (date(2031, 6, 9), 60),
+        (date(2031, 7, 3), 999),  # current, partial month: left out
     ]
-    out = fs.monthly_forecast(dated, today=date(2031, 5, 15))
-    assert [m["month"] for m in out["months"]] == ["2031-01", "2031-02", "2031-03", "2031-04"]
-    assert [m["actual"] for m in out["months"]] == [150.0, 0.0, 300.0, 60.0]
+    out = fs.monthly_forecast(dated, today=date(2031, 7, 15))
+    assert [m["month"] for m in out["months"]] == [
+        "2031-01", "2031-02", "2031-03", "2031-04", "2031-05", "2031-06",
+    ]
+    assert [m["actual"] for m in out["months"]] == [150.0, 0.0, 300.0, 60.0, 60.0, 60.0]
     assert out["enoughHistory"] is True
-    assert out["forecastMonth"] == "2031-05"
-    assert out["forecast"] == pytest.approx((0 + 300 + 60) / 3, abs=0.01)
-    # April back-test: (150+0+300)/3 = 150 vs 60 -> MAE 90, MAPE 150%
-    assert out["mae"] == pytest.approx(90.0)
-    assert out["mapePct"] == pytest.approx(150.0)
-    assert out["months"][3]["forecast"] == pytest.approx(150.0)
-    assert out["months"][0]["forecast"] is None
-    assert "moving average" in out["method"]
+    assert out["forecastMonth"] == "2031-07"
+    assert out["currentMonthSoFar"] == pytest.approx(999.0)
+    # The zero February only fits the methods; the back-tested months are not 0.
+    assert out["errorMetric"] == "MAPE"
+    best = min(out["methods"], key=lambda m: m["mapePct"])
+    assert out["methodKey"] == best["key"] and out["mapePct"] == best["mapePct"]
+    # Back-tested from April on; the first three months only fit the methods.
+    assert [m["forecast"] is None for m in out["months"]] == [True, True, True, False, False, False]
+    if out["methodKey"] == "MA3":
+        assert out["forecast"] == pytest.approx(60.0)
 
 
 def test_monthly_forecast_not_enough_history():
