@@ -93,8 +93,8 @@ export default function SplitActionButton({
         }}
         disabled={disabled}
         placement="bottomRight"
-        overlayClassName="jo-split-btn__dropdown"
-        overlayStyle={menuWidth ? { width: menuWidth, minWidth: menuWidth } : undefined}
+        classNames={{ root: 'jo-split-btn__dropdown' }}
+        styles={{ root: menuWidth ? { width: menuWidth, minWidth: menuWidth } : undefined }}
       >
         <Button
           type={type}
