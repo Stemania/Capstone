@@ -152,7 +152,7 @@ export default function JobInfoCard({ job, finish }: { job: JobOrder; finish?: P
   if (job.waitingForMaterials) flags.push(JOB_FLAG.waitingForMaterials);
 
   const dueFact = job.dueDate ? (
-    <span className={`jo-head__fact${due?.tone ? ` is-${due.tone}` : ''}`}>
+    <span className={`jo-brief__fact${due?.tone ? ` is-${due.tone}` : ''}`}>
       <CalendarOutlined />
       <span>
         Due <strong>{formatShop(job.dueDate, 'MMM D')}</strong>
@@ -163,7 +163,7 @@ export default function JobInfoCard({ job, finish }: { job: JobOrder; finish?: P
 
   const lateNote =
     lateBy > 0 || finish?.flag === 'AMBER' || finish?.flag === 'RED' ? (
-      <div className={`jo-head__late is-${finish?.flag === 'RED' ? 'red' : 'amber'}`} role="status">
+      <div className={`jo-brief__late is-${finish?.flag === 'RED' ? 'red' : 'amber'}`} role="status">
         <WarningFilled />
         <span>
           Proposed schedule finishes <strong>{formatShop(finish?.projectedCompletion, 'MMM D, YYYY HH:mm')}</strong>
@@ -174,18 +174,18 @@ export default function JobInfoCard({ job, finish }: { job: JobOrder; finish?: P
 
   if (!open) {
     return (
-      <section className="jo-head is-collapsed" aria-label="Job information">
-        <div className="jo-head__line">
+      <section className="jo-brief is-collapsed" aria-label="Job information">
+        <div className="jo-brief__line">
           <IdChip>{job.jobNumber || job.id.slice(0, 8).toUpperCase()}</IdChip>
-          <span className="jo-head__line-title">{job.title}</span>
-          <span className="jo-head__line-meta">{job.clientName || 'No client'}</span>
+          <span className="jo-brief__line-title">{job.title}</span>
+          <span className="jo-brief__line-meta">{job.clientName || 'No client'}</span>
           {dueFact}
           {job.quantity != null ? (
-            <span className="jo-head__line-meta">{fmtQty(job.quantity, job.unitOfMeasure)}</span>
+            <span className="jo-brief__line-meta">{fmtQty(job.quantity, job.unitOfMeasure)}</span>
           ) : null}
-          <span className="jo-head__line-meta">{materialSummary(job, rows)}</span>
+          <span className="jo-brief__line-meta">{materialSummary(job, rows)}</span>
           {lateBy > 0 ? <StatusPill tone="red" compact>{`${plural(lateBy, 'day')} late`}</StatusPill> : null}
-          <button type="button" className="jo-head__toggle" onClick={() => setOpen(true)} aria-expanded={false}>
+          <button type="button" className="jo-brief__toggle" onClick={() => setOpen(true)} aria-expanded={false}>
             Show details <DownOutlined />
           </button>
         </div>
@@ -194,9 +194,9 @@ export default function JobInfoCard({ job, finish }: { job: JobOrder; finish?: P
   }
 
   return (
-    <section className="jo-head" aria-label="Job information">
-      <div className="jo-head__top">
-        <div className="jo-head__badges">
+    <section className="jo-brief" aria-label="Job information">
+      <div className="jo-brief__top">
+        <div className="jo-brief__badges">
           <IdChip>{job.jobNumber || job.id.slice(0, 8).toUpperCase()}</IdChip>
           <StatusPill status={job.status} map={JOB_STATUS} compact />
           {job.jobType ? <StatusPill tone="slate" compact>{enumLabel(job.jobType)}</StatusPill> : null}
@@ -207,76 +207,76 @@ export default function JobInfoCard({ job, finish }: { job: JobOrder; finish?: P
             </StatusPill>
           ))}
         </div>
-        <button type="button" className="jo-head__toggle" onClick={() => setOpen(false)} aria-expanded>
+        <button type="button" className="jo-brief__toggle" onClick={() => setOpen(false)} aria-expanded>
           Hide details <UpOutlined />
         </button>
       </div>
-      <h2 className="jo-head__title">{job.title}</h2>
-      <div className="jo-head__meta">
-        <span className="jo-head__client">
+      <h2 className="jo-brief__title">{job.title}</h2>
+      <div className="jo-brief__meta">
+        <span className="jo-brief__client">
           <ShopOutlined /> {job.clientName || 'No client'}
         </span>
         {entered ? <span>{entered}</span> : null}
       </div>
 
-      <div className="jo-head__facts">
+      <div className="jo-brief__facts">
         {dueFact}
-        <span className="jo-head__fact">
+        <span className="jo-brief__fact">
           <NumberOutlined />
           <span>
             <strong>{job.quantity != null ? fmtQty(job.quantity, job.unitOfMeasure) : '—'}</strong>
           </span>
         </span>
         {job.amount != null ? (
-          <span className="jo-head__fact">
-            <span className="jo-head__peso" aria-hidden>₱</span>
+          <span className="jo-brief__fact">
+            <span className="jo-brief__peso" aria-hidden>₱</span>
             <span>
               <strong>{peso.format(job.amount).replace('₱', '')}</strong>
             </span>
           </span>
         ) : null}
-        <span className="jo-head__fact" title={job.poDate ? `PO date ${fmtDate(job.poDate)}` : undefined}>
+        <span className="jo-brief__fact" title={job.poDate ? `PO date ${fmtDate(job.poDate)}` : undefined}>
           <FileTextOutlined />
           <span>
             Client PO <strong>{job.clientPoNumber || '—'}</strong>
-            {job.poDate ? <span className="jo-head__fact-sub"> · {formatShop(job.poDate, 'MMM D')}</span> : null}
+            {job.poDate ? <span className="jo-brief__fact-sub"> · {formatShop(job.poDate, 'MMM D')}</span> : null}
           </span>
         </span>
       </div>
 
       {lateNote}
 
-      <div className={`jo-head__body${description && description.length > 60 ? '' : ' is-stacked'}`}>
-        <div className="jo-head__block">
-          <div className="jo-head__label">Description</div>
+      <div className={`jo-brief__body${description && description.length > 60 ? '' : ' is-stacked'}`}>
+        <div className="jo-brief__block">
+          <div className="jo-brief__label">Description</div>
           {description ? (
-            <p className="jo-head__desc">{description}</p>
+            <p className="jo-brief__desc">{description}</p>
           ) : (
-            <p className="jo-head__empty">No description added.</p>
+            <p className="jo-brief__empty">No description added.</p>
           )}
         </div>
-        <div className="jo-head__block">
-          <div className="jo-head__label">
+        <div className="jo-brief__block">
+          <div className="jo-brief__label">
             <InboxOutlined /> Materials
           </div>
           {job.materialStatus === 'NOT_REQUIRED' ? (
-            <p className="jo-head__empty">None to buy: client-supplied or from stock.</p>
+            <p className="jo-brief__empty">None to buy: client-supplied or from stock.</p>
           ) : rows.length ? (
-            <ul className="jo-head__mats">
+            <ul className="jo-brief__mats">
               {rows.map((r) => (
                 <li key={r.key}>
-                  <span className="jo-head__mat-name">
+                  <span className="jo-brief__mat-name">
                     {r.name}
-                    {r.spec ? <span className="jo-head__mat-spec"> · {r.spec}</span> : null}
+                    {r.spec ? <span className="jo-brief__mat-spec"> · {r.spec}</span> : null}
                   </span>
-                  <span className="jo-head__mat-qty">{r.qty}</span>
-                  <span className="jo-head__mat-state">
+                  <span className="jo-brief__mat-qty">{r.qty}</span>
+                  <span className="jo-brief__mat-state">
                     <StatusPill tone={r.state.tone} compact>
                       {r.state.label}
                     </StatusPill>
-                    {r.detail ? <span className="jo-head__mat-detail">{r.detail}</span> : null}
+                    {r.detail ? <span className="jo-brief__mat-detail">{r.detail}</span> : null}
                   </span>
-                  <span className="jo-head__mat-po">
+                  <span className="jo-brief__mat-po">
                     {r.orderId ? (
                       <Link to={`/supplier-orders/${r.orderId}`}>{r.poNumber || 'Supplier order'}</Link>
                     ) : r.poNumber ? (
@@ -287,7 +287,7 @@ export default function JobInfoCard({ job, finish }: { job: JobOrder; finish?: P
               ))}
             </ul>
           ) : (
-            <p className="jo-head__empty">To order: nothing listed yet.</p>
+            <p className="jo-brief__empty">To order: nothing listed yet.</p>
           )}
         </div>
       </div>

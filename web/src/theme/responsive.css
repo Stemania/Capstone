@@ -193,8 +193,8 @@
 
   /* Breadcrumb links and small inline toggles: taller hit area, same look. */
   .ui-crumbs a,
-  .jo-head__toggle,
-  .jo-head__mat-po a,
+  .jo-brief__toggle,
+  .jo-brief__mat-po a,
   .jo-sched-color-btn,
   .acct-sec__device-revoke,
   .ant-table-cell a,
@@ -208,8 +208,8 @@
   }
 
   .ui-crumbs a::after,
-  .jo-head__toggle::after,
-  .jo-head__mat-po a::after,
+  .jo-brief__toggle::after,
+  .jo-brief__mat-po a::after,
   .acct-sec__device-revoke::after,
   .ant-table-cell a::after,
   .ant-table-cell .ant-btn-link::after,
