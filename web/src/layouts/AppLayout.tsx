@@ -97,7 +97,7 @@ const SECTION_META: Record<string, { title: string; subtitle: string }> = {
   '/attendance': { title: 'Attendance', subtitle: 'Each worker\u2019s clock-in and clock-out' },
   '/analytics': { title: 'Analytics', subtitle: 'How the shop is doing, and printable reports' },
   '/settings/shop': { title: 'Shop details', subtitle: 'Printed on purchase orders and job orders' },
-  '/account': { title: 'Account security', subtitle: 'Password and quick sign-in PIN' },
+  '/account': { title: 'Account security', subtitle: 'Password, PIN unlock and your devices' },
 };
 
 const REPORT_TITLES: Record<string, string> = {
@@ -184,7 +184,7 @@ export default function AppLayout() {
   const { user, logout, isAdmin, isOfficeStaff } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const { resolveSectionNav } = useNavMemory();
+  const { resolveSectionNav, clearSectionCache } = useNavMemory();
   const showBell = isAdmin || isOfficeStaff;
   const [hasAssignments, setHasAssignments] = useState(false);
 
@@ -294,6 +294,7 @@ export default function AppLayout() {
         className="acct-sheet-btn"
         onClick={() => {
           setAccountOpen(false);
+          clearSectionCache('/account');
           navigate('/account/security');
         }}
       >

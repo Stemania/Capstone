@@ -196,7 +196,6 @@
   .jo-brief__toggle,
   .jo-brief__mat-po a,
   .jo-sched-color-btn,
-  .acct-sec__device-revoke,
   .ant-table-cell a,
   .ant-table-cell .ant-btn-link,
   .ui-rowcard a,
@@ -210,7 +209,6 @@
   .ui-crumbs a::after,
   .jo-brief__toggle::after,
   .jo-brief__mat-po a::after,
-  .acct-sec__device-revoke::after,
   .ant-table-cell a::after,
   .ant-table-cell .ant-btn-link::after,
   .ui-rowcard a::after,
@@ -294,11 +292,6 @@
     width: 44px !important;
     height: 44px !important;
     margin: -10px -12px 0 0;
-  }
-
-  .acct-sec__back {
-    width: 48px !important;
-    height: 48px !important;
   }
 
   .analytics-card__tools {

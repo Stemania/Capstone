@@ -95,7 +95,7 @@ export function WorkerPageHeader({
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const { resolveSectionNav } = useNavMemory();
+  const { resolveSectionNav, clearSectionCache } = useNavMemory();
   const onSchedule = location.pathname.startsWith('/schedule');
   const [accountOpen, setAccountOpen] = useState(false);
 
@@ -148,6 +148,7 @@ export function WorkerPageHeader({
         style={{ marginBottom: 8 }}
         onClick={() => {
           setAccountOpen(false);
+          clearSectionCache('/account');
           navigate('/account/security');
         }}
       >

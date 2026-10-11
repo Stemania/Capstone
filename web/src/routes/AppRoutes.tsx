@@ -100,7 +100,6 @@ export default function AppRoutes() {
                   <ProtectedRoute roles={['ADMIN', 'OFFICE_STAFF', 'PRODUCTION_WORKER']} />
                 }
               >
-                <Route path="/account/security" element={<AccountSecurityPage />} />
                 <Route path="/job-orders/:id/print" element={<JobOrderPrintPage />} />
               </Route>
               <Route element={<ProtectedRoute roles={['ADMIN', 'OFFICE_STAFF']} />}>
@@ -121,6 +120,7 @@ export default function AppRoutes() {
               >
                 <Route element={<RoleAwareLayout />}>
                   <Route path="/schedule" element={<ScheduleBoardPage />} />
+                  <Route path="/account/security" element={<AccountSecurityPage />} />
 
                   <Route element={<ProtectedRoute roles={['ADMIN', 'OFFICE_STAFF']} />}>
                     <Route path="/dashboard" element={<DashboardPage />} />
