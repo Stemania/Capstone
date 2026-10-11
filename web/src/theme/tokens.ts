@@ -71,6 +71,7 @@ export const layout = {
   cardPadding: 16,
   controlHeight: 32,
   tableRowHeight: 44,
+  touchTarget: 44,
   workerTapTarget: 48,
 } as const;
 

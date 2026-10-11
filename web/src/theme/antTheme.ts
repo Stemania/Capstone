@@ -149,6 +149,22 @@ const components: ThemeConfig['components'] = {
 /** Office screens (Admin, Office Staff). */
 export const officeTheme: ThemeConfig = { token: baseToken, components };
 
+/** Office screens on phones and tablets: same look, 44px tap targets. */
+export const officeTouchTheme: ThemeConfig = {
+  token: {
+    ...baseToken,
+    controlHeight: layout.touchTarget,
+    controlHeightSM: layout.touchTarget,
+    controlHeightLG: layout.workerTapTarget,
+  },
+  components: {
+    ...components,
+    Menu: { ...components.Menu, itemHeight: layout.touchTarget },
+    Pagination: { itemSize: layout.touchTarget, itemSizeSM: layout.touchTarget },
+    DatePicker: { cellHeight: 36, cellWidth: 40, withoutTimeCellHeight: 48 },
+  },
+};
+
 /** Production worker phone screens: same colours, shop-floor tap targets. */
 export const workerTheme: ThemeConfig = {
   token: {
