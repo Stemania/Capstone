@@ -1,5 +1,5 @@
-import { formatShop, shopToday } from '../../utils/shopTime';
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { shopToday } from '../../utils/shopTime';
+import { useEffect, useMemo, useState } from 'react';
 import {
   DatePicker,
   Input,
@@ -7,24 +7,18 @@ import {
   Modal,
   Form,
   Typography,
-  Dropdown,
   Skeleton,
   message,
   Button,
   Checkbox,
 } from 'antd';
-import type { MenuProps } from 'antd';
 import {
-  MoreOutlined,
   PlayCircleOutlined,
   PauseCircleOutlined,
   WarningOutlined,
-  UserOutlined,
   DownOutlined,
-  RightOutlined,
   PlusOutlined,
   ClusterOutlined,
-  TeamOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -32,56 +26,45 @@ import { jobOrdersApi } from '../../api/jobOrders.api';
 import { operationsApi } from '../../api/operations.api';
 import { usersApi } from '../../api/users.api';
 import { useAuth } from '../../hooks/useAuth';
-import { PersonChip, crewNames } from '../../components/PersonAvatar';
+import { PersonChip } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
 import { getErrorMessage } from '../../api/client';
 import { DOWNTIME_REASONS } from '../../constants/downtimeReasons';
 import type { MachineInfo, MachineUnitStatus, User } from '../../types';
-import MachineTypeIcon from '../../components/MachineTypeIcon';
 import InfoTip from '../../components/InfoTip';
 import {
   EmptyState,
   FilterBar,
   FilterSelect,
-  IdChip,
   Page,
   StatCard,
   StatGrid,
-  StatusPill,
 } from '../../components/ui';
-import { MACHINE_STATUS } from '../../theme/statuses';
+import MachineCard from './MachineCard';
+import MachineDetailsDrawer from './MachineDetailsDrawer';
+import { accentVars, machineArt, machineKind, type MachineKind } from './machineKinds';
+import {
+  cardStatus,
+  formatOpenDuration,
+  type CardStatus,
+  type MachineActions,
+} from './machineStatus';
 
-type CardStatus = 'running' | 'idle' | 'breakdown' | 'retired';
 type StatusFilter = CardStatus;
+
+type TypeGroup = {
+  typeId: string;
+  typeName: string;
+  kind: MachineKind;
+  units: MachineUnitStatus[];
+};
 
 function sectionLabel(text: string) {
   return <div className="app-form-section">{text}</div>;
 }
 
-function formatOpenDuration(startedAt: string, nowMs: number): string {
-  const ms = Math.max(0, nowMs - dayjs(startedAt).valueOf());
-  const totalMin = Math.floor(ms / 60000);
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  if (h >= 24) {
-    const d = Math.floor(h / 24);
-    const rh = h % 24;
-    return `${d}d ${rh}h`;
-  }
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
-function cardStatus(unit: MachineUnitStatus): CardStatus {
-  if (unit.active === false) return 'retired';
-  if (unit.down) return 'breakdown';
-  if (unit.currentOperation) return 'running';
-  return 'idle';
-}
-
-function formatWhen(iso?: string | null): string {
-  if (!iso) return '';
-  return formatShop(iso, 'MMM D, h:mm A');
+function typeIdOf(unit: MachineUnitStatus): string {
+  return unit.machineTypeId || unit.machineTypeCode || 'other';
 }
 
 function unitSearchText(unit: MachineUnitStatus): string {
@@ -98,6 +81,7 @@ function unitSearchText(unit: MachineUnitStatus): string {
     cur?.operationName,
     cur?.jobNumber,
     cur?.assignedWorkerName,
+    cur?.assignedWorkerNickname,
     nxt?.operationName,
     nxt?.jobNumber,
   ]
@@ -106,247 +90,32 @@ function unitSearchText(unit: MachineUnitStatus): string {
     .toLowerCase();
 }
 
-function cardFooter(unit: MachineUnitStatus, nowMs: number): { text: string; breakdown?: boolean } {
-  const status = cardStatus(unit);
-  if (status === 'retired') {
-    return { text: 'Removed from shop floor' };
+function groupByType(units: MachineUnitStatus[]): TypeGroup[] {
+  const map = new Map<string, TypeGroup>();
+  for (const unit of units) {
+    const typeId = typeIdOf(unit);
+    const existing = map.get(typeId);
+    if (existing) {
+      existing.units.push(unit);
+    } else {
+      map.set(typeId, {
+        typeId,
+        typeName: unit.machineTypeName || unit.machineTypeCode || 'Other',
+        kind: machineKind(unit.machineTypeName, unit.machineTypeCode),
+        units: [unit],
+      });
+    }
   }
-  if (status === 'breakdown' && unit.openDowntime?.startedAt) {
-    return {
-      text: `Down ${formatOpenDuration(unit.openDowntime.startedAt, nowMs)}`,
-      breakdown: true,
-    };
-  }
-  if (status === 'running' && unit.currentOperation?.scheduledEnd) {
-    return { text: `Expected finish ${formatWhen(unit.currentOperation.scheduledEnd)}` };
-  }
-  if (unit.nextOperation) {
-    const op = unit.nextOperation;
-    const when = op.scheduledStart ? formatWhen(op.scheduledStart) : 'Unscheduled';
-    if (status === 'idle') return { text: `Next · ${when}` };
-    return { text: `Next: ${op.operationName}${op.jobNumber ? ` · ${op.jobNumber}` : ''} · ${when}` };
-  }
-  if (unit.affectedCount > 0) {
-    return { text: `${unit.affectedCount} op${unit.affectedCount === 1 ? '' : 's'} pending schedule` };
-  }
-  return { text: 'No upcoming work' };
+  return Array.from(map.values()).sort((a, b) => a.typeName.localeCompare(b.typeName));
 }
 
-function repairDateText(unit: MachineUnitStatus): string {
-  const d = unit.openDowntime?.expectedRepairDate;
-  return d ? `Expected repair ${formatShop(d, 'ddd D MMM')}` : 'No expected repair date';
+function statusSummary(units: MachineUnitStatus[]) {
+  const c = { running: 0, breakdown: 0, idle: 0, retired: 0 };
+  for (const u of units) c[cardStatus(u)] += 1;
+  return c;
 }
 
 const disablePastDates = (d: dayjs.Dayjs) => d.isBefore(shopToday(), 'day');
-
-function cardNavigateTarget(unit: MachineUnitStatus): string | null {
-  const op = unit.currentOperation ?? unit.nextOperation;
-  return op?.jobOrderId ? `/job-orders/${op.jobOrderId}` : null;
-}
-
-function MachineUnitCard({
-  unit,
-  nowMs,
-  onReport,
-  onClose,
-  onSetRepairDate,
-  onOpenSchedule,
-  onRetire,
-  onRestore,
-  onSetDefaultOperator,
-  onClearDefaultOperator,
-}: {
-  unit: MachineUnitStatus;
-  nowMs: number;
-  onReport: (unit: MachineUnitStatus) => void;
-  onClose: (unit: MachineUnitStatus) => void;
-  onSetRepairDate: (unit: MachineUnitStatus) => void;
-  onOpenSchedule: () => void;
-  onRetire: (unit: MachineUnitStatus) => void;
-  onRestore: (unit: MachineUnitStatus) => void;
-  onSetDefaultOperator: (unit: MachineUnitStatus) => void;
-  onClearDefaultOperator: (unit: MachineUnitStatus) => void;
-}) {
-  const navigate = useNavigate();
-  const status = cardStatus(unit);
-  const footer = cardFooter(unit, nowMs);
-  const target = status === 'retired' ? null : cardNavigateTarget(unit);
-  const cur = unit.currentOperation;
-  const typeLabel = unit.machineTypeName || unit.machineTypeCode || 'Machine';
-
-  const menuItems: MenuProps['items'] = [];
-  if (status === 'retired') {
-    menuItems.push({
-      key: 'restore',
-      label: 'Restore machine',
-      onClick: () => onRestore(unit),
-    });
-  } else {
-    menuItems.push({
-      key: 'defaultOp',
-      label: unit.defaultOperatorId ? 'Change default operator' : 'Set default operator',
-      onClick: () => onSetDefaultOperator(unit),
-    });
-    if (unit.defaultOperatorId) {
-      menuItems.push({
-        key: 'clearDefault',
-        label: 'Clear default operator',
-        onClick: () => onClearDefaultOperator(unit),
-      });
-    }
-    menuItems.push({ type: 'divider' });
-    if (!unit.down) {
-      menuItems.push({
-        key: 'report',
-        label: 'Report breakdown',
-        onClick: () => onReport(unit),
-      });
-    } else {
-      menuItems.push({
-        key: 'repairDate',
-        label: unit.openDowntime?.expectedRepairDate
-          ? 'Change expected repair date'
-          : 'Set expected repair date',
-        onClick: () => onSetRepairDate(unit),
-      });
-      menuItems.push({
-        key: 'close',
-        label: 'Close breakdown',
-        onClick: () => onClose(unit),
-      });
-    }
-    if (unit.affectedCount > 0) {
-      menuItems.push({
-        key: 'schedule',
-        label: 'Open schedule',
-        onClick: onOpenSchedule,
-      });
-    }
-    menuItems.push({ type: 'divider' });
-    menuItems.push({
-      key: 'retire',
-      label: 'Remove machine',
-      danger: true,
-      onClick: () => onRetire(unit),
-    });
-  }
-
-  return (
-    <article
-      className={[
-        'machine-card',
-        `machine-card--${status}`,
-        target ? 'machine-card--clickable' : '',
-      ]
-        .filter(Boolean)
-        .join(' ')}
-      onClick={() => {
-        if (target) navigate(target);
-      }}
-      onKeyDown={(e) => {
-        if (target && (e.key === 'Enter' || e.key === ' ')) {
-          e.preventDefault();
-          navigate(target);
-        }
-      }}
-      role={target ? 'button' : undefined}
-      tabIndex={target ? 0 : undefined}
-    >
-      <header className="machine-card__head">
-        <span className="machine-card__type-icon">
-          <MachineTypeIcon name={unit.machineTypeName} code={unit.machineTypeCode} />
-        </span>
-        <div className="machine-card__head-text">
-          <div className="machine-card__label">{unit.label}</div>
-          <div className="machine-card__type">{typeLabel}</div>
-        </div>
-        <StatusPill status={status} map={MACHINE_STATUS} compact dot />
-      </header>
-
-      <div className="machine-card__body">
-        <div className="machine-card__idle-copy" style={{ marginBottom: status === 'idle' ? 0 : 8 }}>
-          {unit.defaultOperatorId ? (
-            <PersonChip
-              userId={unit.defaultOperatorId}
-              fullName={unit.defaultOperatorName}
-              nickname={unit.defaultOperatorNickname}
-              photoVersion={unit.defaultOperatorPhotoVersion}
-              size={24}
-              strong
-            />
-          ) : (
-            <span className="machine-card__open">
-              <span aria-hidden="true" className="machine-card__open-icon">
-                <TeamOutlined />
-              </span>
-              Open to all
-            </span>
-          )}
-        </div>
-        {status === 'retired' ? (
-          <div className="machine-card__idle-copy">
-            Taken off the floor — history kept. Restore or add a replacement if needed.
-          </div>
-        ) : status === 'running' && cur ? (
-          <>
-            <div className="machine-card__op">{cur.operationName}</div>
-            {cur.jobNumber && (
-              <div className="machine-card__job">
-                <IdChip>{cur.jobNumber}</IdChip>
-              </div>
-            )}
-            {cur.assignedWorkerName && (
-              <div className="machine-card__worker">
-                <UserOutlined />
-                {crewNames(
-                  cur.crew,
-                  personLabel(cur.assignedWorkerName, cur.assignedWorkerNickname),
-                )}
-              </div>
-            )}
-          </>
-        ) : status === 'breakdown' ? (
-          <div className="machine-card__idle-copy">
-            {unit.openDowntime?.reason || 'Machine reported down'}
-            {unit.openDowntime?.reportedByName
-              ? ` · ${unit.openDowntime.reportedByName}`
-              : ''}
-            <div>{repairDateText(unit)}</div>
-          </div>
-        ) : unit.nextOperation ? (
-          <>
-            <div className="machine-card__op">{unit.nextOperation.operationName}</div>
-            {unit.nextOperation.jobNumber && (
-              <div className="machine-card__job">
-                <IdChip>{unit.nextOperation.jobNumber}</IdChip>
-              </div>
-            )}
-          </>
-        ) : status !== 'idle' ? null : (
-          <div className="machine-card__idle-copy">Standing by — no work queued</div>
-        )}
-      </div>
-
-      <footer
-        className={[
-          'machine-card__footer',
-          footer.breakdown ? 'machine-card__footer--breakdown' : '',
-        ]
-          .filter(Boolean)
-          .join(' ')}
-      >
-        <span className="machine-card__footer-text">{footer.text}</span>
-        <div className="machine-card__footer-actions" onClick={(e) => e.stopPropagation()}>
-          <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="topRight">
-            <button type="button" className="machine-card__icon-btn" aria-label="Machine actions">
-              <MoreOutlined />
-            </button>
-          </Dropdown>
-        </div>
-      </footer>
-    </article>
-  );
-}
 
 export default function MachinesPage() {
   const navigate = useNavigate();
@@ -356,9 +125,11 @@ export default function MachinesPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter[]>([]);
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [showRemoved, setShowRemoved] = useState(false);
   const [collapsedTypes, setCollapsedTypes] = useState<Record<string, boolean>>({});
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [detailsId, setDetailsId] = useState<string | null>(null);
   const [reportFor, setReportFor] = useState<MachineUnitStatus | null>(null);
   const [closeFor, setCloseFor] = useState<MachineUnitStatus | null>(null);
   const [repairFor, setRepairFor] = useState<MachineUnitStatus | null>(null);
@@ -373,7 +144,7 @@ export default function MachinesPage() {
   const [operatorForm] = Form.useForm();
 
   const fetchUnits = async (includeRemoved = showRemoved) => {
-    setLoading(true);
+    setLoading((prev) => prev || units.length === 0);
     try {
       const { data } = await operationsApi.machineUnitStatus(includeRemoved);
       setUnits(data);
@@ -424,32 +195,20 @@ export default function MachinesPage() {
     return () => window.clearInterval(t);
   }, [units]);
 
-  const filtered = useMemo(() => {
+  const allGroups = useMemo(() => groupByType(units), [units]);
+
+  const groups = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return units.filter((u) => {
+    const filtered = units.filter((u) => {
+      if (typeFilter && typeIdOf(u) !== typeFilter) return false;
       if (q && !unitSearchText(u).includes(q)) return false;
       if (statusFilter.length && !statusFilter.includes(cardStatus(u))) return false;
       return true;
     });
-  }, [units, search, statusFilter]);
+    return groupByType(filtered);
+  }, [units, search, statusFilter, typeFilter]);
 
-  const groups = useMemo(() => {
-    const map = new Map<
-      string,
-      { typeId: string; typeName: string; units: MachineUnitStatus[] }
-    >();
-    for (const unit of filtered) {
-      const typeId = unit.machineTypeId || unit.machineTypeCode || 'other';
-      const typeName = unit.machineTypeName || unit.machineTypeCode || 'Other';
-      const existing = map.get(typeId);
-      if (existing) {
-        existing.units.push(unit);
-      } else {
-        map.set(typeId, { typeId, typeName, units: [unit] });
-      }
-    }
-    return Array.from(map.values()).sort((a, b) => a.typeName.localeCompare(b.typeName));
-  }, [filtered]);
+  const detailsUnit = detailsId ? units.find((u) => u.id === detailsId) ?? null : null;
 
   const warnScheduled = (count: number) => {
     if (!count) return;
@@ -544,6 +303,7 @@ export default function MachinesPage() {
         try {
           const { data } = await operationsApi.setMachineUnitActive(unit.id, false);
           message.success(`${unit.label} removed from shop floor`);
+          if (!showRemoved) setDetailsId(null);
           await fetchUnits();
           const count = data.affectedCount || 0;
           if (count > 0) {
@@ -609,7 +369,7 @@ export default function MachinesPage() {
         operatorFor.id,
         values.defaultOperatorId || null
       );
-      message.success(`Default operator updated for ${operatorFor.label}`);
+      message.success(`Assigned operator updated for ${operatorFor.label}`);
       setOperatorFor(null);
       operatorForm.resetFields();
       await fetchUnits();
@@ -621,12 +381,54 @@ export default function MachinesPage() {
     }
   };
 
+  const actions: MachineActions = {
+    onDetails: (u) => setDetailsId(u.id),
+    onReport: (u) => {
+      reportForm.resetFields();
+      setReportFor(u);
+    },
+    onClose: (u) => {
+      closeForm.resetFields();
+      setCloseFor(u);
+    },
+    onSetRepairDate: (u) => {
+      const d = u.openDowntime?.expectedRepairDate;
+      repairForm.setFieldsValue({ expectedRepairDate: d ? dayjs(d) : null });
+      setRepairFor(u);
+    },
+    onOpenSchedule: () => navigate('/schedule'),
+    onOpenJob: (jobOrderId) => navigate(`/job-orders/${jobOrderId}`),
+    onRetire: retireUnit,
+    onRestore: restoreUnit,
+    onSetDefaultOperator: (u) => {
+      operatorForm.setFieldsValue({ defaultOperatorId: u.defaultOperatorId || undefined });
+      setOperatorFor(u);
+    },
+    onClearDefaultOperator: async (u) => {
+      try {
+        setSaving(true);
+        await operationsApi.setMachineUnitDefaultOperator(u.id, null);
+        message.success(`${u.label} is now open to all`);
+        await fetchUnits();
+      } catch (err) {
+        message.error(getErrorMessage(err));
+      } finally {
+        setSaving(false);
+      }
+    },
+  };
+
   const toggleType = (typeId: string) => {
     setCollapsedTypes((prev) => ({ ...prev, [typeId]: !prev[typeId] }));
   };
 
   const toggleStatus = (s: StatusFilter) => {
     setStatusFilter((prev) => (prev.length === 1 && prev[0] === s ? [] : [s]));
+  };
+
+  const pickType = (typeId: string | null) => {
+    setTypeFilter((prev) => (typeId === null || prev === typeId ? null : typeId));
+    if (typeId) setCollapsedTypes((prev) => ({ ...prev, [typeId]: false }));
   };
 
   const counts = useMemo(() => {
@@ -640,6 +442,10 @@ export default function MachinesPage() {
     }
     return c;
   }, [units]);
+
+  const detailsGroup = detailsUnit
+    ? allGroups.find((g) => g.typeId === typeIdOf(detailsUnit))
+    : undefined;
 
   return (
     <Page className="machines-page">
@@ -655,7 +461,7 @@ export default function MachinesPage() {
         />
         <StatCard
           icon={<PlayCircleOutlined />}
-          tone="indigo"
+          tone="green"
           label="Running"
           value={counts.running}
           loading={loading}
@@ -712,7 +518,7 @@ export default function MachinesPage() {
               </Checkbox>
               <InfoTip
                 label="About machines"
-                content="Shop floor status at a glance. Report a temporary breakdown, or add/remove units when machines are replaced. Click a machine to open its current or next job."
+                content="Shop floor status at a glance, one section per machine type. Click a machine for its details: who is assigned, the current and next job, breakdowns and history."
               />
             </>
           }
@@ -729,94 +535,107 @@ export default function MachinesPage() {
             </Button>
           }
         />
+        {allGroups.length > 0 && (
+          <div className="mtypes" role="group" aria-label="Machine types">
+            <button
+              type="button"
+              className={`mtypes__chip${typeFilter === null ? ' is-active' : ''}`}
+              aria-pressed={typeFilter === null}
+              onClick={() => pickType(null)}
+            >
+              <span className="mtypes__name">All types</span>
+              <span className="mtypes__count ui-tabular">{units.length}</span>
+            </button>
+            {allGroups.map((g) => (
+              <button
+                key={g.typeId}
+                type="button"
+                className={`mtypes__chip${typeFilter === g.typeId ? ' is-active' : ''}`}
+                style={accentVars(g.kind)}
+                aria-pressed={typeFilter === g.typeId}
+                onClick={() => pickType(g.typeId)}
+              >
+                <img className="mtypes__art" src={machineArt(g.kind)} alt="" />
+                <span className="mtypes__name">{g.typeName}</span>
+                <span className="mtypes__count ui-tabular">{g.units.length}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {loading ? (
-        <div className="machines-board__grid" aria-busy>
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="machine-card machine-card--skeleton">
-              <Skeleton active avatar={{ shape: 'square', size: 36 }} paragraph={{ rows: 2 }} title={false} />
-            </div>
-          ))}
-        </div>
+        <section className="mtype" aria-busy>
+          <div className="mtype__grid">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="mcard mcard--skeleton">
+                <Skeleton active avatar={{ shape: 'square', size: 72 }} paragraph={{ rows: 3 }} title={false} />
+              </div>
+            ))}
+          </div>
+        </section>
       ) : groups.length === 0 ? (
         <div className="ui-card">
           <EmptyState
             icon={<ClusterOutlined />}
             title="No machines match your filters"
-            description="Clear the search or status filter to see every machine."
+            description="Clear the search, status or type filter to see every machine."
           />
         </div>
       ) : (
-        <div className="machines-board__groups">
+        <div className="mtypes-board">
           {groups.map((group) => {
             const collapsed = collapsedTypes[group.typeId] ?? false;
-            const first = group.units[0];
-            const small = group.units.length < 4;
+            const total = allGroups.find((g) => g.typeId === group.typeId)?.units.length ?? group.units.length;
+            const s = statusSummary(group.units);
+            const parts = [
+              s.running ? { key: 'running', text: `${s.running} running` } : null,
+              s.breakdown ? { key: 'breakdown', text: `${s.breakdown} breakdown` } : null,
+              s.idle ? { key: 'idle', text: `${s.idle} idle` } : null,
+              s.retired ? { key: 'retired', text: `${s.retired} removed` } : null,
+            ].filter((p): p is { key: string; text: string } => p !== null);
             return (
               <section
                 key={group.typeId}
-                className={`machines-board__group${small ? ' machines-board__group--small' : ''}`}
-                style={small ? ({ '--cols': group.units.length } as CSSProperties) : undefined}
+                id={`mtype-${group.typeId}`}
+                className={`mtype${collapsed ? ' mtype--collapsed' : ''}`}
+                style={accentVars(group.kind)}
               >
                 <button
                   type="button"
-                  className="machines-board__section-header"
+                  className="mtype__head"
                   onClick={() => toggleType(group.typeId)}
                   aria-expanded={!collapsed}
                 >
-                  {collapsed ? (
-                    <RightOutlined className="machines-board__section-chevron" />
-                  ) : (
-                    <DownOutlined className="machines-board__section-chevron" />
-                  )}
-                  <MachineTypeIcon name={first?.machineTypeName} code={first?.machineTypeCode} size={16} />
-                  <span className="machines-board__section-title">{group.typeName}</span>
-                  <span className="machines-board__section-count ui-tabular">
-                    {group.units.length} unit{group.units.length === 1 ? '' : 's'}
+                  <span className="mtype__art">
+                    <img src={machineArt(group.kind)} alt="" />
                   </span>
+                  <span className="mtype__titles">
+                    <span className="mtype__name">{group.typeName}</span>
+                    <span className="mtype__meta">
+                      <span className="mtype__count ui-tabular">
+                        {group.units.length === total
+                          ? `${total} unit${total === 1 ? '' : 's'}`
+                          : `${group.units.length} of ${total} units`}
+                      </span>
+                      {parts.map((p) => (
+                        <span key={p.key} className={`mtype__sum mtype__sum--${p.key}`}>
+                          {p.text}
+                        </span>
+                      ))}
+                    </span>
+                  </span>
+                  <DownOutlined className="mtype__chevron" aria-hidden />
                 </button>
                 {!collapsed && (
-                  <div className="machines-board__grid">
+                  <div className="mtype__grid">
                     {group.units.map((unit) => (
-                      <MachineUnitCard
+                      <MachineCard
                         key={unit.id}
                         unit={unit}
+                        kind={group.kind}
                         nowMs={nowMs}
-                        onReport={(u) => {
-                          reportForm.resetFields();
-                          setReportFor(u);
-                        }}
-                        onClose={(u) => {
-                          closeForm.resetFields();
-                          setCloseFor(u);
-                        }}
-                        onSetRepairDate={(u) => {
-                          const d = u.openDowntime?.expectedRepairDate;
-                          repairForm.setFieldsValue({ expectedRepairDate: d ? dayjs(d) : null });
-                          setRepairFor(u);
-                        }}
-                        onOpenSchedule={() => navigate('/schedule')}
-                        onRetire={retireUnit}
-                        onRestore={restoreUnit}
-                        onSetDefaultOperator={(u) => {
-                          operatorForm.setFieldsValue({
-                            defaultOperatorId: u.defaultOperatorId || undefined,
-                          });
-                          setOperatorFor(u);
-                        }}
-                        onClearDefaultOperator={async (u) => {
-                          try {
-                            setSaving(true);
-                            await operationsApi.setMachineUnitDefaultOperator(u.id, null);
-                            message.success(`Cleared default operator for ${u.label}`);
-                            await fetchUnits();
-                          } catch (err) {
-                            message.error(getErrorMessage(err));
-                          } finally {
-                            setSaving(false);
-                          }
-                        }}
+                        actions={actions}
                       />
                     ))}
                   </div>
@@ -826,6 +645,15 @@ export default function MachinesPage() {
           })}
         </div>
       )}
+
+      <MachineDetailsDrawer
+        unit={detailsUnit}
+        kind={detailsGroup?.kind ?? 'other'}
+        typeName={detailsGroup?.typeName ?? detailsUnit?.machineTypeName ?? ''}
+        nowMs={nowMs}
+        actions={actions}
+        onClose={() => setDetailsId(null)}
+      />
 
       <Modal
         open={addOpen}
@@ -871,7 +699,7 @@ export default function MachinesPage() {
             style={{ marginBottom: 14 }}
           >
             <Select
-              placeholder="Lathe, Milling, …"
+              placeholder="Lathe Machine, Milling Machine, …"
               options={machineTypes
                 .filter((t): t is MachineInfo & { id: string } => Boolean(t.id))
                 .map((t) => ({
@@ -1003,7 +831,7 @@ export default function MachinesPage() {
       </Modal>
 
       <Modal
-        title={operatorFor ? `Default operator — ${operatorFor.label}` : 'Default operator'}
+        title={operatorFor ? `Assigned operator — ${operatorFor.label}` : 'Assigned operator'}
         open={!!operatorFor}
         onCancel={() => setOperatorFor(null)}
         onOk={submitDefaultOperator}

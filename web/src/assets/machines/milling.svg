@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 150" role="img" aria-label="Milling machine">
+  <ellipse cx="104" cy="137" rx="78" ry="6" fill="#0f172a" opacity="0.08"/>
+  <!-- base -->
+  <polygon points="48,124 54,119 158,119 152,124" fill="#2b4c7e"/>
+  <rect x="48" y="124" width="104" height="10" rx="1.5" fill="#1e3a5f"/>
+  <!-- column -->
+  <polygon points="62,40 70,34 108,34 100,40" fill="#e6ebf2"/>
+  <rect x="62" y="40" width="38" height="84" fill="#ffffff"/>
+  <polygon points="100,40 108,34 108,119 100,124" fill="#c9d3e0"/>
+  <rect x="62" y="40" width="38" height="5" fill="#e6ebf2"/>
+  <!-- pendant control -->
+  <line x1="62" y1="52" x2="50" y2="52" stroke="#5f6f85" stroke-width="2"/>
+  <rect x="34" y="50" width="20" height="26" rx="2" fill="#14284a"/>
+  <rect x="37" y="53" width="14" height="9" rx="1" fill="#2b4c7e"/>
+  <rect x="38" y="54" width="6" height="2" rx="1" fill="#9cc3e6" opacity="0.8"/>
+  <circle cx="40" cy="68" r="2" fill="#f1c232"/>
+  <circle cx="47" cy="68" r="2" fill="#e6ebf2"/>
+  <!-- ram -->
+  <polygon points="58,26 66,20 150,20 142,26" fill="#2b4c7e"/>
+  <rect x="58" y="26" width="84" height="14" fill="#1e3a5f"/>
+  <rect x="62" y="31" width="22" height="3" rx="1.5" fill="#2b4c7e"/>
+  <!-- motor -->
+  <rect x="122" y="4" width="20" height="17" rx="3" fill="#2b4c7e"/>
+  <line x1="126" y1="8" x2="138" y2="8" stroke="#1e3a5f" stroke-width="1.4"/>
+  <line x1="126" y1="12" x2="138" y2="12" stroke="#1e3a5f" stroke-width="1.4"/>
+  <line x1="126" y1="16" x2="138" y2="16" stroke="#1e3a5f" stroke-width="1.4"/>
+  <!-- head -->
+  <rect x="116" y="40" width="32" height="28" rx="2" fill="#ffffff"/>
+  <rect x="142" y="40" width="6" height="28" fill="#c9d3e0"/>
+  <rect x="116" y="56" width="32" height="5" fill="#1e3a5f"/>
+  <line x1="148" y1="48" x2="160" y2="44" stroke="#5f6f85" stroke-width="2"/>
+  <circle cx="161" cy="44" r="2.4" fill="#f1c232"/>
+  <!-- spindle + cutter -->
+  <rect x="126" y="68" width="12" height="4" fill="#f1c232"/>
+  <rect x="128" y="72" width="8" height="4" fill="#5f6f85"/>
+  <rect x="129.5" y="76" width="5" height="5" fill="#8a99ad"/>
+  <line x1="130.5" y1="77" x2="133.5" y2="80" stroke="#5f6f85" stroke-width="0.8"/>
+  <!-- workpiece + vise -->
+  <rect x="122" y="81" width="20" height="4" fill="#c9d3e0"/>
+  <rect x="118" y="85" width="28" height="4" rx="0.8" fill="#14284a"/>
+  <!-- table -->
+  <polygon points="68,92 74,88 184,88 178,92" fill="#ffffff"/>
+  <rect x="68" y="92" width="110" height="7" fill="#e6ebf2"/>
+  <line x1="72" y1="95.5" x2="174" y2="95.5" stroke="#c9d3e0" stroke-width="1.2"/>
+  <line x1="68" y1="95.5" x2="62" y2="95.5" stroke="#5f6f85" stroke-width="2"/>
+  <circle cx="59" cy="95.5" r="5" fill="none" stroke="#f1c232" stroke-width="2"/>
+  <line x1="178" y1="95.5" x2="184" y2="95.5" stroke="#5f6f85" stroke-width="2"/>
+  <circle cx="187" cy="95.5" r="5" fill="none" stroke="#f1c232" stroke-width="2"/>
+  <!-- saddle + knee -->
+  <rect x="96" y="99" width="56" height="7" fill="#2b4c7e"/>
+  <rect x="86" y="106" width="66" height="18" fill="#1e3a5f"/>
+  <rect x="92" y="110" width="30" height="3" rx="1.5" fill="#2b4c7e"/>
+  <circle cx="140" cy="115" r="5" fill="none" stroke="#f1c232" stroke-width="2"/>
+  <circle cx="140" cy="115" r="1.4" fill="#f1c232"/>
+</svg>

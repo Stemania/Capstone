@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 150" role="img" aria-label="Lathe machine">
+  <ellipse cx="100" cy="137" rx="84" ry="6" fill="#0f172a" opacity="0.08"/>
+  <!-- cabinets -->
+  <rect x="30" y="92" width="34" height="42" rx="2" fill="#1e3a5f"/>
+  <rect x="35" y="98" width="24" height="30" rx="1.5" fill="#2b4c7e"/>
+  <rect x="53" y="110" width="3" height="7" rx="1" fill="#e6ebf2"/>
+  <rect x="138" y="92" width="32" height="42" rx="2" fill="#1e3a5f"/>
+  <rect x="143" y="98" width="22" height="30" rx="1.5" fill="#2b4c7e"/>
+  <rect x="146" y="110" width="3" height="7" rx="1" fill="#e6ebf2"/>
+  <!-- chip pan -->
+  <rect x="64" y="102" width="74" height="7" fill="#8a99ad"/>
+  <rect x="64" y="102" width="74" height="2" fill="#5f6f85"/>
+  <!-- bed -->
+  <rect x="24" y="84" width="152" height="10" fill="#e6ebf2"/>
+  <rect x="24" y="80" width="152" height="4" fill="#ffffff"/>
+  <rect x="24" y="92" width="152" height="2" fill="#c9d3e0"/>
+  <line x1="28" y1="97.5" x2="172" y2="97.5" stroke="#5f6f85" stroke-width="1.6"/>
+  <!-- headstock -->
+  <polygon points="24,46 30,40 76,40 70,46" fill="#e6ebf2"/>
+  <rect x="24" y="46" width="46" height="34" fill="#ffffff"/>
+  <polygon points="70,46 76,40 76,74 70,80" fill="#c9d3e0"/>
+  <rect x="24" y="70" width="46" height="6" fill="#1e3a5f"/>
+  <rect x="30" y="51" width="22" height="14" rx="1.5" fill="#14284a"/>
+  <circle cx="36" cy="58" r="3" fill="#f1c232"/>
+  <circle cx="45" cy="56" r="1.6" fill="#e6ebf2"/>
+  <circle cx="45" cy="61" r="1.6" fill="#8a99ad"/>
+  <rect x="56" y="52" width="9" height="3" rx="1.5" fill="#c9d3e0"/>
+  <rect x="56" y="58" width="9" height="3" rx="1.5" fill="#c9d3e0"/>
+  <!-- chuck -->
+  <rect x="70" y="50" width="10" height="28" rx="2.5" fill="#5f6f85"/>
+  <rect x="72" y="52" width="2" height="24" rx="1" fill="#8a99ad"/>
+  <rect x="80" y="56" width="5" height="16" rx="1" fill="#8a99ad"/>
+  <!-- workpiece -->
+  <rect x="85" y="60" width="44" height="8" rx="1" fill="#c9d3e0"/>
+  <rect x="85" y="61" width="44" height="2" fill="#ffffff"/>
+  <!-- carriage -->
+  <rect x="96" y="68" width="24" height="4" fill="#5f6f85"/>
+  <rect x="104" y="62" width="9" height="6" fill="#14284a"/>
+  <polygon points="104,64 100,66 100,67.5 104,67" fill="#8a99ad"/>
+  <rect x="92" y="72" width="32" height="8" fill="#1e3a5f"/>
+  <rect x="95" y="80" width="26" height="20" rx="1.5" fill="#2b4c7e"/>
+  <circle cx="103" cy="90" r="5" fill="none" stroke="#f1c232" stroke-width="2"/>
+  <circle cx="103" cy="90" r="1.4" fill="#f1c232"/>
+  <rect x="112" y="85" width="6" height="2.5" rx="1.2" fill="#e6ebf2"/>
+  <!-- tailstock -->
+  <rect x="129" y="61" width="5" height="6" fill="#8a99ad"/>
+  <polygon points="134,54 156,54 158,80 132,80" fill="#ffffff"/>
+  <polygon points="134,54 138,50 158,50 156,54" fill="#e6ebf2"/>
+  <rect x="132" y="74" width="26" height="6" fill="#1e3a5f"/>
+  <line x1="158" y1="64" x2="164" y2="64" stroke="#5f6f85" stroke-width="2"/>
+  <circle cx="166" cy="64" r="6" fill="none" stroke="#f1c232" stroke-width="2"/>
+  <circle cx="166" cy="64" r="1.5" fill="#f1c232"/>
+</svg>

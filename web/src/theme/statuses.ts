@@ -58,7 +58,7 @@ export const STOCK_STATUS = {
 } as const satisfies Record<string, StatusDef>;
 
 export const MACHINE_STATUS: Record<string, StatusDef> = {
-  running: { label: 'Running', tone: 'indigo' },
+  running: { label: 'Running', tone: 'green' },
   idle: { label: 'Idle', tone: 'slate' },
   breakdown: { label: 'Breakdown', tone: 'red' },
   retired: { label: 'Removed', tone: 'grey' },

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 150" role="img" aria-label="Laser machine">
+  <ellipse cx="100" cy="137" rx="84" ry="6" fill="#0f172a" opacity="0.08"/>
+  <!-- bed body -->
+  <polygon points="160,90 180,74 180,110 160,126" fill="#14284a"/>
+  <rect x="18" y="90" width="142" height="36" fill="#1e3a5f"/>
+  <rect x="24" y="96" width="130" height="8" rx="1" fill="#ffffff"/>
+  <rect x="28" y="98.5" width="14" height="3" rx="1.5" fill="#f1c232"/>
+  <rect x="24" y="108" width="62" height="14" rx="1.5" fill="#2b4c7e"/>
+  <rect x="92" y="108" width="62" height="14" rx="1.5" fill="#2b4c7e"/>
+  <rect x="80" y="112" width="3" height="6" rx="1" fill="#e6ebf2"/>
+  <rect x="95" y="112" width="3" height="6" rx="1" fill="#e6ebf2"/>
+  <rect x="18" y="126" width="142" height="7" fill="#14284a"/>
+  <!-- slat table -->
+  <polygon points="18,90 38,74 180,74 160,90" fill="#e6ebf2"/>
+  <line x1="42" y1="76" x2="26" y2="88" stroke="#c9d3e0" stroke-width="1"/>
+  <line x1="62" y1="76" x2="46" y2="88" stroke="#c9d3e0" stroke-width="1"/>
+  <line x1="82" y1="76" x2="66" y2="88" stroke="#c9d3e0" stroke-width="1"/>
+  <line x1="102" y1="76" x2="86" y2="88" stroke="#c9d3e0" stroke-width="1"/>
+  <line x1="122" y1="76" x2="106" y2="88" stroke="#c9d3e0" stroke-width="1"/>
+  <line x1="142" y1="76" x2="126" y2="88" stroke="#c9d3e0" stroke-width="1"/>
+  <line x1="162" y1="76" x2="146" y2="88" stroke="#c9d3e0" stroke-width="1"/>
+  <!-- sheet -->
+  <polygon points="44,86 56,77 150,77 138,86" fill="#ffffff"/>
+  <path d="M84 83 l6 -4 h22 l-6 4 Z" fill="none" stroke="#f1c232" stroke-width="1.2"/>
+  <!-- gantry -->
+  <rect x="30" y="58" width="9" height="28" fill="#c9d3e0"/>
+  <rect x="152" y="58" width="9" height="20" fill="#c9d3e0"/>
+  <polygon points="28,58 38,50 172,50 162,58" fill="#e6ebf2"/>
+  <rect x="28" y="58" width="134" height="9" fill="#ffffff"/>
+  <rect x="28" y="64" width="134" height="3" fill="#1e3a5f"/>
+  <!-- laser head + beam -->
+  <rect x="92" y="54" width="16" height="22" rx="2" fill="#2b4c7e"/>
+  <rect x="95" y="57" width="10" height="3" rx="1.5" fill="#f1c232"/>
+  <polygon points="96,76 104,76 100,80" fill="#5f6f85"/>
+  <line x1="100" y1="80" x2="100" y2="82" stroke="#f1c232" stroke-width="1.6"/>
+  <circle cx="100" cy="82" r="4" fill="#f1c232" opacity="0.35"/>
+  <circle cx="100" cy="82" r="1.6" fill="#f1c232"/>
+  <!-- monitor -->
+  <line x1="188" y1="66" x2="188" y2="96" stroke="#5f6f85" stroke-width="2.4"/>
+  <rect x="182" y="96" width="12" height="3" rx="1" fill="#5f6f85"/>
+  <rect x="176" y="44" width="22" height="22" rx="2" fill="#14284a"/>
+  <rect x="179" y="47" width="16" height="12" rx="1" fill="#2b4c7e"/>
+  <rect x="180" y="48" width="7" height="2" rx="1" fill="#9cc3e6" opacity="0.8"/>
+  <circle cx="187" cy="62.5" r="1.4" fill="#f1c232"/>
+</svg>

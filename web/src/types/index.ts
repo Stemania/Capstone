@@ -654,7 +654,10 @@ export interface MachineUnitStatus extends MachineUnitInfo {
   openDowntime?: MachineDowntimeRecord | null;
   affectedCount: number;
   currentOperation?: AffectedScheduledOperation | null;
+  /** First scheduled operation on the unit, also while another one runs. */
   nextOperation?: AffectedScheduledOperation | null;
+  /** Released jobs with work on this unit today (shop time). */
+  jobsToday?: number;
 }
 
 export interface ProposedOperation {

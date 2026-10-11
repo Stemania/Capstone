@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 150" role="img" aria-label="Machine">
+  <ellipse cx="100" cy="137" rx="70" ry="6" fill="#0f172a" opacity="0.08"/>
+  <polygon points="44,40 52,34 160,34 152,40" fill="#e6ebf2"/>
+  <rect x="44" y="40" width="108" height="84" rx="2" fill="#ffffff"/>
+  <polygon points="152,40 160,34 160,118 152,124" fill="#c9d3e0"/>
+  <rect x="54" y="50" width="62" height="44" rx="2" fill="#2b4c7e"/>
+  <rect x="58" y="54" width="54" height="36" rx="1.5" fill="#1e3a5f"/>
+  <rect x="62" y="58" width="20" height="3" rx="1.5" fill="#9cc3e6" opacity="0.6"/>
+  <rect x="124" y="50" width="20" height="26" rx="2" fill="#14284a"/>
+  <rect x="127" y="53" width="14" height="8" rx="1" fill="#2b4c7e"/>
+  <circle cx="130" cy="68" r="2" fill="#f1c232"/>
+  <circle cx="138" cy="68" r="2" fill="#e6ebf2"/>
+  <rect x="44" y="100" width="108" height="24" fill="#1e3a5f"/>
+  <rect x="52" y="106" width="34" height="3" rx="1.5" fill="#2b4c7e"/>
+  <rect x="40" y="124" width="116" height="10" rx="1.5" fill="#14284a"/>
+</svg>

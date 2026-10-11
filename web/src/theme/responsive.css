@@ -269,13 +269,18 @@
     height: 44px;
   }
 
-  .machines-board__section-header {
-    min-height: 44px;
+  .mtype__head {
+    min-height: 56px;
   }
 
-  .machine-card__icon-btn {
+  .mtypes__chip {
+    height: 44px;
+  }
+
+  .mcard__menu {
     width: 44px !important;
     height: 44px !important;
+    margin: -10px -12px 0 0;
   }
 
   .acct-sec__back {

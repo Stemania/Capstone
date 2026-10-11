@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 150" role="img" aria-label="Drilling machine">
+  <ellipse cx="100" cy="137" rx="66" ry="6" fill="#0f172a" opacity="0.08"/>
+  <!-- base -->
+  <polygon points="54,124 60,119 150,119 144,124" fill="#2b4c7e"/>
+  <rect x="54" y="124" width="90" height="10" rx="1.5" fill="#1e3a5f"/>
+  <line x1="66" y1="121.5" x2="138" y2="121.5" stroke="#1e3a5f" stroke-width="1"/>
+  <!-- column -->
+  <rect x="78" y="30" width="11" height="92" fill="#8a99ad"/>
+  <rect x="80" y="30" width="2.5" height="92" fill="#c9d3e0"/>
+  <!-- table -->
+  <rect x="76" y="98" width="24" height="9" rx="1.5" fill="#2b4c7e"/>
+  <line x1="78" y1="102.5" x2="70" y2="106" stroke="#5f6f85" stroke-width="2"/>
+  <circle cx="68" cy="107" r="2.2" fill="#f1c232"/>
+  <rect x="86" y="95" width="52" height="4" fill="#c9d3e0"/>
+  <ellipse cx="112" cy="95" rx="26" ry="4.5" fill="#ffffff"/>
+  <ellipse cx="112" cy="95" rx="18" ry="2.6" fill="none" stroke="#e6ebf2" stroke-width="1"/>
+  <!-- workpiece -->
+  <rect x="104" y="87" width="22" height="7" rx="0.8" fill="#c9d3e0"/>
+  <rect x="104" y="87" width="22" height="2" fill="#e6ebf2"/>
+  <!-- motor -->
+  <rect x="56" y="18" width="18" height="26" rx="3" fill="#2b4c7e"/>
+  <line x1="59" y1="24" x2="71" y2="24" stroke="#1e3a5f" stroke-width="1.4"/>
+  <line x1="59" y1="29" x2="71" y2="29" stroke="#1e3a5f" stroke-width="1.4"/>
+  <line x1="59" y1="34" x2="71" y2="34" stroke="#1e3a5f" stroke-width="1.4"/>
+  <!-- belt guard -->
+  <path d="M72 30 V22 a8 8 0 0 1 8 -8 H136 a8 8 0 0 1 8 8 V30 Z" fill="#1e3a5f"/>
+  <rect x="80" y="20" width="56" height="3" rx="1.5" fill="#2b4c7e"/>
+  <!-- head -->
+  <polygon points="70,30 146,30 146,58 70,58" fill="#ffffff"/>
+  <rect x="140" y="30" width="6" height="28" fill="#c9d3e0"/>
+  <rect x="70" y="50" width="76" height="5" fill="#1e3a5f"/>
+  <rect x="126" y="35" width="10" height="10" rx="1.5" fill="#14284a"/>
+  <circle cx="131" cy="40" r="2.4" fill="#f1c232"/>
+  <circle cx="121" cy="38" r="1.6" fill="#8a99ad"/>
+  <circle cx="121" cy="43" r="1.6" fill="#e6ebf2" stroke="#c9d3e0" stroke-width="0.6"/>
+  <!-- feed handle -->
+  <line x1="100" y1="44" x2="90" y2="64" stroke="#5f6f85" stroke-width="2"/>
+  <line x1="100" y1="44" x2="112" y2="66" stroke="#5f6f85" stroke-width="2"/>
+  <line x1="100" y1="44" x2="94" y2="24" stroke="#5f6f85" stroke-width="2"/>
+  <circle cx="90" cy="64" r="2.6" fill="#f1c232"/>
+  <circle cx="112" cy="66" r="2.6" fill="#f1c232"/>
+  <circle cx="94" cy="24" r="2.6" fill="#f1c232"/>
+  <circle cx="100" cy="44" r="4" fill="#14284a"/>
+  <!-- quill, chuck, bit -->
+  <rect x="110" y="58" width="10" height="11" fill="#5f6f85"/>
+  <polygon points="109,69 121,69 118,77 112,77" fill="#8a99ad"/>
+  <rect x="114" y="77" width="2.4" height="9" fill="#5f6f85"/>
+  <polygon points="114,86 116.4,86 115.2,88" fill="#5f6f85"/>
+</svg>

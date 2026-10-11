@@ -72,4 +72,6 @@ export const operationsApi = {
     apiClient.post<MachineDowntimeRecord>(`/operations/machine-units/downtime/${downtimeId}/close`, {
       note,
     }),
+  machineUnitDowntime: (unitId: string) =>
+    apiClient.get<MachineDowntimeRecord[]>(`/operations/machine-units/${unitId}/downtime`),
 };

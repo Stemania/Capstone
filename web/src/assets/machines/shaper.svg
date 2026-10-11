@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 150" role="img" aria-label="Shaper machine">
+  <ellipse cx="100" cy="137" rx="80" ry="6" fill="#0f172a" opacity="0.08"/>
+  <!-- motor -->
+  <rect x="20" y="92" width="22" height="28" rx="3" fill="#2b4c7e"/>
+  <line x1="24" y1="98" x2="38" y2="98" stroke="#1e3a5f" stroke-width="1.4"/>
+  <line x1="24" y1="104" x2="38" y2="104" stroke="#1e3a5f" stroke-width="1.4"/>
+  <line x1="24" y1="110" x2="38" y2="110" stroke="#1e3a5f" stroke-width="1.4"/>
+  <!-- base -->
+  <polygon points="28,124 34,119 176,119 170,124" fill="#2b4c7e"/>
+  <rect x="28" y="124" width="142" height="10" rx="1.5" fill="#1e3a5f"/>
+  <!-- body -->
+  <rect x="40" y="50" width="72" height="74" fill="#ffffff"/>
+  <polygon points="112,50 118,46 118,119 112,124" fill="#c9d3e0"/>
+  <rect x="40" y="104" width="72" height="20" fill="#1e3a5f"/>
+  <rect x="46" y="110" width="26" height="3" rx="1.5" fill="#2b4c7e"/>
+  <!-- bull gear + crank -->
+  <circle cx="72" cy="80" r="15" fill="#2b4c7e"/>
+  <circle cx="72" cy="80" r="15" fill="none" stroke="#f1c232" stroke-width="2"/>
+  <circle cx="72" cy="80" r="5" fill="#14284a"/>
+  <line x1="72" y1="80" x2="84" y2="70" stroke="#5f6f85" stroke-width="2.4"/>
+  <circle cx="85" cy="69" r="2.8" fill="#f1c232"/>
+  <!-- ram -->
+  <polygon points="36,36 44,30 158,30 150,36" fill="#2b4c7e"/>
+  <rect x="36" y="36" width="114" height="14" fill="#1e3a5f"/>
+  <rect x="44" y="41" width="40" height="3" rx="1.5" fill="#2b4c7e"/>
+  <!-- tool head -->
+  <polygon points="136,50 154,50 152,70 138,70" fill="#5f6f85"/>
+  <rect x="139" y="54" width="12" height="3" rx="1.5" fill="#8a99ad"/>
+  <line x1="154" y1="54" x2="162" y2="50" stroke="#5f6f85" stroke-width="2"/>
+  <circle cx="163" cy="49.5" r="2.4" fill="#f1c232"/>
+  <polygon points="143,70 147,70 146,79 144,79" fill="#8a99ad"/>
+  <!-- workpiece, vise, table -->
+  <rect x="134" y="79" width="22" height="5" fill="#c9d3e0"/>
+  <rect x="134" y="79" width="22" height="1.6" fill="#e6ebf2"/>
+  <rect x="128" y="84" width="34" height="5" rx="0.8" fill="#14284a"/>
+  <polygon points="116,89 120,86 172,86 168,89" fill="#ffffff"/>
+  <rect x="116" y="89" width="52" height="16" fill="#e6ebf2"/>
+  <line x1="120" y1="95" x2="164" y2="95" stroke="#c9d3e0" stroke-width="1.2"/>
+  <line x1="120" y1="100" x2="164" y2="100" stroke="#c9d3e0" stroke-width="1.2"/>
+  <rect x="112" y="86" width="5" height="22" fill="#5f6f85"/>
+  <rect x="130" y="105" width="26" height="14" fill="#8a99ad"/>
+  <rect x="133" y="105" width="4" height="14" fill="#c9d3e0"/>
+</svg>

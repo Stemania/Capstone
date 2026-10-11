@@ -1048,13 +1048,10 @@ def list_machine_unit_statuses(include_inactive=False):
             uid = op.machine_unit_id
             if op.status == OperationStatus.IN_PROGRESS:
                 running_by_unit[uid] = op
-            elif (
-                op.status == OperationStatus.SCHEDULED
-                and uid not in next_by_unit
-                and uid not in running_by_unit
-            ):
+            elif op.status == OperationStatus.SCHEDULED and uid not in next_by_unit:
                 next_by_unit[uid] = op
 
+    jobs_today = _jobs_today_by_unit(unit_ids)
     out = []
     for unit in units:
         dt = open_by.get(unit.id)
@@ -1068,7 +1065,42 @@ def list_machine_unit_statuses(include_inactive=False):
             _serialize_affected_operation(running) if running else None
         )
         payload["nextOperation"] = _serialize_affected_operation(nxt) if nxt else None
+        payload["jobsToday"] = len(jobs_today.get(unit.id, ()))
         out.append(payload)
+    return out
+
+
+def _jobs_today_by_unit(unit_ids):
+    """{unit_id: {job_order_id}} for released jobs with work on the unit today
+    (shop time): scheduled to overlap today, or started or finished today."""
+    from app.services.schedule_calendar import SHOP_TZ, shop_now
+
+    if not unit_ids:
+        return {}
+    day_start = datetime.combine(shop_now().date(), datetime.min.time(), tzinfo=SHOP_TZ)
+    start = day_start.astimezone(timezone.utc)
+    end = (day_start + timedelta(days=1)).astimezone(timezone.utc)
+    rows = (
+        db.session.query(JobOperation.machine_unit_id, JobOperation.job_order_id)
+        .join(JobOrder, JobOperation.job_order_id == JobOrder.id)
+        .filter(
+            JobOperation.machine_unit_id.in_(unit_ids),
+            JobOrder.status != JobOrderStatus.DRAFT,
+            db.or_(
+                db.and_(
+                    JobOperation.scheduled_start < end,
+                    JobOperation.scheduled_end > start,
+                ),
+                db.and_(JobOperation.actual_start >= start, JobOperation.actual_start < end),
+                db.and_(JobOperation.actual_end >= start, JobOperation.actual_end < end),
+            ),
+        )
+        .distinct()
+        .all()
+    )
+    out = defaultdict(set)
+    for unit_id, job_id in rows:
+        out[unit_id].add(job_id)
     return out
 
 
