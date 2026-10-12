@@ -2322,6 +2322,19 @@ button.admin-card {
   color: var(--tone-red-fg);
 }
 
+.jo-sched__faster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--tone-blue-bg, #eff6ff);
+  color: var(--tone-blue-fg, #1d4ed8);
+  font-size: var(--fs-xs);
+}
+
 .jo-sched__field {
   min-width: 0;
 }

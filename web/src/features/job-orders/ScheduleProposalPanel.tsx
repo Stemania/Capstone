@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import StatusPill from '../../components/StatusPill';
 import { SCHEDULE_FLAG_TONE } from '../../theme/statuses';
 import type { MachineUnitInfo, ProposedOperation, ScheduleFlag, ScheduleProblem } from '../../types';
+import { fasterUnitText, unitPairText } from './unitPairing';
 import {
   SHOP_TZ,
   formatShop,
@@ -22,6 +23,8 @@ type Props = {
   /** Date required (YYYY-MM-DD); rows that end after it are flagged. */
   dueDate?: string | null;
   problemsBySeq: Record<number, ScheduleProblem[]>;
+  /** Shown in amber; never block confirming. */
+  warningsBySeq?: Record<number, ScheduleProblem[]>;
   onChangeOp: (sequenceNo: number, patch: Partial<ProposedOperation>) => void;
   /** Machine change should re-fit start/end on the selected unit. */
   onMachineUnitChange?: (
@@ -115,6 +118,7 @@ export default function ScheduleProposalPanel({
   scheduleFlag,
   dueDate,
   problemsBySeq,
+  warningsBySeq = {},
   onChangeOp,
   onMachineUnitChange,
   onRefreshProposal,
@@ -180,7 +184,9 @@ export default function ScheduleProposalPanel({
 
         {operations.map((op) => {
           const problems = problemsBySeq[op.sequenceNo] || [];
+          const warnings = warningsBySeq[op.sequenceNo] || [];
           const unitOptions = unitsForOp(op, machineUnits);
+          const faster = op.fasterUnit;
           const needsMachine = Boolean(op.machineTypeId);
           const late = lateSeqs.has(op.sequenceNo);
 
@@ -221,6 +227,30 @@ export default function ScheduleProposalPanel({
                       ))}
                     </div>
                   ) : null}
+                  {warnings.length > 0 ? (
+                    <div className="jo-sched__tags">
+                      {warnings.map((p, i) => (
+                        <StatusPill key={`${p.code}-${i}`} tone="amber" compact>
+                          {p.message}
+                        </StatusPill>
+                      ))}
+                    </div>
+                  ) : null}
+                  {faster && !readOnly ? (
+                    <div className="jo-sched__faster">
+                      <span>{fasterUnitText(faster, (iso) => formatShop(iso, 'MMM D'))}</span>
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          const label = faster.machineUnitLabel || null;
+                          if (onMachineUnitChange) onMachineUnitChange(op.sequenceNo, faster.machineUnitId, label);
+                          else onChangeOp(op.sequenceNo, { machineUnitId: faster.machineUnitId, machineUnitLabel: label });
+                        }}
+                      >
+                        Use {faster.machineUnitLabel || 'this unit'}
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -233,7 +263,10 @@ export default function ScheduleProposalPanel({
                     allowClear
                     disabled={readOnly}
                     value={op.machineUnitId || undefined}
-                    options={unitOptions.map((u) => ({ value: u.id, label: u.label }))}
+                    options={unitOptions.map((u) => ({
+                      value: u.id,
+                      label: unitPairText(u, op.assignedWorkerId) || u.label,
+                    }))}
                     onChange={(unitId) => {
                       const unit = unitOptions.find((u) => u.id === unitId);
                       const machineUnitId = unitId || null;

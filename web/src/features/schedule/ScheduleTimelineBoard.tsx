@@ -18,7 +18,6 @@ import {
   TIMELINE_BORDER,
   TIMELINE_NAVY,
   WORKING_HOURS_NOTE,
-  assignOverlapLanes,
   buildMonthTimelineLayout,
   buildWeekTimelineLayout,
   clipSegmentToPeriod,
@@ -27,6 +26,7 @@ import {
   leftPx,
   pxPerHour,
   fitDayPxPerHour,
+  layoutRowBars,
   scaleWeekTimelineLayout,
   scheduleBarLabelParts,
   scheduleBarTextStyle,
@@ -40,7 +40,6 @@ import {
   timelineWidth,
   widthPx,
   type TimelineViewMode,
-  type WeekTimelineLayout,
 } from './scheduleTimelineUtils';
 
 export type TimelineRow = {
@@ -78,22 +77,17 @@ function statusLabel(s: string) {
   return s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, ' ');
 }
 
-function segmentsForOp(
-  op: ScheduleBoardOperation,
-  weekLayout?: WeekTimelineLayout | null
-) {
-  const raw =
-    op.segments?.length
-      ? op.segments
-      : op.scheduledStart && op.scheduledEnd
-        ? [{ start: op.scheduledStart, end: op.scheduledEnd }]
-        : [];
-  if (!weekLayout || raw.length === 0) return raw;
-  // Per-day working pieces, then merge overnight neighbors into one bar.
-  const pieces = raw.flatMap((seg) =>
-    splitSegmentAcrossWeekDays(seg.start, seg.end, weekLayout)
-  );
-  return mergeAdjacentWeekPieces(pieces);
+const BAR_GAP = 2;
+const MIN_BAR_W = adminPx(16);
+const CLASH_COLOR = '#DC2626';
+const DOWN_OVERLAY_IMAGE =
+  'repeating-linear-gradient(-45deg, rgba(196,90,106,0.75) 0 3px, transparent 3px 9px)';
+
+function rawSegments(op: ScheduleBoardOperation) {
+  if (op.segments?.length) return op.segments;
+  return op.scheduledStart && op.scheduledEnd
+    ? [{ start: op.scheduledStart, end: op.scheduledEnd }]
+    : [];
 }
 
 type Props = {
@@ -294,26 +288,29 @@ function ScheduleTimelineBoard({
           const ops = opsForRow(row);
           const dts = downtimesForRow(row);
           const focused = rowHasHighlight(row);
-          const stackLanes = Boolean(row.noMachine);
-          const laneItems = stackLanes
-            ? ops
-                .map((op) => {
-                  const segs = segmentsForOp(op, weekLayout);
-                  if (!segs.length) return null;
-                  let start = segs[0].start;
-                  let end = segs[0].end;
-                  for (const seg of segs) {
-                    if (seg.start < start) start = seg.start;
-                    if (seg.end > end) end = seg.end;
-                  }
-                  return { id: op.id, start, end };
-                })
-                .filter((x): x is { id: string; start: string; end: string } => x != null)
-            : [];
-          const { laneById, laneCount } = stackLanes
-            ? assignOverlapLanes(laneItems)
-            : { laneById: new Map<string, number>(), laneCount: 1 };
+          const opById = new Map(ops.map((op) => [op.id, op]));
+          const { bars, laneCount } = layoutRowBars(
+            ops.map((op) => ({ id: op.id, segments: rawSegments(op) })),
+            { from, to, mode: viewMode, mobile: isMobile, weekLayout, hourPx: dayHourPx },
+            { markClashes: !row.noMachine, gap: BAR_GAP, minWidth: MIN_BAR_W }
+          );
           const trackH = rowH * laneCount;
+          const downRects = dts.flatMap((d) => {
+            const pieces = weekLayout
+              ? mergeAdjacentWeekPieces(
+                  splitSegmentAcrossWeekDays(d.segmentStart, d.segmentEnd, weekLayout)
+                )
+              : [{ start: d.segmentStart, end: d.segmentEnd }];
+            return pieces.flatMap((seg) => {
+              const clipped = clipSegmentToPeriod(seg.start, seg.end, from, to);
+              if (!clipped) return [];
+              const left = leftPx(clipped.start, ...posArgs);
+              const width = widthPx(clipped.start, clipped.end, ...posArgs);
+              return left == null || width == null || width <= 0
+                ? []
+                : [{ d, start: clipped.start, left, width }];
+            });
+          });
 
           return (
             <div key={row.key}>
@@ -420,31 +417,9 @@ function ScheduleTimelineBoard({
                       ))
                     : null}
 
-                  {dts.flatMap((d) => {
-                    const pieces =
-                      weekLayout
-                        ? mergeAdjacentWeekPieces(
-                            splitSegmentAcrossWeekDays(
-                              d.segmentStart,
-                              d.segmentEnd,
-                              weekLayout
-                            )
-                          )
-                        : [{ start: d.segmentStart, end: d.segmentEnd }];
-                    return pieces.flatMap((seg) => {
-                    const clipped = clipSegmentToPeriod(
-                      seg.start,
-                      seg.end,
-                      from,
-                      to
-                    );
-                    if (!clipped) return [];
-                    const barLeft = leftPx(clipped.start, ...posArgs);
-                    const barW = widthPx(clipped.start, clipped.end, ...posArgs);
-                    if (barLeft == null || barW == null || barW <= 0) return [];
-                    return [
+                  {downRects.map(({ d, start, left: barLeft, width: barW }) => (
                       <Tooltip
-                        key={`${d.id}-${clipped.start}`}
+                        key={`${d.id}-${start}`}
                         title={
                           <div>
                             <div style={{ fontWeight: 600 }}>Machine breakdown</div>
@@ -471,162 +446,195 @@ function ScheduleTimelineBoard({
                             zIndex: 1,
                           }}
                         />
-                      </Tooltip>,
-                    ];
-                    });
-                  })}
+                      </Tooltip>
+                  ))}
 
-                  {ops.flatMap((op) => {
-                    const lane = laneById.get(op.id) ?? 0;
-                    const barTop = columnFill ? lane * rowH : lane * rowH + 4;
+                  {bars.flatMap((bar) => {
+                    const op = opById.get(bar.opId);
+                    if (!op) return [];
+                    const barTop = columnFill ? bar.lane * rowH : bar.lane * rowH + 4;
                     const barHeight = columnFill ? rowH : rowH - 8;
-
-                    return segmentsForOp(op, weekLayout).flatMap((seg, i) => {
-                      const clipped = clipSegmentToPeriod(seg.start, seg.end, from, to);
-                      if (!clipped) return [];
-                      const barLeft = leftPx(clipped.start, ...posArgs);
-                      const barW = widthPx(clipped.start, clipped.end, ...posArgs);
-                      if (barLeft == null || barW == null || barW <= 0) return [];
-
-                      const isThisJob =
-                        planningHighlight && op.jobOrderId === highlightJobId;
-                      const color = isThisJob
-                        ? highlightColor || op.scheduleColor || THIS_JOB_COLOR
-                        : planningHighlight
-                          ? OTHER_JOB_COLOR
-                          : op.scheduleColor || STATUS_COLOR[op.status] || '#2563eb';
-                      const late = !!op.isLate;
-                      const showLabel =
-                        barW >= 22 &&
-                        (isThisJob || !planningHighlight);
-                      const label = showLabel
-                        ? scheduleBarLabelParts(
-                            op.operationName,
-                            op.jobNumber,
-                            op.clientName,
-                            barW,
-                            isMobile,
-                            op.sequenceNo
-                          )
-                        : null;
-                      const textStyle = scheduleBarTextStyle({
-                        mobile: isMobile,
-                        barWidthPx: barW,
-                        columnFill,
-                      });
-                      const metaFontSize = Math.max(
-                        9,
-                        Math.round((textStyle.fontSize as number) * 0.88)
-                      );
-
-                      const tooltip = (
-                        <div style={{ maxWidth: 260 }}>
-                          <div style={{ fontWeight: 700 }}>
-                            {scheduleOpTitle(op.sequenceNo, op.operationName)}
-                          </div>
-                          {(op.jobNumber || op.jobTitle) && (
-                            <div>
-                              {op.jobNumber}
-                              {op.jobTitle ? ` · ${op.jobTitle}` : ''}
-                            </div>
-                          )}
-                          {op.clientName ? <div>Client: {op.clientName}</div> : null}
-                          {op.assignedWorkerName || op.crew?.length ? (
-                            <div>
-                              {(op.crew?.length || 0) > 1 ? 'Crew' : 'Worker'}:{' '}
-                              {crewNames(
-                                op.crew,
-                                personLabel(op.assignedWorkerName, op.assignedWorkerNickname),
-                              )}
-                            </div>
-                          ) : null}
-                          <div>
-                            {formatShopDateTime(seg.start)} → {formatShopDateTime(seg.end)}
-                          </div>
-                          {!planningHighlight && (
-                            <div>Status: {statusLabel(op.status)}</div>
-                          )}
-                          {op.waitingForMaterials ? (
-                            <div style={{ color: '#FCD34D' }}>
-                              Waiting for materials: {op.materialWaitReason}
-                            </div>
-                          ) : null}
-                          {late ? (
-                            <div style={{ color: '#E8C5CB' }}>
-                              At risk of missing date required ({op.dueDate || '—'})
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-
-                      const labelNode = label ? (
-                        <span style={SCHEDULE_BAR_LABEL_SPAN_STYLE}>
-                          <span style={SCHEDULE_BAR_TITLE_STYLE}>{label.title}</span>
-                          {label.meta ? (
-                            <span
-                              style={{
-                                ...SCHEDULE_BAR_META_STYLE,
-                                fontSize: metaFontSize,
-                              }}
-                            >
-                              {label.meta}
-                            </span>
-                          ) : null}
-                        </span>
-                      ) : null;
-
-                      const barStyle = {
-                        position: 'absolute' as const,
-                        top: barTop,
-                        height: barHeight,
-                        left: barLeft,
-                        width: barW,
-                        background: color,
-                        backgroundImage:
-                          op.waitingForMaterials && (isThisJob || !planningHighlight)
-                            ? MATERIAL_WAIT_BAR_IMAGE
-                            : undefined,
-                        border: columnFill
-                          ? 'none'
-                          : isThisJob
-                            ? '2px solid #1d4ed8'
-                            : late
-                              ? '2px solid #7A1528'
-                              : planningHighlight
-                                ? '1px solid #cbd5e1'
-                                : 'none',
-                        borderRadius: columnFill ? 0 : 4,
-                        color: isThisJob || !planningHighlight ? '#fff' : '#475569',
-                        ...textStyle,
-                        cursor: onOperationClick ? 'pointer' : 'default',
-                        zIndex: isThisJob ? 3 : 2,
-                        boxShadow: columnFill
-                          ? isThisJob
-                            ? 'inset 0 0 0 2px #1d4ed8'
-                            : late
-                              ? 'inset 0 0 0 2px #7A1528'
-                              : undefined
-                          : late
-                            ? '0 0 0 1px rgba(122,21,40,0.35)'
-                            : undefined,
-                      };
-
-                      return (
-                        <Tooltip key={`${op.id}-${i}`} title={tooltip}>
-                          {onOperationClick ? (
-                            <button
-                              type="button"
-                              onClick={() => onOperationClick(op)}
-                              style={barStyle}
-                            >
-                              {labelNode}
-                            </button>
-                          ) : (
-                            <div style={barStyle}>{labelNode}</div>
-                          )}
-                        </Tooltip>
-                      );
+                    const seg = bar;
+                    const barLeft = bar.left;
+                    const barW = bar.width;
+                    const isThisJob =
+                      planningHighlight && op.jobOrderId === highlightJobId;
+                    const color = isThisJob
+                      ? highlightColor || op.scheduleColor || THIS_JOB_COLOR
+                      : planningHighlight
+                        ? OTHER_JOB_COLOR
+                        : op.scheduleColor || STATUS_COLOR[op.status] || '#2563eb';
+                    const late = !!op.isLate;
+                    const showLabel =
+                      barW >= 22 &&
+                      (isThisJob || !planningHighlight);
+                    const label = showLabel
+                      ? scheduleBarLabelParts(
+                          op.operationName,
+                          op.jobNumber,
+                          op.clientName,
+                          barW,
+                          isMobile,
+                          op.sequenceNo
+                        )
+                      : null;
+                    const textStyle = scheduleBarTextStyle({
+                      mobile: isMobile,
+                      barWidthPx: barW,
+                      columnFill,
                     });
+                    const metaFontSize = Math.max(
+                      9,
+                      Math.round((textStyle.fontSize as number) * 0.88)
+                    );
+
+                    const downOverlays = downRects.flatMap(({ d, left, width }) => {
+                      const l = Math.max(left, barLeft);
+                      const r = Math.min(left + width, barLeft + barW);
+                      return r > l ? [{ key: `${bar.key}-down-${d.id}`, left: l, width: r - l }] : [];
+                    });
+                    const onDown = !!op.onDownUnit || downOverlays.length > 0;
+
+                    const tooltip = (
+                      <div style={{ maxWidth: 260 }}>
+                        {bar.clash ? (
+                          <div style={{ color: '#FCA5A5', fontWeight: 700 }}>
+                            Clash: overlaps other work on this {rowMode === 'machine' ? 'machine' : 'worker'}
+                          </div>
+                        ) : null}
+                        {onDown ? (
+                          <div style={{ color: '#FCA5A5', fontWeight: 700 }}>
+                            Machine down{op.downtimeReason ? `: ${op.downtimeReason}` : ''}
+                          </div>
+                        ) : null}
+                        {op.stalled ? (
+                          <div style={{ color: '#FCD34D', fontWeight: 700 }}>
+                            Stalled: paused since {formatShopDateTime(op.pausedAt)}
+                          </div>
+                        ) : null}
+                        <div style={{ fontWeight: 700 }}>
+                          {scheduleOpTitle(op.sequenceNo, op.operationName)}
+                        </div>
+                        {(op.jobNumber || op.jobTitle) && (
+                          <div>
+                            {op.jobNumber}
+                            {op.jobTitle ? ` · ${op.jobTitle}` : ''}
+                          </div>
+                        )}
+                        {op.clientName ? <div>Client: {op.clientName}</div> : null}
+                        {op.assignedWorkerName || op.crew?.length ? (
+                          <div>
+                            {(op.crew?.length || 0) > 1 ? 'Crew' : 'Worker'}:{' '}
+                            {crewNames(
+                              op.crew,
+                              personLabel(op.assignedWorkerName, op.assignedWorkerNickname),
+                            )}
+                          </div>
+                        ) : null}
+                        <div>
+                          {formatShopDateTime(seg.start)} → {formatShopDateTime(seg.end)}
+                        </div>
+                        {!planningHighlight && (
+                          <div>Status: {statusLabel(op.status)}</div>
+                        )}
+                        {op.waitingForMaterials ? (
+                          <div style={{ color: '#FCD34D' }}>
+                            Waiting for materials: {op.materialWaitReason}
+                          </div>
+                        ) : null}
+                        {late ? (
+                          <div style={{ color: '#E8C5CB' }}>
+                            At risk of missing date required ({op.dueDate || '—'})
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+
+                    const labelNode = label ? (
+                      <span style={SCHEDULE_BAR_LABEL_SPAN_STYLE}>
+                        <span style={SCHEDULE_BAR_TITLE_STYLE}>{label.title}</span>
+                        {label.meta ? (
+                          <span
+                            style={{
+                              ...SCHEDULE_BAR_META_STYLE,
+                              fontSize: metaFontSize,
+                            }}
+                          >
+                            {label.meta}
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : null;
+
+                    const barStyle = {
+                      position: 'absolute' as const,
+                      top: barTop,
+                      height: barHeight,
+                      left: barLeft,
+                      width: barW,
+                      background: color,
+                      backgroundImage:
+                        op.waitingForMaterials && (isThisJob || !planningHighlight)
+                          ? MATERIAL_WAIT_BAR_IMAGE
+                          : undefined,
+                      border: columnFill
+                        ? `1px solid ${planningHighlight && !isThisJob ? '#cbd5e1' : 'rgba(15,23,42,0.28)'}`
+                        : isThisJob
+                          ? '2px solid #1d4ed8'
+                          : late
+                            ? '2px solid #7A1528'
+                            : planningHighlight
+                              ? '1px solid #cbd5e1'
+                              : 'none',
+                      borderRadius: columnFill ? 0 : 4,
+                      color: isThisJob || !planningHighlight ? '#fff' : '#475569',
+                      ...textStyle,
+                      cursor: onOperationClick ? 'pointer' : 'default',
+                      zIndex: isThisJob ? 3 : 2,
+                      boxShadow: bar.clash
+                        ? `inset 0 0 0 2px ${CLASH_COLOR}`
+                        : columnFill
+                        ? isThisJob
+                          ? 'inset 0 0 0 2px #1d4ed8'
+                          : late
+                            ? 'inset 0 0 0 2px #7A1528'
+                            : undefined
+                        : late
+                          ? '0 0 0 1px rgba(122,21,40,0.35)'
+                          : undefined,
+                    };
+
+                    return [
+                      <Tooltip key={bar.key} title={tooltip}>
+                        {onOperationClick ? (
+                          <button
+                            type="button"
+                            onClick={() => onOperationClick(op)}
+                            style={barStyle}
+                          >
+                            {labelNode}
+                          </button>
+                        ) : (
+                          <div style={barStyle}>{labelNode}</div>
+                        )}
+                      </Tooltip>,
+                      ...downOverlays.map((o) => (
+                        <div
+                          key={o.key}
+                          aria-hidden
+                          style={{
+                            position: 'absolute',
+                            top: barTop,
+                            height: barHeight,
+                            left: o.left,
+                            width: o.width,
+                            backgroundImage: DOWN_OVERLAY_IMAGE,
+                            zIndex: isThisJob ? 4 : 3,
+                            pointerEvents: 'none',
+                          }}
+                        />
+                      )),
+                    ];
                   })}
                 </div>
               </div>

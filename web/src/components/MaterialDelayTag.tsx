@@ -5,6 +5,8 @@ import type { DelayKind, JobOrder } from '../types';
 export const DELAY_LABEL: Record<DelayKind, string> = {
   MATERIAL: 'Delayed by materials',
   RESCHEDULED: 'Rescheduled',
+  OVERRUN: 'Moved: earlier work ran long',
+  BREAKDOWN: 'Moved: machine down',
 };
 
 /** Shown while a job moved later automatically has not started yet. */

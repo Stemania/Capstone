@@ -12,7 +12,9 @@ const POLL_MS = 60_000;
 function alertPath(a: StaffAlert): string | null {
   if (a.jobOrderId) return `/job-orders/${a.jobOrderId}`;
   if (a.supplierOrderId) return `/supplier-orders/${a.supplierOrderId}`;
-  if (a.kind === 'SINGLE_UNIT_DOWN') return '/machines';
+  if (a.kind === 'SINGLE_UNIT_DOWN' || a.kind === 'REPAIR_DATE_PASSED' || a.kind === 'WORK_ON_DOWN_UNIT') {
+    return '/machines';
+  }
   return null;
 }
 

@@ -660,3 +660,162 @@ export function assignOverlapLanes(
   return { laneById, laneCount: Math.max(1, laneEnds.length) };
 }
 
+export type TimeSpan = { start: string; end: string };
+
+const ms = (iso: string) => dayjs(iso).valueOf();
+
+function spansOverlap(a: TimeSpan[], b: TimeSpan[]): boolean {
+  return a.some((x) => b.some((y) => ms(x.start) < ms(y.end) && ms(y.start) < ms(x.end)));
+}
+
+/**
+ * Lanes by real working time: two operations share a lane only if none of
+ * their segments overlap (an operation can be split around another one's work).
+ * `overlapping` holds every operation whose work overlaps another's in the row.
+ */
+export function assignSegmentLanes(items: { id: string; segments: TimeSpan[] }[]): {
+  laneById: Map<string, number>;
+  laneCount: number;
+  overlapping: Set<string>;
+} {
+  const sorted = [...items]
+    .filter((it) => it.segments.length > 0)
+    .sort((a, b) => {
+      const as = Math.min(...a.segments.map((s) => ms(s.start)));
+      const bs = Math.min(...b.segments.map((s) => ms(s.start)));
+      return as - bs || a.id.localeCompare(b.id);
+    });
+  const lanes: TimeSpan[][] = [];
+  const laneById = new Map<string, number>();
+  const overlapping = new Set<string>();
+  for (let i = 0; i < sorted.length; i++) {
+    const item = sorted[i];
+    for (let j = 0; j < i; j++) {
+      if (spansOverlap(item.segments, sorted[j].segments)) {
+        overlapping.add(item.id);
+        overlapping.add(sorted[j].id);
+      }
+    }
+    let lane = lanes.findIndex((taken) => !spansOverlap(taken, item.segments));
+    if (lane < 0) {
+      lane = lanes.length;
+      lanes.push([]);
+    }
+    lanes[lane].push(...item.segments);
+    laneById.set(item.id, lane);
+  }
+  return { laneById, laneCount: Math.max(1, lanes.length), overlapping };
+}
+
+/**
+ * Join one operation's per-day pieces into a single bar, like
+ * mergeAdjacentWeekPieces, but never across time when another operation in
+ * the row is working (so a bar never paints over someone else's work).
+ */
+export function mergePiecesAround(pieces: TimeSpan[], others: TimeSpan[]): TimeSpan[] {
+  if (pieces.length <= 1) return pieces;
+  const sorted = [...pieces].sort((a, b) => ms(a.start) - ms(b.start));
+  const merged: TimeSpan[] = [];
+  let cur = { ...sorted[0] };
+  for (const next of sorted.slice(1)) {
+    const daysApart = dayjs(next.start).tz(SHOP_TZ).startOf('day')
+      .diff(dayjs(cur.end).tz(SHOP_TZ).startOf('day'), 'day');
+    const gapStart = ms(cur.end);
+    const gapEnd = ms(next.start);
+    const blocked = others.some((o) => ms(o.start) < gapEnd && gapStart < ms(o.end));
+    if (daysApart <= 1 && !blocked) {
+      cur = { start: cur.start, end: ms(next.end) > ms(cur.end) ? next.end : cur.end };
+    } else {
+      merged.push(cur);
+      cur = { ...next };
+    }
+  }
+  merged.push(cur);
+  return merged;
+}
+
+export type RowBar = {
+  opId: string;
+  key: string;
+  start: string;
+  end: string;
+  lane: number;
+  left: number;
+  width: number;
+  /** Shorter than the minimum readable width before padding it out. */
+  short: boolean;
+  /** Working time overlaps another operation in this machine or worker row. */
+  clash: boolean;
+};
+
+export type RowPosition = {
+  from: Dayjs;
+  to: Dayjs;
+  mode: TimelineViewMode;
+  mobile: boolean;
+  weekLayout?: WeekTimelineLayout | null;
+  hourPx?: number;
+};
+
+/**
+ * Bars for one board row: overlapping work stacked in lanes, a small gap
+ * after every bar, and short bars widened to `minWidth` but never over the
+ * next bar in their lane.
+ */
+export function layoutRowBars(
+  items: { id: string; segments: TimeSpan[] }[],
+  pos: RowPosition,
+  opts: { markClashes: boolean; gap: number; minWidth: number }
+): { bars: RowBar[]; laneCount: number } {
+  const { laneById, laneCount, overlapping } = assignSegmentLanes(items);
+  const week = pos.mode !== 'day' && pos.weekLayout ? pos.weekLayout : null;
+  const args = [pos.from, pos.mode, pos.mobile, pos.weekLayout, pos.hourPx] as const;
+  const bars: RowBar[] = [];
+  for (const item of items) {
+    const lane = laneById.get(item.id) ?? 0;
+    let spans = item.segments;
+    if (week) {
+      const others = items
+        .filter((o) => o.id !== item.id && (laneById.get(o.id) ?? 0) === lane)
+        .flatMap((o) => o.segments);
+      spans = mergePiecesAround(
+        item.segments.flatMap((s) => splitSegmentAcrossWeekDays(s.start, s.end, week)),
+        others
+      );
+    }
+    spans.forEach((seg, i) => {
+      const clipped = clipSegmentToPeriod(seg.start, seg.end, pos.from, pos.to);
+      if (!clipped) return;
+      const left = leftPx(clipped.start, ...args);
+      const width = widthPx(clipped.start, clipped.end, ...args);
+      if (left == null || width == null || width <= 0) return;
+      bars.push({
+        opId: item.id,
+        key: `${item.id}-${i}`,
+        start: clipped.start,
+        end: clipped.end,
+        lane,
+        left,
+        width,
+        short: width < opts.minWidth,
+        clash: opts.markClashes && overlapping.has(item.id),
+      });
+    });
+  }
+  const byLane = new Map<number, RowBar[]>();
+  for (const bar of bars) {
+    const list = byLane.get(bar.lane);
+    if (list) list.push(bar);
+    else byLane.set(bar.lane, [bar]);
+  }
+  for (const list of byLane.values()) {
+    list.sort((a, b) => a.left - b.left);
+    list.forEach((bar, i) => {
+      const next = list[i + 1];
+      const room = next ? next.left - bar.left - opts.gap : Infinity;
+      const wanted = Math.max(bar.width - opts.gap, opts.minWidth);
+      bar.width = Math.max(1, Math.min(wanted, room));
+    });
+  }
+  return { bars, laneCount };
+}

@@ -512,7 +512,15 @@ export interface MaterialWait {
   materialWaitReason?: string | null;
 }
 
-export type StaffAlertKind = 'MATERIAL_DELAY' | 'SINGLE_UNIT_DOWN' | 'NEEDS_REPLAN' | (string & {});
+export type StaffAlertKind =
+  | 'MATERIAL_DELAY'
+  | 'SINGLE_UNIT_DOWN'
+  | 'NEEDS_REPLAN'
+  | 'WORK_MOVED'
+  | 'OPERATION_STALLED'
+  | 'WORK_ON_DOWN_UNIT'
+  | 'REPAIR_DATE_PASSED'
+  | (string & {});
 
 /** One entry in the header bell. */
 export interface StaffAlert {
@@ -529,8 +537,9 @@ export interface StaffAlert {
   createdAt: string | null;
 }
 
-/** MATERIAL: late or unordered materials set the new start. RESCHEDULED: only a passed start date. */
-export type DelayKind = 'MATERIAL' | 'RESCHEDULED';
+/** MATERIAL: late or unordered materials set the new start. RESCHEDULED: only a passed start date.
+ * OVERRUN: earlier work on the same worker or unit ran long. BREAKDOWN: its unit broke down. */
+export type DelayKind = 'MATERIAL' | 'RESCHEDULED' | 'OVERRUN' | 'BREAKDOWN';
 
 /** Set when the schedule was moved later automatically. */
 export interface MaterialDelay {
@@ -644,6 +653,32 @@ export interface MachineDowntimeRecord {
   createdAt?: string | null;
   affectedCount?: number;
   affectedOperations?: AffectedScheduledOperation[];
+  /** Admin/Office: unstarted work booked on the unit and what can be done with it. */
+  work?: BreakdownWork;
+}
+
+export type BreakdownAction = 'MOVE_UNIT' | 'AFTER_REPAIR' | 'LEAVE';
+
+export interface BreakdownWork {
+  downtimeId: string;
+  machineUnitId: string;
+  machineUnitLabel: string;
+  expectedRepairDate: string | null;
+  operations: AffectedScheduledOperation[];
+  otherUnits: { id: string; label: string; operatorName: string | null }[];
+  canMoveToUnit: boolean;
+  canMoveAfterRepair: boolean;
+  /** No other usable unit and no repair date: the jobs need a person to re-plan them. */
+  needsReplan: boolean;
+  defaultAction: BreakdownAction | null;
+}
+
+export interface BreakdownResolution {
+  action: BreakdownAction;
+  moved: { jobId: string; jobNumber: string }[];
+  notPlaced: { jobId: string; jobNumber: string }[];
+  needsReplan: string[];
+  left: unknown[];
 }
 
 export interface AffectedScheduledOperation {
@@ -692,6 +727,22 @@ export interface ProposedOperation {
   message?: string | null;
   placeableHours?: number | null;
   requiredHours?: number | null;
+  /** Another unit of the same type would finish the job meaningfully earlier; never applied by itself. */
+  fasterUnit?: FasterUnitSuggestion | null;
+}
+
+export interface FasterUnitSuggestion {
+  machineUnitId: string;
+  machineUnitLabel?: string | null;
+  ownership: 'OWN' | 'OPEN' | 'OTHER';
+  operatorName?: string | null;
+  scheduledStart: string;
+  scheduledEnd: string;
+  /** Working hours earlier than the saved unit allows; null when the saved unit has no time at all. */
+  hoursEarlier?: number | null;
+  projectedCompletion: string;
+  /** Null when the saved unit leaves part of the job unplaced. */
+  currentProjectedCompletion?: string | null;
 }
 
 export interface ScheduleProposeResult {
@@ -705,6 +756,8 @@ export interface ScheduleProposeResult {
   operations: ProposedOperation[];
   /** Everything that blocks confirming this proposal. */
   problems?: ScheduleProblem[];
+  /** Worth a look but never blocking, e.g. a lead on another operator's unit. */
+  warnings?: ScheduleProblem[];
   /** The saved schedule was shown as it was. */
   restored?: boolean;
   /** The saved schedule started at this time, already past, so a fresh one was proposed. */
@@ -716,6 +769,7 @@ export interface ScheduleProblem {
   operationId?: string | null;
   code: string;
   message: string;
+  severity?: 'error' | 'warning';
 }
 
 export interface ScheduleWarning {
@@ -1657,7 +1711,11 @@ export interface AnalyticsCapacityTypeRow {
   machineTypeCode: string;
   machineTypeName: string | null;
   activeUnitCount: number;
+  unitsDown?: number;
   availableHours: number | null;
+  /** Hours booked inside the window, before subtracting hours already worked. */
+  bookedHours?: number;
+  workedHours?: number;
   scheduledLoadHours: number | null;
   projectedLoadPct: number | null;
   above80Pct: boolean;

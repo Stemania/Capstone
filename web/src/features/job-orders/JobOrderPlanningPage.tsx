@@ -36,6 +36,7 @@ import { jobOrdersListPath } from './jobOrderListPaths';
 import JobInfoCard from './JobInfoCard';
 import { PersonAvatar, PersonChip } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
+import { pairedUnitId, unitPairText } from './unitPairing';
 import type {
   JobOrder,
   MachineInfo,
@@ -184,10 +185,12 @@ function pickBestWorker(
   return { workerId: fromList?.id };
 }
 
-/** "Ana Lopez · Lathe #2" for a machine lead, else the name. */
-function suggestionLabel(s: WorkerSuggestion) {
+/** "Juan Cruz · Lathe #2" for a machine lead ("· Ben's unit" when it is another operator's), else the name. */
+function suggestionLabel(s: WorkerSuggestion, units: MachineUnitInfo[]) {
   const name = personLabel(s.fullName, s.nickname);
-  return s.machineUnitLabel ? `${name} · ${s.machineUnitLabel}` : name;
+  const unit = units.find((u) => u.id === s.machineUnitId);
+  const unitText = unitPairText(unit, s.workerId) || s.machineUnitLabel;
+  return unitText ? `${name} · ${unitText}` : name;
 }
 
 const RANKING_HELP =
@@ -232,6 +235,7 @@ export default function JobOrderPlanningPage() {
   const noLeadTimeSuppliers = linesReadiness?.missingLeadTimeSuppliers || [];
   const materialDateUnknown = noLeadTimeSuppliers.length > 0;
   const [scheduleProblems, setScheduleProblems] = useState<ScheduleProblem[]>([]);
+  const [scheduleWarnings, setScheduleWarnings] = useState<ScheduleProblem[]>([]);
   const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
   const [proposing, setProposing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -780,6 +784,7 @@ export default function JobOrderPlanningPage() {
       materialConstraintReason: data.materialConstraintReason,
     });
     setScheduleProblems(data.problems || []);
+    setScheduleWarnings(data.warnings || []);
   };
 
   const handleViewProposedSchedule = async () => {
@@ -794,6 +799,7 @@ export default function JobOrderPlanningPage() {
       setJob(saved);
       const { data } = await jobOrdersApi.proposeSchedule(id, {
         operations: buildOperationsPayload(),
+        honorMachinePins: true,
       });
       applyProposal(data);
       setScheduleNotice(null);
@@ -980,6 +986,8 @@ export default function JobOrderPlanningPage() {
   const readOnly = !isPlanningStatus(job.status);
   const problemsBySeq: Record<number, ScheduleProblem[]> = {};
   for (const p of scheduleProblems) (problemsBySeq[p.sequenceNo] ||= []).push(p);
+  const warningsBySeq: Record<number, ScheduleProblem[]> = {};
+  for (const p of scheduleWarnings) (warningsBySeq[p.sequenceNo] ||= []).push(p);
   const confirmBlockers = !scheduleOps?.length
     ? ['Propose a schedule before confirming it.']
     : scheduleProblems.map((p) => p.message);
@@ -1002,10 +1010,6 @@ export default function JobOrderPlanningPage() {
 
   const renderMachineCell = (record: OpFormRow, index: number) => {
     const outsourced = isOutsourcedType(typeOf(record));
-    const unitLabel =
-      !outsourced && record.machineUnitId && record.machineTypeId
-        ? machineUnits.find((u) => u.id === record.machineUnitId)?.label
-        : null;
     return (
       <>
         <Select
@@ -1020,7 +1024,6 @@ export default function JobOrderPlanningPage() {
           options={machineOptionsForRow(machines, operations, index)}
           onChange={(v) => onMachineTypeChange(index, v)}
         />
-        {unitLabel ? <div className="jo-op__hint">Unit: {unitLabel}</div> : null}
       </>
     );
   };
@@ -1043,6 +1046,13 @@ export default function JobOrderPlanningPage() {
       );
     const setHelpers = (next: string[]) => patchRow(index, { helperIds: next });
     const canAddHelper = !readOnly && Boolean(record.assignedWorkerId) && helpers.length < MAX_HELPERS;
+    const lead = [...qualifiedWorkers, ...allWorkers].find((w) => w.id === record.assignedWorkerId);
+    const pairedUnit =
+      record.machineTypeId && record.machineUnitId
+        ? machineUnits.find((u) => u.id === record.machineUnitId)
+        : undefined;
+    const pairUnitText = unitPairText(pairedUnit, record.assignedWorkerId);
+    const pairText = lead && pairUnitText ? `${personLabel(lead.fullName, lead.nickname)} · ${pairUnitText}` : pairUnitText;
     return (
       <div className="jo-op__crew">
         <div className="jo-op__crew-line">
@@ -1055,12 +1065,17 @@ export default function JobOrderPlanningPage() {
             value={record.assignedWorkerId}
             disabled={readOnly}
             options={workerOptions(qualifiedWorkers)}
-            onChange={(v) =>
+            onChange={(v) => {
+              const suggested = (rowSuggestions[index] || []).find((s) => s.workerId === v);
+              const unitId = v
+                ? pairedUnitId(v, record.machineTypeId, machineUnits, suggested?.machineUnitId)
+                : undefined;
               patchRow(index, {
                 assignedWorkerId: v,
                 helperIds: v ? helpers.filter((h) => h !== v) : [],
-              })
-            }
+                ...(unitId ? { machineUnitId: unitId } : {}),
+              });
+            }}
           />
           {canAddHelper ? (
             <Tooltip title={`Add a helper (up to ${MAX_HELPERS})`}>
@@ -1074,6 +1089,7 @@ export default function JobOrderPlanningPage() {
             </Tooltip>
           ) : null}
         </div>
+        {pairText ? <div className="jo-op__hint">{pairText}</div> : null}
         {helpers.map((hid, hi) => (
           <div key={`${hid}-${hi}`} className="jo-op__crew-line">
             <Select
@@ -1225,7 +1241,7 @@ export default function JobOrderPlanningPage() {
                     photoVersion={s.photoVersion}
                     size={22}
                   />
-                  <span className="jo-op__pick-name">{suggestionLabel(s)}</span>
+                  <span className="jo-op__pick-name">{suggestionLabel(s, machineUnits)}</span>
                   <Tag color={isAssigned ? 'gold' : 'default'} style={{ margin: 0, fontSize: 11 }}>
                     {(s.score * 100).toFixed(0)}%
                   </Tag>
@@ -1509,6 +1525,7 @@ export default function JobOrderPlanningPage() {
                 scheduleFlag={scheduleMeta?.scheduleFlag}
                 dueDate={job.dueDate}
                 problemsBySeq={problemsBySeq}
+                warningsBySeq={warningsBySeq}
                 onChangeOp={handleScheduleOpChange}
                 onMachineUnitChange={readOnly ? undefined : handleMachineUnitChange}
                 onRefreshProposal={readOnly ? undefined : handleRefreshProposedSchedule}

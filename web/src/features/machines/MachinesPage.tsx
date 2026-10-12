@@ -30,7 +30,8 @@ import { PersonChip } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
 import { getErrorMessage } from '../../api/client';
 import { DOWNTIME_REASONS } from '../../constants/downtimeReasons';
-import type { MachineInfo, MachineUnitStatus, User } from '../../types';
+import type { BreakdownWork, MachineInfo, MachineUnitStatus, User } from '../../types';
+import BreakdownWorkModal from './BreakdownWorkModal';
 import InfoTip from '../../components/InfoTip';
 import {
   EmptyState,
@@ -133,6 +134,7 @@ export default function MachinesPage() {
   const [reportFor, setReportFor] = useState<MachineUnitStatus | null>(null);
   const [closeFor, setCloseFor] = useState<MachineUnitStatus | null>(null);
   const [repairFor, setRepairFor] = useState<MachineUnitStatus | null>(null);
+  const [breakdownWork, setBreakdownWork] = useState<BreakdownWork | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [operatorFor, setOperatorFor] = useState<MachineUnitStatus | null>(null);
   const [workers, setWorkers] = useState<User[]>([]);
@@ -239,7 +241,8 @@ export default function MachinesPage() {
       setReportFor(null);
       reportForm.resetFields();
       await fetchUnits();
-      warnScheduled(data.affectedCount || 0);
+      if (data.work?.operations.length) setBreakdownWork(data.work);
+      else if (!data.work) warnScheduled(data.affectedCount || 0);
     } catch (err) {
       if (err && typeof err === 'object' && 'errorFields' in err) return;
       message.error(getErrorMessage(err));
@@ -397,6 +400,15 @@ export default function MachinesPage() {
       setRepairFor(u);
     },
     onOpenSchedule: () => navigate('/schedule'),
+    onBreakdownWork: async (u) => {
+      try {
+        const { data } = await operationsApi.breakdownWork(u.id);
+        if (data.operations.length) setBreakdownWork(data);
+        else message.info(`No unstarted work is booked on ${u.label}`);
+      } catch (err) {
+        message.error(getErrorMessage(err));
+      }
+    },
     onOpenJob: (jobOrderId) => navigate(`/job-orders/${jobOrderId}`),
     onRetire: retireUnit,
     onRestore: restoreUnit,
@@ -777,6 +789,17 @@ export default function MachinesPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <BreakdownWorkModal
+        work={breakdownWork}
+        canDecide={isAdmin}
+        onClose={() => setBreakdownWork(null)}
+        onDone={() => {
+          setBreakdownWork(null);
+          void fetchUnits();
+        }}
+        onOpenSchedule={() => navigate('/schedule')}
+      />
 
       <Modal
         title={repairFor ? `Expected repair date — ${repairFor.label}` : 'Expected repair date'}

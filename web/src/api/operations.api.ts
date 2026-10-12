@@ -1,5 +1,8 @@
 import apiClient from './client';
 import type {
+  BreakdownAction,
+  BreakdownResolution,
+  BreakdownWork,
   MachineDowntimeRecord,
   MachineUnitInfo,
   MachineUnitStatus,
@@ -74,4 +77,10 @@ export const operationsApi = {
     }),
   machineUnitDowntime: (unitId: string) =>
     apiClient.get<MachineDowntimeRecord[]>(`/operations/machine-units/${unitId}/downtime`),
+  breakdownWork: (unitId: string) =>
+    apiClient.get<BreakdownWork>(`/operations/machine-units/${unitId}/downtime/work`),
+  resolveBreakdownWork: (unitId: string, action: BreakdownAction) =>
+    apiClient.post<BreakdownResolution>(`/operations/machine-units/${unitId}/downtime/work`, {
+      action,
+    }),
 };

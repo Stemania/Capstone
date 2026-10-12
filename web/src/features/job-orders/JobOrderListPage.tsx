@@ -33,6 +33,7 @@ import { useOverdueCheck } from '../../hooks/useOverdueCheck';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import { NARROW_QUERY } from '../../hooks/useViewport';
 import type { JobOrder, JobOrderStatus } from '../../types';
+import { compareByDue } from './jobOrderSort';
 
 type ListTab = 'production' | 'drafts';
 
@@ -565,7 +566,7 @@ export default function JobOrderListPage() {
       key: 'dueDate',
       width: 112,
       defaultSortOrder: 'ascend',
-      sorter: (a, b) => dayjs(a.dueDate).valueOf() - dayjs(b.dueDate).valueOf(),
+      sorter: compareByDue,
       render: (_d: string, record) => <DuePill job={record} />,
     },
     {

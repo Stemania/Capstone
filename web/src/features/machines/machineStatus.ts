@@ -74,6 +74,8 @@ export interface MachineActions {
   onClose: (unit: MachineUnitStatus) => void;
   onSetRepairDate: (unit: MachineUnitStatus) => void;
   onOpenSchedule: () => void;
+  /** A down unit: decide what to do with the unstarted work booked on it. */
+  onBreakdownWork?: (unit: MachineUnitStatus) => void;
   onOpenJob: (jobOrderId: string) => void;
   onRetire: (unit: MachineUnitStatus) => void;
   onRestore: (unit: MachineUnitStatus) => void;
@@ -121,6 +123,13 @@ export function machineMenuItems(unit: MachineUnitStatus, actions: MachineAction
       onClick: () => actions.onSetRepairDate(unit),
     });
     items.push({ key: 'close', label: 'Close breakdown', onClick: () => actions.onClose(unit) });
+    if (unit.affectedCount > 0 && actions.onBreakdownWork) {
+      items.push({
+        key: 'breakdownWork',
+        label: 'Move booked work…',
+        onClick: () => actions.onBreakdownWork?.(unit),
+      });
+    }
   }
   if (unit.affectedCount > 0) {
     items.push({ key: 'schedule', label: 'Open schedule', onClick: actions.onOpenSchedule });

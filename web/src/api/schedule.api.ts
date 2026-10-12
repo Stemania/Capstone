@@ -47,6 +47,13 @@ export type ScheduleBoardOperation = {
   scheduleFlag?: 'GREEN' | 'AMBER' | 'RED' | null;
   isLate?: boolean;
   scheduleColor?: string | null;
+  pausedAt?: string | null;
+  /** Paused for over a working day: its booking no longer grows. */
+  stalled?: boolean;
+  stalledSince?: string | null;
+  /** Booked on a unit that is down right now. */
+  onDownUnit?: boolean;
+  downtimeReason?: string | null;
 } & MaterialWait;
 
 export type ScheduleBoardDowntime = {
@@ -59,6 +66,21 @@ export type ScheduleBoardDowntime = {
   segmentEnd: string;
   reason: string;
   open: boolean;
+};
+
+/** Hours booked inside the period less hours already worked, over the shop's
+ * working hours on the units of this type that are not down. */
+export type MachineCapacityRow = {
+  machineTypeId: string;
+  machineTypeCode: string;
+  machineTypeName?: string | null;
+  bookedHours: number;
+  workedHours: number;
+  loadHours: number;
+  availableHours: number;
+  units: number;
+  unitsDown: number;
+  loadPct: number;
 };
 
 export type ScheduleBoardResponse = {
@@ -89,12 +111,8 @@ export type ScheduleBoardResponse = {
   summary: {
     operationsScheduled: number;
     jobsScheduled: number;
-    machinesNearFullCapacity: {
-      machineTypeId: string;
-      machineTypeCode: string;
-      machineTypeName?: string | null;
-      projectedLoadPct?: number | null;
-    }[];
+    machinesNearFullCapacity: (MachineCapacityRow & { projectedLoadPct?: number | null })[];
+    machineCapacity?: MachineCapacityRow[];
     jobsAtRisk: {
       jobOrderId: string;
       jobNumber?: string | null;

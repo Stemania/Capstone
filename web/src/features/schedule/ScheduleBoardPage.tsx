@@ -25,6 +25,7 @@ import {
   DashboardOutlined,
   WarningOutlined,
   InboxOutlined,
+  ToolOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useNavigate } from 'react-router-dom';
@@ -45,7 +46,6 @@ import {
   TIMELINE_BORDER as BORDER,
   TIMELINE_NAVY as NAVY,
   WORKING_HOURS_NOTE,
-  assignOverlapLanes,
   buildMonthTimelineLayout,
   buildWeekTimelineLayout,
   clipSegmentToPeriod,
@@ -58,8 +58,7 @@ import {
   scaleWeekTimelineLayout,
   scheduleOpTitle,
   MATERIAL_WAIT_BAR_IMAGE,
-  mergeAdjacentWeekPieces,
-  splitSegmentAcrossWeekDays,
+  layoutRowBars,
   timelineWidth,
   widthPx,
   type TimelineViewMode,
@@ -69,6 +68,7 @@ import { formatShopDateTime, SHOP_TZ } from '../../utils/shopTime';
 import ScheduleExpandShell from './ScheduleExpandShell';
 import WorkerPersonalSchedule from './WorkerPersonalSchedule';
 import ScheduleAgenda from './ScheduleAgenda';
+import { capacityLine } from './capacityText';
 import { TOUCH_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import { PersonAvatar, crewNames } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
@@ -79,6 +79,13 @@ type ViewMode = TimelineViewMode;
 type RowMode = 'machine' | 'worker';
 
 const STATUS_COLOR = OPERATION_BAR_COLOR;
+const CLASH_COLOR = '#DC2626';
+const DOWN_COLOR = '#C45A6A';
+const STALLED_COLOR = '#D97706';
+const DOWN_OVERLAY_IMAGE =
+  'repeating-linear-gradient(-45deg, rgba(196,90,106,0.75) 0 3px, transparent 3px 9px)';
+const BAR_GAP = 2;
+const MIN_BAR_W = adminPx(16);
 
 const SCHEDULE_LEGEND: LegendItem[] = [
   ...(['PENDING', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'REWORK'] as const).map((k) => ({
@@ -92,6 +99,9 @@ const SCHEDULE_LEGEND: LegendItem[] = [
     pattern: 'repeating-linear-gradient(-45deg, #E8C5CB, #E8C5CB 3px, #F5E6E9 3px, #F5E6E9 6px)',
     border: '1px solid #C45A6A',
   },
+  { label: 'Clash (double-booked)', color: '#fff', border: `2px solid ${CLASH_COLOR}` },
+  { label: 'Booked on a down machine', color: '#fff', border: `2px dashed ${DOWN_COLOR}` },
+  { label: 'Stalled (paused over a day)', color: '#fff', border: `2px dotted ${STALLED_COLOR}` },
 ];
 
 function statusLabel(s: string) {
@@ -165,6 +175,11 @@ function readPhoneView(): PhoneView {
 const NO_MACHINE_KEY = '__none__';
 const NO_OPS: ScheduleBoardOperation[] = [];
 const NO_DOWNTIMES: ScheduleBoardDowntime[] = [];
+
+function opSegments(op: ScheduleBoardOperation) {
+  if (op.segments.length > 0) return op.segments;
+  return op.scheduledStart && op.scheduledEnd ? [{ start: op.scheduledStart, end: op.scheduledEnd }] : [];
+}
 
 function opGroupKeys(op: ScheduleBoardOperation, rowMode: RowMode) {
   return rowMode === 'worker' ? crewIdsOf(op) : [op.machineUnitId || NO_MACHINE_KEY];
@@ -400,6 +415,7 @@ function AdminOfficeScheduleBoard() {
   const today = dayjs().tz(SHOP_TZ).startOf('day');
   const showingToday = !today.isBefore(from, 'day') && !today.isAfter(to, 'day');
   const nearFull = summary?.machinesNearFullCapacity || [];
+  const capacityRows = summary?.machineCapacity || [];
   const atRiskCount = summary?.jobsAtRisk?.length ?? 0;
   const waitingJobs = useMemo(() => {
     const seen = new Map<string, string>();
@@ -598,7 +614,7 @@ function AdminOfficeScheduleBoard() {
           {nearFull.length ? (
             <div className="sched-m__caps">
               {nearFull.map((m) => (
-                <span key={m.machineTypeId} className="sched-m__cap">
+                <span key={m.machineTypeId} className="sched-m__cap" title={capacityLine(m)}>
                   {m.machineTypeCode}
                   {m.projectedLoadPct != null ? ` ${m.projectedLoadPct}%` : ''}
                 </span>
@@ -625,7 +641,28 @@ function AdminOfficeScheduleBoard() {
           <StatCard
             icon={<DashboardOutlined />}
             tone="amber"
-            label="Near full capacity"
+            label={
+              <>
+                Near full capacity
+                {capacityRows.length ? (
+                  <InfoTip
+                    label="How capacity is worked out"
+                    title="Load this period"
+                    content={
+                      <>
+                        <div>
+                          Hours booked inside the period, less hours already worked, over the shop
+                          hours (with overtime days) of units that are not down.
+                        </div>
+                        {capacityRows.map((c) => (
+                          <div key={c.machineTypeId}>{capacityLine(c)}</div>
+                        ))}
+                      </>
+                    }
+                  />
+                ) : null}
+              </>
+            }
             value={nearFull.length ? nearFull.map((m) => m.machineTypeCode).join(', ') : 'None'}
             loading={loading && !data}
             hint={
@@ -1095,31 +1132,20 @@ const BoardRows = memo(function BoardRows({
     {rows.map((row) => {
       const ops = opsByRowKey.get(rowGroupKey(row, rowMode)) ?? NO_OPS;
       const dts = (rowMode === 'machine' && row.machineUnitId ? downtimesByUnit.get(row.machineUnitId) : undefined) ?? NO_DOWNTIMES;
-      const stackLanes = Boolean(row.noMachine);
-      const laneItems = stackLanes
-        ? ops
-            .map((op) => {
-              const segs =
-                op.segments.length > 0
-                  ? op.segments
-                  : op.scheduledStart && op.scheduledEnd
-                    ? [{ start: op.scheduledStart, end: op.scheduledEnd }]
-                    : [];
-              if (!segs.length) return null;
-              let start = segs[0].start;
-              let end = segs[0].end;
-              for (const seg of segs) {
-                if (seg.start < start) start = seg.start;
-                if (seg.end > end) end = seg.end;
-              }
-              return { id: op.id, start, end };
-            })
-            .filter((x): x is { id: string; start: string; end: string } => x != null)
-        : [];
-      const { laneById, laneCount } = stackLanes
-        ? assignOverlapLanes(laneItems)
-        : { laneById: new Map<string, number>(), laneCount: 1 };
+      const opById = new Map(ops.map((op) => [op.id, op]));
+      const { bars, laneCount } = layoutRowBars(
+        ops.map((op) => ({ id: op.id, segments: opSegments(op) })),
+        { from, to, mode: viewMode, mobile: isMobile, weekLayout, hourPx: dayHourPx },
+        { markClashes: !row.noMachine, gap: BAR_GAP, minWidth: MIN_BAR_W },
+      );
       const trackH = rowH * laneCount;
+      const downRects = dts.flatMap((d) => {
+        const clipped = clipSegmentToPeriod(d.segmentStart, d.segmentEnd, from, to);
+        if (!clipped) return [];
+        const left = leftPx(clipped.start, ...posArgs);
+        const width = widthPx(clipped.start, clipped.end, ...posArgs);
+        return left == null || width == null || width <= 0 ? [] : [{ d, left, width }];
+      });
 
       return (
         <div key={row.key}>
@@ -1225,18 +1251,7 @@ const BoardRows = memo(function BoardRows({
                   ))
                 : null}
 
-              {dts.flatMap((d) => {
-                const clipped = clipSegmentToPeriod(
-                  d.segmentStart,
-                  d.segmentEnd,
-                  from,
-                  to
-                );
-                if (!clipped) return [];
-                const barLeft = leftPx(clipped.start, ...posArgs);
-                const barW = widthPx(clipped.start, clipped.end, ...posArgs);
-                if (barLeft == null || barW == null || barW <= 0) return [];
-                return [
+              {downRects.map(({ d, left: barLeft, width: barW }) => (
                   <Tooltip
                     key={d.id}
                     title={
@@ -1265,40 +1280,33 @@ const BoardRows = memo(function BoardRows({
                         zIndex: 1,
                       }}
                     />
-                  </Tooltip>,
-                ];
-              })}
+                  </Tooltip>
+              ))}
 
-              {ops.flatMap((op) => {
-                const lane = laneById.get(op.id) ?? 0;
-                const barTop = columnFill ? lane * rowH : lane * rowH + 4;
+              {bars.flatMap((bar) => {
+                const op = opById.get(bar.opId);
+                if (!op) return [];
+                const barTop = columnFill ? bar.lane * rowH : bar.lane * rowH + 4;
                 const barHeight = columnFill ? rowH : rowH - 8;
-                const rawSegs =
-                  op.segments.length > 0
-                    ? op.segments
-                    : op.scheduledStart && op.scheduledEnd
-                      ? [{ start: op.scheduledStart, end: op.scheduledEnd }]
-                      : [];
-                const dayPieces = rawSegs.flatMap((seg) =>
-                  weekLayout
-                    ? splitSegmentAcrossWeekDays(seg.start, seg.end, weekLayout)
-                    : [seg]
-                );
-                const spans =
-                  weekLayout
-                    ? mergeAdjacentWeekPieces(dayPieces)
-                    : dayPieces;
-                return spans.flatMap((seg, i) => {
-                  const clipped = clipSegmentToPeriod(seg.start, seg.end, from, to);
-                  if (!clipped) return [];
-                  const barLeft = leftPx(clipped.start, ...posArgs);
-                  const barW = widthPx(clipped.start, clipped.end, ...posArgs);
-                  if (barLeft == null || barW == null || barW <= 0) return [];
-                  const color =
-                    op.scheduleColor || STATUS_COLOR[op.status] || '#2563eb';
-                  const late = !!op.isLate;
-                  const showText = barW >= 22;
-                  const showPill = barW >= adminPx(150) && !isMobile;
+                const barLeft = bar.left;
+                const barW = bar.width;
+                // Breakdown hatching drawn over the bar, so a down machine is never hidden.
+                const downOverlays = downRects.flatMap(({ d, left, width }) => {
+                  const l = Math.max(left, barLeft);
+                  const r = Math.min(left + width, barLeft + barW);
+                  return r > l ? [{ key: `${bar.key}-down-${d.id}`, left: l, width: r - l }] : [];
+                });
+                const onDown = !!op.onDownUnit || downOverlays.length > 0;
+                const color =
+                  op.scheduleColor || STATUS_COLOR[op.status] || '#2563eb';
+                const late = !!op.isLate;
+                const showText = barW >= 22;
+                const showPill = barW >= adminPx(150) && !isMobile;
+                const pill = onDown ? 'Machine down' : op.stalled ? 'Stalled' : statusLabel(op.status);
+                const rings = [
+                  late ? 'inset 0 0 0 2px #7A1528' : null,
+                  bar.clash ? `0 0 0 2px ${CLASH_COLOR}` : '0 1px 2px rgba(15,23,42,0.18)',
+                ].filter(Boolean).join(', ');
                   const opTitle = scheduleOpTitle(op.sequenceNo, op.operationName);
                   const title = op.jobNumber ? `Job ${op.jobNumber}` : opTitle;
                   const meta = [op.clientName, op.jobNumber ? opTitle : null]
@@ -1306,11 +1314,30 @@ const BoardRows = memo(function BoardRows({
                     .join(' · ');
                   return [
                     <Tooltip
-                      key={`${op.id}-${i}`}
+                      key={bar.key}
                       title={
                         <div style={{ maxWidth: 260 }}>
+                          {bar.clash ? (
+                            <div style={{ color: '#FCA5A5', fontWeight: 700 }}>
+                              <WarningOutlined /> Clash: overlaps other work on this{' '}
+                              {rowMode === 'machine' ? 'machine' : 'worker'}
+                            </div>
+                          ) : null}
+                          {onDown ? (
+                            <div style={{ color: '#FCA5A5', fontWeight: 700 }}>
+                              <ToolOutlined /> Machine down
+                              {op.downtimeReason ? `: ${op.downtimeReason}` : ''}
+                            </div>
+                          ) : null}
+                          {op.stalled ? (
+                            <div style={{ color: '#FCD34D', fontWeight: 700 }}>
+                              Stalled: paused since {formatShopDateTime(op.pausedAt)}. Resume it,
+                              re-plan or reassign it.
+                            </div>
+                          ) : null}
                           <div style={{ fontWeight: 700 }}>
-                            {scheduleOpTitle(op.sequenceNo, op.operationName)}
+                            {opTitle}
+                            {op.jobNumber ? ` · ${op.jobNumber}` : ''}
                           </div>
                           <div>
                             {op.jobNumber} · {op.jobTitle}
@@ -1351,6 +1378,7 @@ const BoardRows = memo(function BoardRows({
                       <button
                         type="button"
                         onClick={() => onOpenJob(op.jobOrderId)}
+                        aria-label={bar.short ? `${opTitle}${op.jobNumber ? ` · ${op.jobNumber}` : ''}` : undefined}
                         style={{
                           position: 'absolute',
                           top: barTop,
@@ -1361,7 +1389,13 @@ const BoardRows = memo(function BoardRows({
                           backgroundImage: op.waitingForMaterials
                             ? MATERIAL_WAIT_BAR_IMAGE
                             : undefined,
-                          border: 'none',
+                          border: '1px solid rgba(15,23,42,0.28)',
+                          outline: onDown
+                            ? `2px dashed ${DOWN_COLOR}`
+                            : op.stalled
+                              ? `2px dotted ${STALLED_COLOR}`
+                              : undefined,
+                          outlineOffset: onDown || op.stalled ? 1 : undefined,
                           borderRadius: adminPx(6),
                           color: '#fff',
                           display: 'flex',
@@ -1374,11 +1408,15 @@ const BoardRows = memo(function BoardRows({
                           textAlign: 'left',
                           cursor: 'pointer',
                           zIndex: 2,
-                          boxShadow: late
-                            ? 'inset 0 0 0 2px #7A1528, 0 1px 2px rgba(15,23,42,0.18)'
-                            : '0 1px 2px rgba(15,23,42,0.18)',
+                          boxShadow: rings,
                         }}
                       >
+                        {bar.clash && barW >= 14 ? (
+                          <WarningOutlined
+                            aria-label="Clash"
+                            style={{ color: '#fff', background: CLASH_COLOR, borderRadius: 3, padding: 1, flexShrink: 0 }}
+                          />
+                        ) : null}
                         {showText ? (
                           <span style={BAR_TEXT_STYLE}>
                             <span style={{ ...BAR_LINE_STYLE, fontSize: adminPx(isMobile ? 11 : 12), fontWeight: 700 }}>
@@ -1399,12 +1437,38 @@ const BoardRows = memo(function BoardRows({
                           </span>
                         ) : null}
                         {showPill ? (
-                          <span style={BAR_PILL_STYLE}>{statusLabel(op.status)}</span>
+                          <span
+                            style={
+                              onDown
+                                ? { ...BAR_PILL_STYLE, background: DOWN_COLOR }
+                                : op.stalled
+                                  ? { ...BAR_PILL_STYLE, background: STALLED_COLOR }
+                                  : BAR_PILL_STYLE
+                            }
+                          >
+                            {pill}
+                          </span>
                         ) : null}
                       </button>
                     </Tooltip>,
+                    ...downOverlays.map((o) => (
+                      <div
+                        key={o.key}
+                        aria-hidden
+                        style={{
+                          position: 'absolute',
+                          top: barTop,
+                          height: barHeight,
+                          left: o.left,
+                          width: o.width,
+                          backgroundImage: DOWN_OVERLAY_IMAGE,
+                          borderRadius: adminPx(6),
+                          zIndex: 3,
+                          pointerEvents: 'none',
+                        }}
+                      />
+                    )),
                   ];
-                });
               })}
             </div>
           </div>

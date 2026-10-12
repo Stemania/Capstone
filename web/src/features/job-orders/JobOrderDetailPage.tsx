@@ -896,9 +896,12 @@ export default function JobOrderDetailPage() {
           showIcon
           style={{ marginBottom: 16 }}
           title={
-            job.materialDelay.kind === 'MATERIAL'
-              ? 'Schedule moved later because of materials'
-              : 'Rescheduled because the planned start date had passed'
+            {
+              MATERIAL: 'Schedule moved later because of materials',
+              RESCHEDULED: 'Rescheduled because the planned start date had passed',
+              OVERRUN: 'Moved later because earlier work on the same worker or machine ran long',
+              BREAKDOWN: 'Moved because its machine broke down',
+            }[job.materialDelay.kind]
           }
           description={
             <>
