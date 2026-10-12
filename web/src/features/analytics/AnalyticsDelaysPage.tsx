@@ -308,7 +308,7 @@ export default function AnalyticsDelaysPage() {
               </table>
             </div>
           ) : (
-            <ChartEmpty title="Every job in this period was delivered on time" height={100} />
+            <ChartEmpty title="No jobs delivered late in this period" height={100} />
           )}
         </Card>
       </Grid>

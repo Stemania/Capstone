@@ -179,8 +179,10 @@ function AdminOverview() {
                 <>
                   <strong>{atRisk.length}</strong> of {completion.jobs.length} may miss the date required
                 </>
-              ) : (
+              ) : completion.jobs.length ? (
                 `All ${completion.jobs.length} open jobs on track`
+              ) : (
+                'No open jobs'
               )
             ) : undefined
           }
@@ -193,6 +195,8 @@ function AdminOverview() {
         >
           {!completion ? (
             <CardLoading />
+          ) : !completion.jobs.length ? (
+            <ChartEmpty title="No open jobs" text="Released jobs that are not finished show here." />
           ) : !atRisk.length ? (
             <ChartEmpty title="Nothing at risk" text="Predicted finishes are on or before the dates required." />
           ) : (

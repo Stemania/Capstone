@@ -258,8 +258,10 @@ export default function AnalyticsProductionPage() {
                 <>
                   <strong>{late}</strong> of {jobs.length} may finish after the date required
                 </>
-              ) : (
+              ) : jobs.length ? (
                 `All ${jobs.length} on track`
+              ) : (
+                'No open jobs'
               )
             ) : undefined
           }

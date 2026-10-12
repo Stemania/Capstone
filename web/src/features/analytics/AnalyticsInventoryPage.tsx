@@ -40,9 +40,13 @@ export default function AnalyticsInventoryPage() {
               <>
                 <strong>{alerts}</strong> of {data.items.length} at or below their reorder point
               </>
-            ) : (
-              `All ${data.items.length} above their reorder point`
-            )
+            ) : counts.OK ? (
+              `All ${counts.OK} with a reorder point are above it${
+                counts.NO_DATA ? ` · ${counts.NO_DATA} with no usage yet` : ''
+              }`
+            ) : items.length ? (
+              'No reorder points yet: each item needs 2 stocktakes'
+            ) : undefined
           }
           takeawayTone={alerts ? 'bad' : undefined}
           info={
@@ -104,7 +108,11 @@ export default function AnalyticsInventoryPage() {
                         {i.sizeSpec ? <span className="ana-muted" style={{ fontWeight: 400 }}> · {i.sizeSpec}</span> : null}
                       </td>
                       <td>
-                        <StockBar onHand={i.estimatedOnHand} reorderPoint={i.reorderPoint ?? null} status={i.status ?? 'NO_DATA'} />
+                        {i.status === 'NO_DATA' || !i.status ? (
+                          <span className="ana-muted">—</span>
+                        ) : (
+                          <StockBar onHand={i.estimatedOnHand} reorderPoint={i.reorderPoint ?? null} status={i.status} />
+                        )}
                       </td>
                       <td className="num">
                         {i.estimatedOnHand == null ? fmtNum(i.quantityOnHand) : fmtNum(i.estimatedOnHand)}{' '}

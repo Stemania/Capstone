@@ -285,6 +285,8 @@ export function StockAlertsCard({ data, span = 6 }: { data: ConsumableRunOut | n
     >
       {!data ? (
         <CardLoading />
+      ) : !alerts.length && !data.items.some((i) => i.status === 'OK') ? (
+        <ChartEmpty title="No reorder points yet" text="Each consumable needs 2 stocktakes." height={120} />
       ) : !alerts.length ? (
         <ChartEmpty title="All consumables above their reorder point" height={120} />
       ) : (
