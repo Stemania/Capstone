@@ -305,11 +305,9 @@ def seed_database():
         db.session.add_all(_skills_from_tokens(w.id, skill_tokens, machines))
         db.session.add_all(_default_schedule(w.id))
 
-    clients = [
-        Client(name="ABC Manufacturing", contact="09171234567"),
-        Client(name="Metro Steel Corp", contact="09181234567"),
-        Client(name="Pacific Engineering", contact="09191234567"),
-    ]
+    from app.services.seed_cleanup_service import DEMO_CLIENTS
+
+    clients = [Client(name=name, contact=contact) for name, contact in DEMO_CLIENTS]
     db.session.add_all(clients)
     db.session.flush()
 

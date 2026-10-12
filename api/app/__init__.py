@@ -234,6 +234,25 @@ def _register_cli(app):
         if dry_run:
             print("Dry run: nothing was saved.")
 
+    @app.cli.command("cleanup-seed-data")
+    @click.option(
+        "--apply",
+        "apply_changes",
+        is_flag=True,
+        help="Delete the SEED records and merge the DUPLICATE suppliers. Without it, a dry run.",
+    )
+    def cleanup_seed_data_command(apply_changes):
+        """Group every client and supplier as REAL, SEED, DUPLICATE or UNSURE,
+        list what is linked to the SEED ones and the effect on analytics.
+        A dry run unless --apply. Safe in production: REAL and UNSURE records,
+        users, machines, the catalog and shop details are never changed."""
+        from app.services.seed_cleanup_service import report_lines, run
+
+        plan = run(apply=apply_changes)
+        for line in report_lines(plan, applied=apply_changes):
+            print(line)
+        print("Applied." if apply_changes else "Dry run: nothing was saved. Run with --apply to delete.")
+
     @app.cli.command("import-employees")
     @click.option("--file", "file_path", required=True, help="CSV file, e.g. api/data/employees.local.csv")
     @click.option("--dry-run", is_flag=True, help="Show the changes without saving them.")
