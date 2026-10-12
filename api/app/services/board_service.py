@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy.orm import joinedload
 
@@ -12,17 +12,22 @@ from app.models.machine import MachineType, MachineUnit
 from app.models.operation import JobOperation, OperationStatus
 from app.models.operation_time import MachineDowntime
 from app.models.client import Client
+from app.services.operation_service import open_downtimes_by_unit
 from app.services.schedule_calendar import (
+    ensure_utc,
+    intersect_intervals,
+    merge_intervals,
     serialize_segments,
     shop_break,
-    shop_available_hours,
     shop_day_windows_union,
     shop_local_to_utc,
     shop_now,
+    shop_working_intervals,
     utc_to_shop,
     worker_day_windows,
 )
 from app.services.schedule_service import (
+    clocked_spans,
     compute_schedule_flag,
     operation_working_segments,
 )
@@ -51,6 +56,122 @@ def _num(v, digits=2):
 def _job_number(job: JobOrder) -> str:
     year = job.created_at.year if job.created_at else datetime.utcnow().year
     return f"JO-{year}-{(job.id or '')[:4].upper()}"
+
+
+def _hours(intervals) -> float:
+    return sum((e - s).total_seconds() for s, e in intervals) / 3600.0
+
+
+def _floor_flags(op, now, open_downs) -> dict:
+    """Stalled (paused over a working day) and booked-on-a-down-unit flags for the board."""
+    from app.services.operation_service import downtime_blocked_until
+    from app.services.schedule_service import paused_at, stalled_since
+
+    stalled = stalled_since(op, now) if op.status == OperationStatus.IN_PROGRESS else None
+    paused = paused_at(op) if op.status == OperationStatus.IN_PROGRESS else None
+    down = open_downs.get(op.machine_unit_id) if op.machine_unit_id else None
+    on_down_unit = False
+    if down is not None and op.status != OperationStatus.COMPLETED and op.scheduled_end:
+        until = downtime_blocked_until(down, now)
+        on_down_unit = ensure_utc(op.scheduled_end) > ensure_utc(down.started_at) and (
+            until is None or ensure_utc(op.scheduled_start) < until
+        )
+    return {
+        "pausedAt": paused.isoformat() if paused else None,
+        "stalled": stalled is not None,
+        "stalledSince": stalled.isoformat() if stalled else None,
+        "onDownUnit": on_down_unit,
+        "downtimeReason": down.reason if on_down_unit else None,
+    }
+
+
+def add_booked_hours(op, working, start_utc, end_utc, now, booked_by_type, worked_by_type) -> None:
+    """Add an unfinished machine operation's working time inside the period, and
+    the part of it already worked, to its machine type."""
+    if not op.machine_type_id or op.status == OperationStatus.COMPLETED:
+        return
+    inside = intersect_intervals(working, [(start_utc, end_utc)])
+    booked_by_type[op.machine_type_id] += _hours(inside)
+    worked_by_type[op.machine_type_id] += _hours(
+        intersect_intervals(inside, merge_intervals(clocked_spans(op, now)))
+    )
+
+
+def capacity_for_period(start_utc, end_utc, now=None) -> list[dict]:
+    """``machine_capacity`` for every released, unfinished machine operation
+    booked inside [start_utc, end_utc)."""
+    now = now or datetime.now(timezone.utc)
+    ops = (
+        JobOperation.query.join(JobOrder)
+        .filter(
+            JobOrder.status != JobOrderStatus.DRAFT,
+            JobOperation.status != OperationStatus.COMPLETED,
+            JobOperation.machine_type_id.isnot(None),
+            JobOperation.scheduled_start.isnot(None),
+            JobOperation.scheduled_end.isnot(None),
+            JobOperation.scheduled_start < end_utc,
+            (JobOperation.scheduled_end > start_utc)
+            | (JobOperation.status == OperationStatus.IN_PROGRESS),
+        )
+        .all()
+    )
+    booked, worked = defaultdict(float), defaultdict(float)
+    for op in ops:
+        add_booked_hours(op, operation_working_segments(op, now), start_utc, end_utc, now, booked, worked)
+    units = MachineUnit.query.filter_by(active=True).all()
+    downtimes = MachineDowntime.query.filter(
+        MachineDowntime.started_at < end_utc,
+        (MachineDowntime.ended_at.is_(None)) | (MachineDowntime.ended_at > start_utc),
+    ).all()
+    return machine_capacity(units, downtimes, booked, worked, start_utc, end_utc)
+
+
+def machine_capacity(units, downtimes, booked_by_type, worked_by_type, start_utc, end_utc) -> list[dict]:
+    """Per machine type: hours booked inside the period less hours already worked,
+    over the shop's working hours (with overtime and holidays) on the units
+    while they are not down. Units down the whole period add nothing."""
+    from app.services.operation_service import downtime_blocked_until
+
+    shop = shop_working_intervals(start_utc, end_utc)
+    shop_hours = _hours(shop)
+    down_by_unit = defaultdict(list)
+    for d in downtimes:
+        until = d.ended_at or downtime_blocked_until(d) or end_utc
+        down_by_unit[d.machine_unit_id].append((ensure_utc(d.started_at), ensure_utc(until)))
+    by_type = defaultdict(list)
+    for u in units:
+        by_type[u.machine_type_id].append(u)
+
+    rows = []
+    for mt in MachineType.query.order_by(MachineType.code).all():
+        type_units = by_type.get(mt.id) or []
+        if not type_units:
+            continue
+        available = 0.0
+        units_down = 0
+        for u in type_units:
+            lost = _hours(intersect_intervals(shop, merge_intervals(down_by_unit.get(u.id, []))))
+            available += max(shop_hours - lost, 0.0)
+            if shop_hours and lost >= shop_hours:
+                units_down += 1
+        booked = booked_by_type.get(mt.id, 0.0)
+        worked = worked_by_type.get(mt.id, 0.0)
+        load = max(booked - worked, 0.0)
+        rows.append(
+            {
+                "machineTypeId": mt.id,
+                "machineTypeCode": mt.code,
+                "machineTypeName": mt.name,
+                "bookedHours": _num(booked, 1),
+                "workedHours": _num(worked, 1),
+                "loadHours": _num(load, 1),
+                "availableHours": _num(available, 1),
+                "units": len(type_units),
+                "unitsDown": units_down,
+                "loadPct": _num(load / available * 100.0, 1) if available > 0 else (100.0 if load else 0.0),
+            }
+        )
+    return rows
 
 
 def schedule_board(
@@ -95,7 +216,9 @@ def schedule_board(
             JobOperation.scheduled_start.isnot(None),
             JobOperation.scheduled_end.isnot(None),
             JobOperation.scheduled_start < end_utc,
-            JobOperation.scheduled_end > start_utc,
+            # In-progress work stays booked past its planned end until it is done.
+            (JobOperation.scheduled_end > start_utc)
+            | (JobOperation.status == OperationStatus.IN_PROGRESS),
         )
     )
     if not include_completed:
@@ -114,12 +237,16 @@ def schedule_board(
     ops = q.order_by(JobOperation.scheduled_start.asc()).all()
 
     operations_out = []
-    load_by_type = defaultdict(float)
+    booked_by_type = defaultdict(float)
+    worked_by_type = defaultdict(float)
     jobs_meta = {}  # job_id -> {due, projected, flag, number, title}
+    now = datetime.now(timezone.utc)
+    open_downs = open_downtimes_by_unit()
 
     for op in ops:
         job = op.job_order
-        segments = serialize_segments(operation_working_segments(op))
+        working = operation_working_segments(op, now)
+        segments = serialize_segments(working)
         # Clip to board window for payload size; keep full scheduled window for hover.
         clipped = []
         for seg in segments:
@@ -127,6 +254,8 @@ def schedule_board(
             e = min(datetime.fromisoformat(seg["end"].replace("Z", "+00:00")), end_utc)
             if e > s:
                 clipped.append({"start": s.isoformat(), "end": e.isoformat()})
+        if not clipped and op.status == OperationStatus.IN_PROGRESS:
+            continue
 
         projected = None
         schedule_flag = None
@@ -159,8 +288,7 @@ def schedule_board(
             is_late = schedule_flag in ("AMBER", "RED")
             jobs_meta[jid]["flag"] = schedule_flag
 
-        if op.machine_type_id and op.status != OperationStatus.COMPLETED:
-            load_by_type[op.machine_type_id] += float(op.estimated_hours or 0)
+        add_booked_hours(op, working, start_utc, end_utc, now, booked_by_type, worked_by_type)
 
         operations_out.append(
             {
@@ -201,6 +329,7 @@ def schedule_board(
                 "isLate": is_late,
                 "scheduleColor": job.schedule_color if job else None,
                 **(jobs_meta[job.id]["materialWait"] if job else {}),
+                **_floor_flags(op, now, open_downs),
             }
         )
 
@@ -309,32 +438,12 @@ def schedule_board(
             }
         )
 
-    # Near-full machines for this board window (same hours rule as capacity analytics)
-    available_per_unit = shop_available_hours(period_from, period_to)
-    units_by_type = defaultdict(list)
-    for u in units:
-        units_by_type[u.machine_type_id].append(u)
-
-    near_full = []
-    types = MachineType.query.order_by(MachineType.code).all()
-    for mt in types:
-        if machine_type_id and mt.id != machine_type_id:
-            continue
-        n = len(units_by_type.get(mt.id) or [])
-        if n == 0:
-            continue
-        avail = available_per_unit * n
-        load = float(load_by_type.get(mt.id, 0.0) or 0.0)
-        pct = (load / avail * 100.0) if avail > 0 else 0.0
-        if pct >= NEAR_FULL_PCT:
-            near_full.append(
-                {
-                    "machineTypeId": mt.id,
-                    "machineTypeCode": mt.code,
-                    "machineTypeName": mt.name,
-                    "projectedLoadPct": _num(pct, 1),
-                }
-            )
+    capacity = machine_capacity(units, dts, booked_by_type, worked_by_type, start_utc, end_utc)
+    if machine_type_id:
+        capacity = [c for c in capacity if c["machineTypeId"] == machine_type_id]
+    near_full = [
+        {**c, "projectedLoadPct": c["loadPct"]} for c in capacity if c["loadPct"] >= NEAR_FULL_PCT
+    ]
 
     at_risk = []
     seen_jobs = set()
@@ -378,6 +487,7 @@ def schedule_board(
             "operationsScheduled": len(operations_out),
             "jobsScheduled": len({row["jobOrderId"] for row in operations_out}),
             "machinesNearFullCapacity": near_full,
+            "machineCapacity": capacity,
             "jobsAtRisk": at_risk,
         },
     }

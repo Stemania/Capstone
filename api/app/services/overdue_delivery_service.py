@@ -142,6 +142,13 @@ def run_checks(app) -> bool:
                 app.logger.info("at_risk_check alerts=%s", check_released_jobs())
         except Exception:
             app.logger.exception("At-risk check failed")
+        try:
+            with app.app_context():
+                from app.services.shop_floor_check_service import run_checks as shop_floor_checks
+
+                app.logger.info("shop_floor_check %s", shop_floor_checks())
+        except Exception:
+            app.logger.exception("Shop floor check failed")
         return True
     finally:
         _run_lock.release()

@@ -153,6 +153,8 @@ def reschedule_job(job: JobOrder, trigger: str, trigger_order=None) -> dict:
         material_not_before_utc=floor_utc,
         material_constraint_reason=floor_reason,
         never_earlier=True,
+        honor_machine_pins=True,
+        suggest_faster_units=False,
     )
     results = {r.get("id"): r for r in proposal["operations"]}
     failed = [r for r in proposal["operations"] if not r.get("scheduled")]

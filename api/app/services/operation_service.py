@@ -319,10 +319,17 @@ def pause_operation(
             received_at=received_at,
         )
         db.session.commit()
-        return operation
     except Exception:
         db.session.rollback()
         raise
+    _after_clock_event()
+    return operation
+
+
+def _after_clock_event():
+    from app.services.shop_floor_check_service import safe_run_after_clock_event
+
+    safe_run_after_clock_event()
 
 
 def resume_operation(operation, user_id, user_role, timestamp=None, received_at=None):
@@ -360,10 +367,11 @@ def resume_operation(operation, user_id, user_role, timestamp=None, received_at=
             received_at=received_at,
         )
         db.session.commit()
-        return operation
     except Exception:
         db.session.rollback()
         raise
+    _after_clock_event()
+    return operation
 
 
 def complete_operation(operation, user_id, user_role, timestamp, received_at=None):

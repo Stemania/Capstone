@@ -1351,25 +1351,25 @@ def consumable_run_out():
     return forecast_service.consumable_run_out()
 
 
-def capacity_type_rows(active_types, units_by_type, load_by_type, available_per_unit):
-    """
-    Build per-type capacity rows.
-    availableHours = availableHoursPerUnit * activeUnitCount (same rule as by-machine).
-    """
+def capacity_type_rows(capacity_rows):
+    """Analytics rows from ``board_service.machine_capacity``: hours booked inside
+    the window less hours already worked, over the shop hours of units that are
+    not down (the same rule as the schedule board)."""
     rows = []
-    for mt in active_types:
-        n = len(units_by_type.get(mt.id) or [])
-        avail = available_per_unit * n
-        load = float(load_by_type.get(mt.id, 0.0) or 0.0)
-        pct = (load / avail * 100.0) if avail > 0 else None
+    for r in capacity_rows:
+        avail = r["availableHours"] or 0.0
+        pct = r["loadPct"] if avail > 0 else None
         rows.append(
             {
-                "machineTypeId": mt.id,
-                "machineTypeCode": mt.code,
-                "machineTypeName": getattr(mt, "name", None),
-                "activeUnitCount": n,
+                "machineTypeId": r["machineTypeId"],
+                "machineTypeCode": r["machineTypeCode"],
+                "machineTypeName": r["machineTypeName"],
+                "activeUnitCount": r["units"],
+                "unitsDown": r["unitsDown"],
                 "availableHours": _num(avail, 2),
-                "scheduledLoadHours": _num(load, 2),
+                "bookedHours": r["bookedHours"],
+                "workedHours": r["workedHours"],
+                "scheduledLoadHours": _num(r["loadHours"], 2),
                 "projectedLoadPct": _num(pct, 2) if pct is not None else None,
                 "above80Pct": bool(pct is not None and pct >= CAPACITY_LOAD_FLAG_PCT),
             }
@@ -1392,11 +1392,7 @@ def demand_capacity(from_s=None, to_s=None):
     start_utc = shop_local_to_utc(horizon_from, time(0, 0))
     end_utc = shop_local_to_utc(horizon_to + timedelta(days=1), time(0, 0))
 
-    active_types = MachineType.query.order_by(MachineType.code).all()
-    active_units = MachineUnit.query.filter_by(active=True).all()
-    units_by_type = defaultdict(list)
-    for u in active_units:
-        units_by_type[u.machine_type_id].append(u)
+    from app.services.board_service import capacity_for_period
 
     scheduled_ops = (
         JobOperation.query.join(JobOrder)
@@ -1408,17 +1404,10 @@ def demand_capacity(from_s=None, to_s=None):
             JobOperation.scheduled_start < end_utc,
             JobOperation.scheduled_end > start_utc,
         )
-        .all()
+        .count()
     )
-    load_by_type = defaultdict(float)
-    for op in scheduled_ops:
-        if op.machine_type_id:
-            load_by_type[op.machine_type_id] += float(op.estimated_hours or 0)
-
-    thin = len(scheduled_ops) == 0
-    machine_types = capacity_type_rows(
-        active_types, units_by_type, load_by_type, available_per_unit
-    )
+    thin = scheduled_ops == 0
+    machine_types = capacity_type_rows(capacity_for_period(start_utc, end_utc))
 
     payload = {
         "horizon": {
@@ -1427,7 +1416,7 @@ def demand_capacity(from_s=None, to_s=None):
         },
         "horizonWorkingDays": horizon_wd,
         "availableHoursPerUnit": _num(available_per_unit, 2),
-        "scheduledOperationsInHorizon": len(scheduled_ops),
+        "scheduledOperationsInHorizon": scheduled_ops,
         "thinSample": thin,
         "machineTypes": machine_types,
     }

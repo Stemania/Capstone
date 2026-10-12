@@ -89,6 +89,8 @@ def _replan_job(job: JobOrder, now_utc: datetime) -> dict:
         material_not_before_utc=floor_utc,
         material_constraint_reason=floor_reason,
         never_earlier=True,
+        honor_machine_pins=True,
+        suggest_faster_units=False,
     )
     results = {r.get("id"): r for r in proposal["operations"]}
     failed = [r for r in proposal["operations"] if not r.get("scheduled")]
@@ -267,6 +269,8 @@ def _replan_break_job(job: JobOrder, now_utc: datetime) -> dict:
         material_not_before_utc=floor_utc,
         material_constraint_reason=floor_reason,
         never_earlier=True,
+        honor_machine_pins=True,
+        suggest_faster_units=False,
     )
     results = {r.get("id"): r for r in proposal["operations"]}
     failed = [r for r in proposal["operations"] if not r.get("scheduled")]

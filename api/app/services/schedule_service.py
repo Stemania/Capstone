@@ -41,6 +41,13 @@ FROZEN_STATUSES = (OperationStatus.COMPLETED, OperationStatus.IN_PROGRESS)
 
 MIN_REMAINING_HOURS = 1.0
 
+# A faster unit is suggested only when the job would finish at least this much earlier.
+FASTER_UNIT_MIN_GAIN = timedelta(hours=4)
+FASTER_UNIT_MAX = 5
+
+# Paused this many working hours of its crew (one working day) without a resume: stalled.
+STALL_AFTER_WORKING_HOURS = 8.0
+
 
 def compute_schedule_flag(projected_completion_utc, due_date) -> str | None:
     """
@@ -135,7 +142,32 @@ def expected_finish(op: JobOperation, now_utc=None) -> datetime | None:
     return end
 
 
-def _operation_booking_envelope(op: JobOperation) -> tuple[datetime, datetime] | None:
+def paused_at(op: JobOperation) -> datetime | None:
+    """When an in-progress operation was paused, while its last clock event is a pause."""
+    from app.models.operation_time import OperationTimeEvent
+
+    if op.status != OperationStatus.IN_PROGRESS or not op.time_logs:
+        return None
+    last = max(
+        op.time_logs,
+        key=lambda L: (ensure_utc(L.event_at), ensure_utc(L.created_at or L.event_at)),
+    )
+    return ensure_utc(last.event_at) if last.event == OperationTimeEvent.PAUSE else None
+
+
+def stalled_since(op: JobOperation, now_utc=None) -> datetime | None:
+    """When a paused operation became stalled: STALL_AFTER_WORKING_HOURS of its
+    crew's working time after the pause with no resume. None while running,
+    not paused, or paused for less than that."""
+    paused = paused_at(op)
+    if paused is None:
+        return None
+    _start, stall, _segments = place_from_start(op.crew_ids, paused, STALL_AFTER_WORKING_HOURS)
+    now = ensure_utc(now_utc or datetime.now(timezone.utc))
+    return stall if stall is not None and stall <= now else None
+
+
+def _operation_booking_envelope(op: JobOperation, now_utc=None) -> tuple[datetime, datetime] | None:
     if op.status == OperationStatus.COMPLETED:
         if op.actual_start and op.actual_end:
             return ensure_utc(op.actual_start), ensure_utc(op.actual_end)
@@ -145,7 +177,10 @@ def _operation_booking_envelope(op: JobOperation) -> tuple[datetime, datetime] |
     if op.status == OperationStatus.IN_PROGRESS and (op.actual_start or op.scheduled_start):
         start = ensure_utc(op.actual_start or op.scheduled_start)
         ends = [ensure_utc(op.scheduled_end)] if op.scheduled_end else []
-        finish = expected_finish(op)
+        now = ensure_utc(now_utc or datetime.now(timezone.utc))
+        # A stalled operation's booking is worked out from when it stalled, so it
+        # stops growing until someone resumes, re-plans or reassigns it.
+        finish = expected_finish(op, stalled_since(op, now) or now)
         if finish is not None:
             ends.append(finish)
         end = max(ends, default=None)
@@ -157,17 +192,50 @@ def _operation_booking_envelope(op: JobOperation) -> tuple[datetime, datetime] |
     return None
 
 
-def operation_working_segments(op: JobOperation) -> list[tuple[datetime, datetime]]:
+def operation_working_segments(op: JobOperation, now_utc=None) -> list[tuple[datetime, datetime]]:
     """Public alias: derived working segments for one operation (never overnight gaps)."""
-    return _busy_intervals_for_operation(op)
+    return _busy_intervals_for_operation(op, now_utc)
 
 
-def _busy_intervals_for_operation(op: JobOperation) -> list[tuple[datetime, datetime]]:
-    """Worker/machine busy pieces for one op — derived segments, never overnight gaps."""
-    envelope = _operation_booking_envelope(op)
+def clocked_spans(op: JobOperation, now_utc=None) -> list[tuple[datetime, datetime]]:
+    """Clocked START/RESUME -> PAUSE/COMPLETE spans; a running one up to now."""
+    from app.models.operation_time import OperationTimeEvent
+
+    now = ensure_utc(now_utc or datetime.now(timezone.utc))
+    spans, open_at = [], None
+    for log in sorted(op.time_logs or [], key=lambda L: ensure_utc(L.event_at)):
+        at = ensure_utc(log.event_at)
+        if log.event in (OperationTimeEvent.START, OperationTimeEvent.RESUME):
+            open_at = open_at or at
+        elif log.event in (OperationTimeEvent.PAUSE, OperationTimeEvent.COMPLETE):
+            if open_at and at > open_at:
+                spans.append((open_at, min(at, now)))
+            open_at = None
+    if open_at and now > open_at:
+        spans.append((open_at, now))
+    return [(s, e) for s, e in spans if e > s]
+
+
+def _busy_intervals_for_operation(op: JobOperation, now_utc=None) -> list[tuple[datetime, datetime]]:
+    """Worker/machine busy pieces for one op — derived segments, never overnight gaps.
+    Work in progress is busy when it was clocked, then from now to its expected
+    finish; time it sat paused is free for other work."""
+    envelope = _operation_booking_envelope(op, now_utc)
     if not envelope:
         return []
     start, end = envelope
+    if op.status == OperationStatus.IN_PROGRESS and op.time_logs:
+        now = ensure_utc(now_utc or datetime.now(timezone.utc))
+        worked = clocked_spans(op, now)
+        ahead_from = max(start, now)
+        ahead = []
+        if end > ahead_from:
+            ahead = (
+                _segments_for_worker_envelope(op.crew_ids, ahead_from, end)
+                if op.assigned_worker_id
+                else [(ahead_from, end)]
+            )
+        return merge_intervals(worked + ahead)
     if not op.assigned_worker_id:
         return [(start, end)]
     schedule_by_dow = load_crew_schedule_map(op.crew_ids)
@@ -309,7 +377,14 @@ def _normalize_operation(op_data, seq_fallback: int) -> dict:
         default_days = (
             op_data.operation_type.default_turnaround_days if outsourced else None
         )
+        envelope = (
+            _operation_booking_envelope(op_data)
+            if op_data.status == OperationStatus.IN_PROGRESS
+            else None
+        )
         return {
+            # In-progress work stays booked until its projected finish.
+            "bookedEnd": envelope[1].isoformat() if envelope else None,
             "id": op_data.id,
             "sequenceNo": op_data.sequence_no,
             "operationName": op_data.operation_name,
@@ -332,7 +407,7 @@ def _normalize_operation(op_data, seq_fallback: int) -> dict:
         }
     est, defaulted = _parse_estimated_hours(op_data.get("estimatedHours"))
     outsourced, default_days = _outsourced_type(op_data.get("operationTypeId"))
-    if not op_data.get("operationTypeId") and op_data.get("isOutsourced"):
+    if not op_data.get("operationTypeId") and (op_data.get("isOutsourced") or op_data.get("outsourced")):
         outsourced = True
     return {
         "id": op_data.get("id"),
@@ -401,14 +476,19 @@ def _frozen_result(op: dict) -> dict | None:
     return None
 
 
-def _unit_label(unit_id, units_by_type):
+def _unit_by_id(unit_id, units_by_type):
     if not unit_id:
         return None
     for units in units_by_type.values():
         for unit in units:
-            if unit.id == unit_id:
-                return unit.label
+            if str(unit.id) == str(unit_id):
+                return unit
     return None
+
+
+def _unit_label(unit_id, units_by_type):
+    unit = _unit_by_id(unit_id, units_by_type)
+    return unit.label if unit is not None else None
 
 
 def _result_from_slot(
@@ -541,6 +621,30 @@ def no_hours_messages(worker_ids) -> list[str]:
     ]
 
 
+OWN_UNIT, OPEN_UNIT, OTHERS_UNIT = 0, 1, 2
+
+
+def unit_ownership(unit, lead_id) -> int:
+    """OWN_UNIT when the lead is the unit's assigned operator, OPEN_UNIT when it
+    has none, OTHERS_UNIT when it is another operator's."""
+    owner = getattr(unit, "default_operator_id", None)
+    if not owner:
+        return OPEN_UNIT
+    return OWN_UNIT if lead_id and str(owner) == str(lead_id) else OTHERS_UNIT
+
+
+def others_unit_note(unit, lead_id) -> str | None:
+    """'Lathe #4 is Ben Santos's unit' when the lead would use another operator's unit."""
+    if unit is None or unit_ownership(unit, lead_id) != OTHERS_UNIT:
+        return None
+    return f"{unit.label} is {_unit_owner_name(unit)}'s unit"
+
+
+def _unit_owner_name(unit) -> str:
+    owner = unit.default_operator
+    return owner.full_name if owner else "another operator"
+
+
 def _find_earliest_slot(
     worker_ids,
     machine_type_id,
@@ -562,8 +666,9 @@ def _find_earliest_slot(
     Earliest feasible (worker, unit) assignment. ``worker_ids`` are candidate
     leads; ``helper_ids`` join every candidate, so the slot is free for the
     whole crew (and inside the hours they all work).
-    Rank: earliest start → least occupied machine → prefer unit whose default
-    operator is the assigned worker → keep preferred worker → label.
+    Rank: earliest start → the lead's own unit, then a unit with no assigned
+    operator, then another operator's unit → least occupied machine → keep
+    preferred worker → label.
     """
     if isinstance(worker_ids, str):
         worker_ids = [worker_ids]
@@ -611,10 +716,9 @@ def _find_earliest_slot(
     if not units:
         return None, None, None, None, 0.0
 
-    # (start, busy_secs, default_op_mismatch, keep_preferred_worker, label, ...)
+    # (start, ownership, busy_secs, keep_preferred_worker, label, ...)
     best = None
     max_placeable = 0.0
-    pref_wid = str(preferred_worker_id) if preferred_worker_id else None
 
     for wid in worker_ids:
         working, worker_booked = _worker_windows_and_busy(
@@ -639,17 +743,11 @@ def _find_earliest_slot(
             if not start or not end:
                 continue
             busy_secs = _busy_seconds_in_horizon(unit_busy, anchor_utc, end_utc)
-            default_id = getattr(unit, "default_operator_id", None)
-            default_mismatch = (
-                0
-                if pref_wid and default_id and str(default_id) == pref_wid
-                else 1
-            )
             keep_pref = 0 if preferred_worker_id and wid == preferred_worker_id else 1
             candidate = (
                 start,
+                unit_ownership(unit, wid),
                 busy_secs,
-                default_mismatch,
                 keep_pref,
                 unit.label or "",
                 end,
@@ -749,9 +847,10 @@ def _free_unit_chooser(
     units_by_type, machine_busy, in_job_machine_busy, anchor_utc, end_utc, honor_machine_pins
 ):
     """Unit choice for an operation placed at a typed start, ranked as the normal
-    search does: least booked in the horizon, then the unit whose assigned
-    operator is the lead, then label. The current unit stays while it is free
-    (or pinned); with no free unit the operation keeps its unit, or has none."""
+    search does: the lead's own unit, then an open unit, then another
+    operator's; then least booked in the horizon, then label. The current unit
+    stays while it is free (or pinned); with no free unit the operation keeps
+    its unit, or has none. Choosing another operator's unit adds a note."""
 
     def unit_busy(unit_id):
         return merge_intervals(
@@ -773,16 +872,16 @@ def _free_unit_chooser(
             if current:
                 return current, _unit_label(current, units_by_type), None
             return None, None, "no machine unit is free at this time"
-        lead = str(op.get("assignedWorkerId") or "")
+        lead = op.get("assignedWorkerId")
         best = min(
             free,
             key=lambda u: (
+                unit_ownership(u, lead),
                 _busy_seconds_in_horizon(unit_busy(u.id), anchor_utc, end_utc),
-                0 if lead and str(u.default_operator_id or "") == lead else 1,
                 u.label or "",
             ),
         )
-        return best.id, best.label, None
+        return best.id, best.label, others_unit_note(best, lead)
 
     return choose
 
@@ -824,6 +923,8 @@ def propose_schedule(
     material_constraint_reason=None,
     never_earlier=False,
     pin_sequence=None,
+    suggest_faster_units=True,
+    _bookings=None,
 ):
     """
     Earliest-fit proposal for a job's operations. Does not write to the database.
@@ -836,6 +937,10 @@ def propose_schedule(
     pin_sequence: this op starts at its scheduledStart (moved to the next working
       time if needed) whatever else is booked; clashes are reported by
       schedule_problems. Ops after it are re-placed from its end.
+    suggest_faster_units: with pins honoured, an op whose pinned unit makes the
+      job finish at least FASTER_UNIT_MIN_GAIN later than another unit of the
+      same type (or cannot be placed at all) gets ``fasterUnit``. The pinned
+      unit is never swapped.
     """
     anchor_utc = ensure_utc(anchor_utc or shop_now().astimezone(timezone.utc))
     end_utc = horizon_end_utc(anchor_utc)
@@ -852,11 +957,12 @@ def propose_schedule(
     normalized.sort(key=lambda o: o["sequenceNo"])
 
     exclude_op_ids = [o["id"] for o in normalized if o.get("id")]
-    worker_busy, machine_busy = _load_external_bookings(
+    worker_busy, machine_busy = _bookings or _load_external_bookings(
         exclude_job_id=exclude_job_id,
         exclude_operation_ids=exclude_op_ids,
     )
     units_by_type = _machine_units_by_type()
+    faster_candidates = []
 
     anchor_shop = utc_to_shop(anchor_utc)
     end_shop = utc_to_shop(end_utc)
@@ -900,8 +1006,22 @@ def propose_schedule(
             frozen_end = ensure_utc(
                 datetime.fromisoformat(kept["scheduledEnd"].replace("Z", "+00:00"))
             )
-            prev_end = max(prev_end, frozen_end)
             _record_in_job_busy(kept, op, in_job_worker_busy, in_job_machine_busy)
+            booked_end = _parse_iso(op.get("bookedEnd")) if frozen else None
+            if booked_end and booked_end > frozen_end:
+                overrun = {
+                    **kept,
+                    "segments": serialize_segments(
+                        _segments_for_worker_envelope(
+                            _crew(op), frozen_end, booked_end, exceptions_by_date
+                        )
+                        if _crew(op)
+                        else [(frozen_end, booked_end)]
+                    ),
+                }
+                _record_in_job_busy(overrun, op, in_job_worker_busy, in_job_machine_busy)
+                frozen_end = booked_end
+            prev_end = max(prev_end, frozen_end)
             continue
 
         if op.get("outsourced"):
@@ -953,6 +1073,26 @@ def propose_schedule(
             preferred_worker_id=assigned_worker,
             helper_ids=op.get("helperIds"),
         )
+
+        if suggest_faster_units and preferred_unit and op.get("machineTypeId"):
+            a_start, a_end, a_unit, _w, _p = _find_earliest_slot(
+                [assigned_worker],
+                op.get("machineTypeId"),
+                duration,
+                not_before,
+                anchor_utc,
+                end_utc,
+                worker_busy,
+                machine_busy,
+                in_job_worker_busy,
+                in_job_machine_busy,
+                exceptions_by_date,
+                units_by_type,
+                preferred_worker_id=assigned_worker,
+                helper_ids=op.get("helperIds"),
+            )
+            if a_unit and str(a_unit) != str(preferred_unit) and (not end or a_end < end):
+                faster_candidates.append((op, a_unit, a_start, a_end, start))
 
         required = float(op["estimatedHours"])
         if not start or not end:
@@ -1021,6 +1161,64 @@ def propose_schedule(
     ]
     projected = max(scheduled_ends) if scheduled_ends else None
     flag = compute_schedule_flag(projected, due_date)
+
+    if faster_candidates:
+        all_placed = all(r.get("scheduled") for r in results)
+        by_seq = {r["sequenceNo"]: r for r in results}
+        for op, unit_id, alt_start, alt_end, pinned_start in faster_candidates[:FASTER_UNIT_MAX]:
+            swapped = [
+                {**o, "machineUnitId": unit_id if o is op else o.get("machineUnitId")}
+                for o in normalized
+            ]
+            alt = propose_schedule(
+                swapped,
+                due_date,
+                exclude_job_id=exclude_job_id,
+                anchor_utc=anchor_utc,
+                lock_before_sequence=lock_before_sequence,
+                honor_machine_pins=True,
+                material_not_before_utc=material_not_before_utc,
+                material_constraint_reason=material_constraint_reason,
+                never_earlier=never_earlier,
+                pin_sequence=pin_sequence,
+                suggest_faster_units=False,
+                _bookings=(worker_busy, machine_busy),
+            )
+            if not all(r.get("scheduled") for r in alt["operations"]):
+                continue
+            alt_finish = _parse_iso(alt["projectedCompletion"])
+            if all_placed and (projected is None or projected - alt_finish < FASTER_UNIT_MIN_GAIN):
+                continue
+            unit = _unit_by_id(unit_id, units_by_type)
+            lead = op.get("assignedWorkerId")
+            hours_earlier = None
+            if pinned_start:
+                working, _busy = _worker_windows_and_busy(
+                    _crew(op), anchor_utc, end_utc, {}, {}, exceptions_by_date
+                )
+                hours_earlier = round(
+                    _busy_seconds_in_horizon(
+                        intersect_intervals([(alt_start, pinned_start)], working),
+                        anchor_utc,
+                        end_utc,
+                    )
+                    / 3600,
+                    1,
+                )
+            owner = unit.default_operator if unit is not None else None
+            by_seq[op["sequenceNo"]]["fasterUnit"] = {
+                "machineUnitId": unit_id,
+                "machineUnitLabel": unit.label if unit is not None else None,
+                "ownership": ("OWN", "OPEN", "OTHER")[unit_ownership(unit, lead)],
+                "operatorName": owner.full_name if owner else None,
+                "scheduledStart": alt_start.isoformat(),
+                "scheduledEnd": alt_end.isoformat(),
+                "hoursEarlier": hours_earlier,
+                "projectedCompletion": alt["projectedCompletion"],
+                "currentProjectedCompletion": (
+                    projected.isoformat() if projected and all_placed else None
+                ),
+            }
 
     return {
         "proposed": True,
@@ -1242,11 +1440,15 @@ def schedule_problems(
     exclude_job_id=None,
     material_not_before_utc=None,
     now_utc=None,
+    include_warnings=False,
 ) -> list[dict]:
     """
     Everything that stops a schedule from being confirmed, one entry per problem:
-    {sequenceNo, operationId, code, message}. Operations already started or
-    completed are kept as they are and only count as bookings.
+    {sequenceNo, operationId, code, message, severity}. Operations already
+    started or completed are kept as they are and only count as bookings.
+
+    include_warnings adds entries with severity "warning" that never block,
+    such as a lead placed on another operator's unit (UNIT_OWNER).
 
     Clashes compare actual working periods, never the whole start-to-end span.
     """
@@ -1266,17 +1468,19 @@ def schedule_problems(
         exclude_operation_ids=[o["id"] for o in ops if o.get("id")],
     )
     downtime = open_downtime_intervals_by_unit()
-    unit_labels = {u.id: u.label for u in MachineUnit.query.all()}
+    units = {u.id: u for u in MachineUnit.query.all()}
+    unit_labels = {uid: u.label for uid, u in units.items()}
 
     problems = []
 
-    def add(op, code, message):
+    def add(op, code, message, severity="error"):
         problems.append(
             {
                 "sequenceNo": op["sequenceNo"],
                 "operationId": op.get("id"),
                 "code": code,
                 "message": message,
+                "severity": severity,
             }
         )
 
@@ -1427,6 +1631,15 @@ def schedule_problems(
                 )
             elif _overlaps(busy, downtime.get(unit_id, [])):
                 add(op, "MACHINE_CONFLICT", f"{unit} has an open breakdown")
+            placed_unit = units.get(unit_id)
+            if include_warnings and unit_ownership(placed_unit, worker_id) == OTHERS_UNIT:
+                add(
+                    op,
+                    "UNIT_OWNER",
+                    f"{label(op)}: {_worker_label(worker_id)} is placed on {placed_unit.label}, "
+                    f"{_unit_owner_name(placed_unit)}'s unit",
+                    severity="warning",
+                )
 
         placed.append((op, busy))
         prev = (op, end)

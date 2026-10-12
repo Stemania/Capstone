@@ -357,7 +357,13 @@ def list_job_orders(user_id, user_role, status=None, scope=None, awaiting_materi
                 (MaterialStatus.TO_ORDER, MaterialStatus.ORDERED)
             )
         )
-    return query.order_by(JobOrder.due_date.asc()).all()
+    # Jobs due the same day: the earlier client PO first, then the earlier job.
+    return query.order_by(
+        JobOrder.due_date.asc(),
+        JobOrder.po_date.asc().nullslast(),
+        JobOrder.created_at.asc(),
+        JobOrder.id.asc(),
+    ).all()
 
 
 def get_job_order(job_id, user_id, user_role):
@@ -888,7 +894,8 @@ def propose_for_job(job: JobOrder, data: dict) -> dict:
 
     ops = data.get("operations")
     lock_before = data.get("lockBeforeSequence")
-    honor_pins = bool(data.get("honorMachinePins"))
+    # A saved unit is never swapped unless the caller explicitly asks.
+    honor_pins = data.get("honorMachinePins") is not False
     restored = False
     replaced_past_start = None
     if ops is None:
@@ -932,9 +939,11 @@ def propose_for_job(job: JobOrder, data: dict) -> dict:
                 "actualStart": src.actual_start.isoformat() if src and src.actual_start else None,
             }
         )
-    result["problems"] = schedule_problems(
-        checked, exclude_job_id=job.id, material_not_before_utc=material_nb
+    found = schedule_problems(
+        checked, exclude_job_id=job.id, material_not_before_utc=material_nb, include_warnings=True
     )
+    result["problems"] = [p for p in found if p["severity"] == "error"]
+    result["warnings"] = [p for p in found if p["severity"] == "warning"]
     result["restored"] = restored
     result["replacedPastStart"] = replaced_past_start
     return result
@@ -1278,6 +1287,8 @@ def _place_redo(job, redo, propose_schedule, schedule_problems) -> str | None:
         anchor_utc=_next_quarter_hour(),
         lock_before_sequence=redo.sequence_no,
         never_earlier=True,
+        honor_machine_pins=True,
+        suggest_faster_units=False,
     )
     rows = proposal["operations"]
     failed = [r for r in rows if not r.get("scheduled")]
@@ -1310,18 +1321,24 @@ def _place_redo(job, redo, propose_schedule, schedule_problems) -> str | None:
 
 
 def _mark_needs_replan(job_id, reason: str) -> None:
-    from app.models.staff_alert import StaffAlertKind
-    from app.services.staff_alert_service import raise_alert
-
     job = db.session.get(JobOrder, job_id)
     if job is None:
         return
+    mark_needs_replan(job, reason, f"A redo could not be scheduled: {reason}")
+    db.session.commit()
+
+
+def mark_needs_replan(job: JobOrder, reason: str, message: str, dedupe_key: str | None = None) -> None:
+    """The job shows "Needs re-plan" until the Admin re-plans it; the Admin is told. Does not commit."""
+    from app.models.staff_alert import StaffAlertKind
+    from app.services.staff_alert_service import raise_alert
+
     job.needs_replan_reason = reason
     raise_alert(
         roles=[UserRole.ADMIN],
         kind=StaffAlertKind.NEEDS_REPLAN,
         title=f"{job.job_number} needs re-plan",
-        message=f"A redo could not be scheduled: {reason}",
+        message=message,
         job_order_id=job.id,
+        dedupe_key=dedupe_key,
     )
-    db.session.commit()

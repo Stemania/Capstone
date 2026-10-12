@@ -20,6 +20,10 @@ class DelayKind:
     MATERIAL = "MATERIAL"
     # Only the passed start date moved the job.
     RESCHEDULED = "RESCHEDULED"
+    # Earlier work of the same worker or unit is running past its planned end.
+    OVERRUN = "OVERRUN"
+    # The unit broke down; the work moved to another unit or after the repair.
+    BREAKDOWN = "BREAKDOWN"
 
 
 class MaterialCause:

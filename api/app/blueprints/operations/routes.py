@@ -252,7 +252,32 @@ def open_downtime(unit_id):
     affected = op_service.list_affected_operations(unit_id)
     payload["affectedCount"] = len(affected)
     payload["affectedOperations"] = affected
+    if get_current_user_role() in (UserRole.ADMIN.value, UserRole.OFFICE_STAFF.value):
+        from app.services.shop_floor_check_service import breakdown_options
+
+        payload["work"] = breakdown_options(unit_id)
     return jsonify(payload), 201
+
+
+@operations_bp.route("/machine-units/<unit_id>/downtime/work", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def down_unit_work(unit_id):
+    """Unstarted work booked on the unit while it is down, and what can be done with it."""
+    from app.services.shop_floor_check_service import breakdown_options
+
+    return jsonify(breakdown_options(unit_id))
+
+
+@operations_bp.route("/machine-units/<unit_id>/downtime/work", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN)
+def move_down_unit_work(unit_id):
+    """action: MOVE_UNIT (another free unit of the type), AFTER_REPAIR or LEAVE."""
+    from app.services.shop_floor_check_service import resolve_breakdown
+
+    data = request.get_json() or {}
+    return jsonify(resolve_breakdown(unit_id, data.get("action")))
 
 
 @operations_bp.route("/machine-units/downtime/<downtime_id>/close", methods=["POST"])

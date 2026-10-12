@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.services.analytics_service import (
-    CAPACITY_LOAD_FLAG_PCT,
     average_variance_pct,
     filter_by_min_ops,
     month_partial_flags,
@@ -174,37 +173,3 @@ def test_flat_average_projection_is_gone():
 
     assert set(result) == {"committedPipeline", "salesForecast"}
     assert not hasattr(svc, "THIN_SAMPLE_WEEKS")
-
-
-def test_capacity_load_uses_unit_count_adjusted_available_hours():
-    from app.services.analytics_service import capacity_type_rows
-
-    mt_shaper = SimpleNamespace(id="t1", code="SHAPER", name="Shaper")
-    mt_lathe = SimpleNamespace(id="t2", code="LATHE", name="Lathe")
-    units_by_type = {
-        "t1": [SimpleNamespace(id="u1")],
-        "t2": [SimpleNamespace(id="u2"), SimpleNamespace(id="u3")],
-    }
-    # 180h on SHAPER (1 unit) → ~83% of 216; 200h on LATHE (2 units) → ~46% of 432
-    load_by_type = {"t1": 180.0, "t2": 200.0}
-    available_per_unit = 216.0
-
-    rows = capacity_type_rows(
-        [mt_shaper, mt_lathe], units_by_type, load_by_type, available_per_unit
-    )
-    by_code = {r["machineTypeCode"]: r for r in rows}
-
-    assert by_code["SHAPER"]["activeUnitCount"] == 1
-    assert by_code["SHAPER"]["availableHours"] == 216.0
-    assert by_code["SHAPER"]["projectedLoadPct"] == pytest.approx(180 / 216 * 100, rel=1e-3)
-    assert by_code["SHAPER"]["above80Pct"] is True
-    assert by_code["SHAPER"]["projectedLoadPct"] >= CAPACITY_LOAD_FLAG_PCT
-
-    assert by_code["LATHE"]["activeUnitCount"] == 2
-    assert by_code["LATHE"]["availableHours"] == 432.0  # 216 * 2, not 216
-    assert by_code["LATHE"]["projectedLoadPct"] == pytest.approx(200 / 432 * 100, rel=1e-3)
-    assert by_code["LATHE"]["above80Pct"] is False
-    # Wrong denominator (ignore unit count) would falsely flag LATHE
-    wrong = 200 / 216 * 100
-    assert wrong > CAPACITY_LOAD_FLAG_PCT
-    assert by_code["LATHE"]["projectedLoadPct"] < CAPACITY_LOAD_FLAG_PCT
