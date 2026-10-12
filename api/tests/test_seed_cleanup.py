@@ -3,7 +3,7 @@ by default, deletes only SEED records (option A) and merges DUPLICATE
 suppliers with --apply, never touches REAL or UNSURE records or reference
 data, and is idempotent."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -25,13 +25,15 @@ from app.models.operation import JobOperation, OperationStatus
 from app.models.operation_time import DowntimeCategory, MachineDowntime, OperationTimeEvent, OperationTimeLog
 from app.models.shop_settings import ShopSettings
 from app.models.supplier import Supplier
+from app.models.stocktake import Stocktake, StocktakeLine
 from app.models.supplier_order import SupplierOrder, SupplierOrderStatus
 from app.models.tool import Tool
 from app.models.tool_event import ToolEvent, ToolEventType
 from app.models.user import User, UserRole, UserStatus
-from app.models.worker_skill import OperationType
+from app.models.worker_skill import CalendarExceptionType, OperationType, WorkCalendarException
 from app.services import seed_cleanup_service as cleanup
 from app.services.reference_data_service import load_reference_data
+from app.utils.db_url import mask_database_url
 
 NOW = datetime(2026, 9, 1, 2, 0, tzinfo=timezone.utc)
 
@@ -265,8 +267,11 @@ def test_every_client_and_supplier_is_grouped(world):
         "HIST-SEED Foo": "SEED",
         "TC-SEED Bar": "SEED",
         "ABC Manufacturing": "SEED",
-        "HIST-SEED Mixed": "UNSURE",
+        "HIST-SEED Mixed": "SEED",
     }
+    mixed = next(r for r in plan.clients if r.name == "HIST-SEED Mixed")
+    assert mixed.linked["job orders"] == 2
+    assert len(mixed.notes) == 1 and "PO 12738" in mixed.notes[0]
     groups = _groups(plan, "supplier")
     assert groups["Railim Industrial Corporation"] == "REAL"
     assert groups["Seno Metals"] == "REAL"  # retired reference supplier, despite is_seed
@@ -299,7 +304,7 @@ def test_dry_run_changes_nothing(world):
     plan = cleanup.run(apply=False, today=date(2026, 10, 12))
     assert _all_counts() == before
     assert plan.before["jobOrders"] == 6
-    assert plan.after["jobOrders"] == 4  # Acme, Legacy, and both jobs of the UNSURE client
+    assert plan.after["jobOrders"] == 2  # Acme and Legacy
     assert Client.query.filter_by(name="HIST-SEED Foo").count() == 1
 
 
@@ -308,7 +313,7 @@ def test_apply_deletes_seed_and_merges_duplicates_only(world):
     cleanup.run(apply=True, today=date(2026, 10, 12))
 
     names = {c.name for c in Client.query.all()}
-    assert names == {"Acme Real", "Legacy Co", "Mystery Co", "HIST-SEED Mixed"}
+    assert names == {"Acme Real", "Legacy Co", "Mystery Co"}
     assert {s.name for s in Supplier.query.all()} == {
         "Railim Industrial Corporation",
         "STP Industrial Inc.",
@@ -317,11 +322,9 @@ def test_apply_deletes_seed_and_merges_duplicates_only(world):
     }
     assert {j.id for j in JobOrder.query.all()} == {
         world["real_job"],
-        world["mixed_app_job"],
-        world["mixed_seed_job"],
         *[j.id for j in JobOrder.query.filter_by(client_po_number=None)],
     }
-    assert JobOrder.query.count() == 4
+    assert JobOrder.query.count() == 2
     assert NotificationLog.query.count() == 0
     assert MachineDowntime.query.count() == 1
     assert db.session.get(SupplierOrder, world["shared"]) is not None
@@ -355,4 +358,151 @@ def test_report_and_cli_dry_run(world, app):
     result = app.test_cli_runner().invoke(args=["cleanup-seed-data"])
     assert result.exit_code == 0, result.output
     assert "Dry run: nothing was saved." in result.output
+    assert "Database: " in result.output
     assert _all_counts() == before
+
+
+def test_also_clients_matches_exact_names_only(world, app):
+    plan = cleanup.build_plan(also_clients=["Acme Real", "mystery co", "Nobody Inc"])
+    groups = _groups(plan, "client")
+    assert groups["Acme Real"] == "SEED"
+    assert groups["Mystery Co"] == "UNSURE"
+    assert plan.missing_names == ["Nobody Inc", "mystery co"]
+    acme = next(r for r in plan.clients if r.name == "Acme Real")
+    assert "named with --also-clients" in acme.reason
+    assert acme.linked["job orders"] == 1
+    assert world["real_job"] in plan.seed_job_ids
+    assert world["shared"] in plan.seed_order_ids  # its only other line was on a seed job
+
+    before = _all_counts()
+    result = app.test_cli_runner().invoke(
+        args=["cleanup-seed-data", "--also-clients", "Acme Real", "--also-clients", "Nobody Inc"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "--also-clients 'Nobody Inc': no client has exactly this name" in result.output
+    assert "Acme Real  [named with --also-clients]" in result.output
+    assert _all_counts() == before
+
+
+def _tool(code, on_hand):
+    tool = Tool(name=f"Item {code}", code=code, unit="pcs", quantity_on_hand=Decimal(on_hand))
+    db.session.add(tool)
+    db.session.flush()
+    return tool
+
+
+def _count(admin, on, notes, lines):
+    take = Stocktake(counted_on=on, counted_by_id=admin.id, notes=notes)
+    db.session.add(take)
+    db.session.flush()
+    for tool, previous, counted in lines:
+        db.session.add(
+            StocktakeLine(
+                stocktake_id=take.id, tool_id=tool.id,
+                previous_quantity=Decimal(previous), counted_quantity=Decimal(counted),
+            )
+        )
+    return take
+
+
+def _receive(admin, tool, qty, on, reason):
+    event = ToolEvent(
+        tool_id=tool.id, worker_id=admin.id, type=ToolEventType.RECEIVE,
+        quantity=Decimal(qty), received_on=on, reason=reason,
+    )
+    db.session.add(event)
+    return event
+
+
+def test_seed_stock_rows_are_removed_and_on_hand_recomputed(world):
+    admin = world["admin"]
+    counted = _tool("T-COUNTED", "27")
+    never = _tool("T-NEVER", "30")
+    _receive(admin, counted, "100", date(2026, 7, 1), "HIST-SEED restock")  # before the real count
+    _count(admin, date(2026, 8, 1), "Monthly count", [(counted, "0", "10")])
+    _count(admin, date(2026, 8, 15), "HIST-SEED count", [(counted, "10", "7")])
+    _receive(admin, counted, "20", date(2026, 8, 20), "HIST-SEED restock")
+    _receive(admin, never, "50", date(2026, 8, 20), "HIST-SEED restock")
+    real_event = _receive(admin, never, "4", date(2026, 8, 21), "Walk-in purchase")
+    db.session.commit()
+
+    plan = cleanup.build_plan()
+    stock = {s["code"]: s for s in plan.stock}
+    assert stock["T-COUNTED"]["after"] == Decimal("10")  # 27 - (-3 + 20)
+    assert stock["T-NEVER"]["after"] == Decimal("0")
+    assert any("set to 0" in n for n in stock["T-NEVER"]["notes"])
+    assert len(plan.seed_stocktake_ids) == 1 and len(plan.seed_stock_event_ids) == 3
+
+    cleanup.run(apply=True, today=date(2026, 10, 12))
+    db.session.expire_all()
+    assert Stocktake.query.count() == 1
+    assert StocktakeLine.query.count() == 1
+    assert db.session.get(Tool, counted.id).quantity_on_hand == Decimal("10")
+    assert db.session.get(Tool, never.id).quantity_on_hand == Decimal("0")
+    assert db.session.get(ToolEvent, real_event.id) is not None
+    assert ToolEvent.query.filter(ToolEvent.reason.like("%HIST-SEED%")).count() == 0
+
+    plan = cleanup.run(apply=True, today=date(2026, 10, 12))
+    assert db.session.get(Tool, counted.id).quantity_on_hand == Decimal("10")
+    assert plan.seed_stocktake_ids == [] and plan.seed_stock_event_ids == []
+
+
+def test_calendar_keeps_philippine_holidays(world):
+    def entry(on, kind, note, start=None, end=None):
+        row = WorkCalendarException(date=on, type=kind, note=note, start_time=start, end_time=end)
+        db.session.add(row)
+        return row
+
+    ot = entry(date(2026, 9, 3), CalendarExceptionType.OVERTIME, "HIST-SEED OT window", time(17), time(19))
+    good_friday = entry(date(2026, 4, 3), CalendarExceptionType.HOLIDAY_NO_WORK, "HIST-SEED Good Friday")
+    odd = entry(date(2026, 9, 9), CalendarExceptionType.HOLIDAY_NO_WORK, "HIST-SEED shop outing")
+    real = entry(date(2026, 9, 10), CalendarExceptionType.OVERTIME, "Rush order")
+    db.session.commit()
+
+    plan = cleanup.build_plan()
+    by_id = {c["id"]: c for c in plan.calendar}
+    assert set(by_id) == {ot.id, good_friday.id, odd.id}
+    assert by_id[ot.id]["action"] == "delete"
+    assert by_id[good_friday.id]["action"] == "keep"
+    assert "Good Friday" in by_id[good_friday.id]["why"]
+    assert by_id[odd.id]["action"] == "keep (check)"
+
+    cleanup.run(apply=True, today=date(2026, 10, 12))
+    left = {row.id for row in WorkCalendarException.query.all()}
+    assert left == {good_friday.id, odd.id, real.id}
+
+
+@pytest.mark.parametrize(
+    ("on", "name"),
+    [
+        (date(2026, 1, 1), "New Year's Day"),
+        (date(2026, 4, 2), "Maundy Thursday"),
+        (date(2026, 4, 3), "Good Friday"),
+        (date(2026, 4, 4), "Black Saturday"),
+        (date(2025, 4, 18), "Good Friday"),
+        (date(2026, 8, 31), "National Heroes Day"),
+        (date(2025, 8, 25), "National Heroes Day"),
+        (date(2026, 12, 30), "Rizal Day"),
+        (date(2026, 8, 24), None),
+        (date(2026, 9, 3), None),
+    ],
+)
+def test_ph_holiday(on, name):
+    assert cleanup.ph_holiday(on) == name
+
+
+@pytest.mark.parametrize(
+    ("url", "shown"),
+    [
+        ("postgresql://bmsc:s3cret@ep-cool-1.neon.tech/neondb?sslmode=require", "ep-cool-1.neon.tech/neondb"),
+        ("postgresql+psycopg2://u:p%40ss@localhost:5433/bmsc", "localhost/bmsc"),
+        ("sqlite:///tmp/test.db", "sqlite/tmp/test.db"),
+        ("", "(unset)"),
+        (None, "(unset)"),
+        ("not a url s3cret", "(unreadable database URL)"),
+    ],
+)
+def test_mask_database_url_hides_credentials(url, shown):
+    masked = mask_database_url(url)
+    assert masked == shown
+    assert "s3cret" not in masked and "p%40ss" not in masked

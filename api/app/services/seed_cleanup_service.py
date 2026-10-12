@@ -1,4 +1,4 @@
-"""Find, and optionally remove, clients and suppliers made by the seed scripts.
+"""Find, and optionally remove, data made by the seed scripts.
 
 Used by `flask cleanup-seed-data` (a dry run unless --apply). Every client and
 supplier is put in one group:
@@ -7,29 +7,35 @@ supplier is put in one group:
   retired reference supplier), or a record entered in the app (an audit-log
   CREATE by a user, or job orders / supplier orders that are not seed-tagged).
 - SEED: made by a seed script. Clients: a name starting "HIST-SEED " or
-  "TC-SEED ", a contact or email ending ".local", or one of `flask seed`'s
-  demo clients. Suppliers: is_seed or the same markers, and not REAL.
+  "TC-SEED ", a contact or email ending ".local", one of `flask seed`'s demo
+  clients, or a name given with --also-clients. Job orders entered in the app
+  on such a client go with it and are listed first. Suppliers: is_seed or the
+  same markers, and not REAL.
 - DUPLICATE: a supplier renamed "<name> (duplicate)" by the reference loader;
   it merges into the reference supplier that name or alias belongs to.
-- UNSURE: anything else, or a seed-looking record that also carries work
-  entered in the app. Never changed.
+- UNSURE: anything else. Never changed.
 
---apply removes SEED clients and suppliers with everything that belongs only
-to them (option A): their job orders with operations, time logs, helpers,
-material lines, schedule moves, alerts, notifications and invoices; supplier
-orders that are seed-tagged or carry only seed-job lines; and seed-tagged or
-seed-job machine downtimes. Consumable stock movements are kept and only lose
-their link to the deleted job or line. DUPLICATE suppliers have their
-references moved to the target and are then deleted. Users, machines,
-operation types, the catalog, consumables, shop details and every REAL or
-UNSURE record are never changed. Running it twice changes nothing the
-second time.
+--apply (option A) removes:
+- SEED clients and suppliers with their job orders, operations, time logs,
+  helpers, material lines, schedule moves, alerts, notifications and
+  invoices; supplier orders that are seed-tagged or carry only seed-job
+  lines; seed-tagged or seed-job machine downtimes.
+- Seed-tagged stock counts and stock movements. Each consumable's quantity on
+  hand drops by what those rows added after its latest real count, never
+  below 0.
+- Seed-tagged calendar entries, except "holiday / no work" entries, which are
+  kept (and flagged when the date is not a Philippine holiday).
+DUPLICATE suppliers have their references moved to the target and are then
+deleted. Users, machines, operation types, the catalog, consumable items,
+shop details and every REAL or UNSURE record are never changed. Running it
+twice changes nothing the second time.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
+from decimal import Decimal
 
 from sqlalchemy import bindparam, text
 
@@ -52,6 +58,9 @@ DEMO_CLIENTS = (
 REAL, SEED, DUPLICATE, UNSURE = "REAL", "SEED", "DUPLICATE", "UNSURE"
 GROUPS = (REAL, SEED, DUPLICATE, UNSURE)
 
+EVENT_REASON = "coalesce(reason, '')"
+STOCK_EVENT_SIGN = {"RECEIVE": 1, "RETURN": 1, "ISSUE": -1, "BORROW": -1}
+
 
 @dataclass
 class Record:
@@ -62,6 +71,7 @@ class Record:
     reason: str
     merge_into: tuple[str, str] | None = None  # (id, name) for DUPLICATE
     linked: dict = field(default_factory=dict)
+    notes: list = field(default_factory=list)
 
 
 @dataclass
@@ -72,7 +82,13 @@ class Plan:
     seed_order_ids: list[str]
     seed_downtime_ids: list[str]
     seed_orders_by_supplier: dict
+    seed_stocktake_ids: list[str]
+    seed_stock_event_ids: list[str]
+    calendar: list[dict]
+    stock: list[dict]
     untouched: dict
+    missing_names: list[str] = field(default_factory=list)
+    database: str = ""
     before: dict | None = None
     after: dict | None = None
 
@@ -83,13 +99,17 @@ class Plan:
         ]
 
 
-def _rows(sql, **params):
+def _stmt(sql, params):
     stmt = text(sql)
     expanding = [k for k, v in params.items() if isinstance(v, (list, tuple, set))]
     if expanding:
         stmt = stmt.bindparams(*(bindparam(k, expanding=True) for k in expanding))
-        params = {k: (list(v) if k in expanding else v) for k, v in params.items()}
-    return db.session.execute(stmt, params).all()
+        params = {k: (list(v) or [""] if k in expanding else v) for k, v in params.items()}
+    return stmt, params
+
+
+def _rows(sql, **params):
+    return db.session.execute(*_stmt(sql, params)).all()
 
 
 def _scalar(sql, **params):
@@ -97,12 +117,7 @@ def _scalar(sql, **params):
 
 
 def _exec(sql, **params):
-    stmt = text(sql)
-    expanding = [k for k, v in params.items() if isinstance(v, (list, tuple, set))]
-    if expanding:
-        stmt = stmt.bindparams(*(bindparam(k, expanding=True) for k in expanding))
-        params = {k: (list(v) if k in expanding else v) for k, v in params.items()}
-    return db.session.execute(stmt, params).rowcount
+    return db.session.execute(*_stmt(sql, params)).rowcount
 
 
 def _tagged(value) -> bool:
@@ -116,6 +131,10 @@ def _seed_po(po) -> bool:
 
 def _local(value) -> bool:
     return (value or "").strip().lower().endswith(SEED_EMAIL_SUFFIX)
+
+
+def _like_any(column):
+    return "(" + " OR ".join(f"{column} LIKE '%{t}%'" for t in SEED_TAGS) + ")"
 
 
 def _created_in_app(entity_type) -> dict:
@@ -139,20 +158,72 @@ def _reference_supplier(name):
     return None
 
 
+# --- Philippine holidays ----------------------------------------------------------
+
+FIXED_PH_HOLIDAYS = {
+    (1, 1): "New Year's Day",
+    (4, 9): "Araw ng Kagitingan",
+    (5, 1): "Labor Day",
+    (6, 12): "Independence Day",
+    (8, 21): "Ninoy Aquino Day",
+    (11, 1): "All Saints' Day",
+    (11, 30): "Bonifacio Day",
+    (12, 8): "Feast of the Immaculate Conception",
+    (12, 24): "Christmas Eve",
+    (12, 25): "Christmas Day",
+    (12, 30): "Rizal Day",
+    (12, 31): "Last day of the year",
+}
+
+
+def _easter(year: int) -> date:
+    """Western Easter Sunday (anonymous Gregorian algorithm)."""
+    a, b, c = year % 19, year // 100, year % 100
+    d, e = divmod(b, 4)
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    l = (32 + 2 * e + 2 * i - h - k) % 7  # noqa: E741
+    m = (a + 11 * h + 22 * l) // 451
+    month, day = divmod(h + l - 7 * m + 114, 31)
+    return date(year, month, day + 1)
+
+
+def ph_holiday(on: date) -> str | None:
+    """The Philippine holiday on a date: the fixed-date ones, Holy Week and
+    National Heroes Day. Chinese New Year and the Eid holidays move each
+    year by proclamation and are not included."""
+    if (on.month, on.day) in FIXED_PH_HOLIDAYS:
+        return FIXED_PH_HOLIDAYS[(on.month, on.day)]
+    easter = _easter(on.year)
+    holy = {
+        easter - timedelta(days=3): "Maundy Thursday",
+        easter - timedelta(days=2): "Good Friday",
+        easter - timedelta(days=1): "Black Saturday",
+    }
+    if on in holy:
+        return holy[on]
+    if on.month == 8 and on.weekday() == 0 and (on + timedelta(days=7)).month == 9:
+        return "National Heroes Day"
+    return None
+
+
 # --- Classification ----------------------------------------------------------
 
 
-def _classify_clients(app_created) -> list[Record]:
+def _classify_clients(app_created, also_names) -> tuple[list[Record], list[str]]:
     jobs = {}
-    for cid, po in _rows("SELECT client_id, client_po_number FROM job_orders"):
-        jobs.setdefault(cid, []).append(po)
-    demo = {(n.lower(), c) for n, c in DEMO_CLIENTS}
-    out = []
-    for cid, name, contact, email in _rows(
-        "SELECT id, name, contact, email FROM clients ORDER BY name"
+    for cid, jid, po, title, status, created in _rows(
+        "SELECT client_id, id, client_po_number, title, status, created_at FROM job_orders ORDER BY created_at"
     ):
-        pos = jobs.get(cid, [])
-        app_jobs = [po for po in pos if not _seed_po(po)]
+        jobs.setdefault(cid, []).append((jid, po, title, status, created))
+    demo = {(n.lower(), c) for n, c in DEMO_CLIENTS}
+    wanted = {n.strip() for n in also_names if n and n.strip()}
+    found = set()
+    out = []
+    for cid, name, contact, email in _rows("SELECT id, name, contact, email FROM clients ORDER BY name"):
+        app_jobs = [j for j in jobs.get(cid, []) if not _seed_po(j[1])]
         markers = []
         if _tagged(name):
             markers.append("seed name")
@@ -160,34 +231,33 @@ def _classify_clients(app_created) -> list[Record]:
             markers.append(".local contact")
         if ((name or "").strip().lower(), (contact or "").strip()) in demo:
             markers.append("`flask seed` demo client")
-        if markers and not app_jobs and cid not in app_created:
-            out.append(Record("client", cid, name, SEED, ", ".join(markers)))
-        elif markers:
-            why = f"{', '.join(markers)}, but "
-            why += (
-                f"{len(app_jobs)} job order(s) entered in the app"
-                if app_jobs
-                else f"created in the app by {app_created[cid]}"
-            )
-            out.append(Record("client", cid, name, UNSURE, why))
+        if name in wanted:
+            found.add(name)
+            markers.append("named with --also-clients")
+        if markers:
+            rec = Record("client", cid, name, SEED, ", ".join(markers))
+            for _jid, po, title, status, created in app_jobs:
+                rec.notes.append(
+                    f"entered in the app: {title!r} (PO {po or '-'}, {status}, {created:%Y-%m-%d})"
+                )
+            out.append(rec)
         elif cid in app_created:
             out.append(Record("client", cid, name, REAL, f"entered in the app by {app_created[cid]}"))
         elif app_jobs:
             out.append(Record("client", cid, name, REAL, f"{len(app_jobs)} job order(s) entered in the app"))
         else:
             out.append(Record("client", cid, name, UNSURE, "no seed markers and no app history"))
-    return out
+    return out, sorted(wanted - found)
 
 
 def _seed_supplier_order_ids(seed_job_ids) -> tuple[set, dict]:
     """Supplier orders that are seed-tagged or carry only seed-job lines, and
     none that belong to other jobs. Also {supplier id: count}."""
-    lines = _rows(
+    info = {}
+    for oid, sid, notes, line_id, job_id in _rows(
         "SELECT o.id, o.supplier_id, o.notes, m.id, m.job_order_id "
         "FROM supplier_orders o LEFT JOIN material_purchases m ON m.supplier_order_id = o.id"
-    )
-    info = {}
-    for oid, sid, notes, line_id, job_id in lines:
+    ):
         row = info.setdefault(oid, {"supplier": sid, "tagged": _tagged(notes), "seed": 0, "other": 0, "restock": 0})
         if line_id is None:
             continue
@@ -201,37 +271,33 @@ def _seed_supplier_order_ids(seed_job_ids) -> tuple[set, dict]:
     for oid, row in info.items():
         if row["other"]:
             continue
-        only_seed_jobs = row["seed"] > 0 and row["restock"] == 0
-        if row["tagged"] or only_seed_jobs:
+        if row["tagged"] or (row["seed"] > 0 and row["restock"] == 0):
             ids.add(oid)
             by_supplier[row["supplier"]] = by_supplier.get(row["supplier"], 0) + 1
     return ids, by_supplier
 
 
 def _classify_suppliers(app_created, seed_order_ids) -> list[Record]:
-    by_code = {}
     rows = _rows("SELECT id, name, code, is_seed, email FROM suppliers ORDER BY name")
-    for sid, name, code, _seed, _email in rows:
-        if code:
-            by_code[code] = (sid, name)
+    by_code = {code: (sid, name) for sid, name, code, _s, _e in rows if code}
     retired = {n.lower() for n in INACTIVE_SUPPLIERS}
-    app_orders = {
-        sid: n
-        for sid, n in _rows(
-            "SELECT supplier_id, count(*) FROM supplier_orders "
-            "WHERE NOT (id IN :ids) GROUP BY supplier_id",
-            ids=list(seed_order_ids) or [""],
+    app_orders = dict(
+        _rows(
+            "SELECT supplier_id, count(*) FROM supplier_orders WHERE NOT (id IN :ids) GROUP BY supplier_id",
+            ids=seed_order_ids,
         )
-    }
+    )
     out = []
     for sid, name, code, is_seed, email in rows:
         if name.endswith(DUPLICATE_SUFFIX):
-            base = name[: -len(DUPLICATE_SUFFIX)]
-            spec = _reference_supplier(base)
+            spec = _reference_supplier(name[: -len(DUPLICATE_SUFFIX)])
             target = by_code.get(spec["code"]) if spec else None
             if target and target[0] != sid:
                 out.append(
-                    Record("supplier", sid, name, DUPLICATE, f"renamed by the reference loader; same as {spec['code']}", merge_into=target)
+                    Record(
+                        "supplier", sid, name, DUPLICATE,
+                        f"renamed by the reference loader; same as {spec['code']}", merge_into=target,
+                    )
                 )
             else:
                 out.append(Record("supplier", sid, name, UNSURE, "marked duplicate, but no reference supplier matches"))
@@ -245,7 +311,9 @@ def _classify_suppliers(app_created, seed_order_ids) -> list[Record]:
             out.append(Record("supplier", sid, name, REAL, f"entered in the app by {app_created[sid]}"))
         elif is_seed or _tagged(name) or _local(email):
             if app_orders.get(sid):
-                out.append(Record("supplier", sid, name, UNSURE, f"seed flag, but {app_orders[sid]} supplier order(s) entered in the app"))
+                out.append(
+                    Record("supplier", sid, name, UNSURE, f"seed flag, but {app_orders[sid]} supplier order(s) entered in the app")
+                )
             else:
                 out.append(Record("supplier", sid, name, SEED, "seed flag" if is_seed else "seed name or .local email"))
         elif app_orders.get(sid):
@@ -259,20 +327,13 @@ def _classify_suppliers(app_created, seed_order_ids) -> list[Record]:
 
 
 def _job_links(job_ids) -> dict:
-    ids = list(job_ids) or [""]
+    ids = list(job_ids)
+    ops = "SELECT id FROM operations WHERE job_order_id IN :ids"
     return {
-        "job orders": len(job_ids),
+        "job orders": len(ids),
         "operations": _scalar("SELECT count(*) FROM operations WHERE job_order_id IN :ids", ids=ids),
-        "time records": _scalar(
-            "SELECT count(*) FROM operation_time_logs t JOIN operations o ON o.id = t.operation_id "
-            "WHERE o.job_order_id IN :ids",
-            ids=ids,
-        ),
-        "helpers": _scalar(
-            "SELECT count(*) FROM operation_helpers h JOIN operations o ON o.id = h.operation_id "
-            "WHERE o.job_order_id IN :ids",
-            ids=ids,
-        ),
+        "time records": _scalar(f"SELECT count(*) FROM operation_time_logs WHERE operation_id IN ({ops})", ids=ids),
+        "helpers": _scalar(f"SELECT count(*) FROM operation_helpers WHERE operation_id IN ({ops})", ids=ids),
         "material lines": _scalar("SELECT count(*) FROM material_purchases WHERE job_order_id IN :ids", ids=ids),
         "deliveries received": _scalar(
             "SELECT count(*) FROM material_purchases WHERE job_order_id IN :ids AND date_received IS NOT NULL",
@@ -283,20 +344,20 @@ def _job_links(job_ids) -> dict:
         "staff alerts": _scalar("SELECT count(*) FROM staff_alerts WHERE job_order_id IN :ids", ids=ids),
         "schedule moves": _scalar("SELECT count(*) FROM schedule_moves WHERE job_order_id IN :ids", ids=ids),
         "machine downtimes": _scalar(
-            "SELECT count(*) FROM machine_downtimes WHERE job_order_id IN :ids "
-            "OR operation_id IN (SELECT id FROM operations WHERE job_order_id IN :ids)",
+            f"SELECT count(*) FROM machine_downtimes WHERE job_order_id IN :ids OR operation_id IN ({ops})",
             ids=ids,
         ),
         "stock movements (kept, unlinked)": _scalar(
-            "SELECT count(*) FROM tool_events WHERE job_order_id IN :ids", ids=ids
+            f"SELECT count(*) FROM tool_events WHERE job_order_id IN :ids AND NOT {_like_any(EVENT_REASON)}",
+            ids=ids,
         ),
     }
 
 
 def _order_links(order_ids) -> dict:
-    ids = list(order_ids) or [""]
+    ids = list(order_ids)
     return {
-        "supplier orders": len(order_ids),
+        "supplier orders": len(ids),
         "order lines": _scalar("SELECT count(*) FROM material_purchases WHERE supplier_order_id IN :ids", ids=ids),
         "deliveries received": _scalar(
             "SELECT count(*) FROM material_purchases WHERE supplier_order_id IN :ids AND date_received IS NOT NULL",
@@ -305,20 +366,100 @@ def _order_links(order_ids) -> dict:
     }
 
 
-def _like_any(column):
-    return "(" + " OR ".join(f"{column} LIKE '%{t}%'" for t in SEED_TAGS) + ")"
+def _calendar_plan() -> list[dict]:
+    out = []
+    for cid, on, kind, start, end, note in _rows(
+        f"SELECT id, date, type, start_time, end_time, note FROM work_calendar_exceptions "
+        f"WHERE {_like_any('note')} ORDER BY date"
+    ):
+        holiday = ph_holiday(on)
+        if kind == "HOLIDAY_NO_WORK":
+            action = "keep" if holiday else "keep (check)"
+            why = f"Philippine holiday: {holiday}" if holiday else "not a known Philippine holiday date"
+        else:
+            action = "delete"
+            why = f"seed {kind.lower().replace('_', ' ')}"
+            if holiday:
+                why += f" (date is {holiday}, but the entry is not a holiday)"
+        hours = f" {start:%H:%M}-{end:%H:%M}" if start and end else ""
+        out.append({"id": cid, "date": on, "type": kind, "hours": hours, "note": note, "action": action, "why": why})
+    return out
 
 
-def build_plan() -> Plan:
+def _stock_plan(stocktake_ids, event_ids) -> list[dict]:
+    """Per consumable: on hand now and after the seed stock rows go.
+
+    The seed rows' effect after the latest real count is taken off: a count
+    added (counted - previous), a delivery added its quantity. A real count
+    after them already replaced their effect.
+    """
+    real_last = dict(
+        _rows(
+            "SELECT l.tool_id, max(s.counted_on) FROM stocktake_lines l JOIN stocktakes s ON s.id = l.stocktake_id "
+            "WHERE NOT (s.id IN :ids) GROUP BY l.tool_id",
+            ids=stocktake_ids,
+        )
+    )
+    effect, rows_per_tool, unsigned = {}, {}, {}
+    for tool_id, on, delta in _rows(
+        "SELECT l.tool_id, s.counted_on, l.counted_quantity - l.previous_quantity "
+        "FROM stocktake_lines l JOIN stocktakes s ON s.id = l.stocktake_id WHERE s.id IN :ids",
+        ids=stocktake_ids,
+    ):
+        rows_per_tool[tool_id] = rows_per_tool.get(tool_id, 0) + 1
+        if real_last.get(tool_id) is None or on > real_last[tool_id]:
+            effect[tool_id] = effect.get(tool_id, Decimal(0)) + Decimal(delta)
+    for tool_id, kind, qty, received, created in _rows(
+        "SELECT tool_id, type, quantity, received_on, created_at FROM tool_events WHERE id IN :ids",
+        ids=event_ids,
+    ):
+        if tool_id is None:
+            continue
+        rows_per_tool[tool_id] = rows_per_tool.get(tool_id, 0) + 1
+        on = received or created.date()
+        if real_last.get(tool_id) is not None and on <= real_last[tool_id]:
+            continue
+        sign = STOCK_EVENT_SIGN.get(kind)
+        if sign is None:
+            unsigned[tool_id] = unsigned.get(tool_id, 0) + 1
+            continue
+        effect[tool_id] = effect.get(tool_id, Decimal(0)) + sign * Decimal(qty)
+    out = []
+    for tid, name, code, unit, size, on_hand in _rows(
+        "SELECT id, name, code, unit, size_spec, quantity_on_hand FROM tools "
+        "WHERE category = 'CONSUMABLE' ORDER BY name, code"
+    ):
+        now = Decimal(on_hand or 0)
+        raw = now - effect.get(tid, Decimal(0))
+        after = max(raw, Decimal(0))
+        notes = []
+        if raw < 0:
+            notes.append(f"would be {raw:g}; set to 0")
+        if unsigned.get(tid):
+            notes.append(f"{unsigned[tid]} seed adjustment(s) without a direction left in")
+        if real_last.get(tid):
+            notes.append(f"last real count {real_last[tid]:%Y-%m-%d}")
+        elif rows_per_tool.get(tid):
+            notes.append("no real count")
+        out.append(
+            {
+                "id": tid, "name": name, "code": code, "unit": unit, "size": size,
+                "now": now, "after": after, "seedRows": rows_per_tool.get(tid, 0), "notes": notes,
+            }
+        )
+    return out
+
+
+def build_plan(also_clients=()) -> Plan:
+    from app.utils.db_url import mask_database_url
+
     app_clients = _created_in_app("Client")
     app_suppliers = _created_in_app("Supplier")
-    clients = _classify_clients(app_clients)
+    clients, missing = _classify_clients(app_clients, also_clients)
     seed_client_ids = [c.id for c in clients if c.group == SEED]
 
     jobs_by_client = {}
-    for jid, cid in _rows(
-        "SELECT id, client_id FROM job_orders WHERE client_id IN :ids", ids=seed_client_ids or [""]
-    ):
+    for jid, cid in _rows("SELECT id, client_id FROM job_orders WHERE client_id IN :ids", ids=seed_client_ids):
         jobs_by_client.setdefault(cid, []).append(jid)
     seed_job_ids = {j for js in jobs_by_client.values() for j in js}
 
@@ -331,11 +472,9 @@ def build_plan() -> Plan:
             c.linked = _job_links(jobs_by_client.get(c.id, []))
     for s in suppliers:
         if s.group in (SEED, DUPLICATE):
-            own_orders = [
-                oid for (oid,) in _rows("SELECT id FROM supplier_orders WHERE supplier_id = :s", s=s.id)
-            ]
+            own = [oid for (oid,) in _rows("SELECT id FROM supplier_orders WHERE supplier_id = :s", s=s.id)]
             s.linked = {
-                **_order_links(own_orders),
+                **_order_links(own),
                 "job orders naming it": _scalar("SELECT count(*) FROM job_orders WHERE supplier_id = :s", s=s.id),
                 "lines without an order": _scalar(
                     "SELECT count(*) FROM material_purchases WHERE supplier_id = :s AND supplier_order_id IS NULL",
@@ -343,7 +482,7 @@ def build_plan() -> Plan:
                 ),
             }
             if s.group == SEED:
-                new = set(own_orders) - order_ids
+                new = set(own) - order_ids
                 order_ids |= new
                 if new:
                     orders_by_supplier[s.id] = orders_by_supplier.get(s.id, 0) + len(new)
@@ -353,28 +492,25 @@ def build_plan() -> Plan:
         for (did,) in _rows(
             f"SELECT id FROM machine_downtimes WHERE {_like_any('note')} "
             "OR job_order_id IN :jobs OR operation_id IN (SELECT id FROM operations WHERE job_order_id IN :jobs)",
-            jobs=list(seed_job_ids) or [""],
+            jobs=seed_job_ids,
         )
     ]
+    stocktake_ids = [sid for (sid,) in _rows(f"SELECT id FROM stocktakes WHERE {_like_any('notes')}")]
+    event_ids = [eid for (eid,) in _rows(f"SELECT id FROM tool_events WHERE {_like_any('reason')}")]
 
-    real_client_ids = [c.id for c in clients if c.group != SEED]
+    non_seed_clients = [c.id for c in clients if c.group != SEED]
     untouched = {
         "seed-tagged jobs on clients that are not SEED": _scalar(
             "SELECT count(*) FROM job_orders WHERE client_id IN :ids AND ("
             + " OR ".join(f"client_po_number LIKE '{t}-%'" for t in SEED_TAGS)
             + ")",
-            ids=real_client_ids or [""],
+            ids=non_seed_clients,
         ),
-        "seed-tagged calendar exceptions": _scalar(
-            f"SELECT count(*) FROM work_calendar_exceptions WHERE {_like_any('note')}"
-        ),
-        "seed-tagged stock counts": _scalar(f"SELECT count(*) FROM stocktakes WHERE {_like_any('notes')}"),
-        "seed-tagged stock movements": _scalar(f"SELECT count(*) FROM tool_events WHERE {_like_any('reason')}"),
         "seed suppliers' lines on other jobs": _scalar(
             "SELECT count(*) FROM material_purchases WHERE supplier_id IN :s AND job_order_id IS NOT NULL "
-            "AND job_order_id NOT IN :jobs",
-            s=list(seed_supplier_ids) or [""],
-            jobs=list(seed_job_ids) or [""],
+            "AND NOT (job_order_id IN :jobs)",
+            s=seed_supplier_ids,
+            jobs=seed_job_ids,
         ),
     }
     return Plan(
@@ -384,7 +520,13 @@ def build_plan() -> Plan:
         seed_order_ids=sorted(order_ids),
         seed_downtime_ids=sorted(downtime_ids),
         seed_orders_by_supplier=orders_by_supplier,
+        seed_stocktake_ids=stocktake_ids,
+        seed_stock_event_ids=event_ids,
+        calendar=_calendar_plan(),
+        stock=_stock_plan(stocktake_ids, event_ids),
         untouched=untouched,
+        missing_names=missing,
+        database=mask_database_url(str(db.engine.url)),
     )
 
 
@@ -392,9 +534,21 @@ def build_plan() -> Plan:
 
 
 def _apply(plan: Plan) -> None:
-    jobs = plan.seed_job_ids or [""]
-    orders = plan.seed_order_ids or [""]
-    _exec("DELETE FROM machine_downtimes WHERE id IN :ids", ids=plan.seed_downtime_ids or [""])
+    jobs = plan.seed_job_ids
+    orders = plan.seed_order_ids
+    ops = "SELECT id FROM operations WHERE job_order_id IN :ids"
+    _exec("DELETE FROM machine_downtimes WHERE id IN :ids", ids=plan.seed_downtime_ids)
+    _exec("DELETE FROM tool_events WHERE id IN :ids", ids=plan.seed_stock_event_ids)
+    _exec("DELETE FROM stocktake_lines WHERE stocktake_id IN :ids", ids=plan.seed_stocktake_ids)
+    _exec("DELETE FROM stocktakes WHERE id IN :ids", ids=plan.seed_stocktake_ids)
+    for row in plan.stock:
+        if row["after"] != row["now"]:
+            _exec("UPDATE tools SET quantity_on_hand = :q WHERE id = :id", q=row["after"], id=row["id"])
+    _exec(
+        "DELETE FROM work_calendar_exceptions WHERE id IN :ids",
+        ids=[c["id"] for c in plan.calendar if c["action"] == "delete"],
+    )
+
     _exec("UPDATE tool_events SET job_order_id = NULL WHERE job_order_id IN :ids", ids=jobs)
     _exec(
         "UPDATE tool_events SET material_purchase_id = NULL WHERE material_purchase_id IN "
@@ -404,33 +558,35 @@ def _apply(plan: Plan) -> None:
     )
     for table in ("notification_logs", "sales_invoices", "staff_alerts", "schedule_moves"):
         _exec(f"DELETE FROM {table} WHERE job_order_id IN :ids", ids=jobs)
-    _exec(
-        "DELETE FROM operation_time_logs WHERE operation_id IN "
-        "(SELECT id FROM operations WHERE job_order_id IN :ids)",
-        ids=jobs,
-    )
-    _exec(
-        "DELETE FROM operation_helpers WHERE operation_id IN "
-        "(SELECT id FROM operations WHERE job_order_id IN :ids)",
-        ids=jobs,
-    )
+    _exec(f"DELETE FROM operation_time_logs WHERE operation_id IN ({ops})", ids=jobs)
+    _exec(f"DELETE FROM operation_helpers WHERE operation_id IN ({ops})", ids=jobs)
+    _exec(f"UPDATE machine_downtimes SET operation_id = NULL WHERE operation_id IN ({ops})", ids=jobs)
+    _exec("UPDATE machine_downtimes SET job_order_id = NULL WHERE job_order_id IN :ids", ids=jobs)
     _exec("DELETE FROM material_purchases WHERE job_order_id IN :ids", ids=jobs)
-    _exec("UPDATE job_orders SET material_delay_supplier_order_id = NULL WHERE material_delay_supplier_order_id IN :ids", ids=orders)
+    _exec(
+        "UPDATE job_orders SET material_delay_supplier_order_id = NULL WHERE material_delay_supplier_order_id IN :ids",
+        ids=orders,
+    )
     _exec("DELETE FROM staff_alerts WHERE supplier_order_id IN :ids", ids=orders)
     _exec("DELETE FROM schedule_moves WHERE supplier_order_id IN :ids", ids=orders)
     _exec("DELETE FROM material_purchases WHERE supplier_order_id IN :ids", ids=orders)
     _exec("DELETE FROM supplier_orders WHERE id IN :ids", ids=orders)
+    _exec("UPDATE operations SET rework_of_operation_id = NULL WHERE job_order_id IN :ids", ids=jobs)
     _exec("DELETE FROM operations WHERE job_order_id IN :ids", ids=jobs)
     _exec("DELETE FROM job_orders WHERE id IN :ids", ids=jobs)
 
-    seed_clients = [c.id for c in plan.records("client", SEED)] or [""]
+    seed_clients = [c.id for c in plan.records("client", SEED)]
     _exec("DELETE FROM notification_logs WHERE client_id IN :ids", ids=seed_clients)
+    _exec("DELETE FROM sales_invoices WHERE client_id IN :ids", ids=seed_clients)
     _exec("DELETE FROM clients WHERE id IN :ids", ids=seed_clients)
 
-    seed_suppliers = [s.id for s in plan.records("supplier", SEED)] or [""]
+    seed_suppliers = [s.id for s in plan.records("supplier", SEED)]
     _exec("UPDATE job_orders SET supplier_id = NULL WHERE supplier_id IN :ids", ids=seed_suppliers)
     _exec("UPDATE schedule_moves SET supplier_id = NULL WHERE supplier_id IN :ids", ids=seed_suppliers)
-    _exec("DELETE FROM material_purchases WHERE supplier_id IN :ids AND job_order_id IS NULL AND supplier_order_id IS NULL", ids=seed_suppliers)
+    _exec(
+        "DELETE FROM material_purchases WHERE supplier_id IN :ids AND job_order_id IS NULL AND supplier_order_id IS NULL",
+        ids=seed_suppliers,
+    )
     _exec("DELETE FROM suppliers WHERE id IN :ids", ids=seed_suppliers)
 
     for dup in plan.records("supplier", DUPLICATE):
@@ -467,7 +623,10 @@ def analytics_snapshot(today: date | None = None) -> dict:
     delays = analytics_service.delays(from_s, to_s)
     causes = delays["causes"]
     workers = analytics_service.efficiency_by_worker(from_s, to_s, min_ops=1)["workers"]
-    min_ops = analytics_service.DEFAULT_MIN_OPS
+    stock = forecast_service.consumable_run_out(today)["items"]
+    statuses = {}
+    for item in stock:
+        statuses[item["status"]] = statuses.get(item["status"], 0) + 1
     return {
         "jobOrders": _scalar("SELECT count(*) FROM job_orders"),
         "salesForecast": fc(forecast_service.sales_forecast(today)),
@@ -480,16 +639,17 @@ def analytics_snapshot(today: date | None = None) -> dict:
         },
         "finishedOperations": sum(w["operationCount"] for w in workers),
         "workersWithHistory": len(workers),
-        "workersAtMinimum": sum(1 for w in workers if w["operationCount"] >= min_ops),
-        "minimumOperations": min_ops,
+        "workersAtMinimum": sum(1 for w in workers if w["operationCount"] >= analytics_service.DEFAULT_MIN_OPS),
+        "minimumOperations": analytics_service.DEFAULT_MIN_OPS,
+        "stockStatuses": dict(sorted(statuses.items())),
     }
 
 
-def run(apply: bool = False, today: date | None = None) -> Plan:
+def run(apply: bool = False, today: date | None = None, also_clients=()) -> Plan:
     """Build the plan and the analytics impact; with apply, delete and commit.
     Without apply everything is rolled back."""
     try:
-        plan = build_plan()
+        plan = build_plan(also_clients)
         plan.before = analytics_snapshot(today)
         _apply(plan)
         db.session.expire_all()
@@ -514,9 +674,17 @@ def _fc_text(f):
     return f"{f['fullMonths']} full months, {f['method']}, next {f['forecast']:,.0f} ({error})"
 
 
+def _qty(v: Decimal) -> str:
+    return f"{v.normalize():f}" if v == v.to_integral() else f"{v:.2f}"
+
+
 def report_lines(plan: Plan, applied: bool) -> list[str]:
-    out = []
+    out = [f"Database: {plan.database}", ""]
     verb = "Deleted" if applied else "Would delete"
+    for name in plan.missing_names:
+        out.append(f"--also-clients {name!r}: no client has exactly this name; nothing done for it.")
+    if plan.missing_names:
+        out.append("")
     for kind, rows in (("CLIENTS", plan.clients), ("SUPPLIERS", plan.suppliers)):
         out.append(f"{kind} ({len(rows)})")
         for group in GROUPS:
@@ -527,6 +695,8 @@ def report_lines(plan: Plan, applied: bool) -> list[str]:
             for r in members:
                 extra = f" -> merge into {r.merge_into[1]!r}" if r.merge_into else ""
                 out.append(f"    - {r.name}{extra}  [{r.reason}]")
+                for note in r.notes:
+                    out.append(f"        ! {note}")
                 linked = {k: v for k, v in r.linked.items() if v}
                 if linked:
                     out.append("        " + ", ".join(f"{v} {k}" for k, v in linked.items()))
@@ -539,18 +709,43 @@ def report_lines(plan: Plan, applied: bool) -> list[str]:
         for k, v in c.linked.items():
             totals[k] = totals.get(k, 0) + v
     out.append(f"  - {len(seed_clients)} seed clients")
-    out.append("  - " + ", ".join(f"{v} {k}" for k, v in totals.items() if v) if totals else "  - no seed jobs")
+    if any(totals.values()):
+        out.append("  - " + ", ".join(f"{v} {k}" for k, v in totals.items() if v))
     out.append(f"  - {len(plan.seed_order_ids)} seed supplier orders (seed-tagged or only seed-job lines)")
     names = {s.id: s.name for s in plan.suppliers}
     for sid, n in sorted(plan.seed_orders_by_supplier.items(), key=lambda kv: names.get(kv[0], "")):
         out.append(f"      {names.get(sid, sid)}: {n}")
     out.append(f"  - {len(plan.seed_downtime_ids)} machine downtimes (seed-tagged or on seed jobs)")
+    out.append(f"  - {len(plan.seed_stocktake_ids)} seed stock counts, {len(plan.seed_stock_event_ids)} seed stock movements")
+    deleted_cal = [c for c in plan.calendar if c["action"] == "delete"]
+    out.append(f"  - {len(deleted_cal)} seed calendar entries")
     out.append(f"  - {len(plan.records('supplier', SEED))} seed suppliers")
     out.append(f"  - {len(plan.records('supplier', DUPLICATE))} duplicate suppliers merged into their reference supplier")
     out.append("")
-    out.append("Left alone (say if any of these should go too):")
+
+    out.append(f"Seed calendar entries ({len(plan.calendar)}):")
+    for c in plan.calendar or []:
+        out.append(f"  - {c['date']:%a %Y-%m-%d} {c['type']}{c['hours']}  {c['action'].upper()}  [{c['why']}]")
+    if not plan.calendar:
+        out.append("  - none")
+    out.append("")
+
+    changed = [s for s in plan.stock if s["seedRows"]]
+    out.append(f"Consumables on hand after the seed stock rows go ({len(plan.stock)} items; recount afterwards):")
+    for s in plan.stock:
+        label = s["name"] + (f" {s['size']}" if s["size"] else "") + f" ({s['code']})"
+        change = f"{_qty(s['now'])} -> {_qty(s['after'])} {s['unit']}"
+        notes = f"  [{'; '.join(s['notes'])}]" if s["notes"] else ""
+        mark = "" if s["seedRows"] else "  (no seed rows)"
+        out.append(f"  - {label}: {change}{notes}{mark}")
+    out.append(f"  {len(changed)} items had seed stock rows.")
+    out.append("")
+
+    out.append("Left alone:")
     for k, v in plan.untouched.items():
         out.append(f"  - {k}: {v}")
+    kept = [c for c in plan.calendar if c["action"] != "delete"]
+    out.append(f"  - seed-tagged holiday entries kept: {len(kept)}")
     out.append("")
 
     if plan.before and plan.after:
@@ -570,4 +765,5 @@ def report_lines(plan: Plan, applied: bool) -> list[str]:
             f"{b['workersAtMinimum']} workers with >= {b['minimumOperations']} -> "
             f"{a['finishedOperations']} operations, {a['workersAtMinimum']} workers"
         )
+        out.append(f"  - Consumable status: {b['stockStatuses']} -> {a['stockStatuses']}")
     return out

@@ -241,14 +241,22 @@ def _register_cli(app):
         is_flag=True,
         help="Delete the SEED records and merge the DUPLICATE suppliers. Without it, a dry run.",
     )
-    def cleanup_seed_data_command(apply_changes):
+    @click.option(
+        "--also-clients",
+        "also_clients",
+        multiple=True,
+        metavar="NAME",
+        help="Also treat the client with exactly this name as SEED. Repeat for more.",
+    )
+    def cleanup_seed_data_command(apply_changes, also_clients):
         """Group every client and supplier as REAL, SEED, DUPLICATE or UNSURE,
-        list what is linked to the SEED ones and the effect on analytics.
-        A dry run unless --apply. Safe in production: REAL and UNSURE records,
-        users, machines, the catalog and shop details are never changed."""
+        list what is linked to the SEED ones, the seed stock rows and calendar
+        entries, and the effect on analytics. A dry run unless --apply. Safe
+        in production: REAL and UNSURE records, users, machines, the catalog
+        and shop details are never changed."""
         from app.services.seed_cleanup_service import report_lines, run
 
-        plan = run(apply=apply_changes)
+        plan = run(apply=apply_changes, also_clients=also_clients)
         for line in report_lines(plan, applied=apply_changes):
             print(line)
         print("Applied." if apply_changes else "Dry run: nothing was saved. Run with --apply to delete.")
