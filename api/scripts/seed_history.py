@@ -83,7 +83,7 @@ from app.models.worker_skill import (
 from app.services.delay_analysis_service import ran_over_target
 from app.services.job_order_service import _parse_datetime
 from app.services.material_purchase_service import sync_job_material_from_purchases
-from app.services.operation_service import recompute_variance
+from app.services.operation_service import open_machine_downtime, recompute_variance
 from app.services.schedule_calendar import next_shop_working_day, shop_local_to_utc, shop_now
 from app.services.schedule_service import propose_schedule
 from app.services.supplier_order_service import recompute_order_status
@@ -752,6 +752,55 @@ def _build_time_chain(
             last_end,
             reason=OperationPauseReason.END_OF_SHIFT,
         )
+    return last_end
+
+
+def _settle_running_clock(op, worker_id, last_end, rng: random.Random):
+    """Work in progress was last clocked on the latest shop day. A clock left
+    open from an earlier day stops where its hours ran out and is picked up
+    again shortly before now (or late on the last working day when the shop is
+    closed), so no clock runs for days; clock events never lie in the future."""
+    if last_end is None:
+        return
+    db.session.flush()
+    now = datetime.now(ZoneInfo("UTC"))
+    logs = (
+        OperationTimeLog.query.filter_by(operation_id=op.id)
+        .order_by(OperationTimeLog.event_at)
+        .all()
+    )
+    for log in [L for L in logs if L.event_at > now]:
+        db.session.delete(log)
+    logs = [L for L in logs if L.event_at <= now]
+    if not logs:
+        op.actual_start = None
+        op.status = OperationStatus.PENDING
+        return
+    last = logs[-1]
+    if last.event in (OperationTimeEvent.START, OperationTimeEvent.RESUME):
+        if last_end > now:
+            return
+        _append_log(op, worker_id, OperationTimeEvent.PAUSE, last_end,
+                    reason=OperationPauseReason.END_OF_SHIFT)
+        paused_at = last_end
+    else:
+        paused_at = last.event_at
+
+    shop = now.astimezone(ZoneInfo("Asia/Manila"))
+    today = shop.date()
+    if today.weekday() != 6 and time(8, 30) <= shop.time() < time(17, 0):
+        resume = max(shop_local_to_utc(today, time(8, 0)), now - timedelta(minutes=rng.randint(30, 90)))
+        if resume > paused_at:
+            _append_log(op, worker_id, OperationTimeEvent.RESUME, resume)
+        return
+    day = today if today.weekday() != 6 and shop.time() >= time(17, 0) else today - timedelta(days=1)
+    while day.weekday() == 6:
+        day -= timedelta(days=1)
+    if paused_at.astimezone(ZoneInfo("Asia/Manila")).date() >= day:
+        return
+    _append_log(op, worker_id, OperationTimeEvent.RESUME, shop_local_to_utc(day, time(15, 0)))
+    _append_log(op, worker_id, OperationTimeEvent.PAUSE, shop_local_to_utc(day, time(17, 0)),
+                reason=OperationPauseReason.END_OF_SHIFT)
 
 
 def _emit_segments_with_shifts(op, worker_id, segments, starting_event_done=False):
@@ -1463,8 +1512,53 @@ def _scale_open_pipeline_hours(open_jobs, machines, rng: random.Random):
             code = id_to_code.get(op.machine_type_id)
             lo, hi = hour_bands.get(code, (4, 8))
             op.estimated_hours = Decimal(str(rng.randint(lo, hi)))
-            # Let propose_schedule pick the unit
-            op.machine_unit_id = None
+            # Let propose_schedule pick the unit; work already running keeps its machine
+            if op.status != OperationStatus.IN_PROGRESS:
+                op.machine_unit_id = None
+
+
+def _move_running_work_off_busy_units() -> int:
+    """History is generated job by job, so a running operation's unit may have
+    been clocked by someone else at the same time. Move it to a unit of its type
+    that was free then. Returns how many moved."""
+    from app.services.schedule_service import clocked_spans
+
+    db.session.flush()
+    units_by_type = defaultdict(list)
+    for u in MachineUnit.query.filter_by(active=True).order_by(MachineUnit.label).all():
+        units_by_type[u.machine_type_id].append(u.id)
+    busy = defaultdict(list)
+    for op in JobOperation.query.filter(
+        JobOperation.status == OperationStatus.COMPLETED,
+        JobOperation.machine_unit_id.isnot(None),
+    ).all():
+        busy[op.machine_unit_id].extend(clocked_spans(op))
+    running = (
+        JobOperation.query.filter(
+            JobOperation.status == OperationStatus.IN_PROGRESS,
+            JobOperation.machine_unit_id.isnot(None),
+        )
+        .order_by(JobOperation.actual_start)
+        .all()
+    )
+
+    def clashes(unit_id, spans):
+        return any(s < be and bs < e for s, e in spans for bs, be in busy[unit_id])
+
+    moved = 0
+    for op in running:
+        spans = clocked_spans(op)
+        if clashes(op.machine_unit_id, spans):
+            free = next(
+                (u for u in units_by_type[op.machine_type_id] if not clashes(u, spans)),
+                None,
+            )
+            if free:
+                op.machine_unit_id = free
+                moved += 1
+        busy[op.machine_unit_id].extend(spans)
+    db.session.flush()
+    return moved
 
 
 def _schedule_open_jobs(created_jobs, catalog, machines, rng: random.Random) -> dict:
@@ -2002,7 +2096,7 @@ def seed_history():
                     cursor_day += timedelta(days=1)
             elif op_status == OperationStatus.IN_PROGRESS:
                 partial = max(0.5, target_hours * rng.uniform(0.3, 0.6))
-                _build_time_chain(
+                last_end = _build_time_chain(
                     op,
                     worker_id,
                     cursor_day,
@@ -2011,6 +2105,7 @@ def seed_history():
                     rng,
                     complete=False,
                 )
+                _settle_running_clock(op, worker_id, last_end, rng)
 
         # Some completed jobs: rework one completed op (original stays COMPLETED);
         # the follow-on is remachined (COMPLETED, shorter) before the job finishes.
@@ -2162,10 +2257,11 @@ def seed_history():
             elif ran_over_target(job.operations)[0] <= 0:
                 print(f"WARNING: no cause recorded for late job {job.client_po_number}")
 
-    # Schedule open pipeline via live propose_schedule (capacity forecast demo)
-    schedule_stats = _schedule_open_jobs(created_jobs, catalog, machines, rng)
+    _move_running_work_off_busy_units()
 
-    # Machine downtimes: handful closed + 1–2 open
+    # Machine downtimes: handful closed + 1–2 open. Opened before scheduling and
+    # through the real report path, so running work on them is paused and no
+    # new work is booked on a down unit.
     all_units = [u for units in catalog["units_by_type"].values() for u in units]
     if all_units:
         for i in range(6):
@@ -2204,19 +2300,21 @@ def seed_history():
             if existing_open:
                 continue
             start = shop_local_to_utc(today - timedelta(days=rng.randint(0, 2)), time(8, 30))
-            reason, category = rng.choice(DOWNTIME_REASONS)
-            db.session.add(
-                MachineDowntime(
-                    machine_unit_id=unit.id,
-                    started_at=start,
-                    ended_at=None,
-                    category=category,
-                    reason=reason,
-                    reported_by_id=creator.id,
-                    note=f"{TAG} open downtime",
-                )
+            start = min(start, datetime.now(ZoneInfo("UTC")))
+            _reason, category = rng.choice(DOWNTIME_REASONS)
+            db.session.flush()
+            open_machine_downtime(
+                unit.id,
+                creator.id,
+                category.value,
+                note=f"{TAG} open downtime",
+                started_at=start,
+                reporter_role=UserRole.ADMIN,
             )
             open_count += 1
+
+    # Schedule open pipeline via live propose_schedule (capacity forecast demo)
+    schedule_stats = _schedule_open_jobs(created_jobs, catalog, machines, rng)
 
     stock_stats = _seed_stock_history(creator, window_start, today, random.Random(RNG_SEED + 5))
     numbered_n = _number_seeded_orders()
@@ -2332,48 +2430,22 @@ def seed_history():
     for name, n, revenue in client_rows:
         print(f"  {n:2d} jobs  revenue={float(revenue):,.0f}  {name}")
 
-    # Capacity demo: projected load next 4 weeks (mirrors demand/capacity math)
-    horizon_from = today
-    horizon_to = today + timedelta(days=27)
-    h_start = shop_local_to_utc(horizon_from, time(0, 0))
-    h_end = shop_local_to_utc(horizon_to, time(23, 59))
-    avail_days = sum(
-        1
-        for i in range((horizon_to - horizon_from).days + 1)
-        if (horizon_from + timedelta(days=i)).weekday() < 6
-    )
-    from app.services.schedule_calendar import shop_available_hours
+    # Capacity demo: projected load next 4 weeks (the Analytics workload rule)
+    from app.services.analytics_service import demand_capacity
 
-    avail_per_unit = shop_available_hours(horizon_from, horizon_to)
-    open_scheduled = (
-        JobOperation.query.join(JobOrder)
-        .filter(
-            JobOrder.client_po_number.like(f"{PO_PREFIX}%"),
-            JobOrder.status.notin_((JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED)),
-            JobOperation.scheduled_start.isnot(None),
-            JobOperation.scheduled_end.isnot(None),
-            JobOperation.scheduled_start < h_end,
-            JobOperation.scheduled_end > h_start,
-            JobOperation.status != OperationStatus.COMPLETED,
-        )
-        .all()
+    cap = demand_capacity()
+    print(
+        f"Capacity horizon:    {cap['horizon']['from']} -> {cap['horizon']['to']} "
+        f"({cap['horizonWorkingDays']} workdays, {cap['availableHoursPerUnit']:.0f}h/unit)"
     )
-    load_by_type = defaultdict(float)
-    for op in open_scheduled:
-        if op.machine_type_id:
-            load_by_type[op.machine_type_id] += float(op.estimated_hours or 0)
-    print(f"Capacity horizon:    {horizon_from} -> {horizon_to} ({avail_days} workdays, {avail_per_unit:.0f}h/unit)")
-    print("projectedLoadPct by machine type:")
-    for code in sorted(machines.keys()):
-        mt = machines[code]
-        n_units = len(catalog["units_by_type"].get(code) or [])
-        avail = avail_per_unit * n_units
-        load = load_by_type.get(mt.id, 0.0)
-        pct = (load / avail * 100.0) if avail else 0.0
-        flag = "  ABOVE80" if pct >= 80 else ""
+    print("projectedLoadPct by machine type (booked in window - worked, over units not down):")
+    for row in cap["machineTypes"]:
+        pct = row["projectedLoadPct"] or 0.0
+        flag = "  ABOVE80" if row["above80Pct"] else ""
         print(
-            f"  {code:10s}  units={n_units}  load={load:6.1f}h  "
-            f"avail={avail:7.1f}h  projectedLoadPct={pct:5.1f}%{flag}"
+            f"  {row['machineTypeCode']:10s}  units={row['activeUnitCount']} down={row['unitsDown']}  "
+            f"load={row['scheduledLoadHours']:6.1f}h  avail={row['availableHours']:7.1f}h  "
+            f"projectedLoadPct={pct:5.1f}%{flag}"
         )
 
 def main():
