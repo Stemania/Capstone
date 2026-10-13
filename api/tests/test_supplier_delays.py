@@ -105,6 +105,10 @@ def test_overdue_filter_lists_only_late_orders(client, shop):
     late_job, _ = _job(shop, _local(today + timedelta(days=30), 9))
     order = _draft_order(client, shop, late_job, shop["slow"])
     _issue(client, shop, order["id"], today - timedelta(days=12))
+    # Pin the expected date: issued date + lead time can land on a Sunday and move.
+    so = db.session.get(SupplierOrder, order["id"])
+    so.expected_delivery_date = so.original_expected_delivery_date = today - timedelta(days=2)
+    db.session.commit()
 
     res = client.get(
         "/api/v1/supplier-orders", query_string={"status": "OVERDUE"}, headers=_headers(shop["office"])
@@ -318,6 +322,7 @@ def _row(supplier):
 def test_reliability_uses_original_expected_date_not_the_edited_one(app, shop):
     sup = shop["quick"]
     base = shop["today"] - timedelta(days=30)
+    base -= timedelta(days=base.weekday())  # Monday: no promised date falls on a Sunday
     # Warned of a delay, the date was moved, and it arrived on the new date: still late.
     _delivery(shop, sup, base, received=base + timedelta(days=5), edited=base + timedelta(days=5))
     _delivery(shop, sup, base + timedelta(days=1), received=base + timedelta(days=1))
@@ -333,6 +338,7 @@ def test_reliability_uses_original_expected_date_not_the_edited_one(app, shop):
 def test_overdue_undelivered_order_lowers_reliability(app, shop):
     sup = shop["quick"]
     base = shop["today"] - timedelta(days=30)
+    base -= timedelta(days=base.weekday())  # Monday: no promised date falls on a Sunday
     for i in range(3):
         _delivery(shop, sup, base + timedelta(days=i), received=base + timedelta(days=i))
     assert _row(sup)["reliabilityPct"] == pytest.approx(100.0)
@@ -353,6 +359,7 @@ def test_overdue_undelivered_order_lowers_reliability(app, shop):
 def test_fewer_than_three_deliveries_shows_not_enough(client, shop):
     sup = shop["quick"]
     base = shop["today"] - timedelta(days=30)
+    base -= timedelta(days=base.weekday())  # Monday: no promised date falls on a Sunday
     _delivery(shop, sup, base, received=base)
     _delivery(shop, sup, base + timedelta(days=1), received=base + timedelta(days=4))
 
@@ -406,6 +413,7 @@ def test_reliability_follows_date_range_with_minimum_inside_it(client, shop):
 
 def test_reliability_ranks_by_score_then_average_days_late(app, shop):
     base = shop["today"] - timedelta(days=40)
+    base -= timedelta(days=base.weekday())  # Monday: no promised date falls on a Sunday
     a = Supplier(name="A Metals", typical_lead_time_days=2)
     b = Supplier(name="B Metals", typical_lead_time_days=2)
     db.session.add_all([a, b])

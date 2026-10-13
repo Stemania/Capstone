@@ -124,7 +124,7 @@ def test_change_applies_to_every_unreceived_line(client, shop):
     so.status = SupplierOrderStatus.PARTIALLY_RECEIVED
     db.session.commit()
 
-    new = shop["today"] + timedelta(days=12)
+    new = next_shop_working_day(shop["today"] + timedelta(days=12))
     assert _change(client, shop["office"], so.id, new).status_code == 200
     db.session.expire_all()
     so = db.session.get(SupplierOrder, issued["id"])

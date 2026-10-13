@@ -44,7 +44,7 @@ _today = shop_now().date()
 # A Monday one to two weeks out: inside the proposal horizon, never in the past.
 MON = _today + timedelta(days=(7 - _today.weekday()) % 7 + 7)
 TUE = MON + timedelta(days=1)
-LAST_SAT = MON - timedelta(days=9)
+LAST_SAT = _today - timedelta(days=(_today.weekday() - 5) % 7 or 7)  # always in the past
 
 
 def _at(d, hh, mm=0):

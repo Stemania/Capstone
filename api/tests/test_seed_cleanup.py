@@ -65,6 +65,7 @@ def _job(client, creator, po):
         raw_materials=[],
         amount=Decimal("5000"),
         created_by_id=creator.id,
+        created_at=NOW,
     )
     db.session.add(job)
     db.session.flush()
