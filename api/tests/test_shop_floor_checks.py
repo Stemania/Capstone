@@ -130,14 +130,16 @@ def _running(shop, lead, unit, *, started, hours, planned_end, paused=None, reas
 
 
 def _clash_free():
-    """No two released operations share a worker or unit at the same working time."""
+    """No two released operations share a worker or unit at the same working time
+    (a paused op's finish creeps with the clock, so overlaps under a minute are drift)."""
     ops = (JobOperation.query.join(JobOrder).filter(JobOrder.status != JobOrderStatus.DRAFT,
                                                     JobOperation.status != OperationStatus.COMPLETED).all())
     segs = {op.id: operation_working_segments(op) for op in ops}
     for i, a in enumerate(ops):
         for b in ops[i + 1:]:
             shared = set(a.crew_ids) & set(b.crew_ids) or (a.machine_unit_id and a.machine_unit_id == b.machine_unit_id)
-            if shared and any(s < be and bs < e for s, e in segs[a.id] for bs, be in segs[b.id]):
+            if shared and any(min(e, be) - max(s, bs) > timedelta(minutes=1)
+                              for s, e in segs[a.id] for bs, be in segs[b.id]):
                 return False
     return True
 
@@ -168,10 +170,11 @@ def test_overrun_moves_clashing_unstarted_work_later_with_history_and_an_alert(a
     result = checks.shift_work_behind_overruns()
     assert {r["jobId"] for r in result["moved"]} == {same_worker.job_order_id, same_unit.job_order_id}
     db.session.expire_all()
+    # Recomputed a moment after the move, so the paused op's finish may have crept on.
     finish = _operation_booking_envelope(db.session.get(JobOperation, running.id))[1]
     for op_id in (same_worker.id, same_unit.id):
         op = db.session.get(JobOperation, op_id)
-        assert ensure_utc(op.scheduled_start) >= finish
+        assert ensure_utc(op.scheduled_start) >= finish - timedelta(minutes=1)
         assert op.assigned_worker_id in (shop["juan"].id, shop["ana"].id)
     assert db.session.get(JobOperation, same_unit.id).machine_unit_id == shop["m2"].id
     assert ensure_utc(db.session.get(JobOperation, unrelated.id).scheduled_start) == unrelated_start
@@ -183,6 +186,22 @@ def test_overrun_moves_clashing_unstarted_work_later_with_history_and_an_alert(a
     assert alerts and all(a.recipient_id == shop["admin"].id for a in alerts)
     assert checks.overrun_clashes() == []
     assert _clash_free()
+
+
+def test_overrun_within_the_slack_is_not_a_clash(app, shop):
+    now = _now()
+    running = _running(shop, shop["juan"], shop["m2"], started=now - timedelta(hours=1), hours=4,
+                       planned_end=now)
+    finish = _operation_booking_envelope(running, now)[1]
+    running.scheduled_end = finish - checks.OVERRUN_SLACK + timedelta(minutes=5)
+    db.session.commit()
+    _scheduled(shop, shop["ana"], shop["m2"], ensure_utc(running.scheduled_end), 2)
+    assert checks.overrun_clashes(now) == []
+
+    running.scheduled_end = finish - checks.OVERRUN_SLACK - timedelta(hours=1)
+    db.session.commit()
+    _scheduled(shop, shop["ben"], shop["m2"], ensure_utc(running.scheduled_end), 1)
+    assert checks.overrun_clashes(now)
 
 
 def test_no_move_when_the_running_work_is_on_time(app, shop):

@@ -20,7 +20,7 @@ page open) and after a pause or resume is recorded.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.extensions import db
 from app.models.job_order import JobOrder, JobOrderStatus
@@ -43,6 +43,10 @@ MOVE_UNIT = "MOVE_UNIT"
 AFTER_REPAIR = "AFTER_REPAIR"
 LEAVE = "LEAVE"
 BREAKDOWN_ACTIONS = (MOVE_UNIT, AFTER_REPAIR, LEAVE)
+
+# A paused operation's projected finish moves with the clock; overlaps shorter
+# than this are drift, not a clash worth moving work (and alerting) again.
+OVERRUN_SLACK = timedelta(minutes=30)
 
 
 def _now(now_utc=None) -> datetime:
@@ -217,12 +221,13 @@ def overrun_clashes(now_utc=None) -> list[dict]:
         if not envelope or not r.scheduled_end:
             continue
         planned_end, finish = ensure_utc(r.scheduled_end), envelope[1]
-        if finish <= planned_end:
+        cutoff = finish - OVERRUN_SLACK
+        if cutoff <= planned_end:
             continue
         over = (
-            _segments_for_worker_envelope(r.crew_ids, planned_end, finish)
+            _segments_for_worker_envelope(r.crew_ids, planned_end, cutoff)
             if r.assigned_worker_id
-            else [(planned_end, finish)]
+            else [(planned_end, cutoff)]
         )
         crew = set(r.crew_ids)
         affected = []
@@ -230,7 +235,7 @@ def overrun_clashes(now_utc=None) -> list[dict]:
             later_in_job = (
                 op.job_order_id == r.job_order_id
                 and (op.sequence_no or 0) > (r.sequence_no or 0)
-                and ensure_utc(op.scheduled_start) < finish
+                and ensure_utc(op.scheduled_start) < cutoff
             )
             shares = bool(crew & set(op.crew_ids)) or (
                 r.machine_unit_id is not None and op.machine_unit_id == r.machine_unit_id
