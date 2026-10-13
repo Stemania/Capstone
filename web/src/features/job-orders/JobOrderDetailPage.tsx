@@ -335,14 +335,19 @@ function OperationWorkerSelect({ op, onAssigned }: { op: Operation; onAssigned: 
 
 export default function JobOrderDetailPage() {
   const { id } = useParams();
+  const { isWorker } = useAuth();
+  if (isWorker && id) {
+    return <Navigate to={`/my-assignments/${id}`} replace />;
+  }
+  return <JobOrderDetailView />;
+}
+
+function JobOrderDetailView() {
+  const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const { user, isAdmin, isOfficeStaff, isWorker } = useAuth();
   const canManage = isAdmin || isOfficeStaff;
-
-  if (isWorker && id) {
-    return <Navigate to={`/my-assignments/${id}`} replace />;
-  }
 
   const [job, setJob] = useState<JobOrder | null>(null);
   const [loading, setLoading] = useState(true);
