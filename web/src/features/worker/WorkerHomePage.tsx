@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Button } from 'antd';
 import {
+  CalendarOutlined,
   CaretRightFilled,
   CheckCircleOutlined,
   ClockCircleOutlined,
@@ -84,6 +85,47 @@ function runningSince(op: Operation): string | null {
   const logs = [...(op.timeLogs || [])].sort((a, b) => dayjs(a.eventAt).valueOf() - dayjs(b.eventAt).valueOf());
   const last = logs[logs.length - 1];
   return last && (last.event === 'START' || last.event === 'RESUME') ? last.eventAt : null;
+}
+
+function fmtHours(h: number) {
+  return `${Number.isInteger(h) ? h : h.toFixed(1)} h`;
+}
+
+type Stat = {
+  key: string;
+  icon: ReactNode;
+  label: string;
+  value: string;
+  sub: ReactNode;
+  onClick?: () => void;
+};
+
+function StatTiles({ stats }: { stats: Stat[] }) {
+  return (
+    <div className="w-stats">
+      {stats.map((s) => {
+        const body = (
+          <>
+            <span className="w-stat__label">
+              {s.icon}
+              {s.label}
+            </span>
+            <span className="w-stat__value">{s.value}</span>
+            <span className="w-stat__sub">{s.sub}</span>
+          </>
+        );
+        return s.onClick ? (
+          <button key={s.key} type="button" className="w-stat w-stat--link" onClick={s.onClick}>
+            {body}
+          </button>
+        ) : (
+          <div key={s.key} className="w-stat">
+            {body}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function elapsed(fromIso: string, nowMs: number) {
@@ -317,6 +359,57 @@ export default function WorkerHomePage() {
     );
   };
 
+  const heroToday =
+    hero && (hero.status === 'IN_PROGRESS' || todaySpan(hero, todayKey)) ? 1 : 0;
+  const leftToday = queue.length + heroToday;
+  const nextLater = queue.find((r) => r.span.start.valueOf() > nowMs);
+  const week = online ? summary?.thisWeek : undefined;
+  const weekHours = week ? (week.loggedHours ?? week.hoursWorked) : null;
+  const doneDiff = week && summary?.lastWeek ? week.finishedOperations - summary.lastWeek.finishedOperations : null;
+  const unknown = online ? 'Loading…' : 'Offline';
+  const stats: Stat[] = [
+    {
+      key: 'today',
+      icon: <CalendarOutlined />,
+      label: 'Left today',
+      value: String(leftToday),
+      sub: nextLater ? `Next ${nextLater.span.start.format('h:mm A')}` : leftToday ? 'On your list' : 'All clear',
+      onClick: () => goSection('/schedule'),
+    },
+    {
+      key: 'done',
+      icon: <CheckCircleOutlined />,
+      label: 'Done this week',
+      value: week ? String(week.finishedOperations) : '—',
+      sub: !week ? (
+        unknown
+      ) : doneDiff == null ? (
+        'Since Monday'
+      ) : doneDiff === 0 ? (
+        'Same as last week'
+      ) : (
+        <span className={doneDiff > 0 ? 'w-trend__up' : 'w-trend__down'}>
+          {doneDiff > 0 ? '↑' : '↓'} {Math.abs(doneDiff)} vs last week
+        </span>
+      ),
+    },
+    {
+      key: 'hours',
+      icon: <ClockCircleOutlined />,
+      label: 'Hours this week',
+      value: weekHours != null ? fmtHours(weekHours) : '—',
+      sub: week ? 'On your operations' : unknown,
+    },
+    {
+      key: 'tools',
+      icon: <ToolOutlined />,
+      label: 'Tools out',
+      value: online && tools ? String(tools.length) : '—',
+      sub: !online || !tools ? unknown : tools.length ? 'Out with you' : 'None out',
+      onClick: () => goSection('/inventory'),
+    },
+  ];
+
   const words = summary ? weekInWords(summary.thisWeek, summary.lastWeek) : null;
   const hoursLines = summarizeSchedule(me?.schedules);
   const machines = me?.assignedMachines || [];
@@ -345,6 +438,8 @@ export default function WorkerHomePage() {
           ) : (
             renderHero()
           )}
+
+          <StatTiles stats={stats} />
 
           <section className="w-card w-card--flush">
             <div className="w-card__head">
