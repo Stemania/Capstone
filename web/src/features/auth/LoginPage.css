@@ -133,3 +133,55 @@
   outline: 2px solid #1d4ed8 !important;
   outline-offset: 2px;
 }
+
+.login-card__footer {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.login-card__footer a {
+  color: #64748b;
+}
+
+/* Long text pages: scroll the page instead of clipping it */
+.login-page--scroll {
+  align-items: flex-start;
+  height: 100dvh;
+  overflow-y: auto;
+  padding-top: 40px;
+}
+
+.login-page--scroll .login-page__bg,
+.login-page--scroll .login-page__veil {
+  position: fixed;
+}
+
+.login-card--wide {
+  max-width: 680px;
+}
+
+.privacy-policy h2 {
+  margin: 20px 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.privacy-policy p,
+.privacy-policy ul {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #334155;
+}
+
+.privacy-policy ul {
+  padding-left: 20px;
+}
+
+.privacy-policy__back {
+  margin-top: 24px !important;
+  margin-bottom: 16px !important;
+  font-size: 12px !important;
+}

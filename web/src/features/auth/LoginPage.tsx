@@ -217,6 +217,10 @@ export default function LoginPage() {
               )}
             </Form>
           )}
+
+          <div className="login-card__footer">
+            <a href="/privacy">Privacy</a>
+          </div>
         </div>
       </div>
     </div>
