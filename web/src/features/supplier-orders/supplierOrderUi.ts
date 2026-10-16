@@ -5,7 +5,8 @@ import { formatShop } from '../../utils/shopTime';
 export const ORDER_STATUS_PILL: Record<SupplierOrderStatus, { label: string; color: PillColor }> = {
   DRAFT: { label: 'Draft', color: 'gray' },
   ISSUED: { label: 'Issued', color: 'blue' },
-  PARTIALLY_RECEIVED: { label: 'Partly received', color: 'amber' },
+  // Legacy DB rows only; app no longer writes this status.
+  PARTIALLY_RECEIVED: { label: 'Issued', color: 'blue' },
   RECEIVED: { label: 'Received', color: 'green' },
   CANCELLED: { label: 'Cancelled', color: 'grey' },
 };

@@ -626,11 +626,7 @@ export default function SupplierOrderDetailPage() {
             type="info"
             showIcon
             style={{ marginTop: 16 }}
-            title={
-              order.status === 'PARTIALLY_RECEIVED'
-                ? 'Part of this order was received earlier. Complete it with Receive order.'
-                : 'Lines are locked after issue. To change the order, cancel it and issue a new one. Deliveries arrive complete: Receive order receives every line on one date.'
-            }
+            title="Lines are locked after issue. To change the order, cancel it and issue a new one. Deliveries arrive complete: Receive order receives every line on one date."
           />
         ) : null}
 

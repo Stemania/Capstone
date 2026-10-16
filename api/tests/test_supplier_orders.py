@@ -285,10 +285,24 @@ def test_receive_order_receives_every_line_on_one_date(client, shop):
     assert lead["averageActualDays"] == 7
 
 
+def test_mixed_line_receipts_stay_issued_not_partially_received(client, shop):
+    """Some lines received, some not → ISSUED (PARTIALLY_RECEIVED is unreachable)."""
+    from app.services.supplier_order_service import recompute_order_status
+
+    order = _both_jobs_draft(client, shop)
+    _issue(client, shop, order["id"])
+    first = db.session.get(MaterialPurchase, order["lines"][0]["id"])
+    first.date_received = date(2031, 3, 5)
+    so = db.session.get(SupplierOrder, order["id"])
+    recompute_order_status(so)
+    db.session.flush()
+    assert so.status == SupplierOrderStatus.ISSUED
+
+
 def test_partly_received_order_is_completed_by_receive_order(client, shop):
     order = _both_jobs_draft(client, shop)
     _issue(client, shop, order["id"])
-    # An order partly received before the full-receipt rule.
+    # Legacy mixed-receipt row (status may still be PARTIALLY_RECEIVED in old data).
     first = db.session.get(MaterialPurchase, order["lines"][0]["id"])
     first.date_received = date(2031, 3, 5)
     so = db.session.get(SupplierOrder, order["id"])

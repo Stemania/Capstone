@@ -445,10 +445,8 @@ def recompute_order_status(order: SupplierOrder):
     if len(received) == len(active):
         order.status = SupplierOrderStatus.RECEIVED
         order.received_date = max(ln.date_received for ln in received)
-    elif received:
-        order.status = SupplierOrderStatus.PARTIALLY_RECEIVED
-        order.received_date = None
     else:
+        # Mixed receipts (some lines in, some not) stay ISSUED — never PARTIALLY_RECEIVED.
         order.status = SupplierOrderStatus.ISSUED
         order.received_date = None
 

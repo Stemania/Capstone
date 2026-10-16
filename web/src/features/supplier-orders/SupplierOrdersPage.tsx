@@ -22,7 +22,6 @@ const FILTERS: { label: string; value: Filter }[] = [
   { label: 'Overdue', value: 'OVERDUE' },
   { label: 'Draft', value: 'DRAFT' },
   { label: 'Issued', value: 'ISSUED' },
-  { label: 'Partly received', value: 'PARTIALLY_RECEIVED' },
   { label: 'Received', value: 'RECEIVED' },
   { label: 'Cancelled', value: 'CANCELLED' },
 ];

@@ -34,7 +34,8 @@ export const JOB_FLAG = {
 export const SUPPLIER_ORDER_STATUS: Record<string, StatusDef> = {
   DRAFT: { label: 'Draft', tone: 'slate' },
   ISSUED: { label: 'Issued', tone: 'blue' },
-  PARTIALLY_RECEIVED: { label: 'Partly received', tone: 'amber' },
+  // Kept for legacy DB rows; new code never writes this status.
+  PARTIALLY_RECEIVED: { label: 'Issued', tone: 'blue' },
   RECEIVED: { label: 'Received', tone: 'green' },
   OVERDUE: { label: 'Overdue', tone: 'red' },
   CANCELLED: { label: 'Cancelled', tone: 'grey' },
