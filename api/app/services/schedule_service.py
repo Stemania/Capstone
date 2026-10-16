@@ -275,7 +275,7 @@ def _external_booking_records(exclude_job_id=None, exclude_operation_ids=None):
 
     query = JobOperation.query.join(JobOrder, JobOperation.job_order_id == JobOrder.id).filter(
         JobOperation.status.in_(BOOKING_STATUSES),
-        JobOrder.status != JobOrderStatus.DRAFT,
+        JobOrder.status.notin_((JobOrderStatus.DRAFT, JobOrderStatus.CANCELLED)),
     )
     if exclude_job_id:
         query = query.filter(JobOperation.job_order_id != exclude_job_id)

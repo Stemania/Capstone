@@ -6,6 +6,10 @@ from sqlalchemy.orm import joinedload
 
 from app.extensions import db
 from app.models.job_order import (
+    ARCHIVEABLE_STATUSES,
+    CANCEL_REASONS,
+    INACTIVE_SCHEDULE_STATUSES,
+    LIST_STATUSES,
     JobOrder,
     JobOrderStatus,
     JobPriority,
@@ -183,6 +187,8 @@ def _validate_helpers(
 
 
 def derive_job_status(job: JobOrder) -> JobOrderStatus:
+    if job.status == JobOrderStatus.CANCELLED:
+        return JobOrderStatus.CANCELLED
     if job.status == JobOrderStatus.DELIVERED or job.delivered_at:
         return JobOrderStatus.DELIVERED
     # Draft is sticky until release — stage is derived from data, not stored.
@@ -343,12 +349,21 @@ def list_job_orders(user_id, user_role, status=None, scope=None, awaiting_materi
     if user_role == UserRole.PRODUCTION_WORKER.value:
         query = query.filter(
             JobOrder.status.in_(tuple(PRODUCTION_VISIBLE_STATUSES)),
+            JobOrder.archived_at.is_(None),
             JobOrder.operations.any(JobOperation.crew_includes(user_id)),
         )
     elif scope == "drafts":
-        query = query.filter_by(status=JobOrderStatus.DRAFT)
+        query = query.filter_by(status=JobOrderStatus.DRAFT).filter(
+            JobOrder.archived_at.is_(None)
+        )
+    elif scope == "archived":
+        query = query.filter(JobOrder.archived_at.isnot(None))
     elif scope != "all":
-        query = query.filter(JobOrder.status.in_(tuple(PRODUCTION_STATUSES)))
+        # Default production list: active + cancelled history, not archived.
+        query = query.filter(
+            JobOrder.status.in_(tuple(LIST_STATUSES)),
+            JobOrder.archived_at.is_(None),
+        )
     if status:
         query = query.filter_by(status=JobOrderStatus(status))
     if awaiting_material:
@@ -377,6 +392,8 @@ def get_job_order(job_id, user_id, user_role):
         JobOrder.query.options(
             joinedload(JobOrder.client),
             joinedload(JobOrder.created_by),
+            joinedload(JobOrder.cancelled_by),
+            joinedload(JobOrder.archived_by),
             joinedload(JobOrder.sales_invoice).joinedload(SalesInvoice.prepared_by),
             joinedload(JobOrder.operations).joinedload(JobOperation.assigned_worker),
             joinedload(JobOrder.operations).joinedload(JobOperation.machine_type),
@@ -1130,30 +1147,109 @@ def _assert_no_started_operations(job):
         )
 
 
-def delete_job_order(job):
-    """Permanently remove a pending job order, its operations, and schedule data."""
-    if job.status != JobOrderStatus.DRAFT:
+def _clear_unstarted_schedule(job: JobOrder) -> None:
+    """Free machine/worker slots: clear windows and crew on work that has not started."""
+    for op in job.operations or []:
+        started = (
+            op.status in _STARTED_OPERATION_STATUSES or op.actual_start is not None
+        )
+        if started:
+            continue
+        op.scheduled_start = None
+        op.scheduled_end = None
+        op.machine_unit_id = None
+        op.assigned_worker_id = None
+        op.set_helpers([])
+        if op.status == OperationStatus.SCHEDULED:
+            op.status = OperationStatus.PENDING
+
+
+def _flag_open_material_lines(job: JobOrder) -> None:
+    """Mark open purchase lines so Office can cancel the PO or keep the material."""
+    for line in job.material_purchases or []:
+        if line.cancelled_at is not None:
+            continue
+        if line.date_received is not None:
+            continue
+        line.review_after_job_cancel = True
+
+
+def cancel_job_order(job, actor_id: str, data: dict | None = None):
+    """Cancel a job before COMPLETED. Keeps history; frees schedule; no client notify."""
+    data = data or {}
+    if job.status in (
+        JobOrderStatus.COMPLETED,
+        JobOrderStatus.DELIVERED,
+        JobOrderStatus.CANCELLED,
+    ):
         raise AppError(
-            "This job has been released and the client was told it was received, "
-            "so it can no longer be deleted.",
-            "JOB_RELEASED",
+            "Completed, delivered, or already cancelled jobs cannot be cancelled.",
+            "INVALID_TRANSITION",
             409,
         )
     if job.sales_invoice is not None:
         raise AppError(
-            "This job has a recorded sales invoice and cannot be deleted.",
+            "This job has a recorded sales invoice and cannot be cancelled.",
             "INVOICE_EXISTS",
             409,
         )
-    _assert_no_started_operations(job)
-    try:
-        from app.models.tool_event import ToolEvent
-
-        ToolEvent.query.filter_by(job_order_id=job.id).update(
-            {ToolEvent.job_order_id: None}, synchronize_session=False
+    reason = data.get("reason")
+    note = (data.get("note") or "").strip() or None
+    if reason not in CANCEL_REASONS:
+        raise AppError("Choose a cancel reason.", "VALIDATION_ERROR", 400)
+    if reason == "OTHER" and not note:
+        raise AppError(
+            "A note is required when the reason is Other.",
+            "VALIDATION_ERROR",
+            400,
         )
-        db.session.delete(job)
+    try:
+        now = datetime.now(timezone.utc)
+        _clear_unstarted_schedule(job)
+        _flag_open_material_lines(job)
+        job.status = JobOrderStatus.CANCELLED
+        job.cancelled_at = now
+        job.cancelled_by_id = actor_id
+        job.cancel_reason = reason
+        job.cancel_note = note
+        job.needs_replan_reason = None
         db.session.commit()
+        return get_job_order(job.id, actor_id, UserRole.ADMIN.value)
+    except AppError:
+        db.session.rollback()
+        raise
+    except Exception:
+        db.session.rollback()
+        raise
+
+
+def archive_job_order(job, actor_id: str):
+    if job.status not in ARCHIVEABLE_STATUSES:
+        raise AppError(
+            "Only completed, delivered, or cancelled jobs can be archived.",
+            "INVALID_TRANSITION",
+            409,
+        )
+    if job.archived_at is not None:
+        raise AppError("This job is already archived.", "ALREADY_ARCHIVED", 409)
+    try:
+        job.archived_at = datetime.now(timezone.utc)
+        job.archived_by_id = actor_id
+        db.session.commit()
+        return get_job_order(job.id, actor_id, UserRole.ADMIN.value)
+    except Exception:
+        db.session.rollback()
+        raise
+
+
+def unarchive_job_order(job, actor_id: str):
+    if job.archived_at is None:
+        raise AppError("This job is not archived.", "NOT_ARCHIVED", 409)
+    try:
+        job.archived_at = None
+        job.archived_by_id = None
+        db.session.commit()
+        return get_job_order(job.id, actor_id, UserRole.ADMIN.value)
     except Exception:
         db.session.rollback()
         raise

@@ -66,7 +66,9 @@ def get_busy_workers(start=None, end=None, exclude_operation_id=None, exclude_op
                 JobOperation.assigned_worker_id.isnot(None),
                 JobOperation.status.in_(ACTIVE_OP_STATUSES),
                 JobOperation.status != OperationStatus.PENDING,
-                JobOrder.status != JobOrderStatus.DRAFT,
+                JobOrder.status.notin_(
+                    (JobOrderStatus.DRAFT, JobOrderStatus.CANCELLED)
+                ),
                 JobOperation.scheduled_start.isnot(None),
                 JobOperation.scheduled_end.isnot(None),
             )

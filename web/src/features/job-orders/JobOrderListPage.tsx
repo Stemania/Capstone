@@ -7,7 +7,7 @@ import {
   CheckOutlined,
   PrinterOutlined,
   EyeOutlined,
-  DeleteOutlined,
+  StopOutlined,
   MoreOutlined,
   SearchOutlined,
   FilterOutlined,
@@ -34,6 +34,7 @@ import { useIsPhone } from '../../hooks/useIsPhone';
 import { NARROW_QUERY } from '../../hooks/useViewport';
 import type { JobOrder, JobOrderStatus } from '../../types';
 import { compareByDue } from './jobOrderSort';
+import CancelJobModal from './CancelJobModal';
 
 type ListTab = 'production' | 'drafts';
 
@@ -46,12 +47,14 @@ const PRODUCTION_STATUS_OPTIONS: { value: JobOrderStatus; label: string }[] = [
   { value: 'IN_PROGRESS', label: 'In Progress' },
   { value: 'COMPLETED', label: 'Completed' },
   { value: 'DELIVERED', label: 'For Delivery' },
+  { value: 'CANCELLED', label: 'Cancelled' },
 ];
 
 function isJobOverdue(job: JobOrder) {
   return (
     job.status !== 'COMPLETED' &&
     job.status !== 'DELIVERED' &&
+    job.status !== 'CANCELLED' &&
     dayjs(job.dueDate).isBefore(shopToday(), 'day')
   );
 }
@@ -385,55 +388,14 @@ export default function JobOrderListPage() {
     });
   };
 
-  const handleBulkDeleteDrafts = () => {
-    if (!selectedJobs.length) {
-      message.info('Select pending jobs to delete.');
-      return;
-    }
-    const count = selectedJobs.length;
-    Modal.confirm({
-      title: count === 1 ? 'Delete this pending job?' : `Delete ${count} pending jobs?`,
-      content: 'Selected pending jobs will be permanently removed. This cannot be undone.',
-      okText: 'Delete',
-      okType: 'danger',
-      cancelText: 'Cancel',
-      onOk: async () => {
-        try {
-          for (const job of selectedJobs) {
-            await jobOrdersApi.delete(job.id);
-          }
-          message.success(count === 1 ? 'Pending job deleted' : `${count} pending jobs deleted`);
-          setSelectedKeys([]);
-          await fetchJobs();
-        } catch (err) {
-          message.error(getErrorMessage(err));
-          throw err;
-        }
-      },
-    });
-  };
+  const [cancelJob, setCancelJob] = useState<JobOrder | null>(null);
 
-  const confirmDeleteJob = (record: JobOrder) => {
-    const label = record.jobNumber || 'This job order';
-    Modal.confirm({
-      title: 'Delete this pending job?',
-      content: `${label} will be permanently removed. This cannot be undone.`,
-      okText: 'Delete',
-      okType: 'danger',
-      cancelText: 'Cancel',
-      onOk: async () => {
-        try {
-          await jobOrdersApi.delete(record.id);
-          message.success('Pending job deleted');
-          setSelectedKeys((keys) => keys.filter((k) => k !== record.id));
-          await fetchJobs();
-        } catch (err) {
-          message.error(getErrorMessage(err));
-          throw err;
-        }
-      },
-    });
-  };
+  const canCancelJob = (record: JobOrder) =>
+    (isOfficeStaff || isAdmin) &&
+    record.status !== 'COMPLETED' &&
+    record.status !== 'DELIVERED' &&
+    record.status !== 'CANCELLED' &&
+    !record.salesInvoice;
 
   const jobActionItems = (record: JobOrder): MenuProps['items'] => {
     const isDraft = record.status === 'DRAFT';
@@ -463,13 +425,15 @@ export default function JobOrderListPage() {
             onClick: () => navigate(`/job-orders/${record.id}/edit`),
           });
         }
-        items.push({
-          key: 'delete',
-          icon: <DeleteOutlined />,
-          label: 'Delete',
-          danger: true,
-          onClick: () => confirmDeleteJob(record),
-        });
+        if (canCancelJob(record)) {
+          items.push({
+            key: 'cancel',
+            icon: <StopOutlined />,
+            label: 'Cancel job order',
+            danger: true,
+            onClick: () => setCancelJob(record),
+          });
+        }
       }
       return items;
     }
@@ -502,6 +466,15 @@ export default function JobOrderListPage() {
             message.error(getErrorMessage(err));
           }
         },
+      });
+    }
+    if (canCancelJob(record)) {
+      items.push({
+        key: 'cancel',
+        icon: <StopOutlined />,
+        label: 'Cancel job order',
+        danger: true,
+        onClick: () => setCancelJob(record),
       });
     }
     return items;
@@ -771,17 +744,7 @@ export default function JobOrderListPage() {
           {selectMode ? (
             <div className="jo-m__bulk">
               <span className="jo-m__bulk-count">{selectedKeys.length} selected</span>
-              {listTab === 'drafts' ? (
-                <Button
-                  size="small"
-                  danger
-                  icon={<DeleteOutlined />}
-                  disabled={!selectedJobs.length}
-                  onClick={handleBulkDeleteDrafts}
-                >
-                  Delete{selectedJobs.length ? ` (${selectedJobs.length})` : ''}
-                </Button>
-              ) : (
+              {listTab !== 'drafts' ? (
                 <>
                   <Button
                     size="small"
@@ -804,6 +767,10 @@ export default function JobOrderListPage() {
                     </Button>
                   ) : null}
                 </>
+              ) : (
+                <span className="jo-m__bulk-count" style={{ opacity: 0.7 }}>
+                  Cancel jobs one at a time from the menu
+                </span>
               )}
             </div>
           ) : null}
@@ -905,17 +872,7 @@ export default function JobOrderListPage() {
               : ''}
           </span>
           <Space size={8}>
-            {listTab === 'drafts' ? (
-              <Button
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-                disabled={!selectedJobs.length}
-                onClick={handleBulkDeleteDrafts}
-              >
-                Delete{selectedJobs.length ? ` (${selectedJobs.length})` : ''}
-              </Button>
-            ) : (
+            {listTab !== 'drafts' ? (
               <>
                 <Button
                   size="small"
@@ -938,7 +895,7 @@ export default function JobOrderListPage() {
                   </Button>
                 ) : null}
               </>
-            )}
+            ) : null}
             {selectedKeys.length > 0 && (
               <Button size="small" type="text" onClick={() => setSelectedKeys([])}>
                 Clear
@@ -1184,6 +1141,19 @@ export default function JobOrderListPage() {
             </button>
           </div>
         </Drawer>
+      ) : null}
+
+      {cancelJob ? (
+        <CancelJobModal
+          job={cancelJob}
+          open
+          onClose={() => setCancelJob(null)}
+          onCancelled={async () => {
+            setCancelJob(null);
+            setSelectedKeys((keys) => keys.filter((k) => k !== cancelJob.id));
+            await fetchJobs();
+          }}
+        />
       ) : null}
     </div>
   );

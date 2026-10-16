@@ -196,6 +196,8 @@ export interface MaterialPurchase {
   dateReceived?: string | null;
   consumedAt?: string | null;
   cancelledAt?: string | null;
+  /** Parent job was cancelled; Office should cancel the PO or keep the material. */
+  reviewAfterJobCancel?: boolean;
   /** Null = recorded without a PO (before supplier orders). */
   supplierOrderId?: string | null;
   poNumber?: string | null;
@@ -425,7 +427,8 @@ export type JobOrderStatus =
   | 'SCHEDULED'
   | 'IN_PROGRESS'
   | 'COMPLETED'
-  | 'DELIVERED';
+  | 'DELIVERED'
+  | 'CANCELLED';
 export type JobPriority = 'HIGH' | 'MODERATE' | 'LOW';
 export type JobType = 'FABRICATION' | 'MODIFICATION' | 'REPAIR';
 
@@ -873,6 +876,14 @@ export interface JobOrder extends MaterialWait {
   createdByName?: string | null;
   draftStage?: string | null;
   deliveredAt?: string | null;
+  cancelledAt?: string | null;
+  cancelledById?: string | null;
+  cancelledByName?: string | null;
+  cancelReason?: string | null;
+  cancelNote?: string | null;
+  archivedAt?: string | null;
+  archivedById?: string | null;
+  isArchived?: boolean;
   createdAt?: string;
   updatedAt?: string | null;
   opsCompleted?: number;

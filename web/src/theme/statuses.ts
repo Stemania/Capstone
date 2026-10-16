@@ -13,6 +13,7 @@ export const JOB_STATUS: Record<string, StatusDef> = {
   IN_PROGRESS: { label: 'In progress', tone: 'indigo' },
   COMPLETED: { label: 'Completed', tone: 'green' },
   DELIVERED: { label: 'For Delivery', tone: 'teal' },
+  CANCELLED: { label: 'Cancelled', tone: 'grey' },
 };
 
 export const OPERATION_STATUS: Record<string, StatusDef> = {

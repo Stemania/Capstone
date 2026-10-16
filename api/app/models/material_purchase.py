@@ -71,6 +71,10 @@ class MaterialPurchase(db.Model):
     consumed_at = db.Column(db.DateTime(timezone=True), nullable=True)
     cancelled_at = db.Column(db.DateTime(timezone=True), nullable=True)
     cancelled_by_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=True)
+    # Set when the parent job is cancelled so Office can cancel the PO or keep stock.
+    review_after_job_cancel = db.Column(
+        db.Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
     updated_at = db.Column(
         db.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
@@ -188,6 +192,7 @@ class MaterialPurchase(db.Model):
             ),
             "consumedAt": self.consumed_at.isoformat() if self.consumed_at else None,
             "cancelledAt": self.cancelled_at.isoformat() if self.cancelled_at else None,
+            "reviewAfterJobCancel": bool(self.review_after_job_cancel),
             "supplierOrderId": self.supplier_order_id,
             "poNumber": self.supplier_order.po_number if self.supplier_order else None,
             "orderStatus": (

@@ -410,30 +410,43 @@ def test_can_start_once_earlier_operations_complete(client, shop):
     assert res.get_json()["status"] == "IN_PROGRESS"
 
 
-# ---- Item 8: delete ------------------------------------------------------
+# ---- Item 8: cancel (hard delete removed) --------------------------------
 
 
-def test_released_job_cannot_be_deleted(client, shop):
+def test_released_job_can_be_cancelled_not_deleted(client, shop):
     job = _job(shop, status=JobOrderStatus.SCHEDULED)
     _op(job, 1, "Cutting", worker=shop["worker"])
     db.session.commit()
 
     res = client.delete(f"/api/v1/job-orders/{job.id}", headers=_headers(shop["admin"]))
-    assert res.status_code == 409
-    assert res.get_json()["error"]["code"] == "JOB_RELEASED"
+    assert res.status_code == 405
+
+    res = client.post(
+        f"/api/v1/job-orders/{job.id}/cancel",
+        headers=_headers(shop["admin"]),
+        json={"reason": "CLIENT_CANCELLED"},
+    )
+    assert res.status_code == 200, res.get_json()
+    assert res.get_json()["status"] == "CANCELLED"
     assert db.session.get(JobOrder, job.id) is not None
 
 
-def test_pending_job_can_be_deleted(client, shop):
+def test_pending_job_is_cancelled_not_deleted(client, shop):
     job = _job(shop, status=JobOrderStatus.DRAFT)
     _op(job, 1, "Cutting", status=OperationStatus.PENDING)
     db.session.commit()
     job_id = job.id
 
-    res = client.delete(f"/api/v1/job-orders/{job_id}", headers=_headers(shop["office"]))
-    assert res.status_code == 204
+    res = client.post(
+        f"/api/v1/job-orders/{job_id}/cancel",
+        headers=_headers(shop["office"]),
+        json={"reason": "DUPLICATE_OR_ENCODING_ERROR"},
+    )
+    assert res.status_code == 200, res.get_json()
     db.session.expire_all()
-    assert db.session.get(JobOrder, job_id) is None
+    row = db.session.get(JobOrder, job_id)
+    assert row is not None
+    assert row.status == JobOrderStatus.CANCELLED
 
 
 # ---- Items 6 and 9: server-side integrity --------------------------------

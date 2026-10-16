@@ -134,7 +134,7 @@ def _usable_units(machine_type_id, scheduled_start, scheduled_end, exclude_opera
             JobOperation.status.in_(
                 (OperationStatus.SCHEDULED, OperationStatus.IN_PROGRESS, OperationStatus.REWORK)
             ),
-            JobOrder.status != JobOrderStatus.DRAFT,
+            JobOrder.status.notin_((JobOrderStatus.DRAFT, JobOrderStatus.CANCELLED)),
             JobOperation.scheduled_start.isnot(None),
             JobOperation.scheduled_end.isnot(None),
         )

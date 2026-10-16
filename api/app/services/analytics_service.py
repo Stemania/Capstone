@@ -179,7 +179,7 @@ def job_orders_summary(from_s=None, to_s=None):
     today = shop_now().date()
 
     received = defaultdict(lambda: {"count": 0, "amount": 0.0})
-    for job in JobOrder.query.all():
+    for job in JobOrder.query.filter(JobOrder.status != JobOrderStatus.CANCELLED).all():
         on = forecast_service._job_received_date(job)
         if period_from <= on <= period_to:
             for key in (job.job_type.value if job.job_type else "OTHER", "ALL"):
@@ -201,7 +201,10 @@ def job_orders_summary(from_s=None, to_s=None):
         JobOrderStatus.IN_PROGRESS,
         JobOrderStatus.COMPLETED,
     )
-    open_jobs = JobOrder.query.filter(JobOrder.status.in_(open_statuses)).all()
+    open_jobs = JobOrder.query.filter(
+        JobOrder.status.in_(open_statuses),
+        JobOrder.status != JobOrderStatus.CANCELLED,
+    ).all()
     open_by_status = {s.value: 0 for s in open_statuses}
     for j in open_jobs:
         open_by_status[j.status.value] += 1

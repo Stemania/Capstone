@@ -97,7 +97,10 @@ export const jobOrdersApi = {
     apiClient.post<JobOrder>('/job-orders', data),
   update: (id: string, data: Record<string, unknown>) =>
     apiClient.patch<JobOrder>(`/job-orders/${id}`, data),
-  delete: (id: string) => apiClient.delete(`/job-orders/${id}`),
+  cancel: (id: string, data: { reason: string; note?: string }) =>
+    apiClient.post<JobOrder>(`/job-orders/${id}/cancel`, data),
+  archive: (id: string) => apiClient.post<JobOrder>(`/job-orders/${id}/archive`),
+  unarchive: (id: string) => apiClient.post<JobOrder>(`/job-orders/${id}/unarchive`),
   confirmSchedule: (id: string, body: Record<string, unknown>) =>
     apiClient.post<JobOrder>(`/job-orders/${id}/schedule/confirm`, body),
   deliver: (id: string) => apiClient.post<JobOrder>(`/job-orders/${id}/deliver`),

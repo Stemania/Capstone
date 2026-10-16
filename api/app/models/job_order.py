@@ -25,6 +25,7 @@ class JobOrderStatus(enum.Enum):
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
     DELIVERED = "DELIVERED"
+    CANCELLED = "CANCELLED"
     # Legacy labels — retained for Postgres enum compatibility only; never set in code.
     PLANNING = "PLANNING"
     RELEASED = "RELEASED"
@@ -51,8 +52,32 @@ PRODUCTION_STATUSES = frozenset(
     }
 )
 
-# Workers may only see committed production jobs (not drafts).
+# Default job-order list (non-archived): production plus cancelled history.
+LIST_STATUSES = PRODUCTION_STATUSES | {JobOrderStatus.CANCELLED}
+
+# Workers may only see committed production jobs (not drafts or cancelled).
 PRODUCTION_VISIBLE_STATUSES = PRODUCTION_STATUSES
+
+# Excluded from schedule board, worker/machine booking, and open capacity.
+INACTIVE_SCHEDULE_STATUSES = frozenset(
+    {JobOrderStatus.DRAFT, JobOrderStatus.CANCELLED}
+)
+
+CANCEL_REASONS = frozenset(
+    {
+        "CLIENT_CANCELLED",
+        "DUPLICATE_OR_ENCODING_ERROR",
+        "OTHER",
+    }
+)
+
+ARCHIVEABLE_STATUSES = frozenset(
+    {
+        JobOrderStatus.COMPLETED,
+        JobOrderStatus.DELIVERED,
+        JobOrderStatus.CANCELLED,
+    }
+)
 
 
 class JobPriority(enum.Enum):
@@ -187,6 +212,21 @@ class JobOrder(db.Model):
     delivered_at = db.Column(db.DateTime(timezone=True), nullable=True)
     # When the Admin confirmed the schedule; worker actions cannot predate it.
     released_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    cancelled_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    cancelled_by_id = db.Column(
+        db.String(36),
+        db.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    cancel_reason = db.Column(db.String(40), nullable=True)
+    cancel_note = db.Column(db.Text, nullable=True)
+    archived_at = db.Column(db.DateTime(timezone=True), nullable=True, index=True)
+    archived_by_id = db.Column(
+        db.String(36),
+        db.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
     updated_at = db.Column(
         db.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
@@ -197,6 +237,8 @@ class JobOrder(db.Model):
     created_by = db.relationship(
         "User", back_populates="created_job_orders", foreign_keys=[created_by_id]
     )
+    cancelled_by = db.relationship("User", foreign_keys=[cancelled_by_id])
+    archived_by = db.relationship("User", foreign_keys=[archived_by_id])
     operations = db.relationship(
         "JobOperation",
         back_populates="job_order",
@@ -473,6 +515,14 @@ class JobOrder(db.Model):
             "supplierReference": self.supplier_reference,
             "scheduleColor": self.schedule_color,
             "deliveredAt": self.delivered_at.isoformat() if self.delivered_at else None,
+            "cancelledAt": self.cancelled_at.isoformat() if self.cancelled_at else None,
+            "cancelledById": self.cancelled_by_id,
+            "cancelledByName": self.cancelled_by.full_name if self.cancelled_by else None,
+            "cancelReason": self.cancel_reason,
+            "cancelNote": self.cancel_note,
+            "archivedAt": self.archived_at.isoformat() if self.archived_at else None,
+            "archivedById": self.archived_by_id,
+            "isArchived": self.archived_at is not None,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
             "opsCompleted": completed,

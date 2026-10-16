@@ -25,7 +25,7 @@ from app.models.operation_time import (
 )
 from app.models.user import UserRole
 from app.services import analytics_service, forecast_service
-from app.services.job_order_service import delete_job_order, update_job_order
+from app.services.job_order_service import cancel_job_order, update_job_order
 from app.services.scoring_service import _pairs_from_ops, score_efficiency
 from app.utils.errors import AppError
 from tests.test_process_flow import (  # noqa: F401  (fixtures)
@@ -178,16 +178,24 @@ def test_draft_job_can_still_replace_operations(people):
     assert names == ["Facing"]
 
 
-def test_delete_refuses_released_job_with_started_operations(people):
+def test_cancel_keeps_started_operations_and_blocks_completed(people):
     job = _job(people, status=JobOrderStatus.IN_PROGRESS)
     op = _add_op(job, "TURNING", people["worker"].id, status=OperationStatus.IN_PROGRESS)
     op.actual_start = T0
     db.session.flush()
     db.session.refresh(job)
-    with pytest.raises(AppError) as exc:
-        delete_job_order(job)
-    assert exc.value.code == "JOB_RELEASED"
+    cancel_job_order(job, people["admin"].id, {"reason": "CLIENT_CANCELLED"})
+    db.session.refresh(job)
+    db.session.refresh(op)
+    assert job.status == JobOrderStatus.CANCELLED
+    assert op.actual_start is not None
     assert JobOperation.query.get(op.id) is not None
+
+    done = _job(people, status=JobOrderStatus.COMPLETED)
+    db.session.flush()
+    with pytest.raises(AppError) as exc:
+        cancel_job_order(done, people["admin"].id, {"reason": "CLIENT_CANCELLED"})
+    assert exc.value.code == "INVALID_TRANSITION"
 
 
 # 5. Server-side role gaps

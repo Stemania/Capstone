@@ -621,6 +621,16 @@ export default function SupplierOrderDetailPage() {
           />
         ) : null}
 
+        {lines.some((ln) => ln.reviewAfterJobCancel) ? (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginTop: 16 }}
+            title="A linked job was cancelled"
+            description="One or more lines are flagged for review. Cancel this purchase order or keep the material for other work."
+          />
+        ) : null}
+
         {!isDraft && order.status !== 'CANCELLED' ? (
           <Alert
             type="info"

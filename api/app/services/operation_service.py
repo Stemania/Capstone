@@ -217,6 +217,8 @@ def start_operation(operation, user_id, user_role, timestamp, received_at=None):
             "INVALID_TRANSITION",
             409,
         )
+    if job.status == JobOrderStatus.CANCELLED:
+        raise AppError("This job was cancelled.", "JOB_CANCELLED", 409)
 
     if operation.status == OperationStatus.IN_PROGRESS:
         last = _last_event(operation)
@@ -1094,7 +1096,9 @@ def _jobs_today_by_unit(unit_ids):
         .join(JobOrder, JobOperation.job_order_id == JobOrder.id)
         .filter(
             JobOperation.machine_unit_id.in_(unit_ids),
-            JobOrder.status != JobOrderStatus.DRAFT,
+            JobOrder.status.notin_(
+                (JobOrderStatus.DRAFT, JobOrderStatus.CANCELLED)
+            ),
             db.or_(
                 db.and_(
                     JobOperation.scheduled_start < end,

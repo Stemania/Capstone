@@ -278,7 +278,7 @@ def demand_forecast(today: date | None = None):
     Every job type uses the overall start of the history, so a type with no
     orders in the early months counts them as 0 instead of starting later.
     """
-    jobs = JobOrder.query.all()
+    jobs = JobOrder.query.filter(JobOrder.status != JobOrderStatus.CANCELLED).all()
     overall = []
     by_type = defaultdict(list)
     for job in jobs:

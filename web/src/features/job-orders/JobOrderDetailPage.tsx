@@ -22,8 +22,8 @@ import {
 import {
   CheckCircleFilled,
   CheckOutlined,
-  DeleteOutlined,
   EditOutlined,
+  StopOutlined,
   FileTextOutlined,
   PrinterOutlined,
   ReloadOutlined,
@@ -73,6 +73,7 @@ import RescheduleModal, {
   RESCHEDULE_REASON_OPTIONS,
   rescheduleReasonLabel,
 } from './RescheduleModal';
+import CancelJobModal, { cancelReasonLabel } from './CancelJobModal';
 
 const RESCHEDULE_REASON_CODES = new Set(
   RESCHEDULE_REASON_OPTIONS.map((o) => o.value as string)
@@ -282,6 +283,7 @@ function JobOrderDetailView() {
   const [breakdowns, setBreakdowns] = useState<MachineDowntimeRecord[]>([]);
   const [purchaseOpen, setPurchaseOpen] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const [scheduleMoves, setScheduleMoves] = useState<ScheduleMove[]>([]);
   const [invoiceMode, setInvoiceMode] = useState<'record' | 'view' | 'correct' | null>(null);
   const [invoiceSaving, setInvoiceSaving] = useState(false);
@@ -607,28 +609,6 @@ function JobOrderDetailView() {
     }
   };
 
-  const handleDelete = () => {
-    if (!job) return;
-    const label = job.jobNumber || 'This job order';
-    Modal.confirm({
-      title: 'Delete this pending job?',
-      content: `${label} will be permanently removed. This cannot be undone.`,
-      okText: 'Delete',
-      okType: 'danger',
-      cancelText: 'Cancel',
-      onOk: async () => {
-        try {
-          await jobOrdersApi.delete(job.id);
-          message.success('Pending job deleted');
-          navigate(backTo, { replace: true });
-        } catch (err) {
-          message.error(getErrorMessage(err));
-          throw err;
-        }
-      },
-    });
-  };
-
   if (loading && !job) {
     return (
       <PageSkeleton variant="detail" />
@@ -663,7 +643,16 @@ function JobOrderDetailView() {
   const isNotStarted = (op: Operation) =>
     op.status !== 'IN_PROGRESS' && op.status !== 'COMPLETED' && !op.actualStart;
   const canReschedule =
-    !isDraft && job.status !== 'DELIVERED' && (job.operations || []).some(isNotStarted);
+    !isDraft &&
+    job.status !== 'DELIVERED' &&
+    job.status !== 'CANCELLED' &&
+    (job.operations || []).some(isNotStarted);
+  const canCancel =
+    canManage &&
+    job.status !== 'COMPLETED' &&
+    job.status !== 'DELIVERED' &&
+    job.status !== 'CANCELLED' &&
+    !job.salesInvoice;
   const opsTotal = (job.operations || []).length;
   const opsDone = (job.operations || []).filter((op) => op.status === 'COMPLETED').length;
 
@@ -792,9 +781,9 @@ function JobOrderDetailView() {
               Reschedule
             </Button>
           )}
-          {canManage && isDraft && (
-            <Button danger icon={<DeleteOutlined />} onClick={handleDelete}>
-              Delete
+          {canCancel && (
+            <Button danger icon={<StopOutlined />} onClick={() => setCancelOpen(true)}>
+              Cancel job order
             </Button>
           )}
         </Space>
@@ -817,6 +806,34 @@ function JobOrderDetailView() {
           </div>
         )}
       </div>
+
+      {job.status === 'CANCELLED' ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          title="This job order was cancelled"
+          description={
+            <>
+              <div>
+                {cancelReasonLabel(job.cancelReason)}
+                {job.cancelNote ? ` — ${job.cancelNote}` : ''}
+              </div>
+              {job.cancelledByName || job.cancelledAt ? (
+                <div>
+                  {job.cancelledByName ? `${job.cancelledByName}` : ''}
+                  {job.cancelledAt ? ` · ${fmtDateTime(job.cancelledAt)}` : ''}
+                </div>
+              ) : null}
+              {purchases.some((p) => p.reviewAfterJobCancel) ? (
+                <div style={{ marginTop: 6 }}>
+                  Open purchase lines are flagged — Office can cancel those POs or keep the material.
+                </div>
+              ) : null}
+            </>
+          }
+        />
+      ) : null}
 
       {canManage && job.needsReplan ? (
         <Alert
@@ -1631,6 +1648,19 @@ function JobOrderDetailView() {
             setRescheduleOpen(false);
             await fetchJob();
             await fetchScheduleMoves();
+          }}
+        />
+      )}
+
+      {cancelOpen && (
+        <CancelJobModal
+          job={job}
+          open={cancelOpen}
+          onClose={() => setCancelOpen(false)}
+          onCancelled={async () => {
+            setCancelOpen(false);
+            await fetchJob();
+            await fetchPurchases();
           }}
         />
       )}

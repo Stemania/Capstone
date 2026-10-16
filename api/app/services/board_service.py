@@ -104,7 +104,9 @@ def capacity_for_period(start_utc, end_utc, now=None) -> list[dict]:
     ops = (
         JobOperation.query.join(JobOrder)
         .filter(
-            JobOrder.status != JobOrderStatus.DRAFT,
+            JobOrder.status.notin_(
+                (JobOrderStatus.DRAFT, JobOrderStatus.CANCELLED)
+            ),
             JobOperation.status != OperationStatus.COMPLETED,
             JobOperation.machine_type_id.isnot(None),
             JobOperation.scheduled_start.isnot(None),
@@ -232,7 +234,9 @@ def schedule_board(
 
     from app.models.job_order import JobOrderStatus
 
-    q = q.filter(JobOrder.status != JobOrderStatus.DRAFT)
+    q = q.filter(
+        JobOrder.status.notin_((JobOrderStatus.DRAFT, JobOrderStatus.CANCELLED))
+    )
 
     ops = q.order_by(JobOperation.scheduled_start.asc()).all()
 

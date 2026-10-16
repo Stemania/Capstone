@@ -91,14 +91,38 @@ def update_job_order(job_id):
     return jsonify(job.to_dict(include_operations=True, viewer_role=role))
 
 
-@job_orders_bp.route("/<job_id>", methods=["DELETE"])
+@job_orders_bp.route("/<job_id>/cancel", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
-def delete_job_order(job_id):
+def cancel_job_order(job_id):
     role = get_current_user_role()
-    job = jo_service.get_job_order(job_id, get_current_user_id(), role)
-    jo_service.delete_job_order(job)
-    return "", 204
+    actor_id = get_current_user_id()
+    job = jo_service.get_job_order(job_id, actor_id, role)
+    data = request.get_json(silent=True) or {}
+    job = jo_service.cancel_job_order(job, actor_id, data)
+    return jsonify(job.to_dict(include_operations=True, viewer_role=role))
+
+
+@job_orders_bp.route("/<job_id>/archive", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def archive_job_order(job_id):
+    role = get_current_user_role()
+    actor_id = get_current_user_id()
+    job = jo_service.get_job_order(job_id, actor_id, role)
+    job = jo_service.archive_job_order(job, actor_id)
+    return jsonify(job.to_dict(include_operations=True, viewer_role=role))
+
+
+@job_orders_bp.route("/<job_id>/unarchive", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def unarchive_job_order(job_id):
+    role = get_current_user_role()
+    actor_id = get_current_user_id()
+    job = jo_service.get_job_order(job_id, actor_id, role)
+    job = jo_service.unarchive_job_order(job, actor_id)
+    return jsonify(job.to_dict(include_operations=True, viewer_role=role))
 
 
 @job_orders_bp.route("/<job_id>/schedule/confirm", methods=["POST"])

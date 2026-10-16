@@ -28,7 +28,11 @@ from app.utils.errors import AppError
 CENT = Decimal("0.01")
 
 # Materials are not ordered for jobs that are already finished.
-CLOSED_JOB_STATUSES = (JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED)
+CLOSED_JOB_STATUSES = (
+    JobOrderStatus.COMPLETED,
+    JobOrderStatus.DELIVERED,
+    JobOrderStatus.CANCELLED,
+)
 RECEIVABLE_STATUSES = (SupplierOrderStatus.ISSUED, SupplierOrderStatus.PARTIALLY_RECEIVED)
 
 
