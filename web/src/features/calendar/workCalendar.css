@@ -1,0 +1,114 @@
+/* Work calendar polish — loaded after index.css base rules. */
+
+.work-calendar-page .work-calendar__shell {
+  padding: 12px 14px 14px;
+}
+
+.work-calendar-page .work-calendar__toolbar {
+  margin-bottom: 10px;
+  gap: 8px 12px;
+}
+
+.work-calendar-page .work-calendar__nav {
+  gap: 6px;
+}
+
+.work-calendar-page .work-calendar__month-picker.ant-picker {
+  min-width: 148px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding-inline: 4px;
+}
+
+.work-calendar-page .work-calendar__month-picker .ant-picker-input > input {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--c-text);
+  text-align: center;
+  cursor: pointer;
+}
+
+.work-calendar-page .work-calendar__legend {
+  gap: 6px 10px;
+  font-size: 11px;
+}
+
+.work-calendar-page .work-calendar__grid {
+  gap: 5px;
+}
+
+.work-calendar-page .work-calendar__weekday {
+  padding: 0 6px 2px;
+  font-size: 10px;
+}
+
+.work-calendar-page .work-calendar__cell {
+  padding: 6px 7px;
+  border-radius: 8px;
+  gap: 3px;
+}
+
+.work-calendar-page .work-calendar__cell--off {
+  background: repeating-linear-gradient(
+    -45deg,
+    #f1f5f9,
+    #f1f5f9 5px,
+    #e8eef5 5px,
+    #e8eef5 10px
+  );
+  border-color: #e2e8f0;
+}
+
+.work-calendar-page .work-calendar__cell--today {
+  box-shadow: inset 0 0 0 2px var(--c-primary);
+}
+
+.work-calendar-page .work-calendar__cell--today .work-calendar__day-num {
+  background: var(--c-primary);
+  color: #fff;
+  min-width: 26px;
+  height: 26px;
+  font-weight: 800;
+}
+
+.work-calendar-page .work-calendar__event {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.work-calendar-page .work-calendar__cell--overtime .work-calendar__event {
+  background: #dbeafe;
+}
+
+.work-calendar-page .work-calendar__cell--special_working_day .work-calendar__event {
+  background: #ccfbf1;
+}
+
+.work-calendar-page .work-calendar__cell--holiday_no_work .work-calendar__event {
+  background: #fecaca;
+}
+
+.work-calendar-page .work-calendar__event-title {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-calendar-page .work-calendar__event-detail {
+  display: none;
+}
+
+.work-calendar-page .work-calendar__aside-title {
+  font-size: 12px;
+  margin-bottom: 8px;
+}

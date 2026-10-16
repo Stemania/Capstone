@@ -32,6 +32,7 @@ import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import RescheduleAffectedJobs from './RescheduleAffectedJobs';
 import { Legend, PageSkeleton } from '../../components/ui';
+import './workCalendar.css';
 
 const TYPE_LABEL: Record<CalendarExceptionType, string> = {
   OVERTIME: 'Overtime',
