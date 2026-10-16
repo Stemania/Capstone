@@ -808,6 +808,34 @@ export interface CompletionEstimate {
   notEnoughHistoryNote: string | null;
 }
 
+/** One row from schedule_moves (automatic delay or Admin Reschedule). */
+export interface ScheduleMove {
+  id: string;
+  jobOrderId: string;
+  kind: string;
+  previousStart: string | null;
+  newStart: string | null;
+  reason: string | null;
+  note: string | null;
+  changes: {
+    operations?: Array<{
+      operationId: string;
+      sequenceNo?: number;
+      scheduledStart?: { from?: string | null; to?: string | null };
+      scheduledEnd?: { from?: string | null; to?: string | null };
+      assignedWorkerId?: { from?: string | null; to?: string | null };
+      machineUnitId?: { from?: string | null; to?: string | null };
+      helperIds?: { from?: string[]; to?: string[] };
+    }>;
+  } | null;
+  materialCause?: string | null;
+  supplierOrderId?: string | null;
+  supplierId?: string | null;
+  movedAt: string | null;
+  movedById: string | null;
+  movedByName: string | null;
+}
+
 export interface JobOrder extends MaterialWait {
   id: string;
   jobNumber?: string;

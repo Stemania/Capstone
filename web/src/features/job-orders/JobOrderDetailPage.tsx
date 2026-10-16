@@ -31,7 +31,7 @@ import {
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
 import { formatShop, shopToday } from '../../utils/shopTime';
-import { jobOrdersApi, workersApi } from '../../api/jobOrders.api';
+import { jobOrdersApi } from '../../api/jobOrders.api';
 import { operationsApi } from '../../api/operations.api';
 import { notificationsApi } from '../../api/notifications.api';
 import { getErrorMessage } from '../../api/client';
@@ -43,8 +43,7 @@ import { colors, tones } from '../../theme/tokens';
 import MaterialWaitTag from '../../components/MaterialWaitTag';
 import MaterialDelayTag from '../../components/MaterialDelayTag';
 import NeedsReplanTag from '../../components/NeedsReplanTag';
-import { CrewChips, PersonChip } from '../../components/PersonAvatar';
-import { personLabel } from '../../utils/people';
+import { CrewChips } from '../../components/PersonAvatar';
 import type {
   JobOrder,
   JobOrderStatus,
@@ -55,7 +54,7 @@ import type {
   OperationPauseReason,
   OperationStatus,
   ReworkReasonCategory,
-  User,
+  ScheduleMove,
 } from '../../types';
 import { formatDifferenceFromTarget } from '../analytics/analyticsPeriod';
 import { WorkerPageHeader } from '../../layouts/WorkerLayout';
@@ -70,7 +69,14 @@ import {
   rowsFromPurchases,
   rowsFromSummary,
 } from './MaterialOrdersSummary';
-import { ReproposeModal } from '../calendar/RescheduleAffectedJobs';
+import RescheduleModal, {
+  RESCHEDULE_REASON_OPTIONS,
+  rescheduleReasonLabel,
+} from './RescheduleModal';
+
+const RESCHEDULE_REASON_CODES = new Set(
+  RESCHEDULE_REASON_OPTIONS.map((o) => o.value as string)
+);
 
 const { Text } = Typography;
 
@@ -248,91 +254,6 @@ const ACTIVITY_ROW: CSSProperties = {
   color: MUTED,
 };
 
-function OperationWorkerSelect({ op, onAssigned }: { op: Operation; onAssigned: () => Promise<void> }) {
-  const [workers, setWorkers] = useState<User[] | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  const loadWorkers = async () => {
-    if (workers) return;
-    try {
-      const { data } = await workersApi.list({
-        machineTypeId: op.machineTypeId || undefined,
-        operationTypeId: op.operationTypeId || undefined,
-        operationName: op.operationName,
-      });
-      setWorkers(data);
-    } catch (err) {
-      message.error(getErrorMessage(err));
-      setWorkers([]);
-    }
-  };
-
-  const options = useMemo(() => {
-    const people = (workers || []).map((w) => ({
-      id: w.id,
-      fullName: w.fullName,
-      nickname: w.nickname,
-      photoVersion: w.photoVersion,
-    }));
-    if (op.assignedWorkerId && !people.some((p) => p.id === op.assignedWorkerId)) {
-      people.unshift({
-        id: op.assignedWorkerId,
-        fullName: op.assignedWorkerName || 'Current worker',
-        nickname: op.assignedWorkerNickname,
-        photoVersion: op.assignedWorkerPhotoVersion,
-      });
-    }
-    return people.map((p) => ({
-      value: p.id,
-      search: personLabel(p.fullName, p.nickname),
-      label: (
-        <PersonChip
-          userId={p.id}
-          fullName={p.fullName}
-          nickname={p.nickname}
-          photoVersion={p.photoVersion}
-          size={18}
-        />
-      ),
-    }));
-  }, [
-    workers,
-    op.assignedWorkerId,
-    op.assignedWorkerName,
-    op.assignedWorkerNickname,
-    op.assignedWorkerPhotoVersion,
-  ]);
-
-  return (
-    <Select
-      size="small"
-      style={{ minWidth: 160 }}
-      placeholder="Assign a worker"
-      value={op.assignedWorkerId || undefined}
-      options={options}
-      loading={saving}
-      disabled={saving}
-      showSearch
-      optionFilterProp="search"
-      onOpenChange={(open) => {
-        if (open) void loadWorkers();
-      }}
-      onChange={async (workerId: string) => {
-        setSaving(true);
-        try {
-          await operationsApi.assign(op.id, workerId);
-          message.success('Worker assigned. Re-propose the schedule to fit their time.');
-          await onAssigned();
-        } catch (err) {
-          message.error(getErrorMessage(err));
-        } finally {
-          setSaving(false);
-        }
-      }}
-    />
-  );
-}
-
 export default function JobOrderDetailPage() {
   const { id } = useParams();
   const { isWorker } = useAuth();
@@ -360,7 +281,8 @@ function JobOrderDetailView() {
   const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
   const [breakdowns, setBreakdowns] = useState<MachineDowntimeRecord[]>([]);
   const [purchaseOpen, setPurchaseOpen] = useState(false);
-  const [reproposeOpen, setReproposeOpen] = useState(false);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [scheduleMoves, setScheduleMoves] = useState<ScheduleMove[]>([]);
   const [invoiceMode, setInvoiceMode] = useState<'record' | 'view' | 'correct' | null>(null);
   const [invoiceSaving, setInvoiceSaving] = useState(false);
   const [invoiceForm] = Form.useForm();
@@ -369,6 +291,16 @@ function JobOrderDetailView() {
     const { data } = await jobOrdersApi.get(id);
     setJob(data);
   }, [id]);
+
+  const fetchScheduleMoves = useCallback(async () => {
+    if (!id || !canManage) return;
+    try {
+      const { data } = await jobOrdersApi.listScheduleMoves(id);
+      setScheduleMoves(data);
+    } catch {
+      setScheduleMoves([]);
+    }
+  }, [id, canManage]);
 
   const hasJob = Boolean(job);
   useEffect(() => {
@@ -395,6 +327,7 @@ function JobOrderDetailView() {
         await fetchJob();
         if (canManage) {
           await fetchPurchases();
+          await fetchScheduleMoves();
           try {
             const { data } = await jobOrdersApi.listBreakdowns(id);
             if (!cancelled) setBreakdowns(data);
@@ -411,7 +344,7 @@ function JobOrderDetailView() {
     return () => {
       cancelled = true;
     };
-  }, [id, fetchJob, fetchPurchases, canManage]);
+  }, [id, fetchJob, fetchPurchases, fetchScheduleMoves, canManage]);
 
   const ops = useMemo(
     () => [...(job?.operations || [])].sort((a, b) => a.sequenceNo - b.sequenceNo),
@@ -729,7 +662,7 @@ function JobOrderDetailView() {
     isOfficeStaff && Boolean(job.salesInvoice) && job.status !== 'DELIVERED' && !job.deliveredAt;
   const isNotStarted = (op: Operation) =>
     op.status !== 'IN_PROGRESS' && op.status !== 'COMPLETED' && !op.actualStart;
-  const canRepropose =
+  const canReschedule =
     !isDraft && job.status !== 'DELIVERED' && (job.operations || []).some(isNotStarted);
   const opsTotal = (job.operations || []).length;
   const opsDone = (job.operations || []).filter((op) => op.status === 'COMPLETED').length;
@@ -854,9 +787,9 @@ function JobOrderDetailView() {
               </Button>
             </Tooltip>
           )}
-          {isAdmin && canRepropose && (
-            <Button icon={<ReloadOutlined />} onClick={() => setReproposeOpen(true)}>
-              Re-propose schedule
+          {isAdmin && canReschedule && (
+            <Button icon={<ReloadOutlined />} onClick={() => setRescheduleOpen(true)}>
+              Reschedule
             </Button>
           )}
           {canManage && isDraft && (
@@ -1059,7 +992,6 @@ function JobOrderDetailView() {
                     user?.id &&
                       (op.assignedWorkerId === user.id || (op.helperIds || []).includes(user.id))
                   );
-                  const helperCrew = (op.crew || []).filter((m) => !m.isLead);
                   const canStart =
                     !isDraft &&
                     isMine &&
@@ -1169,24 +1101,17 @@ function JobOrderDetailView() {
                             <strong style={{ color: '#475569' }}>
                               {(op.crewSize || 1) > 1 ? 'Crew:' : 'Worker:'}
                             </strong>{' '}
-                            {isAdmin && !isDraft && !isInvoicedOrDelivered && isNotStarted(op) ? (
-                              <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 4 }}>
-                                <OperationWorkerSelect op={op} onAssigned={fetchJob} />
-                                {helperCrew.length > 0 && <CrewChips crew={helperCrew} size={18} />}
-                              </span>
-                            ) : (
-                              <CrewChips
-                                crew={op.crew}
-                                lead={{
-                                  id: op.assignedWorkerId,
-                                  fullName: op.assignedWorkerName,
-                                  nickname: op.assignedWorkerNickname,
-                                  photoVersion: op.assignedWorkerPhotoVersion,
-                                }}
-                                size={18}
-                                emptyText="—"
-                              />
-                            )}
+                            <CrewChips
+                              crew={op.crew}
+                              lead={{
+                                id: op.assignedWorkerId,
+                                fullName: op.assignedWorkerName,
+                                nickname: op.assignedWorkerNickname,
+                                photoVersion: op.assignedWorkerPhotoVersion,
+                              }}
+                              size={18}
+                              emptyText="—"
+                            />
                           </span>
                           <span>
                             <strong style={{ color: '#475569' }}>Scheduled:</strong>{' '}
@@ -1412,6 +1337,57 @@ function JobOrderDetailView() {
                 size="small"
                 ghost
                 items={[
+                  {
+                    key: 'schedule-moves',
+                    label: (
+                      <ActivityLabel title="Reschedule history" count={scheduleMoves.length} />
+                    ),
+                    children: scheduleMoves.length ? (
+                      scheduleMoves.map((m) => {
+                        const title = RESCHEDULE_REASON_CODES.has(m.reason || '')
+                          ? rescheduleReasonLabel(m.reason)
+                          : m.kind === 'MATERIAL'
+                            ? 'Material delay'
+                            : m.kind === 'BREAKDOWN'
+                              ? 'Machine breakdown'
+                              : m.kind === 'OVERRUN'
+                                ? 'Overrun'
+                                : m.kind === 'RESCHEDULED'
+                                  ? 'Rescheduled'
+                                  : m.kind;
+                        const autoText =
+                          m.reason && !RESCHEDULE_REASON_CODES.has(m.reason) ? m.reason : null;
+                        return (
+                          <div key={m.id} style={ACTIVITY_ROW}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                              <span style={{ fontWeight: 700, color: NAVY }}>{title}</span>
+                              <span>{fmtDateTime(m.movedAt)}</span>
+                            </div>
+                            {m.note ? <div>{m.note}</div> : null}
+                            {autoText ? <div>{autoText}</div> : null}
+                            {m.changes?.operations?.length ? (
+                              <div>
+                                {m.changes.operations.length} operation
+                                {m.changes.operations.length === 1 ? '' : 's'} changed
+                              </div>
+                            ) : null}
+                            <div>
+                              {m.previousStart && m.newStart
+                                ? `${fmtDateTime(m.previousStart)} → ${fmtDateTime(m.newStart)}`
+                                : null}
+                              {m.movedByName
+                                ? ` · ${m.movedByName}`
+                                : ' · Automatic'}
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        No reschedules recorded for this job.
+                      </Text>
+                    ),
+                  },
                   {
                     key: 'breakdowns',
                     label: (
@@ -1647,13 +1623,14 @@ function JobOrderDetailView() {
         }}
       />
 
-      {reproposeOpen && (
-        <ReproposeModal
+      {rescheduleOpen && (
+        <RescheduleModal
           jobId={job.id}
-          onClose={() => setReproposeOpen(false)}
+          onClose={() => setRescheduleOpen(false)}
           onConfirmed={async () => {
-            setReproposeOpen(false);
+            setRescheduleOpen(false);
             await fetchJob();
+            await fetchScheduleMoves();
           }}
         />
       )}

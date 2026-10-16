@@ -255,11 +255,39 @@ def propose_job_schedule(job_id):
 @jwt_required()
 @require_roles(UserRole.ADMIN)
 def apply_job_schedule(job_id):
+    """Work-calendar re-propose: applies schedule and logs WORK_CALENDAR_CHANGE."""
     role = get_current_user_role()
-    job = jo_service.get_job_order(job_id, get_current_user_id(), role)
+    actor_id = get_current_user_id()
+    job = jo_service.get_job_order(job_id, actor_id, role)
     data = request.get_json() or {}
-    job = jo_service.apply_released_schedule(job, data.get("operations"))
+    job = jo_service.apply_released_schedule(
+        job,
+        data.get("operations"),
+        actor_id=actor_id,
+        reason_code="WORK_CALENDAR_CHANGE",
+    )
     return jsonify(job.to_dict(include_operations=True, viewer_role=role))
+
+
+@job_orders_bp.route("/<job_id>/schedule/reschedule", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN)
+def reschedule_job_schedule(job_id):
+    """Admin Reschedule from the job order page: reason required, audit logged."""
+    role = get_current_user_role()
+    actor_id = get_current_user_id()
+    job = jo_service.get_job_order(job_id, actor_id, role)
+    data = request.get_json() or {}
+    job = jo_service.reschedule_released_job(job, data, actor_id)
+    return jsonify(job.to_dict(include_operations=True, viewer_role=role))
+
+
+@job_orders_bp.route("/<job_id>/schedule-moves", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def list_job_schedule_moves(job_id):
+    jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
+    return jsonify(jo_service.list_schedule_moves(job_id))
 
 
 @job_orders_bp.route("/schedule/propose", methods=["POST"])

@@ -277,7 +277,11 @@ def move_down_unit_work(unit_id):
     from app.services.shop_floor_check_service import resolve_breakdown
 
     data = request.get_json() or {}
-    return jsonify(resolve_breakdown(unit_id, data.get("action")))
+    return jsonify(
+        resolve_breakdown(
+            unit_id, data.get("action"), actor_id=get_current_user_id()
+        )
+    )
 
 
 @operations_bp.route("/machine-units/downtime/<downtime_id>/close", methods=["POST"])

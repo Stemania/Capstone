@@ -9,6 +9,7 @@ import type {
   MaterialPurchase,
   Operation,
   SalesInvoice,
+  ScheduleMove,
   ScheduleProposeResult,
   ScheduleValidateResult,
   ScoringWeights,
@@ -69,6 +70,25 @@ export const jobOrdersApi = {
       assignedWorkerId?: string | null;
     }[]
   ) => apiClient.post<JobOrder>(`/job-orders/${jobId}/schedule/apply`, { operations }),
+  reschedule: (
+    jobId: string,
+    operations: {
+      id: string;
+      scheduledStart: string;
+      scheduledEnd: string;
+      machineUnitId?: string | null;
+      assignedWorkerId?: string | null;
+    }[],
+    reason: string,
+    note?: string
+  ) =>
+    apiClient.post<JobOrder>(`/job-orders/${jobId}/schedule/reschedule`, {
+      operations,
+      reason,
+      note,
+    }),
+  listScheduleMoves: (jobId: string) =>
+    apiClient.get<ScheduleMove[]>(`/job-orders/${jobId}/schedule-moves`),
   proposeDraftSchedule: (body: Record<string, unknown>) =>
     apiClient.post<ScheduleProposeResult>('/job-orders/schedule/propose', body),
   validateSchedule: (body: Record<string, unknown>) =>

@@ -4,6 +4,8 @@ with the kind of delay that caused it."""
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy.dialects.postgresql import JSONB
+
 from app.extensions import db
 
 
@@ -57,7 +59,37 @@ class ScheduleMove(db.Model):
     # MATERIAL moves only: MaterialCause.
     material_cause = db.Column(db.String(20), nullable=True)
     moved_at = db.Column(db.DateTime(timezone=True), default=_utcnow, nullable=False, index=True)
+    # Who applied a manual move (Admin Reschedule, calendar, breakdown); null for automatic.
+    moved_by_id = db.Column(
+        db.String(36),
+        db.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    note = db.Column(db.Text, nullable=True)
+    # Structured diff of worker / helpers / machine / start changes (JSONB).
+    changes = db.Column(JSONB, nullable=True)
 
     job_order = db.relationship("JobOrder")
     supplier = db.relationship("Supplier")
     supplier_order = db.relationship("SupplierOrder")
+    moved_by = db.relationship("User", foreign_keys=[moved_by_id])
+
+    def to_dict(self) -> dict:
+        actor = self.moved_by
+        return {
+            "id": self.id,
+            "jobOrderId": self.job_order_id,
+            "kind": self.kind,
+            "previousStart": self.previous_start.isoformat() if self.previous_start else None,
+            "newStart": self.new_start.isoformat() if self.new_start else None,
+            "reason": self.reason,
+            "note": self.note,
+            "changes": self.changes,
+            "materialCause": self.material_cause,
+            "supplierOrderId": self.supplier_order_id,
+            "supplierId": self.supplier_id,
+            "movedAt": self.moved_at.isoformat() if self.moved_at else None,
+            "movedById": self.moved_by_id,
+            "movedByName": actor.full_name if actor else None,
+        }

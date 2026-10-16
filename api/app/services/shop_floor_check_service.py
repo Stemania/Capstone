@@ -104,7 +104,7 @@ def _admin_alert(kind, title, message, job_id, dedupe_key):
 
 
 def replan_unstarted(job: JobOrder, now: datetime, *, kind: str, cause: str, title: str,
-                     unit_changes: dict | None = None) -> dict:
+                     unit_changes: dict | None = None, moved_by_id=None) -> dict:
     """Re-place the job's unstarted operations from now with the normal
     scheduler: saved workers and units kept, nothing earlier, started work kept.
     Records the move and tells the Admin; when it can't be placed nothing moves
@@ -174,7 +174,7 @@ def replan_unstarted(job: JobOrder, now: datetime, *, kind: str, cause: str, tit
 
     first = min(moves, key=lambda m: m[1])
     reason = f"{cause}. " + "; ".join(_text(*m) for m in moves)
-    record_move(job, kind, first[1], first[2], reason)
+    record_move(job, kind, first[1], first[2], reason, moved_by_id=moved_by_id)
     _admin_alert(StaffAlertKind.WORK_MOVED, title, reason, job.id,
                  f"work-moved:{kind}:{job.id}:{first[2].isoformat()}")
     job.needs_replan_reason = None
@@ -549,7 +549,7 @@ def _best_unit_for(op, job, candidates, now, bookings):
     return best[1] if best else None
 
 
-def resolve_breakdown(unit_id, action, now_utc=None) -> dict:
+def resolve_breakdown(unit_id, action, now_utc=None, actor_id=None) -> dict:
     """Apply the Admin's choice for the work booked on a down unit. MOVE_UNIT:
     each operation to the free unit of the same type where it starts earliest
     (no operator or a free operator preferred). AFTER_REPAIR: the same unit,
@@ -609,6 +609,7 @@ def resolve_breakdown(unit_id, action, now_utc=None) -> dict:
                 job, now, kind=DelayKind.BREAKDOWN, cause=cause,
                 title=f"{job.job_number} moved: {unit.label} is down",
                 unit_changes=unit_changes,
+                moved_by_id=actor_id,
             )
             {"MOVED": result["moved"], "NO_SLOT": result["notPlaced"]}.get(
                 outcome["outcome"], result["left"]

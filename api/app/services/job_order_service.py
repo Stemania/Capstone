@@ -1211,13 +1211,83 @@ def _same_instant(a, b) -> bool:
     return ensure_utc(a) == ensure_utc(b)
 
 
-def apply_released_schedule(job, operations):
+# Admin Reschedule reason codes stored on schedule_moves.reason.
+RESCHEDULE_REASONS = (
+    "WORKER_ABSENT",
+    "MACHINE_BREAKDOWN",
+    "MATERIAL_DELAY",
+    "WORK_CALENDAR_CHANGE",
+    "OTHER",
+)
+
+
+def _op_schedule_snap(op: JobOperation) -> dict:
+    start = op.scheduled_start.isoformat() if op.scheduled_start else None
+    end = op.scheduled_end.isoformat() if op.scheduled_end else None
+    return {
+        "sequenceNo": op.sequence_no,
+        "scheduledStart": start,
+        "scheduledEnd": end,
+        "assignedWorkerId": op.assigned_worker_id,
+        "machineUnitId": op.machine_unit_id,
+        "helperIds": list(op.helper_ids or []),
+    }
+
+
+def _schedule_changes(before: dict, after: dict) -> dict | None:
+    ops = []
+    for oid, b in before.items():
+        a = after.get(oid)
+        if a is None:
+            continue
+        entry = {"operationId": oid, "sequenceNo": b.get("sequenceNo")}
+        for key in (
+            "scheduledStart",
+            "scheduledEnd",
+            "assignedWorkerId",
+            "machineUnitId",
+            "helperIds",
+        ):
+            if b.get(key) != a.get(key):
+                entry[key] = {"from": b.get(key), "to": a.get(key)}
+        if len(entry) > 2:
+            ops.append(entry)
+    return {"operations": ops} if ops else None
+
+
+def _first_start_pair(before: dict, after: dict, job: JobOrder):
+    """previous_start / new_start for the audit row (columns are NOT NULL)."""
+    from app.services.schedule_calendar import ensure_utc
+
+    for oid, b in before.items():
+        a = after.get(oid) or {}
+        if b.get("scheduledStart") != a.get("scheduledStart"):
+            old = _parse_datetime(b.get("scheduledStart"))
+            new = _parse_datetime(a.get("scheduledStart"))
+            if old and new:
+                return ensure_utc(old), ensure_utc(new)
+    ops = sorted(job.operations, key=lambda o: o.sequence_no or 0)
+    for op in ops:
+        if op.scheduled_start:
+            start = ensure_utc(op.scheduled_start)
+            return start, start
+    now = datetime.now(timezone.utc)
+    return now, now
+
+
+def apply_released_schedule(
+    job, operations, *, actor_id=None, reason_code=None, note=None
+):
     """
     Admin confirms a re-proposed schedule for a released job. Only operations
     that have not started get new starts (ends follow from target hours);
     started or completed work never moves. Every operation is checked.
+    When actor_id / reason_code are set (Reschedule or calendar apply), writes a
+    schedule_moves audit row.
     """
     from app.models.machine import MachineUnit
+    from app.models.schedule_move import DelayKind
+    from app.services.material_delay_service import record_move
 
     if job.status in (JobOrderStatus.DRAFT, JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED):
         raise AppError(
@@ -1230,6 +1300,7 @@ def apply_released_schedule(job, operations):
 
     lock_schedule()
     by_id = {op.id: op for op in job.operations}
+    before = {op.id: _op_schedule_snap(op) for op in job.operations}
     try:
         for data in operations:
             op = by_id.get(data.get("id"))
@@ -1306,6 +1377,21 @@ def apply_released_schedule(job, operations):
         db.session.flush()
         _assert_schedule_has_no_problems(job, "This schedule can't be applied:")
 
+        after = {op.id: _op_schedule_snap(op) for op in job.operations}
+        changes = _schedule_changes(before, after)
+        if reason_code or actor_id:
+            old_start, new_start = _first_start_pair(before, after, job)
+            record_move(
+                job,
+                DelayKind.RESCHEDULED,
+                old_start,
+                new_start,
+                reason_code or "RESCHEDULED",
+                moved_by_id=actor_id,
+                note=note,
+                changes=changes,
+            )
+
         job.status = derive_job_status(job)
         job.needs_replan_reason = None
         db.session.commit()
@@ -1316,6 +1402,43 @@ def apply_released_schedule(job, operations):
     except Exception:
         db.session.rollback()
         raise
+
+
+def reschedule_released_job(job, data, actor_id: str):
+    """Admin Reschedule: same apply rules, but a reason code is required."""
+    reason = data.get("reason")
+    note = (data.get("note") or "").strip() or None
+    if reason not in RESCHEDULE_REASONS:
+        raise AppError(
+            "Choose a reschedule reason.",
+            "VALIDATION_ERROR",
+            400,
+        )
+    if reason == "OTHER" and not note:
+        raise AppError(
+            "A note is required when the reason is Other.",
+            "VALIDATION_ERROR",
+            400,
+        )
+    return apply_released_schedule(
+        job,
+        data.get("operations"),
+        actor_id=actor_id,
+        reason_code=reason,
+        note=note,
+    )
+
+
+def list_schedule_moves(job_id: str) -> list:
+    from app.models.schedule_move import ScheduleMove
+
+    rows = (
+        ScheduleMove.query.options(joinedload(ScheduleMove.moved_by))
+        .filter_by(job_order_id=job_id)
+        .order_by(ScheduleMove.moved_at.desc())
+        .all()
+    )
+    return [row.to_dict() for row in rows]
 
 
 def replan_after_redo(job_id, redo_id) -> bool:

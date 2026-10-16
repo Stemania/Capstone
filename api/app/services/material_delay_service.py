@@ -102,9 +102,13 @@ def record_move(
     order=None,
     supplier_id=None,
     cause=None,
+    moved_by_id=None,
+    note=None,
+    changes=None,
 ) -> None:
     """Store a move on the job (original start kept from the first move) and in
-    the move history. Does not commit."""
+    the move history. Does not commit. moved_by_id is set for manual moves
+    (Admin Reschedule, calendar, breakdown); leave null for automatic ones."""
     now = datetime.now(timezone.utc)
     if job.material_delay_original_start is None:
         job.material_delay_original_start = old_start
@@ -123,6 +127,9 @@ def record_move(
             supplier_id=supplier_id or (order.supplier_id if order is not None else None),
             material_cause=(cause or MaterialCause.NOT_ORDERED) if kind == DelayKind.MATERIAL else None,
             moved_at=now,
+            moved_by_id=moved_by_id,
+            note=note,
+            changes=changes,
         )
     )
 
