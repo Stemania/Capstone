@@ -1,6 +1,6 @@
 import { formatShop, shopToday } from '../../utils/shopTime';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, DatePicker, Input, Modal, Select, Tooltip, Typography, message } from 'antd';
+import { Alert, Button, DatePicker, Input, Modal, Select, Tooltip, message } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { DownloadOutlined, LinkOutlined } from '@ant-design/icons';
 import { type Dayjs } from 'dayjs';
@@ -22,8 +22,6 @@ import type {
 import { exportCsv } from '../../utils/csvExport';
 import { useAuth } from '../../hooks/useAuth';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
-
-const { Text } = Typography;
 
 function money(v: number | null | undefined) {
   if (v == null) return '—';
@@ -50,13 +48,6 @@ function purchaseStatus(r: MaterialPurchase): MaterialPurchaseStatus {
 }
 
 const EMPTY_BUCKET: MaterialStockBucket = { count: 0, value: 0, quantityByUnit: [] };
-
-function bucketQuantity(b: MaterialStockBucket) {
-  if (!b.quantityByUnit.length) return '0';
-  return b.quantityByUnit
-    .map((q) => `${Number(q.quantity).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${q.unit}`)
-    .join(' · ');
-}
 
 export default function RawMaterialsPanel() {
   const navigate = useNavigate();
@@ -285,57 +276,16 @@ export default function RawMaterialsPanel() {
       <Alert
         type="info"
         showIcon
-        style={{ marginBottom: 16 }}
-        title="Raw materials are bought for specific job orders, not kept as general stock. On hand means delivered and waiting for its job to start; lines become consumed automatically when the job's first operation starts."
+        style={{ marginBottom: 12 }}
+        title="Bought per job order — not general stock. On hand waits for the job to start; consumed when the first operation begins."
         action={
           <Link to="/analytics/suppliers">
             <Button size="small" type="link" icon={<LinkOutlined />}>
-              Analytics · Suppliers
+              Spend by supplier
             </Button>
           </Link>
         }
       />
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-          gap: 12,
-          marginBottom: 16,
-        }}
-      >
-        {[
-          { label: 'On order', bucket: summary.onOrder ?? EMPTY_BUCKET },
-          { label: 'On hand', bucket: summary.onHand ?? EMPTY_BUCKET },
-          { label: 'Consumed', bucket: summary.consumed ?? EMPTY_BUCKET },
-          {
-            label: 'Total spend',
-            value: money(summary.totalSpend),
-            sub: `${summary.purchaseCount} purchase line${summary.purchaseCount === 1 ? '' : 's'}`,
-          },
-        ].map((c) => (
-          <div
-            key={c.label}
-            style={{
-              background: '#fff',
-              border: '1px solid #e2e8f0',
-              borderRadius: 8,
-              padding: '12px 14px',
-            }}
-          >
-            <div style={{ fontSize: 12, color: '#64748b' }}>
-              {c.label}
-              {'bucket' in c && c.bucket ? ` · ${c.bucket.count} line${c.bucket.count === 1 ? '' : 's'}` : ''}
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#0f1c2e' }}>
-              {'bucket' in c && c.bucket ? money(c.bucket.value) : c.value}
-            </div>
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-              {'bucket' in c && c.bucket ? bucketQuantity(c.bucket) : c.sub}
-            </div>
-          </div>
-        ))}
-      </div>
 
       <div className="std-list-toolbar" style={{ marginBottom: 12 }}>
         <div className="std-list-filters" style={{ flexWrap: 'wrap', gap: 8 }}>
@@ -419,11 +369,6 @@ export default function RawMaterialsPanel() {
           </Button>
         </div>
       </div>
-
-      <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 8 }}>
-        For spend by material or supplier, see{' '}
-        <Link to="/analytics/suppliers">Analytics → Suppliers</Link>.
-      </Text>
 
       <ResponsiveTable
         className="std-list-table raw-materials-table"
