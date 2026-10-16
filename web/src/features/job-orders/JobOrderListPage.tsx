@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Alert, Table, Button, Select, Dropdown, Input, Space, Spin, message, Drawer, Badge, Modal, Tooltip } from 'antd';
+import { Alert, Table, Button, Select, Dropdown, Input, Space, Spin, message, Drawer, Badge, Tooltip } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
   PlusOutlined,
@@ -281,9 +281,9 @@ export default function JobOrderListPage() {
     setStatusFilter([]);
     setAwaitingMaterialOnly(false);
     setSelectedKeys([]);
-    const params =
-      tab === 'drafts' ? { tab: 'drafts' } : tab === 'archived' ? { tab: 'archived' } : {};
-    setSearchParams(params, { replace: true });
+    if (tab === 'drafts') setSearchParams({ tab: 'drafts' }, { replace: true });
+    else if (tab === 'archived') setSearchParams({ tab: 'archived' }, { replace: true });
+    else setSearchParams({}, { replace: true });
   };
 
   const fetchJobs = async (tab: ListTab = listTab) => {
