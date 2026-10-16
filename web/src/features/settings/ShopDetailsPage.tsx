@@ -7,9 +7,10 @@ import { getErrorMessage } from '../../api/client';
 import type { NotificationLog } from '../../types';
 import { invalidateShopDetails } from '../../hooks/useShopDetails';
 import { formatShop } from '../../utils/shopTime';
+import './shopDetails.css';
 
 function sectionLabel(text: string) {
-  return <div className="app-form-section">{text}</div>;
+  return <div className="shop-details-page__section">{text}</div>;
 }
 
 /** Admin-editable shop details printed on purchase orders and job orders. */
@@ -55,18 +56,18 @@ export default function ShopDetailsPage() {
   }
 
   return (
-    <div style={{ maxWidth: 880 }}>
-      {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />}
-      <Card style={{ borderRadius: 12 }}>
+    <div className="shop-details-page">
+      {error && <Alert type="error" showIcon title={error} />}
+      <Card className="shop-details-page__card" style={{ borderRadius: 12 }}>
         <Form form={form} layout="vertical" onFinish={onSave} requiredMark="optional">
           {sectionLabel('Letterhead')}
-          <Row gutter={16}>
-            <Col xs={24}>
+          <Row gutter={[16, 0]}>
+            <Col xs={24} md={12}>
               <Form.Item name="shopName" label="Shop name" rules={[{ required: true }]}>
                 <Input maxLength={255} />
               </Form.Item>
             </Col>
-            <Col xs={24}>
+            <Col xs={24} md={12}>
               <Form.Item name="tagline" label="Tagline">
                 <Input.TextArea autoSize={{ minRows: 1, maxRows: 3 }} maxLength={500} />
               </Form.Item>
@@ -79,18 +80,18 @@ export default function ShopDetailsPage() {
           </Row>
 
           {sectionLabel('Contact')}
-          <Row gutter={16}>
-            <Col xs={24} md={8}>
+          <Row gutter={[16, 0]}>
+            <Col xs={24} md={12}>
               <Form.Item name="telephone" label="Telephone">
                 <Input maxLength={100} placeholder="(043) 4303524" />
               </Form.Item>
             </Col>
-            <Col xs={24} md={8}>
+            <Col xs={24} md={12}>
               <Form.Item name="mobileNumbers" label="Mobile numbers">
                 <Input maxLength={200} placeholder="0926… / 0915…" />
               </Form.Item>
             </Col>
-            <Col xs={24} md={8}>
+            <Col xs={24} md={12}>
               <Form.Item name="email" label="Email" rules={[{ type: 'email' }]}>
                 <Input maxLength={255} />
               </Form.Item>
@@ -98,7 +99,7 @@ export default function ShopDetailsPage() {
           </Row>
 
           {sectionLabel('Approvers')}
-          <Row gutter={16}>
+          <Row gutter={[16, 0]}>
             <Col xs={24} md={12}>
               <Form.Item name="poApproverName" label="Purchase order approver">
                 <Input maxLength={255} />
@@ -121,17 +122,8 @@ export default function ShopDetailsPage() {
             </Col>
           </Row>
 
-          <div
-            className="m-action-bar"
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 12,
-              flexWrap: 'wrap',
-            }}
-          >
-            <span className="m-action-bar__note" style={{ fontSize: 12, color: '#64748b' }}>
+          <div className="shop-details-page__save m-action-bar">
+            <span className="shop-details-page__save-note m-action-bar__note">
               {updatedAt ? `Last saved ${formatShop(updatedAt, 'MMM D, YYYY h:mm A')}` : ''}
             </span>
             <Button
@@ -170,9 +162,9 @@ function TestEmailCard() {
   };
 
   return (
-    <Card style={{ borderRadius: 12, marginTop: 16 }}>
+    <Card className="shop-details-page__card" style={{ borderRadius: 12 }}>
       {sectionLabel('Email notifications')}
-      <p style={{ fontSize: 13, color: '#64748b', marginTop: 0 }}>
+      <p className="shop-details-page__email-lead">
         Send one test email to check the email setup. It is only delivered when notifications are
         turned on and the address is allowed.
       </p>
@@ -198,10 +190,9 @@ function TestEmailCard() {
             result.status === 'SENT'
               ? `Sent to ${result.recipient}`
               : result.status === 'FAILED'
-                ? 'Not sent: the email provider returned an error'
-                : 'Not sent'
+                ? result.errorMessage || 'Send failed'
+                : result.status
           }
-          description={result.status === 'SENT' ? undefined : result.errorMessage}
         />
       )}
     </Card>
