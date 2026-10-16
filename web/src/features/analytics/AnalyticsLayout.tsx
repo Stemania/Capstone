@@ -14,7 +14,8 @@ import {
 import './analytics.css';
 
 /** Tabs follow objective 4: describe (Overview, Production), diagnose (Delays),
- *  predict (Sales & demand, Inventory), prescribe (Suppliers, Workers). */
+ *  predict (Sales & demand, Inventory), prescribe (Suppliers). Worker analytics
+ *  live under Production (Admin only). */
 const ADMIN_TABS = [
   { label: 'Overview', value: '/analytics' },
   { label: 'Production', value: '/analytics/production' },
@@ -22,7 +23,6 @@ const ADMIN_TABS = [
   { label: 'Sales & demand', value: '/analytics/sales' },
   { label: 'Inventory', value: '/analytics/inventory' },
   { label: 'Suppliers', value: '/analytics/suppliers' },
-  { label: 'Workers', value: '/analytics/workers' },
   { label: 'Reports', value: '/analytics/reports' },
 ];
 

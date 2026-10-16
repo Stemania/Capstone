@@ -8,6 +8,7 @@ import { fmtDay, fmtNum, fmtSignedPct, onTimePct, pctChange, ptsChange, symmetri
 import { Card, ChartEmpty, Grid, Heatmap, Kpi, Kpis, LineTrend, PALETTE, SortedBars } from './kit';
 import { CardLoading, FLAG, finishOf, slackText } from './cards';
 import { useCapacity, useCompletion, useOverview, usePeriods, useTrend, useUtilization } from './sources';
+import AnalyticsWorkersPage from './AnalyticsWorkersPage';
 
 const BASIS_LABEL: Record<string, string> = {
   WORKER: 'worker history',
@@ -408,6 +409,13 @@ export default function AnalyticsProductionPage() {
           )}
         </Card>
       </Grid>
+
+      <div style={{ marginTop: 20 }}>
+        <h2 className="ana-section-title" style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700 }}>
+          Workers
+        </h2>
+        <AnalyticsWorkersPage />
+      </div>
     </div>
   );
 }

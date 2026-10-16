@@ -49,7 +49,6 @@ const AnalyticsDelaysPage = lazy(() => import('../features/analytics/AnalyticsDe
 const AnalyticsSalesPage = lazy(() => import('../features/analytics/AnalyticsSalesPage'));
 const AnalyticsInventoryPage = lazy(() => import('../features/analytics/AnalyticsInventoryPage'));
 const AnalyticsSuppliersPage = lazy(() => import('../features/analytics/AnalyticsSuppliersPage'));
-const AnalyticsWorkersPage = lazy(() => import('../features/analytics/AnalyticsWorkersPage'));
 
 function ReportsRedirect() {
   const rest = useParams()['*'];
@@ -144,8 +143,8 @@ export default function AppRoutes() {
                       <Route element={<ProtectedRoute roles={['ADMIN']} />}>
                         <Route path="production" element={<AnalyticsProductionPage />} />
                         <Route path="delays" element={<AnalyticsDelaysPage />} />
-                        <Route path="workers" element={<AnalyticsWorkersPage />} />
                       </Route>
+                      <Route path="workers" element={<Navigate to="/analytics/production" replace />} />
                       <Route path="sales" element={<AnalyticsSalesPage />} />
                       <Route path="inventory" element={<AnalyticsInventoryPage />} />
                       <Route path="suppliers" element={<AnalyticsSuppliersPage />} />
@@ -158,7 +157,7 @@ export default function AppRoutes() {
                           element={<WorkerPerformanceReportPage />}
                         />
                       </Route>
-                      <Route path="efficiency" element={<Navigate to="/analytics/workers" replace />} />
+                      <Route path="efficiency" element={<Navigate to="/analytics/production" replace />} />
                       <Route path="capacity" element={<Navigate to="/analytics/production" replace />} />
                       <Route path="forecast" element={<Navigate to="/analytics/sales" replace />} />
                       <Route path="purchasing" element={<Navigate to="/analytics/suppliers" replace />} />

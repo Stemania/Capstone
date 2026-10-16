@@ -40,6 +40,7 @@ const KIND_LABEL: Record<string, string> = {
   helper: 'Helper',
 };
 
+/** Worker analytics section (Admin). Shown inside Production; old /workers URL redirects. */
 export default function AnalyticsWorkersPage() {
   const { period } = usePeriods();
   const byWorker = useByWorker(period).data;
