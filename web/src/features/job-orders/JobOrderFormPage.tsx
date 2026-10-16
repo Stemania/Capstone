@@ -12,7 +12,7 @@ import {
   Space,
   Radio,
 } from 'antd';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { clientsApi, jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
@@ -46,8 +46,10 @@ export default function JobOrderFormPage() {
   const [jobStatus, setJobStatus] = useState<JobOrderStatus | null>(null);
   const [materialsTouched, setMaterialsTouched] = useState(false);
   const [loadedValues, setLoadedValues] = useState<Record<string, unknown> | null>(null);
-  const { isAdmin } = useAuth();
+  const { isAdmin, isOfficeStaff } = useAuth();
   const released = jobStatus != null && jobStatus !== 'DRAFT';
+  /** Edit job info: Office Staff only, and only before release. */
+  const canEditInfo = isOfficeStaff && (!isEdit || !released);
   const backTo = !id
     ? presetClientId
       ? `/clients/${presetClientId}`
@@ -176,6 +178,14 @@ export default function JobOrderFormPage() {
     );
   }
 
+  if (isEdit && id && (released || !isOfficeStaff)) {
+    return <Navigate to={`/job-orders/${id}`} replace />;
+  }
+
+  if (!isEdit && !isOfficeStaff) {
+    return <Navigate to={jobOrdersDraftsListPath()} replace />;
+  }
+
   return (
     <Page className="jo-form-page">
       <SectionCard
@@ -187,7 +197,13 @@ export default function JobOrderFormPage() {
         }
         extra={
           <span className="ui-muted-note">
-            Fields marked <span className="tone-text--red">*</span> are required
+            {canEditInfo ? (
+              <>
+                Fields marked <span className="tone-text--red">*</span> are required
+              </>
+            ) : (
+              'Locked after release'
+            )}
           </span>
         }
       >

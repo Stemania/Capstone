@@ -161,7 +161,9 @@ def test_only_admin_sets_not_required_after_release(client, shop):
     row.status = JobOrderStatus.SCHEDULED
     db.session.commit()
     res = _patch(client, shop["office"], job["id"], {"materialStatus": "NOT_REQUIRED"})
-    assert res.status_code == 403
+    # Job info is locked after release for Office (409); Admin may still set Not required.
+    assert res.status_code == 409
+    assert res.get_json()["error"]["code"] == "JOB_INFO_LOCKED"
     res = _patch(client, shop["admin"], job["id"], {"materialStatus": "NOT_REQUIRED"})
     assert res.status_code == 200, res.get_json()
     assert res.get_json()["materialStatus"] == "NOT_REQUIRED"

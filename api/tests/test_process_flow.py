@@ -332,19 +332,19 @@ def test_start_gate_blocks_ordered_or_received_job_with_no_lines(people, status)
 
 
 def test_update_refuses_received_without_purchase_lines(people):
-    job = _job(people, material_status=MaterialStatus.TO_ORDER)
+    job = _job(people, material_status=MaterialStatus.TO_ORDER, status=JobOrderStatus.DRAFT)
     db.session.refresh(job)
     with pytest.raises(AppError) as exc:
-        update_job_order(job, {"materialStatus": "RECEIVED"}, actor_role=UserRole.ADMIN.value)
+        update_job_order(job, {"materialStatus": "RECEIVED"}, actor_role=UserRole.OFFICE_STAFF.value)
     assert exc.value.code == "VALIDATION_ERROR"
     assert "TO_ORDER or NOT_REQUIRED" in exc.value.message
 
 
 def test_update_refuses_ordered_without_purchase_lines(people):
-    job = _job(people, material_status=MaterialStatus.TO_ORDER)
+    job = _job(people, material_status=MaterialStatus.TO_ORDER, status=JobOrderStatus.DRAFT)
     db.session.refresh(job)
     with pytest.raises(AppError) as exc:
-        update_job_order(job, {"materialStatus": "ORDERED"}, actor_role=UserRole.ADMIN.value)
+        update_job_order(job, {"materialStatus": "ORDERED"}, actor_role=UserRole.OFFICE_STAFF.value)
     assert exc.value.code == "VALIDATION_ERROR"
 
 
@@ -366,10 +366,10 @@ def test_create_refuses_received_material_status(people):
 
 
 def test_update_with_lines_keeps_status_derived(people):
-    job = _job(people, material_status=MaterialStatus.ORDERED)
+    job = _job(people, material_status=MaterialStatus.ORDERED, status=JobOrderStatus.DRAFT)
     _line(job, "Round bar", received=None)
     db.session.refresh(job)
-    update_job_order(job, {"materialStatus": "RECEIVED"}, actor_role=UserRole.ADMIN.value)
+    update_job_order(job, {"materialStatus": "RECEIVED"}, actor_role=UserRole.OFFICE_STAFF.value)
     assert job.material_status == MaterialStatus.ORDERED
 
 
@@ -381,8 +381,8 @@ def test_office_cannot_set_not_required_on_released_job(people):
         update_job_order(
             job, {"materialStatus": "NOT_REQUIRED"}, actor_role=UserRole.OFFICE_STAFF.value
         )
-    assert exc.value.code == "FORBIDDEN"
-    assert "Only the Admin" in exc.value.message
+    assert exc.value.code == "JOB_INFO_LOCKED"
+    assert "locked after release" in exc.value.message.lower()
 
 
 def test_admin_can_set_not_required_on_released_job(people):

@@ -787,32 +787,37 @@ function JobOrderDetailView() {
             </Button>
           )}
           {canManage && (
-            <>
-              <JobScheduleColorPicker
-                value={job.scheduleColor}
-                onChange={async (hex) => {
-                  const prev = job.scheduleColor;
-                  setJob({ ...job, scheduleColor: hex });
-                  try {
-                    const { data } = await jobOrdersApi.update(job.id, {
-                      scheduleColor: hex,
-                    });
-                    setJob((j) =>
-                      j ? { ...j, scheduleColor: data.scheduleColor ?? hex } : j
-                    );
-                  } catch (err) {
-                    setJob((j) => (j ? { ...j, scheduleColor: prev } : j));
-                    message.error(getErrorMessage(err));
-                  }
-                }}
-              />
-              <Button
-                icon={<EditOutlined />}
-                onClick={() => navigate(`/job-orders/${job.id}/edit`)}
-              >
-                {isDraft ? 'Edit details' : 'Edit'}
-              </Button>
-            </>
+            <JobScheduleColorPicker
+              value={job.scheduleColor}
+              onChange={async (hex) => {
+                const prev = job.scheduleColor;
+                setJob({ ...job, scheduleColor: hex });
+                try {
+                  const { data } = await jobOrdersApi.update(job.id, {
+                    scheduleColor: hex,
+                  });
+                  setJob((j) =>
+                    j ? { ...j, scheduleColor: data.scheduleColor ?? hex } : j
+                  );
+                } catch (err) {
+                  setJob((j) => (j ? { ...j, scheduleColor: prev } : j));
+                  message.error(getErrorMessage(err));
+                }
+              }}
+            />
+          )}
+          {isOfficeStaff && isDraft && (
+            <Button
+              icon={<EditOutlined />}
+              onClick={() => navigate(`/job-orders/${job.id}/edit`)}
+            >
+              Edit details
+            </Button>
+          )}
+          {!isDraft && (isAdmin || isOfficeStaff) && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Locked after release
+            </Text>
           )}
           <Button
             icon={<PrinterOutlined />}

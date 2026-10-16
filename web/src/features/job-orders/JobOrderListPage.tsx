@@ -455,12 +455,14 @@ export default function JobOrderListPage() {
             onClick: () => navigate(`/job-orders/${record.id}/plan`),
           });
         }
-        items.push({
-          key: 'edit',
-          icon: <EditOutlined />,
-          label: isAdmin ? 'Edit details' : 'Edit',
-          onClick: () => navigate(`/job-orders/${record.id}/edit`),
-        });
+        if (isOfficeStaff) {
+          items.push({
+            key: 'edit',
+            icon: <EditOutlined />,
+            label: 'Edit details',
+            onClick: () => navigate(`/job-orders/${record.id}/edit`),
+          });
+        }
         items.push({
           key: 'delete',
           icon: <DeleteOutlined />,
@@ -480,14 +482,6 @@ export default function JobOrderListPage() {
         onClick: () => navigate(`/job-orders/${record.id}`),
       },
     ];
-    if (isOfficeStaff || isAdmin) {
-      items.push({
-        key: 'edit',
-        icon: <EditOutlined />,
-        label: 'Edit',
-        onClick: () => navigate(`/job-orders/${record.id}/edit`),
-      });
-    }
     items.push({
       key: 'print',
       icon: <PrinterOutlined />,

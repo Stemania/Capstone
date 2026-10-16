@@ -465,7 +465,8 @@ def test_office_chooses_not_required_on_draft_but_not_after_release(client, shop
         json={"materialStatus": "NOT_REQUIRED"},
         headers=_headers(shop["office"]),
     )
-    assert res.status_code == 403
+    assert res.status_code == 409
+    assert res.get_json()["error"]["code"] == "JOB_INFO_LOCKED"
 
 
 # ---- Item 10: planning save with a busy worker ---------------------------

@@ -336,10 +336,17 @@ def test_no_notification_on_draft_or_planning_job_received_on_confirm(
     assert save_ops.get_json()["status"] == "DRAFT"
     assert sent == []
 
+    # Office sets materials; Admin plans operations (Admin cannot edit job info).
+    mats = client.patch(
+        f"/api/v1/job-orders/{job_id}",
+        json={"materialStatus": "NOT_REQUIRED"},
+        headers=office_headers,
+    )
+    assert mats.status_code == 200, mats.get_json()
+
     plan = client.patch(
         f"/api/v1/job-orders/{job_id}",
         json={
-            "materialStatus": "NOT_REQUIRED",
             "operations": [
                 {
                     "sequenceNo": 1,
