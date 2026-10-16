@@ -5,6 +5,7 @@ import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useSta
 import {
   Badge,
   Button,
+  DatePicker,
   Drawer,
   Grid,
   Select,
@@ -335,6 +336,11 @@ function AdminOfficeScheduleBoard() {
   const goToToday = () => {
     setViewMode('day');
     setAnchor(dayjs().tz(SHOP_TZ));
+  };
+
+  const jumpToDate = (d: Dayjs | null) => {
+    if (!d) return;
+    setAnchor(d.tz(SHOP_TZ));
   };
 
   const clearBoardFilters = () => {
@@ -772,6 +778,16 @@ function AdminOfficeScheduleBoard() {
                       ? from.format('MMMM YYYY')
                       : `${from.format('MMM D')} – ${to.format('MMM D, YYYY')}`}
                 </Text>
+                <DatePicker
+                  picker={viewMode === 'month' ? 'month' : 'date'}
+                  value={anchor}
+                  allowClear={false}
+                  format={viewMode === 'month' ? 'MMM YYYY' : 'MMM D, YYYY'}
+                  onChange={jumpToDate}
+                  suffixIcon={<CalendarOutlined />}
+                  aria-label={viewMode === 'month' ? 'Jump to month' : 'Jump to date'}
+                  style={{ width: viewMode === 'month' ? 118 : 138 }}
+                />
                 <Button
                   icon={<RightOutlined />}
                   onClick={() => shiftPeriod(1)}

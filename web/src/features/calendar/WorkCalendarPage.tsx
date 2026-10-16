@@ -427,7 +427,16 @@ export default function WorkCalendarPage() {
               onClick={() => setAnchor((a) => a.subtract(1, 'month'))}
               aria-label="Previous month"
             />
-            <div className="work-calendar__month-label">{anchor.format('MMMM YYYY')}</div>
+            <DatePicker
+              picker="month"
+              value={anchor}
+              allowClear={false}
+              format="MMMM YYYY"
+              onChange={(d) => d && setAnchor(d.startOf('month'))}
+              className="work-calendar__month-picker"
+              suffixIcon={<CalendarOutlined />}
+              aria-label="Jump to month"
+            />
             <Button
               type="text"
               icon={<RightOutlined />}
