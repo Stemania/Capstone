@@ -1,0 +1,50 @@
+/* Job order info form layout (keep unused .jo-form__materials* in index.css). */
+
+.jo-form-page .jo-form__qty-row {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.jo-form-page .jo-form__desc-materials {
+  align-items: stretch;
+}
+
+.jo-form-page .jo-form__desc-item,
+.jo-form-page .jo-form__materials-item {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  margin-bottom: 0;
+}
+
+.jo-form-page .jo-form__desc-item .ant-form-item-row,
+.jo-form-page .jo-form__materials-item .ant-form-item-row {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.jo-form-page .jo-form__desc-item .ant-form-item-control,
+.jo-form-page .jo-form__materials-item .ant-form-item-control {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.jo-form-page .jo-form__desc-item .ant-form-item-control-input,
+.jo-form-page .jo-form__desc-item .ant-form-item-control-input-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.jo-form-page .jo-form__desc-item textarea.ant-input {
+  flex: 1;
+  min-height: 96px;
+  resize: vertical;
+}
+
+.jo-form-page .jo-form__materials-note {
+  margin-top: 4px;
+}

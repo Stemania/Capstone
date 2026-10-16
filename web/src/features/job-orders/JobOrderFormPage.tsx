@@ -20,6 +20,7 @@ import { useAuth } from '../../hooks/useAuth';
 import type { Client, JobOrderStatus } from '../../types';
 import { jobOrdersDraftsListPath } from './jobOrderListPaths';
 import { IdChip, Page, SectionCard, PageSkeleton } from '../../components/ui';
+import './joForm.css';
 
 const { TextArea } = Input;
 
@@ -258,13 +259,13 @@ export default function JobOrderFormPage() {
           </Row>
 
           <div className="ui-form-section">Quantity and amount</div>
-          <Row gutter={[16, 0]}>
-            <Col xs={12} md={4}>
+          <Row gutter={[16, 0]} className="jo-form__qty-row">
+            <Col xs={12} md={8}>
               <Form.Item name="quantity" label="Quantity">
                 <InputNumber style={{ width: '100%' }} min={0} step={0.01} placeholder="1.00" />
               </Form.Item>
             </Col>
-            <Col xs={12} md={4}>
+            <Col xs={12} md={8}>
               <Form.Item name="unitOfMeasure" label="Unit">
                 <Select
                   allowClear
@@ -286,7 +287,7 @@ export default function JobOrderFormPage() {
           </Row>
 
           <div className="ui-form-section">Description and materials</div>
-          <Row gutter={[16, 0]}>
+          <Row gutter={[16, 16]} className="jo-form__desc-materials">
             <Col xs={24} md={14}>
               <Form.Item name="description" label="Description" className="jo-form__desc-item">
                 <TextArea rows={4} placeholder="Notes from PO / special instructions (optional)" />
@@ -297,6 +298,7 @@ export default function JobOrderFormPage() {
                 name="materialsNeeded"
                 label="Materials needed"
                 rules={[{ required: true }]}
+                className="jo-form__materials-item"
                 style={{ marginBottom: 8 }}
               >
                 <Radio.Group>
@@ -308,7 +310,7 @@ export default function JobOrderFormPage() {
                   </Space>
                 </Radio.Group>
               </Form.Item>
-              <div className="ui-muted-note">
+              <div className="ui-muted-note jo-form__materials-note">
                 Materials are entered when ordering (Order materials on the job), not here.
                 {released && !isAdmin ? ' After release only the Admin can set Not required.' : ''}
               </div>
