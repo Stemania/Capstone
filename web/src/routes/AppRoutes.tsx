@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useParams } from 'react-router-dom';
 import { OfflineProvider } from '../offline/OfflineProvider';
 import { AuthProvider, useAuth } from '../hooks/useAuth';
+import IdleSessionWatcher from '../auth/IdleSessionWatcher';
 import { ProtectedRoute } from './ProtectedRoute';
 import RoleAwareLayout from './RoleAwareLayout';
 import { NavMemoryProvider } from '../navigation/navMemory';
@@ -87,6 +88,7 @@ export default function AppRoutes() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <IdleSessionWatcher />
         <NavMemoryProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />

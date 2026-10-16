@@ -116,16 +116,26 @@ export default function LoginPage() {
               description="Signing in needs a connection. Actions waiting on this phone are kept and sent after you sign in."
             />
           )}
-          {online && (endReason === 'signed-out' || endReason === 'expired') && !error && (
+          {online &&
+            (endReason === 'signed-out' || endReason === 'expired' || endReason === 'idle') &&
+            !error && (
             <Alert
               type={endReason === 'signed-out' ? 'warning' : 'info'}
               showIcon
               style={{ marginBottom: 16 }}
-              title={endReason === 'signed-out' ? 'This device was signed out' : 'Please sign in again'}
+              title={
+                endReason === 'signed-out'
+                  ? 'This device was signed out'
+                  : endReason === 'idle'
+                    ? 'You were signed out after 30 minutes of inactivity.'
+                    : 'Please sign in again'
+              }
               description={[
                 endReason === 'signed-out'
                   ? 'It was signed out from Account security, or the password was changed.'
-                  : 'Your session ended.',
+                  : endReason === 'idle'
+                    ? ''
+                    : 'Your session ended.',
                 waitingActions > 0
                   ? `${waitingActions} saved action${waitingActions === 1 ? '' : 's'} on this phone will be sent after you sign in.`
                   : '',
