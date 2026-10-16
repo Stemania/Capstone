@@ -1,7 +1,7 @@
 import { OPERATION_BAR_COLOR, OPERATION_STATUS, TONE_BAR_FILL } from '../../theme/statuses';
 import { Legend, StatCard, StatGrid, type LegendItem } from '../../components/ui';
 import InfoTip from '../../components/InfoTip';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Badge,
   Button,
@@ -72,6 +72,7 @@ import { capacityLine } from './capacityText';
 import { TOUCH_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import { PersonAvatar, crewNames } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
+import './scheduleBoard.css';
 
 const { Text } = Typography;
 
@@ -229,6 +230,10 @@ function AdminOfficeScheduleBoard() {
   const rowH = isTouch ? 52 : isMobile ? adminPx(40) : adminPx(44);
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [rowMode, setRowMode] = useState<RowMode>('machine');
+  // Keep the pills snappy; rebuild the heavy board at lower priority.
+  const boardViewMode = useDeferredValue(viewMode);
+  const boardRowMode = useDeferredValue(rowMode);
+  const boardPending = boardViewMode !== viewMode || boardRowMode !== rowMode;
   const [anchor, setAnchor] = useState(() => dayjs().tz(SHOP_TZ));
   const [includeCompleted, setIncludeCompleted] = useState(true);
   const [machineTypeId, setMachineTypeId] = useState<string | undefined>();
@@ -247,7 +252,10 @@ function AdminOfficeScheduleBoard() {
   const [data, setData] = useState<ScheduleBoardResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const { from, to } = useMemo(() => periodBounds(anchor, viewMode), [anchor, viewMode]);
+  const { from, to } = useMemo(
+    () => periodBounds(anchor, boardViewMode),
+    [anchor, boardViewMode],
+  );
   useOverdueCheck();
 
   useEffect(() => {
@@ -287,7 +295,7 @@ function AdminOfficeScheduleBoard() {
 
   const rows: RowDef[] = useMemo(() => {
     if (!data) return [];
-    if (rowMode === 'worker') {
+    if (boardRowMode === 'worker') {
       return data.workers.map((w) => ({
         key: w.id,
         label: personLabel(w.fullName, w.nickname),
@@ -316,7 +324,7 @@ function AdminOfficeScheduleBoard() {
     }
     out.push({ key: '__none__', label: 'No machine', noMachine: true });
     return out;
-  }, [data, rowMode]);
+  }, [data, boardRowMode]);
 
   const shiftPeriod = (dir: -1 | 1) => {
     if (viewMode === 'day') setAnchor((a) => a.add(dir, 'day'));
@@ -337,8 +345,8 @@ function AdminOfficeScheduleBoard() {
   };
 
   const opsByRowKey = useMemo(
-    () => groupByMany(data?.operations ?? NO_OPS, (o) => opGroupKeys(o, rowMode)),
-    [data, rowMode]
+    () => groupByMany(data?.operations ?? NO_OPS, (o) => opGroupKeys(o, boardRowMode)),
+    [data, boardRowMode]
   );
   const downtimesByUnit = useMemo(
     () => groupBy(data?.downtimes ?? NO_DOWNTIMES, (d) => d.machineUnitId),
@@ -372,15 +380,15 @@ function AdminOfficeScheduleBoard() {
   }, [loading, data, phoneView]);
 
   const naturalWeekLayout = useMemo(() => {
-    if (viewMode === 'day') return null;
+    if (boardViewMode === 'day') return null;
     const windows =
       data?.shopDayWindows && data.shopDayWindows.length > 0
         ? data.shopDayWindows
         : defaultShopDayWindows(from, to);
-    return viewMode === 'week'
+    return boardViewMode === 'week'
       ? buildWeekTimelineLayout(from, to, windows, isMobile)
       : buildMonthTimelineLayout(from, to, windows, isMobile);
-  }, [viewMode, data?.shopDayWindows, from, to, isMobile]);
+  }, [boardViewMode, data?.shopDayWindows, from, to, isMobile]);
 
   const weekLayout = useMemo(() => {
     if (!naturalWeekLayout) return null;
@@ -389,24 +397,24 @@ function AdminOfficeScheduleBoard() {
   }, [naturalWeekLayout, boardAvailW, labelW]);
 
   const dayHourPx = useMemo(() => {
-    if (viewMode !== 'day') return undefined;
+    if (boardViewMode !== 'day') return undefined;
     return fitDayPxPerHour(isMobile, Math.max(0, boardAvailW - labelW));
-  }, [viewMode, isMobile, boardAvailW, labelW]);
+  }, [boardViewMode, isMobile, boardAvailW, labelW]);
 
-  const boardW = timelineWidth(from, to, viewMode, isMobile, weekLayout, dayHourPx);
+  const boardW = timelineWidth(from, to, boardViewMode, isMobile, weekLayout, dayHourPx);
   const dayColumns = useMemo(
-    () => dayColumnsForView(from, to, viewMode, isMobile, weekLayout, dayHourPx),
-    [from, to, viewMode, isMobile, weekLayout, dayHourPx]
+    () => dayColumnsForView(from, to, boardViewMode, isMobile, weekLayout, dayHourPx),
+    [from, to, boardViewMode, isMobile, weekLayout, dayHourPx]
   );
-  const pph = dayHourPx ?? pxPerHour(viewMode, isMobile);
+  const pph = dayHourPx ?? pxPerHour(boardViewMode, isMobile);
   const now = useShopNow();
   const nowLeft = useMemo(() => {
     const hour = now.hour() + now.minute() / 60;
     if (hour < HOUR_START || hour > HOUR_END) return null;
     if (now.isBefore(from.startOf('day')) || now.isAfter(to.endOf('day'))) return null;
-    const left = leftPx(now.toISOString(), from, viewMode, isMobile, weekLayout, dayHourPx);
+    const left = leftPx(now.toISOString(), from, boardViewMode, isMobile, weekLayout, dayHourPx);
     return left != null && left >= 0 && left <= boardW ? left : null;
-  }, [now, from, to, viewMode, isMobile, weekLayout, dayHourPx, boardW]);
+  }, [now, from, to, boardViewMode, isMobile, weekLayout, dayHourPx, boardW]);
   const boardCollapsedMaxHeight = isPhoneBoard
       ? 'calc(100dvh - 340px)'
       : isMobile
@@ -440,6 +448,7 @@ function AdminOfficeScheduleBoard() {
     <>
       {!isPhoneBoard && (
         <Segmented
+          className="sched-seg"
           block={isMobile}
           value={rowMode}
           onChange={(v) => setRowMode(v as RowMode)}
@@ -728,6 +737,7 @@ function AdminOfficeScheduleBoard() {
           title={
             !isPhoneBoard ? (
               <Segmented
+                className="sched-seg"
                 value={viewMode}
                 onChange={(v) => setViewMode(v as ViewMode)}
                 size="middle"
@@ -783,7 +793,7 @@ function AdminOfficeScheduleBoard() {
         >
           <div
             ref={boardScrollRef}
-            className="sched-board-view"
+            className={`sched-board-view${boardPending ? ' is-pending' : ''}`}
             style={{
               border: `1px solid ${BORDER}`,
               borderRadius: 10,
@@ -818,7 +828,7 @@ function AdminOfficeScheduleBoard() {
                   color: '#64748b',
                 }}
               >
-                {rowMode === 'machine' ? 'Machine' : 'Worker'}
+                {boardRowMode === 'machine' ? 'Machine' : 'Worker'}
               </div>
               <div
                 style={{
@@ -890,7 +900,7 @@ function AdminOfficeScheduleBoard() {
 
             <BoardRows
               rows={rows}
-              rowMode={rowMode}
+              rowMode={boardRowMode}
               opsByRowKey={opsByRowKey}
               downtimesByUnit={downtimesByUnit}
               rowH={rowH}
@@ -900,7 +910,7 @@ function AdminOfficeScheduleBoard() {
               dayColumns={dayColumns}
               from={from}
               to={to}
-              viewMode={viewMode}
+              viewMode={boardViewMode}
               isMobile={isMobile}
               weekLayout={weekLayout}
               dayHourPx={dayHourPx}
@@ -1112,7 +1122,46 @@ const BoardRows = memo(function BoardRows({
   onOpenJob,
 }: BoardRowsProps) {
   const columnFill = false;
-  const posArgs = [from, viewMode, isMobile, weekLayout, dayHourPx] as const;
+  // Layout every row once per board change — not inline during JSX map.
+  const prepared = useMemo(() => {
+    const pos = { from, to, mode: viewMode, mobile: isMobile, weekLayout, hourPx: dayHourPx };
+    const args = [from, viewMode, isMobile, weekLayout, dayHourPx] as const;
+    return rows.map((row) => {
+      const ops = opsByRowKey.get(rowGroupKey(row, rowMode)) ?? NO_OPS;
+      const dts =
+        (rowMode === 'machine' && row.machineUnitId
+          ? downtimesByUnit.get(row.machineUnitId)
+          : undefined) ?? NO_DOWNTIMES;
+      const opById = new Map(ops.map((op) => [op.id, op]));
+      const { bars, laneCount } = layoutRowBars(
+        ops.map((op) => ({ id: op.id, segments: opSegments(op) })),
+        pos,
+        { markClashes: !row.noMachine, gap: BAR_GAP, minWidth: MIN_BAR_W },
+      );
+      const trackH = rowH * laneCount;
+      const downRects = dts.flatMap((d) => {
+        const clipped = clipSegmentToPeriod(d.segmentStart, d.segmentEnd, from, to);
+        if (!clipped) return [];
+        const left = leftPx(clipped.start, ...args);
+        const width = widthPx(clipped.start, clipped.end, ...args);
+        return left == null || width == null || width <= 0 ? [] : [{ d, left, width }];
+      });
+      return { row, opById, bars, laneCount, trackH, downRects };
+    });
+  }, [
+    rows,
+    rowMode,
+    opsByRowKey,
+    downtimesByUnit,
+    rowH,
+    from,
+    to,
+    viewMode,
+    isMobile,
+    weekLayout,
+    dayHourPx,
+  ]);
+
   return (
     <div style={{ position: 'relative' }}>
     {nowLeft != null ? (
@@ -1129,24 +1178,7 @@ const BoardRows = memo(function BoardRows({
         }}
       />
     ) : null}
-    {rows.map((row) => {
-      const ops = opsByRowKey.get(rowGroupKey(row, rowMode)) ?? NO_OPS;
-      const dts = (rowMode === 'machine' && row.machineUnitId ? downtimesByUnit.get(row.machineUnitId) : undefined) ?? NO_DOWNTIMES;
-      const opById = new Map(ops.map((op) => [op.id, op]));
-      const { bars, laneCount } = layoutRowBars(
-        ops.map((op) => ({ id: op.id, segments: opSegments(op) })),
-        { from, to, mode: viewMode, mobile: isMobile, weekLayout, hourPx: dayHourPx },
-        { markClashes: !row.noMachine, gap: BAR_GAP, minWidth: MIN_BAR_W },
-      );
-      const trackH = rowH * laneCount;
-      const downRects = dts.flatMap((d) => {
-        const clipped = clipSegmentToPeriod(d.segmentStart, d.segmentEnd, from, to);
-        if (!clipped) return [];
-        const left = leftPx(clipped.start, ...posArgs);
-        const width = widthPx(clipped.start, clipped.end, ...posArgs);
-        return left == null || width == null || width <= 0 ? [] : [{ d, left, width }];
-      });
-
+    {prepared.map(({ row, opById, bars, laneCount, trackH, downRects }) => {
       return (
         <div key={row.key}>
           {row.group ? (

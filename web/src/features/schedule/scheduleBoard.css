@@ -1,0 +1,31 @@
+/*
+ * Schedule Segmented keeps Ant's sliding thumb for the motion, but the
+ * selected item also keeps a solid blue fill. If a board re-render interrupts
+ * the thumb mid-slide, the selection still stays visible (no blank white pill).
+ */
+.sched-seg.ant-segmented .ant-segmented-item {
+  color: var(--c-text-2, #475569);
+}
+
+.sched-seg.ant-segmented .ant-segmented-item-selected {
+  background: var(--c-primary, #2563eb) !important;
+  box-shadow: none !important;
+  color: #fff !important;
+}
+
+.sched-seg.ant-segmented .ant-segmented-item-selected .ant-segmented-item-label {
+  color: #fff !important;
+}
+
+.sched-seg.ant-segmented .ant-segmented-thumb {
+  background: var(--c-primary, #2563eb);
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+/* Soften the board while a deferred view/row mode catches up. */
+.sched-board-view.is-pending {
+  opacity: 0.72;
+  pointer-events: none;
+  transition: opacity 0.12s linear;
+}

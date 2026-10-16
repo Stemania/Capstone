@@ -194,8 +194,12 @@ export function splitSegmentAcrossWeekDays(
   const end = dayjs(endIso).tz(SHOP_TZ);
   if (!start.isValid() || !end.isValid() || !end.isAfter(start)) return [];
 
+  const startDate = start.format('YYYY-MM-DD');
+  const endDate = end.format('YYYY-MM-DD');
   const pieces: { start: string; end: string }[] = [];
   for (const day of weekLayout.days) {
+    // Month boards have ~30 columns — skip days the segment cannot touch.
+    if (day.date < startDate || day.date > endDate) continue;
     if (!day.isWorking || day.durationHours <= 0) continue;
     const dayStart = dayjs
       .tz(day.date, SHOP_TZ)
