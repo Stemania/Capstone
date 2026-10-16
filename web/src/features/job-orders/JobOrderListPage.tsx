@@ -8,6 +8,7 @@ import {
   PrinterOutlined,
   EyeOutlined,
   StopOutlined,
+  InboxOutlined,
   MoreOutlined,
   SearchOutlined,
   FilterOutlined,
@@ -36,10 +37,12 @@ import type { JobOrder, JobOrderStatus } from '../../types';
 import { compareByDue } from './jobOrderSort';
 import CancelJobModal from './CancelJobModal';
 
-type ListTab = 'production' | 'drafts';
+type ListTab = 'production' | 'drafts' | 'archived';
 
 function tabFromSearch(param: string | null): ListTab {
-  return param === 'drafts' ? 'drafts' : 'production';
+  if (param === 'drafts') return 'drafts';
+  if (param === 'archived') return 'archived';
+  return 'production';
 }
 
 const PRODUCTION_STATUS_OPTIONS: { value: JobOrderStatus; label: string }[] = [
@@ -243,6 +246,7 @@ export default function JobOrderListPage() {
     tabFromSearch(searchParams.get('tab'))
   );
   const [draftCount, setDraftCount] = useState(0);
+  const [archivedCount, setArchivedCount] = useState(0);
   const [releasedCount, setReleasedCount] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<JobOrderStatus[]>([]);
   const [clientFilter, setClientFilter] = useState<string[]>([]);
@@ -277,7 +281,9 @@ export default function JobOrderListPage() {
     setStatusFilter([]);
     setAwaitingMaterialOnly(false);
     setSelectedKeys([]);
-    setSearchParams(tab === 'drafts' ? { tab: 'drafts' } : {}, { replace: true });
+    const params =
+      tab === 'drafts' ? { tab: 'drafts' } : tab === 'archived' ? { tab: 'archived' } : {};
+    setSearchParams(params, { replace: true });
   };
 
   const fetchJobs = async (tab: ListTab = listTab) => {
@@ -290,6 +296,7 @@ export default function JobOrderListPage() {
       });
       setJobs(data);
       if (tab === 'drafts') setDraftCount(data.length);
+      else if (tab === 'archived') setArchivedCount(data.length);
       else if (!awaitingMaterialOnly) setReleasedCount(data.length);
     } catch (err) {
       setJobs([]);
@@ -298,11 +305,19 @@ export default function JobOrderListPage() {
     } finally {
       setLoading(false);
     }
-    if (tab !== 'drafts' && (isAdmin || isOfficeStaff)) {
-      jobOrdersApi
-        .list({ scope: 'drafts' })
-        .then((drafts) => setDraftCount(drafts.data.length))
-        .catch(() => undefined);
+    if (isAdmin || isOfficeStaff) {
+      if (tab !== 'drafts') {
+        jobOrdersApi
+          .list({ scope: 'drafts' })
+          .then((drafts) => setDraftCount(drafts.data.length))
+          .catch(() => undefined);
+      }
+      if (tab !== 'archived') {
+        jobOrdersApi
+          .list({ scope: 'archived' })
+          .then((archived) => setArchivedCount(archived.data.length))
+          .catch(() => undefined);
+      }
     }
   };
 
@@ -476,6 +491,44 @@ export default function JobOrderListPage() {
         danger: true,
         onClick: () => setCancelJob(record),
       });
+    }
+    if (
+      (isOfficeStaff || isAdmin) &&
+      (record.status === 'COMPLETED' ||
+        record.status === 'DELIVERED' ||
+        record.status === 'CANCELLED')
+    ) {
+      if (record.isArchived || record.archivedAt) {
+        items.push({
+          key: 'unarchive',
+          icon: <InboxOutlined />,
+          label: 'Unarchive',
+          onClick: async () => {
+            try {
+              await jobOrdersApi.unarchive(record.id);
+              message.success('Job unarchived');
+              await fetchJobs();
+            } catch (err) {
+              message.error(getErrorMessage(err));
+            }
+          },
+        });
+      } else {
+        items.push({
+          key: 'archive',
+          icon: <InboxOutlined />,
+          label: 'Archive',
+          onClick: async () => {
+            try {
+              await jobOrdersApi.archive(record.id);
+              message.success('Job archived');
+              await fetchJobs();
+            } catch (err) {
+              message.error(getErrorMessage(err));
+            }
+          },
+        });
+      }
     }
     return items;
   };
@@ -671,6 +724,7 @@ export default function JobOrderListPage() {
             count: draftCount,
             countTone: draftCount > 0 ? 'red' : undefined,
           },
+          { label: 'Archived', value: 'archived', count: archivedCount },
         ]}
       />
     </div>

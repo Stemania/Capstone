@@ -23,10 +23,11 @@ import {
   CheckCircleFilled,
   CheckOutlined,
   EditOutlined,
-  StopOutlined,
   FileTextOutlined,
   PrinterOutlined,
   ReloadOutlined,
+  StopOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -653,6 +654,42 @@ function JobOrderDetailView() {
     job.status !== 'DELIVERED' &&
     job.status !== 'CANCELLED' &&
     !job.salesInvoice;
+  const canArchive =
+    canManage &&
+    (job.status === 'COMPLETED' ||
+      job.status === 'DELIVERED' ||
+      job.status === 'CANCELLED') &&
+    !job.isArchived &&
+    !job.archivedAt;
+  const canUnarchive = canManage && Boolean(job.isArchived || job.archivedAt);
+
+  const handleArchive = () => {
+    Modal.confirm({
+      title: 'Archive this job order?',
+      content: 'It leaves the default list. Open the Archived tab to find it again.',
+      okText: 'Archive',
+      onOk: async () => {
+        try {
+          await jobOrdersApi.archive(job.id);
+          message.success('Job archived');
+          await fetchJob();
+        } catch (err) {
+          message.error(getErrorMessage(err));
+          throw err;
+        }
+      },
+    });
+  };
+
+  const handleUnarchive = async () => {
+    try {
+      await jobOrdersApi.unarchive(job.id);
+      message.success('Job unarchived');
+      await fetchJob();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    }
+  };
   const opsTotal = (job.operations || []).length;
   const opsDone = (job.operations || []).filter((op) => op.status === 'COMPLETED').length;
 
@@ -784,6 +821,16 @@ function JobOrderDetailView() {
           {canCancel && (
             <Button danger icon={<StopOutlined />} onClick={() => setCancelOpen(true)}>
               Cancel job order
+            </Button>
+          )}
+          {canArchive && (
+            <Button icon={<InboxOutlined />} onClick={handleArchive}>
+              Archive
+            </Button>
+          )}
+          {canUnarchive && (
+            <Button icon={<InboxOutlined />} onClick={handleUnarchive}>
+              Unarchive
             </Button>
           )}
         </Space>

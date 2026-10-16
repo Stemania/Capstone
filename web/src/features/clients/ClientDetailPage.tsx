@@ -24,7 +24,7 @@ import { useAuth } from '../../hooks/useAuth';
 import ClientFormModal from './ClientFormModal';
 
 type Job = ClientDetail['jobs'][number];
-type JobFilter = 'all' | 'draft' | 'active' | 'completed' | 'delivered';
+type JobFilter = 'all' | 'draft' | 'active' | 'completed' | 'delivered' | 'cancelled';
 
 const FILTERS: { value: JobFilter; label: string; match: (j: Job) => boolean }[] = [
   { value: 'all', label: 'All', match: () => true },
@@ -32,6 +32,7 @@ const FILTERS: { value: JobFilter; label: string; match: (j: Job) => boolean }[]
   { value: 'active', label: 'Active', match: (j) => j.status === 'SCHEDULED' || j.status === 'IN_PROGRESS' },
   { value: 'completed', label: 'Completed', match: (j) => j.status === 'COMPLETED' },
   { value: 'delivered', label: 'For Delivery', match: (j) => j.status === 'DELIVERED' },
+  { value: 'cancelled', label: 'Cancelled', match: (j) => j.status === 'CANCELLED' },
 ];
 
 function money(v: number | null | undefined) {
@@ -51,7 +52,14 @@ function orderDay(j: Job): string | null {
 }
 
 function isOverdue(j: Job) {
-  if (!j.dueDate || j.status === 'DRAFT' || j.status === 'COMPLETED' || j.status === 'DELIVERED') return false;
+  if (
+    !j.dueDate ||
+    j.status === 'DRAFT' ||
+    j.status === 'COMPLETED' ||
+    j.status === 'DELIVERED' ||
+    j.status === 'CANCELLED'
+  )
+    return false;
   return j.dueDate.slice(0, 10) < shopToday().format('YYYY-MM-DD');
 }
 

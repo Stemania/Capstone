@@ -46,7 +46,7 @@ export const clientsApi = {
 export const jobOrdersApi = {
   list: (params?: {
     status?: string;
-    scope?: 'production' | 'drafts' | 'all';
+    scope?: 'production' | 'drafts' | 'archived' | 'all';
     awaitingMaterial?: boolean;
   }) =>
     apiClient.get<JobOrder[]>('/job-orders', {
