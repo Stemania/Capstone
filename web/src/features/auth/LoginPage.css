@@ -3,7 +3,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px 16px 88px;
+  padding: 12px 16px 16px;
   position: relative;
   overflow: hidden;
   background: #ffffff;
@@ -46,15 +46,15 @@
 
 .login-card__header {
   background: #0f1c2e;
-  padding: 28px 32px 24px;
+  padding: 18px 24px 14px;
   text-align: center;
 }
 
 .login-card__logo {
   display: block;
-  width: 112px;
+  width: 72px;
   height: auto;
-  margin: 0 auto 12px;
+  margin: 0 auto 8px;
 }
 
 .login-card__brand {
@@ -72,7 +72,7 @@
 }
 
 .login-card__body {
-  padding: 32px 32px 20px;
+  padding: 20px 24px 16px;
 }
 
 .login-card__title {
