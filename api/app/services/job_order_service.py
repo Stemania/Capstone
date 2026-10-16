@@ -814,10 +814,32 @@ def _apply_job_update(job, data, role):
             op = _build_operation(job.id, payload, i)
             db.session.add(op)
         db.session.flush()
+        if is_draft:
+            _assert_no_sequence_violation(job)
 
     if job.status != JobOrderStatus.DRAFT:
         job.status = derive_job_status(job)
     advance_part_condition(job)
+
+
+def _assert_no_sequence_violation(job: JobOrder) -> None:
+    """Draft PATCH may save incomplete windows, but never an earlier-start-after-later-end."""
+    from app.services.schedule_service import schedule_problems
+
+    # Relationship may be stale after delete+insert; load the rows just flushed.
+    ops = (
+        JobOperation.query.filter_by(job_order_id=job.id)
+        .order_by(JobOperation.sequence_no.asc())
+        .all()
+    )
+    problems = schedule_problems(ops, exclude_job_id=job.id)
+    seq = [p for p in problems if p.get("code") == "SEQUENCE_VIOLATION"]
+    if seq:
+        raise AppError(
+            "; ".join(p["message"] for p in seq) + ".",
+            "SEQUENCE_VIOLATION",
+            409,
+        )
 
 
 def _release_missing_items(job: JobOrder) -> list[str]:

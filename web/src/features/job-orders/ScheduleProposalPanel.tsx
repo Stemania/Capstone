@@ -182,13 +182,17 @@ export default function ScheduleProposalPanel({
           <div>End</div>
         </div>
 
-        {operations.map((op) => {
+        {operations.map((op, idx) => {
           const problems = problemsBySeq[op.sequenceNo] || [];
           const warnings = warningsBySeq[op.sequenceNo] || [];
           const unitOptions = unitsForOp(op, machineUnits);
           const faster = op.fasterUnit;
           const needsMachine = Boolean(op.machineTypeId);
           const late = lateSeqs.has(op.sequenceNo);
+          const prevOp = idx > 0 ? operations[idx - 1] : null;
+          const earliestStart = prevOp?.scheduledEnd
+            ? isoToShopDayjs(prevOp.scheduledEnd)
+            : null;
 
           return (
             <div
@@ -294,11 +298,34 @@ export default function ScheduleProposalPanel({
                       disabled={readOnly}
                       value={isoToShopDayjs(op.scheduledStart)}
                       allowClear={false}
+                      disabledDate={(d) =>
+                        Boolean(earliestStart && d && d.endOf('day').isBefore(earliestStart))
+                      }
+                      disabledTime={(d) => {
+                        if (!earliestStart || !d || !d.isSame(earliestStart, 'day')) {
+                          return {};
+                        }
+                        const h0 = earliestStart.hour();
+                        const m0 = earliestStart.minute();
+                        return {
+                          disabledHours: () =>
+                            Array.from({ length: h0 }, (_, i) => i),
+                          disabledMinutes: (h) =>
+                            h === h0 ? Array.from({ length: m0 }, (_, i) => i) : [],
+                        };
+                      }}
                       onChange={(v) => {
                         if (!v) return;
-                        onChangeOp(op.sequenceNo, { scheduledStart: shopLocalToIso(v) });
+                        const next =
+                          earliestStart && v.isBefore(earliestStart) ? earliestStart : v;
+                        onChangeOp(op.sequenceNo, { scheduledStart: shopLocalToIso(next) });
                       }}
                     />
+                    {earliestStart ? (
+                      <div className="jo-sched__muted" style={{ fontSize: 11, marginTop: 2 }}>
+                        Earliest: {earliestStart.format(DATE_TIME)}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="jo-sched__field" data-label="End">
                     <Tooltip
