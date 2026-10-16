@@ -51,11 +51,44 @@
 
   --sidebar-w: 232px;
   --sidebar-w-collapsed: 72px;
-  --topbar-h: 60px;
-  --page-pad: 24px;
-  --card-pad: 16px;
+  --topbar-h: 52px;
+  --page-pad: 20px;
+  --card-pad: 12px;
 
   --ease: 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (max-width: 768px) {
+  :root {
+    --page-pad: 16px;
+  }
+}
+
+/* Slim app scrollbar (Firefox + WebKit). */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.4);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.55);
+  background-clip: padding-box;
 }
 
 body {
@@ -171,7 +204,7 @@ input[type='number'],
 .ant-segmented .ant-segmented-item-label {
   min-height: 30px;
   line-height: 30px;
-  padding: 0 14px;
+  padding: 0 12px;
 }
 
 .ant-segmented .ant-segmented-item-selected,

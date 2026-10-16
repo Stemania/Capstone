@@ -114,7 +114,7 @@ const components: ThemeConfig['components'] = {
     bodyPadding: layout.cardPadding,
     headerPadding: layout.cardPadding,
     headerFontSize: font.size.md,
-    headerHeight: 48,
+    headerHeight: 40,
   },
   Modal: {
     borderRadiusLG: radius.lg,
@@ -128,7 +128,7 @@ const components: ThemeConfig['components'] = {
     labelColor: colors.textSecondary,
     labelFontSize: font.size.sm,
     verticalLabelPadding: '0 0 4px',
-    itemMarginBottom: 16,
+    itemMarginBottom: 12,
   },
   Tooltip: {
     colorBgSpotlight: colors.navy,
@@ -149,7 +149,7 @@ const components: ThemeConfig['components'] = {
 /** Office screens (Admin, Office Staff). */
 export const officeTheme: ThemeConfig = { token: baseToken, components };
 
-/** Office screens on phones and tablets: same look, 44px tap targets. */
+/** Office screens on phones (≤768): same look, 40px tap targets. */
 export const officeTouchTheme: ThemeConfig = {
   token: {
     ...baseToken,

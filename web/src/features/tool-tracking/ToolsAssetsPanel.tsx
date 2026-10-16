@@ -21,6 +21,7 @@ import type { InventoryUsageByWorker, ToolType, ToolUnit, ToolUnitStatus } from 
 import { exportCsv } from '../../utils/csvExport';
 import ToolEventsPage from './ToolEventsPage';
 import { useAuth } from '../../hooks/useAuth';
+import { useIsPhone } from '../../hooks/useIsPhone';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 function sectionLabel(text: string) {
@@ -44,6 +45,7 @@ function statusPill(status: ToolUnitStatus) {
 
 export default function ToolsAssetsPanel() {
   const { isOfficeStaff: canEdit } = useAuth();
+  const isPhone = useIsPhone();
   const [types, setTypes] = useState<ToolType[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
@@ -377,26 +379,65 @@ export default function ToolsAssetsPanel() {
               content="Types marked seed are temporary until the client provides the real asset list."
             />
           )}
-          <Button icon={<SwapOutlined />} onClick={() => setHistoryOpen(true)}>
-            Borrow history
-          </Button>
-          <Button icon={<HistoryOutlined />} onClick={() => setEventsOpen(true)}>
-            Event log
-          </Button>
-          <Button
-            icon={<DownloadOutlined />}
-            onClick={() =>
-              exportCsv('tool-types.csv', filtered, [
-                { key: 'name', header: 'Name', value: (r: ToolType) => r.name },
-                { key: 'code', header: 'Code', value: (r: ToolType) => r.code },
-                { key: 'total', header: 'Total', value: (r: ToolType) => r.totalUnits },
-                { key: 'avail', header: 'Available', value: (r: ToolType) => r.availableCount },
-                { key: 'out', header: 'Out', value: (r: ToolType) => r.outCount },
-              ])
-            }
-          >
-            Export CSV
-          </Button>
+          {isPhone ? (
+            <Dropdown
+              trigger={['click']}
+              menu={{
+                items: [
+                  {
+                    key: 'history',
+                    icon: <SwapOutlined />,
+                    label: 'Borrow history',
+                    onClick: () => setHistoryOpen(true),
+                  },
+                  {
+                    key: 'events',
+                    icon: <HistoryOutlined />,
+                    label: 'Event log',
+                    onClick: () => setEventsOpen(true),
+                  },
+                  {
+                    key: 'export',
+                    icon: <DownloadOutlined />,
+                    label: 'Export CSV',
+                    onClick: () =>
+                      exportCsv('tool-types.csv', filtered, [
+                        { key: 'name', header: 'Name', value: (r: ToolType) => r.name },
+                        { key: 'code', header: 'Code', value: (r: ToolType) => r.code },
+                        { key: 'total', header: 'Total', value: (r: ToolType) => r.totalUnits },
+                        { key: 'avail', header: 'Available', value: (r: ToolType) => r.availableCount },
+                        { key: 'out', header: 'Out', value: (r: ToolType) => r.outCount },
+                      ]),
+                  },
+                ],
+              }}
+            >
+              <Button icon={<MoreOutlined />} aria-label="More actions" />
+            </Dropdown>
+          ) : (
+            <>
+              <Button icon={<SwapOutlined />} onClick={() => setHistoryOpen(true)}>
+                Borrow history
+              </Button>
+              <Button icon={<HistoryOutlined />} onClick={() => setEventsOpen(true)}>
+                Event log
+              </Button>
+              <Button
+                icon={<DownloadOutlined />}
+                onClick={() =>
+                  exportCsv('tool-types.csv', filtered, [
+                    { key: 'name', header: 'Name', value: (r: ToolType) => r.name },
+                    { key: 'code', header: 'Code', value: (r: ToolType) => r.code },
+                    { key: 'total', header: 'Total', value: (r: ToolType) => r.totalUnits },
+                    { key: 'avail', header: 'Available', value: (r: ToolType) => r.availableCount },
+                    { key: 'out', header: 'Out', value: (r: ToolType) => r.outCount },
+                  ])
+                }
+              >
+                Export CSV
+              </Button>
+            </>
+          )}
           {canEdit && (
             <Button
               type="primary"

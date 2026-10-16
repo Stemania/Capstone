@@ -386,18 +386,51 @@ export default function ToolsPage() {
                     }}
                   />
                 </Tooltip>
-                <Button icon={<AuditOutlined />} onClick={() => setCountsOpen(true)}>
-                  Stocktake
-                </Button>
-                <Button icon={<HistoryOutlined />} onClick={() => setEventsOpen(true)}>
-                  Event log
-                </Button>
-                <Button
-                  icon={<DownloadOutlined />}
-                  onClick={() => exportCsv('consumables-stock.csv', filtered, stockCsvFields)}
-                >
-                  Export CSV
-                </Button>
+                {isPhone ? (
+                  <Dropdown
+                    trigger={['click']}
+                    menu={{
+                      items: [
+                        {
+                          key: 'stocktake',
+                          icon: <AuditOutlined />,
+                          label: 'Stocktake',
+                          onClick: () => setCountsOpen(true),
+                        },
+                        {
+                          key: 'events',
+                          icon: <HistoryOutlined />,
+                          label: 'Event log',
+                          onClick: () => setEventsOpen(true),
+                        },
+                        {
+                          key: 'export',
+                          icon: <DownloadOutlined />,
+                          label: 'Export CSV',
+                          onClick: () =>
+                            exportCsv('consumables-stock.csv', filtered, stockCsvFields),
+                        },
+                      ],
+                    }}
+                  >
+                    <Button icon={<MoreOutlined />} aria-label="More actions" />
+                  </Dropdown>
+                ) : (
+                  <>
+                    <Button icon={<AuditOutlined />} onClick={() => setCountsOpen(true)}>
+                      Stocktake
+                    </Button>
+                    <Button icon={<HistoryOutlined />} onClick={() => setEventsOpen(true)}>
+                      Event log
+                    </Button>
+                    <Button
+                      icon={<DownloadOutlined />}
+                      onClick={() => exportCsv('consumables-stock.csv', filtered, stockCsvFields)}
+                    >
+                      Export CSV
+                    </Button>
+                  </>
+                )}
                 {canEdit && (
                   <Button
                     type="primary"

@@ -102,9 +102,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px var(--card-pad);
+  padding: 8px var(--card-pad);
   border-bottom: 1px solid var(--c-border);
-  min-height: 48px;
+  min-height: 40px;
 }
 
 .ui-card__titles {
@@ -167,9 +167,9 @@
 .ui-stat {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
-  padding: 14px 16px;
+  padding: 10px 12px;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
   border-radius: var(--r-lg);
@@ -228,7 +228,7 @@
 }
 
 .ui-stat__value {
-  font-size: var(--fs-kpi);
+  font-size: 20px;
   font-weight: 700;
   line-height: 1.2;
   color: var(--c-text);
@@ -566,11 +566,16 @@ a.ui-id:hover {
 
 .ui-rowcard__fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px 10px;
   margin: 0;
-  padding-top: 10px;
+  padding-top: 8px;
   border-top: 1px solid var(--c-border);
+}
+
+.ui-rowcard__fields:has(> :nth-child(4)),
+.ui-rowcard__fields:has(> :nth-child(2):last-child) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .ui-rowcard__field {

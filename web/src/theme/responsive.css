@@ -1,13 +1,11 @@
 /*
- * Phone (≤767px) and tablet (768–1024px) layer. Every rule sits inside a
- * max-width query so desktop (>1024px) renders exactly as before.
- * Control heights come from officeTouchTheme (antTheme.ts); this file covers
- * what the Ant theme cannot reach.
+ * Tablet (≤1024) layout + phone (≤768) Admin/Office tap targets.
+ * officeTouchTheme (≤768) sets Ant controlHeight; this file covers the rest.
+ * Production Worker sizes come from workerTheme + worker.css — do not shrink them here.
  */
 
-/* ======================= Phone + tablet ======================= */
+/* ======================= Tablet + phone layout ======================= */
 @media (max-width: 1024px) {
-  /* Nothing may push the page sideways; wide content scrolls inside its own box. */
   .app-shell__content,
   .ui-page,
   .ui-card,
@@ -16,7 +14,6 @@
     max-width: 100%;
   }
 
-  /* Pill tabs and status filters: one swipeable row instead of overflowing. */
   .ant-segmented.ui-tabbar,
   .ant-segmented {
     max-width: 100%;
@@ -31,7 +28,6 @@
     display: none;
   }
 
-  /* The scroll container would clip the end items to a pill; the items carry their own radius. */
   .ant-segmented:not(.worker-seg) {
     border-radius: 0;
   }
@@ -41,85 +37,7 @@
     scroll-snap-align: start;
   }
 
-  .ant-segmented .ant-segmented-item-label,
-  .ant-segmented.ant-segmented-sm .ant-segmented-item-label,
-  .ant-segmented.ant-segmented-lg .ant-segmented-item-label {
-    min-height: 44px;
-    line-height: 44px;
-    padding: 0 16px;
-  }
-
-  .ant-tabs .ant-tabs-tab {
-    min-height: 44px;
-  }
-
-  /* Checkbox / radio rows: the whole label is the target. */
-  .ant-checkbox-wrapper,
-  .ant-radio-wrapper {
-    min-height: 44px;
-    align-items: center;
-  }
-
-  .ant-radio-button-wrapper {
-    height: 44px;
-    line-height: 42px;
-  }
-
-  /* Small visual controls keep their look but get a 44px hit area. */
-  .ant-switch,
-  .ui-infotip,
-  .ant-modal-close,
-  .ant-drawer-close,
-  .ant-picker-clear,
-  .ant-select-clear,
-  .ant-input-clear-icon {
-    position: relative;
-  }
-
-  .ant-switch::after,
-  .ui-infotip::after {
-    content: '';
-    position: absolute;
-    inset: -11px;
-  }
-
-  .ant-switch::after {
-    inset: -11px -4px;
-  }
-
-  .ant-modal-close {
-    width: 44px !important;
-    height: 44px !important;
-    top: 8px !important;
-    inset-inline-end: 8px !important;
-  }
-
-  .ui-rowmenu.ant-btn {
-    min-width: 44px;
-    min-height: 44px;
-  }
-
-  /* Top bar buttons */
-  .app-topbar__icon-btn {
-    width: 44px;
-    height: 44px;
-  }
-
-  .app-topbar__who {
-    min-height: 44px;
-    min-width: 44px;
-  }
-
-  .app-topbar__menu-btn.ant-btn {
-    width: 44px;
-    height: 44px;
-  }
-
-  .app-sider__logout.ant-btn {
-    height: 44px;
-  }
-
-  /* Stat grids: even rows on tablet widths (4 across, or 3 for 5–6 cards). */
+  /* Stat grids: even rows on tablet widths. */
   .ui-stat-grid {
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
   }
@@ -128,18 +46,12 @@
     grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }
 
-  .ui-stat {
-    padding: 12px 14px;
-    gap: 10px;
-  }
-
   .ui-stat__icon {
     width: 34px;
     height: 34px;
     font-size: 16px;
   }
 
-  /* Card headers wrap their actions instead of squeezing the title. */
   .ui-card__head {
     flex-wrap: wrap;
     row-gap: 8px;
@@ -151,7 +63,6 @@
     min-width: 0;
   }
 
-  /* Wide tables that stay tables on tablets scroll inside their card. */
   .ant-table-wrapper {
     max-width: 100%;
   }
@@ -166,13 +77,7 @@
     display: none;
   }
 
-  /* Icon-only buttons are square tap targets. */
-  .ant-btn.ant-btn-icon-only,
-  .ant-input-number {
-    min-width: 44px;
-  }
-
-  /* Worker screens: search and toggles stay compact; work actions keep 48px. */
+  /* Worker screens: keep compact search/toggles; actions stay 48px via workerTheme. */
   .worker-search.ant-input-affix-wrapper {
     min-height: 42px;
   }
@@ -180,118 +85,6 @@
   .worker-shell .ant-segmented .ant-segmented-item-label {
     min-height: 34px;
     line-height: 34px;
-  }
-  .ant-checkbox-wrapper:not(:has(> span + span)) {
-    min-width: 44px;
-    justify-content: center;
-  }
-
-  .ant-collapse > .ant-collapse-item > .ant-collapse-header {
-    min-height: 44px;
-    align-items: center !important;
-  }
-
-  /* Breadcrumb links and small inline toggles: taller hit area, same look. */
-  .ui-crumbs a,
-  .jo-brief__toggle,
-  .jo-brief__mat-po a,
-  .jo-sched-color-btn,
-  .ant-table-cell a,
-  .ant-table-cell .ant-btn-link,
-  .ui-rowcard a,
-  .client-name-link,
-  .ant-descriptions a,
-  a[href^='mailto:'],
-  a[href^='tel:'] {
-    position: relative;
-  }
-
-  .ui-crumbs a::after,
-  .jo-brief__toggle::after,
-  .jo-brief__mat-po a::after,
-  .ant-table-cell a::after,
-  .ant-table-cell .ant-btn-link::after,
-  .ui-rowcard a::after,
-  .client-name-link::after,
-  .ant-descriptions a::after,
-  a[href^='mailto:']::after,
-  a[href^='tel:']::after {
-    content: '';
-    position: absolute;
-    inset: -15px -6px;
-    min-width: 44px;
-  }
-
-  .jo-sched-color-btn::after {
-    content: '';
-    position: absolute;
-    inset: -13px;
-  }
-
-  .ui-infotip::after {
-    inset: -13px;
-  }
-
-  /* Plan job order: row tools and step nodes. */
-  .jo-op__icon-btn.ant-btn,
-  .jo-sched__refresh.ant-btn {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
-  }
-
-  .jo-op__more-btn.ant-btn,
-  .jo-steps__node {
-    min-height: 44px;
-  }
-
-  /* Phone/tablet chrome on the schedule and job lists. */
-  .sched-m__nav {
-    grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
-  }
-
-  .jo-m__nav {
-    grid-template-columns: minmax(0, 1fr) 44px 44px 44px;
-  }
-
-  .sched-m__icon {
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-  }
-
-  .sched-m__filter.ant-badge {
-    width: 44px;
-  }
-
-  .jo-m__search.ant-input-affix-wrapper {
-    min-height: 44px;
-  }
-
-  .sched-m__date {
-    min-height: 44px;
-  }
-
-  .sched-m__pill {
-    min-height: 44px;
-  }
-
-  .jo-m__bulk .ant-btn {
-    height: 44px;
-  }
-
-  .mtype__head {
-    min-height: 56px;
-  }
-
-  .mtypes__chip {
-    height: 44px;
-  }
-
-  .mcard__menu {
-    width: 44px !important;
-    height: 44px !important;
-    margin: -10px -12px 0 0;
   }
 
   .ana-card__tools {
@@ -301,12 +94,266 @@
     min-width: 0;
   }
 
-  /* Drawers never wider than the screen. */
   .ant-drawer-right > .ant-drawer-content-wrapper,
   .ant-drawer-left > .ant-drawer-content-wrapper,
   .ant-drawer-right .ant-drawer-section,
   .ant-drawer-left .ant-drawer-section {
     max-width: 100vw;
+  }
+}
+
+/* ======================= Phone Admin/Office tap targets (40px) ======================= */
+@media (max-width: 768px) {
+  .app-shell .ant-segmented .ant-segmented-item-label,
+  .app-shell .ant-segmented.ant-segmented-sm .ant-segmented-item-label,
+  .app-shell .ant-segmented.ant-segmented-lg .ant-segmented-item-label {
+    min-height: 40px;
+    line-height: 40px;
+    padding: 0 14px;
+  }
+
+  .app-shell .ant-tabs .ant-tabs-tab {
+    min-height: 40px;
+  }
+
+  .app-shell .ant-checkbox-wrapper,
+  .app-shell .ant-radio-wrapper {
+    min-height: 40px;
+    align-items: center;
+  }
+
+  .app-shell .ant-radio-button-wrapper {
+    height: 40px;
+    line-height: 38px;
+  }
+
+  .app-shell .ant-switch,
+  .app-shell .ui-infotip,
+  .app-shell .ant-modal-close,
+  .app-shell .ant-drawer-close,
+  .app-shell .ant-picker-clear,
+  .app-shell .ant-select-clear,
+  .app-shell .ant-input-clear-icon {
+    position: relative;
+  }
+
+  .app-shell .ant-switch::after,
+  .app-shell .ui-infotip::after {
+    content: '';
+    position: absolute;
+    inset: -10px;
+  }
+
+  .app-shell .ant-switch::after {
+    inset: -10px -4px;
+  }
+
+  .app-shell .ant-modal-close {
+    width: 40px !important;
+    height: 40px !important;
+    top: 8px !important;
+    inset-inline-end: 8px !important;
+  }
+
+  .app-shell .ui-rowmenu.ant-btn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .app-topbar__icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .app-topbar__who {
+    min-height: 40px;
+    min-width: 40px;
+  }
+
+  .app-topbar__menu-btn.ant-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .app-sider__logout.ant-btn {
+    height: 40px;
+  }
+
+  .app-shell .ant-btn.ant-btn-icon-only,
+  .app-shell .ant-input-number {
+    min-width: 40px;
+  }
+
+  .app-shell .ant-checkbox-wrapper:not(:has(> span + span)) {
+    min-width: 40px;
+    justify-content: center;
+  }
+
+  .app-shell .ant-collapse > .ant-collapse-item > .ant-collapse-header {
+    min-height: 40px;
+    align-items: center !important;
+  }
+
+  .app-shell .ui-crumbs a,
+  .app-shell .jo-brief__toggle,
+  .app-shell .jo-brief__mat-po a,
+  .app-shell .jo-sched-color-btn,
+  .app-shell .ant-table-cell a,
+  .app-shell .ant-table-cell .ant-btn-link,
+  .app-shell .ui-rowcard a,
+  .app-shell .client-name-link,
+  .app-shell .ant-descriptions a,
+  .app-shell a[href^='mailto:'],
+  .app-shell a[href^='tel:'] {
+    position: relative;
+  }
+
+  .app-shell .ui-crumbs a::after,
+  .app-shell .jo-brief__toggle::after,
+  .app-shell .jo-brief__mat-po a::after,
+  .app-shell .ant-table-cell a::after,
+  .app-shell .ant-table-cell .ant-btn-link::after,
+  .app-shell .ui-rowcard a::after,
+  .app-shell .client-name-link::after,
+  .app-shell .ant-descriptions a::after,
+  .app-shell a[href^='mailto:']::after,
+  .app-shell a[href^='tel:']::after {
+    content: '';
+    position: absolute;
+    inset: -12px -4px;
+    min-width: 40px;
+  }
+
+  .app-shell .jo-sched-color-btn::after {
+    content: '';
+    position: absolute;
+    inset: -10px;
+  }
+
+  .app-shell .ui-infotip::after {
+    inset: -10px;
+  }
+
+  .app-shell .jo-op__icon-btn.ant-btn,
+  .app-shell .jo-sched__refresh.ant-btn {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+  }
+
+  .app-shell .jo-op__more-btn.ant-btn,
+  .app-shell .jo-steps__node {
+    min-height: 40px;
+  }
+
+  .app-shell .sched-m__nav {
+    grid-template-columns: 40px minmax(0, 1fr) 40px 40px;
+  }
+
+  .app-shell .jo-m__nav {
+    grid-template-columns: minmax(0, 1fr) 40px 40px 40px;
+  }
+
+  .app-shell .sched-m__icon {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+  }
+
+  .app-shell .sched-m__filter.ant-badge {
+    width: 40px;
+  }
+
+  .app-shell .jo-m__search.ant-input-affix-wrapper {
+    min-height: 40px;
+  }
+
+  .app-shell .sched-m__date {
+    min-height: 40px;
+  }
+
+  .app-shell .sched-m__pill {
+    min-height: 40px;
+  }
+
+  .app-shell .jo-m__bulk .ant-btn {
+    height: 40px;
+  }
+
+  .app-shell .mtype__head {
+    min-height: 52px;
+  }
+
+  .app-shell .mtypes__chip {
+    height: 40px;
+  }
+
+  .app-shell .mcard__menu {
+    width: 40px !important;
+    height: 40px !important;
+    margin: -8px -10px 0 0;
+  }
+
+  /* Compact list toolbars: search + filter share a row; actions stay compact. */
+  .app-shell .std-list-toolbar,
+  .app-shell .jo-list-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .app-shell .std-list-filters,
+  .app-shell .jo-list-filters {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-shell .std-list-search,
+  .app-shell .jo-list-search {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
+  }
+
+  .app-shell .std-list-filter,
+  .app-shell .jo-list-filter,
+  .app-shell .std-list-filter--sm,
+  .app-shell .jo-list-filter--sm {
+    flex: 0 0 auto;
+    width: 132px;
+    min-width: 120px;
+  }
+
+  .app-shell .std-list-actions,
+  .app-shell .jo-list-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .app-shell .std-list-actions .ant-btn,
+  .app-shell .jo-list-actions .ant-btn {
+    flex: 0 0 auto;
+  }
+
+  .app-shell .std-list-actions .ant-btn-primary,
+  .app-shell .jo-list-actions .ant-btn-primary {
+    margin-left: auto;
+  }
+
+  .app-shell .ui-filterbar__search.ant-input-affix-wrapper {
+    width: auto;
+    flex: 1 1 auto;
+  }
+
+  .app-shell .ui-filterbar__actions > .ant-btn {
+    flex: 0 0 auto;
   }
 }
 

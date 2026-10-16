@@ -66,12 +66,14 @@ export const shadow = {
 export const layout = {
   sidebarWidth: 232,
   sidebarCollapsedWidth: 72,
-  topBarHeight: 60,
-  pagePadding: 24,
-  cardPadding: 16,
+  topBarHeight: 52,
+  /** Desktop page padding; phones use 16 via theme.css / appShell. */
+  pagePadding: 20,
+  cardPadding: 12,
   controlHeight: 32,
   tableRowHeight: 44,
-  touchTarget: 44,
+  /** Admin/Office tap targets on phones (≤768). Worker uses workerTapTarget. */
+  touchTarget: 40,
   workerTapTarget: 48,
 } as const;
 

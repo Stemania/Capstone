@@ -446,7 +446,7 @@
   }
 
   .app-shell--phone .app-shell__content.ant-layout-content {
-    padding: 12px 12px 16px;
+    padding: var(--page-pad);
   }
 
   .app-shell--phone .app-shell__content > .nav-keep-alive--active:not(:has(> .ui-page)),
