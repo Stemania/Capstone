@@ -12,6 +12,7 @@ from app.services.invitation_service import (
     resend_invitation,
     revoke_invitation,
 )
+from app.services.notification_service import delivery_summary
 from app.services import user_photo_service
 from app.utils.errors import AppError
 
@@ -87,6 +88,7 @@ def create_user_route():
     )
     payload = user.to_dict(include_profile=True, include_skills=True)
     payload["invitation"] = invitation.to_dict()
+    payload["delivery"] = delivery_summary(getattr(invitation, "delivery", None))
     return jsonify(payload), 201
 
 
@@ -157,7 +159,9 @@ def resend_invite(user_id):
             (data.get("channel") or data.get("inviteChannel")).upper()
         )
     invitation, _raw = resend_invitation(user, get_current_user_id(), channel)
-    return jsonify(invitation.to_dict())
+    payload = invitation.to_dict()
+    payload["delivery"] = delivery_summary(getattr(invitation, "delivery", None))
+    return jsonify(payload)
 
 
 @users_bp.route("/<user_id>/invite", methods=["DELETE"])

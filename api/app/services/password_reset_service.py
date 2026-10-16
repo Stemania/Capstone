@@ -10,12 +10,14 @@ from flask import current_app
 from flask_jwt_extended import create_access_token, create_refresh_token
 
 from app.extensions import bcrypt, db
+from app.models.notification import NotificationChannel, NotificationEvent
 from app.models.user import User, UserStatus
 from app.models.user_security import InvitationChannel, PasswordResetToken
 from app.services.audit_service import write_audit_event
 from app.services.auth_service import _find_user_by_identifier
 from app.services.device_pin_service import revoke_all_devices_for_user
 from app.services.invitation_service import hash_invite_secret
+from app.services.notification_service import send_notification
 from app.utils.errors import AppError
 from app.utils.passwords import validate_password
 from app.utils.phone import looks_like_email, looks_like_mobile
@@ -56,40 +58,42 @@ def _channel_for_identifier(identifier: str, user: User) -> InvitationChannel:
 
 
 def _deliver_reset(user: User, reset: PasswordResetToken, raw_secret: str) -> None:
-    cfg = dict(current_app.config)
-    frontend = (cfg.get("FRONTEND_URL") or "http://localhost:5173").rstrip("/")
-    if reset.channel == InvitationChannel.EMAIL:
-        link = f"{frontend}/reset-password?token={raw_secret}"
-        body = (
-            f"Hello {user.full_name},\n\n"
-            f"We received a request to reset your Brothers Machine Shop password.\n"
-            f"Use this link (expires in 1 hour):\n\n"
-            f"{link}\n\n"
-            f"If you did not request this, ignore this message. Your password will not change.\n"
+    """Runs after the reset token is committed; delivery problems are logged, never raised."""
+    try:
+        frontend = (current_app.config.get("FRONTEND_URL") or "http://localhost:5173").rstrip("/")
+        if reset.channel == InvitationChannel.EMAIL:
+            link = f"{frontend}/reset-password?token={raw_secret}"
+            body = (
+                f"Hello {user.full_name},\n\n"
+                f"We received a request to reset your Brothers Machine Shop password.\n"
+                f"Use this link (expires in 1 hour):\n\n"
+                f"{link}\n\n"
+                f"If you did not request this, ignore this message. Your password will not change.\n"
+            )
+            channel, recipient = NotificationChannel.EMAIL, user.email
+        else:
+            body = (
+                f"BMSC password reset code: {raw_secret}. "
+                f"Enter it with your email/mobile at {frontend}/reset-password. Expires in 1h."
+            )
+            channel, recipient = NotificationChannel.SMS, user.mobile_number
+        log = send_notification(
+            channel=channel,
+            recipient=recipient,
+            event=NotificationEvent.PASSWORD_RESET,
+            subject="Reset your Brothers Machine Shop password",
+            body=body,
+            store_body=False,
         )
-        from app.services.notification_providers import build_email_provider
-
-        provider, _ = build_email_provider(cfg)
-        recipient = user.email
-        provider.send(recipient, body, subject="Reset your Brothers Machine Shop password")
-    else:
-        body = (
-            f"BMSC password reset code: {raw_secret}. "
-            f"Enter it with your email/mobile at {frontend}/reset-password. Expires in 1h."
+        logger.info(
+            "Password reset delivery user_id=%s to=%s channel=%s status=%s",
+            user.id,
+            recipient,
+            reset.channel.value,
+            log.status.value if log else "NOT_LOGGED",
         )
-        from app.services.notification_providers import build_sms_provider
-
-        provider, _ = build_sms_provider(cfg)
-        recipient = user.mobile_number
-        provider.send(recipient, body)
-
-    logger.info(
-        "Password reset sent user_id=%s to=%s channel=%s provider=%s",
-        user.id,
-        recipient,
-        reset.channel.value,
-        provider.name,
-    )
+    except Exception:  # noqa: BLE001 - the reset token itself is already saved
+        logger.exception("Password reset delivery failed user_id=%s", user.id)
 
 
 def request_password_reset(identifier: str) -> dict:

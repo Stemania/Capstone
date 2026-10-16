@@ -1,6 +1,6 @@
 """Device-bound sessions: sign-out, sign out others, refresh upgrade, stale cleanup.
 
-Runs against the local DATABASE_URL inside a session that always rolls back.
+Runs against the test database (TEST_DATABASE_URL) inside a session that always rolls back.
 """
 
 from datetime import datetime, timedelta, timezone

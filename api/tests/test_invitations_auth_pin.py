@@ -1,7 +1,7 @@
 """Invitation, identifier login, and device PIN tests.
 
-Runs against the local DATABASE_URL (bmsc) inside a session that always rolls
-back — no bmsc_test database required.
+Runs against the test database (TEST_DATABASE_URL) inside a session that always
+rolls back.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -43,7 +43,7 @@ def client(app):
 
 @pytest.fixture(autouse=True)
 def _rollback_txn(app, monkeypatch):
-    """Use local bmsc, but never commit — flush only, then roll back.
+    """Never commit — flush only, then roll back.
 
     Keep a single app context for the whole test. Nested app_context() blocks
     tear down the session on exit and would lose flushed rows.

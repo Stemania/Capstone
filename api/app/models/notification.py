@@ -33,7 +33,17 @@ class NotificationStatus(enum.Enum):
     NOT_SENT = "NOT_SENT"
 
 
+class NotificationEvent:
+    """Values of NotificationLog.event. Job events reuse the milestone names."""
+
+    INVITATION = "INVITATION"
+    PASSWORD_RESET = "PASSWORD_RESET"
+    TEST = "TEST"
+
+
 class NotificationLog(db.Model):
+    """One row per email/SMS send attempt (sent, failed or skipped)."""
+
     __tablename__ = "notification_logs"
     __table_args__ = (
         db.Index(
@@ -46,16 +56,19 @@ class NotificationLog(db.Model):
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
     job_order_id = db.Column(
-        db.String(36), db.ForeignKey("job_orders.id"), nullable=False, index=True
+        db.String(36), db.ForeignKey("job_orders.id"), nullable=True, index=True
     )
     client_id = db.Column(
-        db.String(36), db.ForeignKey("clients.id"), nullable=False, index=True
+        db.String(36), db.ForeignKey("clients.id"), nullable=True, index=True
     )
-    milestone = db.Column(db.Enum(NotificationMilestone), nullable=False, index=True)
+    # Set for client job-status updates only; drives the once-per-job rule.
+    milestone = db.Column(db.Enum(NotificationMilestone), nullable=True, index=True)
+    event = db.Column(db.String(40), nullable=False, index=True)
     channel = db.Column(db.Enum(NotificationChannel), nullable=False)
     recipient = db.Column(db.String(255), nullable=False)
     message_body = db.Column(db.Text, nullable=False)
     status = db.Column(db.Enum(NotificationStatus), nullable=False, index=True)
+    provider_reference = db.Column(db.String(255), nullable=True)
     error_message = db.Column(db.Text, nullable=True)
     sent_at = db.Column(db.DateTime(timezone=True), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, nullable=False)
@@ -63,29 +76,27 @@ class NotificationLog(db.Model):
     job_order = db.relationship("JobOrder", back_populates="notification_logs")
     client = db.relationship("Client", back_populates="notification_logs")
 
+    def __init__(self, **kwargs):
+        if not kwargs.get("event") and kwargs.get("milestone") is not None:
+            kwargs["event"] = kwargs["milestone"].value
+        super().__init__(**kwargs)
+
     def to_dict(self):
-        year = None
-        short = ""
-        if self.job_order:
-            year = (
-                self.job_order.created_at.year
-                if self.job_order.created_at
-                else None
-            )
-            short = (self.job_order.id or "")[:4].upper()
-        job_number = f"JO-{year}-{short}" if year else None
+        job = self.job_order
         return {
             "id": self.id,
             "jobOrderId": self.job_order_id,
-            "jobNumber": job_number,
-            "jobTitle": self.job_order.title if self.job_order else None,
+            "jobNumber": job.job_number if job else None,
+            "jobTitle": job.title if job else None,
             "clientId": self.client_id,
             "clientName": self.client.name if self.client else None,
             "milestone": self.milestone.value if self.milestone else None,
+            "event": self.event,
             "channel": self.channel.value if self.channel else None,
             "recipient": self.recipient,
             "messageBody": self.message_body,
             "status": self.status.value if self.status else None,
+            "providerReference": self.provider_reference,
             "errorMessage": self.error_message,
             "sentAt": self.sent_at.isoformat() if self.sent_at else None,
             "createdAt": self.created_at.isoformat() if self.created_at else None,

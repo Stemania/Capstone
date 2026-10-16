@@ -12,7 +12,7 @@ import {
   CheckCircleOutlined,
   EditOutlined,
 } from '@ant-design/icons';
-import { usersApi } from '../../api/users.api';
+import { usersApi, type InviteDelivery } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
@@ -30,6 +30,29 @@ const roleStyle: Record<string, { label: string; color: PillColor }> = {
 };
 
 type StatusFilter = 'active' | 'inactive';
+
+/** A failed or skipped invitation stays on screen until dismissed, so the admin
+ *  knows the person has no way in yet. */
+function reportInviteDelivery(delivery: InviteDelivery | undefined, saved: string) {
+  if (!delivery || delivery.status === 'SENT') {
+    const how = delivery?.channel === 'SMS' ? 'by SMS' : 'by email';
+    message.success(`${saved} Invitation sent ${how}${delivery?.recipient ? ` to ${delivery.recipient}` : ''}.`);
+    return;
+  }
+  Modal.warning({
+    title: delivery.status === 'FAILED' ? 'The invitation could not be sent' : 'The invitation was not sent',
+    content: (
+      <>
+        <p>
+          {saved} The person has not received an invitation
+          {delivery.recipient ? ` at ${delivery.recipient}` : ''}, so they cannot set a password yet.
+        </p>
+        {delivery.errorMessage && <p style={{ color: '#64748b' }}>Reason: {delivery.errorMessage}</p>}
+        <p>Fix the problem, then use Send invite in the row menu to try again.</p>
+      </>
+    ),
+  });
+}
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -89,7 +112,7 @@ export default function UsersPage() {
   }) => {
     setSubmitting(true);
     try {
-          await usersApi.create({
+          const { data } = await usersApi.create({
             email: values.email,
             fullName: values.fullName,
             nickname: values.nickname?.trim() || undefined,
@@ -97,7 +120,7 @@ export default function UsersPage() {
             mobileNumber: values.mobileNumber,
             inviteChannel: values.inviteChannel,
           });
-          message.success('Invitation sent. The user must set their own password.');
+          reportInviteDelivery(data.delivery, 'User saved.');
       closeModal();
       fetchUsers();
     } catch (err) {
@@ -120,8 +143,8 @@ export default function UsersPage() {
 
   const sendInvite = async (u: User, channel: 'EMAIL' | 'SMS') => {
     try {
-      await usersApi.resendInvite(u.id, channel);
-      message.success(channel === 'EMAIL' ? 'Invitation emailed' : 'Invitation code sent by SMS');
+      const { data } = await usersApi.resendInvite(u.id, channel);
+      reportInviteDelivery(data.delivery, 'New invitation created.');
       fetchUsers();
     } catch (err) {
       message.error(getErrorMessage(err));

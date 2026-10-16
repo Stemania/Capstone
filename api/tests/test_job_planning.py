@@ -1,7 +1,7 @@
 """Job order planning workflow: DRAFT → SCHEDULED (release).
 
-Runs against the local DATABASE_URL (bmsc) inside a connection transaction that
-is always rolled back — no bmsc_test database required.
+Runs against the test database (TEST_DATABASE_URL) inside a connection transaction
+that is always rolled back.
 """
 
 from datetime import date, time
@@ -56,7 +56,7 @@ def client(app):
 
 @pytest.fixture(autouse=True)
 def _rollback_txn(app, monkeypatch):
-    """Use local bmsc, but never commit — flush only, then roll back."""
+    """Never commit — flush only, then roll back."""
     with app.app_context():
         # Keep one open transaction for the whole test; services that "commit"
         # only flush so teardown can undo everything.

@@ -1,8 +1,8 @@
 """Audit fixes: delivered sales, Pareto non-working pauses, worked-hours efficiency,
 operation rebuild lock, and server-side role gaps.
 
-Runs in the rolled-back local session from test_process_flow. Analytics cases use a
-far-future period (March 2031) so existing local data doesn't interfere.
+Runs in the rolled-back test database session from test_process_flow. Analytics cases
+use a far-future period (2031) so other rows don't interfere.
 """
 
 from datetime import date, datetime, timedelta, timezone
@@ -14,7 +14,7 @@ from flask_jwt_extended import create_access_token
 
 from app.extensions import db
 from app.models.job_order import JobOrder, JobOrderStatus
-from app.models.machine import MachineUnit
+from app.models.machine import MachineType, MachineUnit
 from app.models.operation import JobOperation, OperationStatus
 from app.models.operation_time import (
     DowntimeCategory,
@@ -60,6 +60,8 @@ def _headers(user):
 
 
 def test_sales_summary_and_forecast_include_delivered_jobs(people):
+    # The forecast drops the first (partial) month of history, so March needs an earlier month.
+    _finished_job(people, JobOrderStatus.COMPLETED, "0", datetime(2031, 1, 15, tzinfo=timezone.utc))
     _finished_job(people, JobOrderStatus.DELIVERED, "5000", T0)
     _finished_job(people, JobOrderStatus.COMPLETED, "3000", T0 + timedelta(days=1))
 
@@ -253,7 +255,13 @@ def test_production_refuses_to_start_without_secrets():
 
 def _open_downtime(reporter):
     unit = MachineUnit.query.filter_by(active=True).first()
-    assert unit is not None, "local database needs at least one machine unit"
+    if unit is None:
+        machine_type = MachineType(code="PF_LATHE", name="Test lathe")
+        db.session.add(machine_type)
+        db.session.flush()
+        unit = MachineUnit(machine_type_id=machine_type.id, label="Test lathe 1")
+        db.session.add(unit)
+        db.session.flush()
     row = MachineDowntime(
         machine_unit_id=unit.id,
         started_at=T0,

@@ -21,6 +21,7 @@ import {
   SafetyCertificateOutlined,
   DownOutlined,
   DashboardOutlined,
+  BankOutlined,
 } from '@ant-design/icons';
 import { useEffect, useState, type ReactNode } from 'react';
 import { operationsApi } from '../api/operations.api';
@@ -75,6 +76,7 @@ const NAV: NavGroup[] = [
       { key: '/users', icon: <TeamOutlined />, label: 'Users & Roles', adminOnly: true },
       { key: '/worker-setup', icon: <SettingOutlined />, label: 'Worker setup', adminOnly: true },
       { key: '/attendance', icon: <ClockCircleOutlined />, label: 'Attendance', adminOnly: true },
+      { key: '/settings/shop', icon: <BankOutlined />, label: 'Shop details', adminOnly: true },
     ],
   },
   {

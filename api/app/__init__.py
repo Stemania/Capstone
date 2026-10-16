@@ -141,6 +141,7 @@ def _register_blueprints(app):
     app.register_blueprint(calendar_bp, url_prefix=f"{prefix}/calendar")
     app.register_blueprint(operation_types_bp, url_prefix=f"{prefix}/operation-types")
     app.register_blueprint(analytics_bp, url_prefix=f"{prefix}/analytics")
+    from app.blueprints.admin.routes import admin_bp
     from app.blueprints.notifications.routes import notifications_bp
     from app.blueprints.schedule.routes import schedule_bp
     from app.blueprints.attendance.routes import attendance_bp
@@ -151,6 +152,7 @@ def _register_blueprints(app):
     app.register_blueprint(shop_details_bp, url_prefix=f"{prefix}/shop-details")
     app.register_blueprint(alerts_bp, url_prefix=f"{prefix}/alerts")
     app.register_blueprint(notifications_bp, url_prefix=f"{prefix}/notifications")
+    app.register_blueprint(admin_bp, url_prefix=f"{prefix}/admin")
     app.register_blueprint(schedule_bp, url_prefix=f"{prefix}/schedule")
     app.register_blueprint(attendance_bp, url_prefix=f"{prefix}/attendance")
 

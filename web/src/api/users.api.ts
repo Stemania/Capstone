@@ -1,6 +1,14 @@
 import apiClient from './client';
 import type { OperationType, User, WorkerSchedule, WorkerSkill, WorkerWorkHistory } from '../types';
 
+/** Outcome of sending an invitation. Never contains the link or code. */
+export interface InviteDelivery {
+  status: 'SENT' | 'FAILED' | 'SKIPPED' | 'NOT_SENT' | 'PENDING';
+  channel: 'EMAIL' | 'SMS' | null;
+  recipient: string | null;
+  errorMessage: string | null;
+}
+
 export const usersApi = {
   list: () => apiClient.get<User[]>('/users'),
   get: (id: string) => apiClient.get<User>(`/users/${id}`),
@@ -11,7 +19,7 @@ export const usersApi = {
     role: string;
     mobileNumber: string;
     inviteChannel?: 'EMAIL' | 'SMS';
-  }) => apiClient.post<User>('/users', data),
+  }) => apiClient.post<User & { delivery?: InviteDelivery }>('/users', data),
   update: (id: string, data: Partial<User>) =>
     apiClient.patch<User>(`/users/${id}`, data),
   uploadPhoto: (id: string, file: File) => {
@@ -25,7 +33,7 @@ export const usersApi = {
   getPhoto: (id: string) => apiClient.get<Blob>(`/users/${id}/photo`, { responseType: 'blob' }),
   deactivate: (id: string) => apiClient.delete(`/users/${id}`),
   resendInvite: (id: string, channel?: 'EMAIL' | 'SMS') =>
-    apiClient.post(`/users/${id}/invite`, channel ? { channel } : {}),
+    apiClient.post<{ delivery?: InviteDelivery }>(`/users/${id}/invite`, channel ? { channel } : {}),
   revokeInvite: (id: string) => apiClient.delete(`/users/${id}/invite`),
   revokeDevices: (id: string) => apiClient.delete(`/users/${id}/devices`),
 };

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Card, Col, Form, Input, Row, Spin, message } from 'antd';
-import { SaveOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Col, Form, Input, Row, Space, Spin, message } from 'antd';
+import { SaveOutlined, SendOutlined } from '@ant-design/icons';
 import { shopDetailsApi, type ShopDetails } from '../../api/shopDetails.api';
+import { notificationsApi } from '../../api/notifications.api';
 import { getErrorMessage } from '../../api/client';
+import type { NotificationLog } from '../../types';
 import { invalidateShopDetails } from '../../hooks/useShopDetails';
 import { formatShop } from '../../utils/shopTime';
 
@@ -144,6 +146,64 @@ export default function ShopDetailsPage() {
           </div>
         </Form>
       </Card>
+      <TestEmailCard />
     </div>
+  );
+}
+
+function TestEmailCard() {
+  const [to, setTo] = useState('');
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<NotificationLog | null>(null);
+
+  const onSend = async () => {
+    try {
+      setSending(true);
+      setResult(null);
+      const { data } = await notificationsApi.sendTest('email', to.trim());
+      setResult(data);
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Card style={{ borderRadius: 12, marginTop: 16 }}>
+      {sectionLabel('Email notifications')}
+      <p style={{ fontSize: 13, color: '#64748b', marginTop: 0 }}>
+        Send one test email to check the email setup. It is only delivered when notifications are
+        turned on and the address is allowed.
+      </p>
+      <Space.Compact style={{ width: '100%', maxWidth: 520 }}>
+        <Input
+          type="email"
+          placeholder="name@example.com"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          onPressEnter={() => to.trim() && onSend()}
+          maxLength={255}
+        />
+        <Button icon={<SendOutlined />} loading={sending} disabled={!to.trim()} onClick={onSend}>
+          Send test email
+        </Button>
+      </Space.Compact>
+      {result && (
+        <Alert
+          style={{ marginTop: 12 }}
+          showIcon
+          type={result.status === 'SENT' ? 'success' : result.status === 'FAILED' ? 'error' : 'warning'}
+          title={
+            result.status === 'SENT'
+              ? `Sent to ${result.recipient}`
+              : result.status === 'FAILED'
+                ? 'Not sent: the email provider returned an error'
+                : 'Not sent'
+          }
+          description={result.status === 'SENT' ? undefined : result.errorMessage}
+        />
+      )}
+    </Card>
   );
 }

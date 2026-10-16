@@ -1,6 +1,6 @@
 """Process-flow rules: material consumption, start gate, part stages, invoice before delivery.
 
-Runs against local DATABASE_URL (bmsc) inside a rolled-back session.
+Runs against the test database (TEST_DATABASE_URL) inside a rolled-back session.
 """
 
 from datetime import date, datetime, timezone

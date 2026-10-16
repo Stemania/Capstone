@@ -15,7 +15,8 @@ from app.extensions import bcrypt, db
 from app.models.user import User, UserRole, UserStatus
 from app.models.user_security import InvitationChannel, UserInvitation
 from app.services.audit_service import write_audit_event
-from app.services.notification_providers import build_email_provider, build_sms_provider
+from app.models.notification import NotificationChannel, NotificationEvent
+from app.services.notification_service import send_notification
 from app.utils.errors import AppError
 from app.utils.passwords import validate_password
 from app.utils.phone import looks_like_email, looks_like_mobile, normalize_ph_mobile
@@ -87,7 +88,7 @@ def create_invited_user(
 
     invitation, raw_secret = issue_invitation(user, channel, created_by_id, commit=False)
     db.session.commit()
-    _deliver_invitation(user, invitation, raw_secret)
+    invitation.delivery = _deliver_invitation(user, invitation, raw_secret)
     return user, invitation, raw_secret
 
 
@@ -132,7 +133,8 @@ def issue_invitation(
     )
     if commit:
         db.session.commit()
-        _deliver_invitation(user, invitation, raw_secret)
+        # Not a column: the outcome of this send, for the admin's response.
+        invitation.delivery = _deliver_invitation(user, invitation, raw_secret)
     else:
         db.session.flush()
     return invitation, raw_secret
@@ -177,38 +179,47 @@ def revoke_invitation(user: User) -> int:
     return len(open_invites)
 
 
-def _deliver_invitation(user: User, invitation: UserInvitation, raw_secret: str) -> None:
-    cfg = dict(current_app.config)
-    frontend = (cfg.get("FRONTEND_URL") or "http://localhost:5173").rstrip("/")
-    if invitation.channel == InvitationChannel.EMAIL:
-        link = f"{frontend}/set-password?token={raw_secret}"
-        body = (
-            f"Hello {user.full_name},\n\n"
-            f"You have been invited to Brothers Machine Shop.\n"
-            f"Set your password using this link (expires in 48 hours):\n\n"
-            f"{link}\n\n"
-            f"If you did not expect this, ignore this message.\n"
+def _deliver_invitation(user: User, invitation: UserInvitation, raw_secret: str):
+    """Runs after the invitation is committed. Returns the notification log row
+    (None if even that failed); delivery problems are logged, never raised."""
+    log = None
+    try:
+        frontend = (current_app.config.get("FRONTEND_URL") or "http://localhost:5173").rstrip("/")
+        if invitation.channel == InvitationChannel.EMAIL:
+            link = f"{frontend}/set-password?token={raw_secret}"
+            body = (
+                f"Hello {user.full_name},\n\n"
+                f"You have been invited to Brothers Machine Shop.\n"
+                f"Set your password using this link (expires in 48 hours):\n\n"
+                f"{link}\n\n"
+                f"If you did not expect this, ignore this message.\n"
+            )
+            channel, recipient = NotificationChannel.EMAIL, user.email
+        else:
+            body = (
+                f"BMSC invite code: {raw_secret}. "
+                f"Enter it with your email/mobile at {frontend}/set-password. Expires in 48h."
+            )
+            channel, recipient = NotificationChannel.SMS, user.mobile_number
+        log = send_notification(
+            channel=channel,
+            recipient=recipient,
+            event=NotificationEvent.INVITATION,
+            subject="Set your Brothers Machine Shop password",
+            body=body,
+            store_body=False,
         )
-        provider, _ = build_email_provider(cfg)
-        recipient = user.email
-        provider.send(recipient, body, subject="Set your Brothers Machine Shop password")
-    else:
-        body = (
-            f"BMSC invite code: {raw_secret}. "
-            f"Enter it with your email/mobile at {frontend}/set-password. Expires in 48h."
+        # Never include the raw token/code — safe for production logs.
+        logger.info(
+            "Invitation delivery user_id=%s to=%s channel=%s status=%s",
+            user.id,
+            recipient,
+            invitation.channel.value,
+            log.status.value if log else "NOT_LOGGED",
         )
-        provider, _ = build_sms_provider(cfg)
-        recipient = user.mobile_number
-        provider.send(recipient, body)
-
-    # Never include the raw token/code — safe for production logs.
-    logger.info(
-        "Invitation sent user_id=%s to=%s channel=%s provider=%s",
-        user.id,
-        recipient,
-        invitation.channel.value,
-        provider.name,
-    )
+    except Exception:  # noqa: BLE001 - the invitation itself is already saved
+        logger.exception("Invitation delivery failed user_id=%s", user.id)
+    return log
 
 
 def _find_invitation_by_secret(raw_secret: str) -> UserInvitation | None:

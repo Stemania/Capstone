@@ -1,15 +1,11 @@
-import { Alert, Button, Form, Input, Spin, Typography } from 'antd';
+import { Alert, Button, Form, Input, Spin } from 'antd';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '../../api/auth.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
+import PasswordRuleHints from './PasswordRuleHints';
 import './LoginPage.css';
-
-const { Text } = Typography;
-
-const PASSWORD_RULES =
-  'At least 8 characters, mix letters with numbers or symbols, and not a common password.';
 
 export default function SetPasswordPage() {
   const [params] = useSearchParams();
@@ -17,13 +13,14 @@ export default function SetPasswordPage() {
   const navigate = useNavigate();
   const { applySession } = useAuth();
   const [form] = Form.useForm();
+  const password = Form.useWatch('password', form) || '';
   const [checking, setChecking] = useState(Boolean(tokenFromLink));
   const [ready, setReady] = useState(!tokenFromLink);
   const [error, setError] = useState('');
-  const [info, setInfo] = useState('');
+  const [accountEmail, setAccountEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [codeValidated, setCodeValidated] = useState(Boolean(tokenFromLink));
-  /** True only for invalid / expired / already-used invitation â€” hide the form. */
+  /** True only for invalid / expired / already-used invitation — hide the form. */
   const [tokenTerminal, setTokenTerminal] = useState(false);
 
   useEffect(() => {
@@ -33,11 +30,7 @@ export default function SetPasswordPage() {
       try {
         const { data } = await authApi.validateInvitation(tokenFromLink);
         if (cancelled) return;
-        setInfo(
-          data.fullName
-            ? `Welcome, ${data.fullName}. Choose a password for ${data.email || 'your account'}.`
-            : 'Choose a password for your account.',
-        );
+        setAccountEmail(data.email || '');
         form.setFieldsValue({ token: tokenFromLink });
         setCodeValidated(true);
         setReady(true);
@@ -62,11 +55,7 @@ export default function SetPasswordPage() {
     setTokenTerminal(false);
     try {
       const { data } = await authApi.validateInvitation(values.token, values.identifier);
-      setInfo(
-        data.fullName
-          ? `Welcome, ${data.fullName}. Choose a password for ${data.email || 'your account'}.`
-          : 'Choose a password for your account.',
-      );
+      setAccountEmail(data.email || values.identifier);
       form.setFieldsValue({
         identifier: values.identifier,
         token: values.token,
@@ -119,7 +108,7 @@ export default function SetPasswordPage() {
   const showCodeForm = !tokenFromLink && !codeValidated && !tokenTerminal;
 
   return (
-    <div className="login-page">
+    <div className="login-page login-page--password">
       <div className="login-page__bg" aria-hidden />
       <div className="login-page__veil" aria-hidden />
       <div className="login-card">
@@ -130,20 +119,20 @@ export default function SetPasswordPage() {
         </div>
         <div className="login-card__body">
           <h1 className="login-card__title">Create your password</h1>
-          <p className="login-card__lead">
-            Only you will know this password. Admins cannot set or view it.
-          </p>
+          {accountEmail && !tokenTerminal && (
+            <p className="login-card__account">
+              For <strong>{accountEmail}</strong>
+            </p>
+          )}
+          <p className="login-card__lead">Only you will know this password.</p>
 
           {checking && (
-            <div style={{ textAlign: 'center', padding: 24 }}>
+            <div style={{ textAlign: 'center', padding: 16 }}>
               <Spin />
             </div>
           )}
 
           {error && <Alert type="error" title={error} showIcon style={{ marginBottom: 16 }} />}
-          {info && !tokenTerminal && (
-            <Alert type="info" title={info} showIcon style={{ marginBottom: 16 }} />
-          )}
 
           {showCodeForm && (
             <Form form={form} layout="vertical" onFinish={onValidateCode} autoComplete="off">
@@ -161,7 +150,14 @@ export default function SetPasswordPage() {
               >
                 <Input size="large" inputMode="numeric" maxLength={6} placeholder="6-digit code" />
               </Form.Item>
-              <Button type="primary" htmlType="submit" block size="large" loading={submitting}>
+              <Button
+                type="primary"
+                htmlType="submit"
+                block
+                size="large"
+                loading={submitting}
+                className="login-card__submit"
+              >
                 Continue
               </Button>
             </Form>
@@ -184,16 +180,10 @@ export default function SetPasswordPage() {
                   <Input />
                 </Form.Item>
               )}
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 16 }}
-                title="Password requirements"
-                description={PASSWORD_RULES}
-              />
               <Form.Item
                 name="password"
                 label="New password"
+                extra={<PasswordRuleHints password={password} />}
                 rules={[
                   { required: true, message: 'Password is required' },
                   { min: 8, message: 'At least 8 characters' },
@@ -217,15 +207,22 @@ export default function SetPasswordPage() {
               >
                 <Input.Password size="large" placeholder="Repeat password" />
               </Form.Item>
-              <Button type="primary" htmlType="submit" block size="large" loading={submitting}>
+              <Button
+                type="primary"
+                htmlType="submit"
+                block
+                size="large"
+                loading={submitting}
+                className="login-card__submit"
+              >
                 Save password and sign in
               </Button>
             </Form>
           )}
 
-          <Text type="secondary" style={{ display: 'block', marginTop: 16, fontSize: 12 }}>
+          <div className="login-card__footer">
             Already activated? <a href="/login">Sign in</a>
-          </Text>
+          </div>
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 """Re-proposing released jobs after a work-calendar change.
 
-Runs against the local DATABASE_URL inside a transaction that is always rolled back.
+Runs against the test database (TEST_DATABASE_URL) inside a transaction that is always rolled back.
 """
 
 from datetime import date, datetime, time, timezone

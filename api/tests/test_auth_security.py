@@ -1,6 +1,6 @@
 """Security: console invite redaction + auth rate limits.
 
-Runs against local DATABASE_URL (bmsc) inside a rolled-back session.
+Runs against the test database (TEST_DATABASE_URL) inside a rolled-back session.
 """
 
 import pytest
@@ -12,13 +12,17 @@ from app.models.user import User, UserRole, UserStatus
 from app.models.user_security import InvitationChannel
 from app.models.worker_profile import WorkerProfile
 from app.services.invitation_service import create_invited_user
-from app.services.notification_providers import ConsoleProvider, StubSmsProvider
+from app.services.email_backends import ConsoleEmailBackend
+from app.services.sms_backends import ConsoleSmsBackend
 
 
 class LocalTxnConfig(Config):
     TESTING = True
     ENV = "production"
     DEBUG = False
+    NOTIFICATIONS_ENABLED = False
+    EMAIL_BACKEND = "console"
+    SMS_BACKEND = "console"
     RATELIMIT_ENABLED = False
     RATELIMIT_STORAGE_URI = "memory://"
 
@@ -74,11 +78,11 @@ def test_console_provider_redacts_body_outside_development(app, db_txn, capsys, 
         f"BMSC invite code: {secret}."
     )
     assert app.config["ENV"] == "production"
-    ConsoleProvider().send("worker@test.local", body, subject="Invite")
+    ConsoleEmailBackend().send("worker@test.local", "Invite", body)
 
     captured = capsys.readouterr().out
     assert secret not in captured
-    assert "body=[redacted]" in captured
+    assert "body=[hidden outside development]" in captured
     assert "worker@test.local" in captured
     assert secret not in caplog.text
 
@@ -91,7 +95,7 @@ def test_console_provider_shows_body_in_development(capsys):
     secret = "dev-only-visible-token-abc"
     body = f"Link: http://localhost:5173/set-password?token={secret}"
     with dev_app.app_context():
-        ConsoleProvider().send("dev@test.local", body, subject="Invite")
+        ConsoleEmailBackend().send("dev@test.local", "Invite", body)
 
     captured = capsys.readouterr().out
     assert secret in captured
@@ -116,18 +120,68 @@ def test_invitation_delivery_logs_channel_without_secret(app, db_txn, caplog, ca
     captured = capsys.readouterr().out
     log_text = caplog.text + captured
     assert raw_secret not in log_text
-    assert "Invitation sent" in caplog.text
+    assert "Invitation delivery" in caplog.text
     assert "sec_invitee@test.local" in caplog.text
     assert "EMAIL" in caplog.text
-    assert "provider=console" in caplog.text
+    assert "status=SKIPPED" in caplog.text
 
 
-def test_sms_stub_redacts_outside_development(app, db_txn, capsys):
+@pytest.mark.parametrize("enabled", [False, True], ids=["notifications-off", "console-backend"])
+@pytest.mark.parametrize("channel", [InvitationChannel.EMAIL, InvitationChannel.SMS])
+def test_production_logs_never_contain_invite_or_reset_secrets(
+    db_txn, app, caplog, capsys, monkeypatch, enabled, channel
+):
+    import logging
+
+    import app.services.password_reset_service as prs
+
+    sent = {}
+    original_hash = prs.hash_invite_secret
+
+    def capture_hash(raw):
+        sent["reset"] = raw
+        return original_hash(raw)
+
+    monkeypatch.setattr(prs, "hash_invite_secret", capture_hash)
+    app.config.update(NOTIFICATIONS_ENABLED=enabled, DEBUG=True)
+    admin = _admin()
+    with caplog.at_level(logging.DEBUG):
+        _, _, invite_secret = create_invited_user(
+            email="leak_check@test.local",
+            mobile_number="+639170000111",
+            full_name="Leak Check",
+            role=UserRole.PRODUCTION_WORKER,
+            channel=channel,
+            created_by_id=admin.id,
+        )
+        member = User(
+            email="leak_reset@test.local",
+            mobile_number="+639170000112",
+            password_hash=bcrypt.generate_password_hash("Worker123!").decode("utf-8"),
+            full_name="Reset Me",
+            role=UserRole.PRODUCTION_WORKER,
+            status=UserStatus.ACTIVE,
+            active=True,
+        )
+        db.session.add(member)
+        db.session.flush()
+        identifier = "leak_reset@test.local" if channel == InvitationChannel.EMAIL else "09170000112"
+        prs.request_password_reset(identifier)
+
+    output = caplog.text + capsys.readouterr().out
+    assert invite_secret and invite_secret not in output
+    assert sent["reset"] and sent["reset"] not in output
+    assert "set-password?token" not in output
+    assert "reset-password?token" not in output
+    assert "[hidden outside development]" in output
+
+
+def test_console_sms_redacts_outside_development(app, db_txn, capsys):
     secret = "sms-code-999888"
-    StubSmsProvider().send("+639171111111", f"BMSC invite code: {secret}. Done.")
+    ConsoleSmsBackend().send("+639171111111", f"BMSC invite code: {secret}. Done.")
     out = capsys.readouterr().out
     assert secret not in out
-    assert "body=[redacted]" in out
+    assert "body=[hidden outside development]" in out
 
 
 @pytest.fixture

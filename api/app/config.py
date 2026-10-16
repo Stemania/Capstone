@@ -93,26 +93,40 @@ class Config:
         "AUTH_RATE_LIMIT_PASSWORD_RESET_CONFIRM", "5 per minute"
     )
 
-    # Notifications — default CONSOLE (no credentials required)
-    NOTIFICATION_EMAIL_PROVIDER = os.getenv("NOTIFICATION_EMAIL_PROVIDER", "console")
-    NOTIFICATION_SMS_PROVIDER = os.getenv("NOTIFICATION_SMS_PROVIDER", "console")
+    # Outbound notifications. Nothing leaves the server unless NOTIFICATIONS_ENABLED
+    # is true; NOTIFY_ALLOWLIST (comma-separated emails/phones) limits who can receive.
+    NOTIFICATIONS_ENABLED = os.getenv("NOTIFICATIONS_ENABLED", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    NOTIFY_ALLOWLIST = os.getenv("NOTIFY_ALLOWLIST", "")
+    # gmail_api | smtp | console. smtp is for local development only (Render blocks SMTP ports).
+    EMAIL_BACKEND = os.getenv("EMAIL_BACKEND") or "console"
+    GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID")
+    GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET")
+    GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN")
+    MAIL_FROM = os.getenv("MAIL_FROM") or os.getenv("SMTP_FROM")
     SMTP_HOST = os.getenv("SMTP_HOST")
     SMTP_PORT = os.getenv("SMTP_PORT", "587")
     SMTP_USER = os.getenv("SMTP_USER")
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-    SMTP_FROM = os.getenv("SMTP_FROM")
     SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true")
-    SEMAPHORE_API_KEY = os.getenv("SEMAPHORE_API_KEY")
-    SEMAPHORE_SENDER = os.getenv("SEMAPHORE_SENDER")
-    TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-    TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-    TWILIO_FROM = os.getenv("TWILIO_FROM")
-    FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    # console only for now; a real SMS provider plugs into sms_backends.get_sms_backend.
+    SMS_BACKEND = os.getenv("SMS_BACKEND") or "console"
+    FRONTEND_URL = os.getenv("FRONTEND_URL") or "http://localhost:5173"
     INVITATION_TOKEN_PEPPER = os.getenv("INVITATION_TOKEN_PEPPER", SECRET_KEY)
 
 
 class TestConfig(Config):
     TESTING = True
+    NOTIFICATIONS_ENABLED = False
+    NOTIFY_ALLOWLIST = ""
+    EMAIL_BACKEND = "console"
+    SMS_BACKEND = "console"
+    GMAIL_CLIENT_ID = None
+    GMAIL_CLIENT_SECRET = None
+    GMAIL_REFRESH_TOKEN = None
     RATELIMIT_ENABLED = False
     RATELIMIT_STORAGE_URI = "memory://"
     SQLALCHEMY_DATABASE_URI = _normalize_database_url(

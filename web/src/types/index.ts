@@ -952,10 +952,13 @@ export interface NotificationLog {
   clientId: string;
   clientName?: string | null;
   milestone: NotificationMilestone;
+  /** A milestone name for job updates, or INVITATION / PASSWORD_RESET / TEST (no job or client). */
+  event?: string;
   channel: NotificationChannel;
   recipient: string;
   messageBody: string;
   status: NotificationStatus;
+  providerReference?: string | null;
   errorMessage?: string | null;
   sentAt?: string | null;
   createdAt?: string | null;

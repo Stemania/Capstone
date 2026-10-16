@@ -1,6 +1,9 @@
-"""Notification message templates (SMS-length, no links)."""
+"""Client job-status messages: a short email and an SMS of at most 160 characters."""
 
 from app.models.notification import NotificationMilestone
+from app.services.sms_backends import sanitize_sms
+
+SHOP_NAME = "Brothers Machine Shop"
 
 MILESTONE_LABELS = {
     NotificationMilestone.JOB_RECEIVED: "received",
@@ -9,28 +12,43 @@ MILESTONE_LABELS = {
     NotificationMilestone.JOB_DELIVERED: "ready for delivery",
 }
 
-# Keep under ~160 chars for SMS. No portal links.
+# No portal links: clients have no account.
 TEMPLATES = {
-    NotificationMilestone.JOB_RECEIVED: (
-        "BMSC: Job {job_number} ({title}) received. "
-        "We'll notify you when work starts."
-    ),
-    NotificationMilestone.JOB_STARTED: (
-        "BMSC: Job {job_number} ({title}) has started in the shop."
-    ),
+    NotificationMilestone.JOB_RECEIVED: "Your job {job_number} ({title}) has been received and scheduled.",
+    NotificationMilestone.JOB_STARTED: "Work on your job {job_number} ({title}) has started.",
     NotificationMilestone.JOB_COMPLETED: (
-        "BMSC: Job {job_number} ({title}) is complete. "
-        "We'll notify you when it's ready for delivery."
+        "Your job {job_number} ({title}) is complete. "
+        "We will let you know when it is ready for delivery."
     ),
-    NotificationMilestone.JOB_DELIVERED: (
-        "BMSC: Job {job_number} ({title}) is ready for delivery."
-    ),
+    NotificationMilestone.JOB_DELIVERED: "Your job {job_number} ({title}) is ready for delivery.",
 }
 
+SHOWS_TARGET_DATE = (NotificationMilestone.JOB_RECEIVED, NotificationMilestone.JOB_STARTED)
 
-def render_message(milestone: NotificationMilestone, job_number: str, title: str) -> str:
-    template = TEMPLATES[milestone]
-    short_title = (title or "").strip()
-    if len(short_title) > 40:
-        short_title = short_title[:37] + "..."
-    return template.format(job_number=job_number, title=short_title)
+
+def format_date(value) -> str:
+    return f"{value:%b} {value.day}, {value.year}"
+
+
+def _short_title(title: str) -> str:
+    text = (title or "").strip()
+    return text[:37] + "..." if len(text) > 40 else text
+
+
+def render_message(milestone, job_number: str, title: str, target_date=None) -> str:
+    text = TEMPLATES[milestone].format(job_number=job_number, title=_short_title(title))
+    if target_date and milestone in SHOWS_TARGET_DATE:
+        text += f" Target date: {format_date(target_date)}."
+    return text
+
+
+def job_update_subject(milestone, job_number: str) -> str:
+    return f"Job {job_number} {MILESTONE_LABELS[milestone]} - {SHOP_NAME}"
+
+
+def job_update_email(milestone, job_number: str, title: str, target_date=None) -> str:
+    return render_message(milestone, job_number, title, target_date) + f"\n\n{SHOP_NAME}"
+
+
+def job_update_sms(milestone, job_number: str, title: str, target_date=None) -> str:
+    return sanitize_sms("BMSC: " + render_message(milestone, job_number, title, target_date))

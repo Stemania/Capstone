@@ -1,4 +1,10 @@
-"""Client milestone notifications (same-request, never rolls back the trigger)."""
+"""Every outbound email/SMS goes through send_notification.
+
+Call it only after the business transaction has committed. It applies the
+NOTIFICATIONS_ENABLED switch and NOTIFY_ALLOWLIST, sends through the configured
+backend, writes exactly one notification_logs row, and never raises: a failed
+notification must not fail or roll back the user's action.
+"""
 
 from __future__ import annotations
 
@@ -11,24 +17,150 @@ from app.extensions import db
 from app.models.job_order import JobOrder
 from app.models.notification import (
     NotificationChannel,
+    NotificationEvent,
     NotificationLog,
     NotificationMilestone,
     NotificationStatus,
 )
-from app.services.notification_providers import build_email_provider, build_sms_provider
-from app.services.notification_templates import render_message
+from app.services.email_backends import ConsoleEmailBackend, get_email_backend
+from app.services.notification_templates import SHOP_NAME, job_update_email, job_update_sms, job_update_subject
+from app.services.sms_backends import ConsoleSmsBackend, get_sms_backend, normalize_ph_number, sanitize_sms
+from app.utils.errors import AppError
 
 logger = logging.getLogger(__name__)
+
+TURNED_OFF = "Notifications are turned off (NOTIFICATIONS_ENABLED is false)"
+NOT_ALLOWLISTED = "Recipient is not on NOTIFY_ALLOWLIST"
+OPTED_OUT = "Client opted out of this channel"
+BODY_NOT_STORED = "[not stored: contains a sign-in link or code]"
 
 
 def _utcnow():
     return datetime.now(timezone.utc)
 
 
-def _job_number(job: JobOrder) -> str:
-    year = job.created_at.year if job.created_at else _utcnow().year
-    short = (job.id or "")[:4].upper()
-    return f"JO-{year}-{short}"
+def _normalize_recipient(channel: NotificationChannel, recipient: str | None) -> str | None:
+    raw = (recipient or "").strip()
+    if channel == NotificationChannel.SMS:
+        return normalize_ph_number(raw)
+    return raw.lower() if "@" in raw else None
+
+
+def parse_allowlist(raw: str | None) -> set[str]:
+    entries = set()
+    for item in (raw or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        entries.add(item.lower() if "@" in item else (normalize_ph_number(item) or item))
+    return entries
+
+
+def _attempt(cfg, channel, to, subject, body, html_body):
+    """Return (status, error, provider_reference, stored_body)."""
+    if channel == NotificationChannel.SMS:
+        body = sanitize_sms(body)
+    if not to:
+        what = "mobile number" if channel == NotificationChannel.SMS else "email address"
+        return NotificationStatus.SKIPPED, f"No valid {what} for this channel", None, body
+
+    if not cfg.get("NOTIFICATIONS_ENABLED"):
+        # Still printed (body only in development) so local invite links keep working.
+        if channel == NotificationChannel.EMAIL:
+            ConsoleEmailBackend().send(to, subject, body)
+        else:
+            ConsoleSmsBackend().send(to, body)
+        return NotificationStatus.SKIPPED, TURNED_OFF, None, body
+
+    allowlist = parse_allowlist(cfg.get("NOTIFY_ALLOWLIST"))
+    if allowlist and to not in allowlist:
+        return NotificationStatus.SKIPPED, NOT_ALLOWLISTED, None, body
+
+    if channel == NotificationChannel.EMAIL:
+        backend = get_email_backend(cfg)
+        reference = backend.send(to, subject, body, html_body)
+    else:
+        backend = get_sms_backend(cfg)
+        reference = backend.send(to, body)
+    if not backend.delivers:
+        variable = "EMAIL_BACKEND" if channel == NotificationChannel.EMAIL else "SMS_BACKEND"
+        return NotificationStatus.SKIPPED, f"{variable} is console: logged, not sent", None, body
+    return NotificationStatus.SENT, None, reference, body
+
+
+def send_notification(
+    *,
+    channel: NotificationChannel,
+    recipient: str | None,
+    event: str,
+    subject: str,
+    body: str,
+    html_body: str | None = None,
+    job_order_id: str | None = None,
+    client_id: str | None = None,
+    milestone: NotificationMilestone | None = None,
+    store_body: bool = True,
+    skip_reason: str | None = None,
+) -> NotificationLog | None:
+    """Send one message and log it. Returns the log row (None if even that failed)."""
+    to = None
+    stored_body = body
+    try:
+        to = _normalize_recipient(channel, recipient)
+        if skip_reason:
+            status, error, reference = NotificationStatus.SKIPPED, skip_reason, None
+        else:
+            status, error, reference, stored_body = _attempt(
+                current_app.config, channel, to, subject, body, html_body
+            )
+    except Exception as exc:  # noqa: BLE001 - a notification must never break the action
+        logger.exception("Notification send failed event=%s channel=%s", event, channel.value)
+        status, error, reference = NotificationStatus.FAILED, str(exc)[:2000] or type(exc).__name__, None
+
+    logger.info(
+        "Notification event=%s channel=%s to=%s status=%s",
+        event,
+        channel.value,
+        to or recipient or "(none)",
+        status.value,
+    )
+    log = NotificationLog(
+        job_order_id=job_order_id,
+        client_id=client_id,
+        milestone=milestone,
+        event=event,
+        channel=channel,
+        recipient=(to or (recipient or "").strip() or "(none)")[:255],
+        message_body=stored_body if store_body else BODY_NOT_STORED,
+        status=status,
+        provider_reference=(str(reference)[:255] if reference else None),
+        error_message=error,
+        sent_at=_utcnow() if status == NotificationStatus.SENT else None,
+    )
+    try:
+        db.session.add(log)
+        db.session.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to write notification log event=%s", event)
+        try:
+            db.session.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+    return log
+
+
+def delivery_summary(log: NotificationLog | None) -> dict:
+    """What the admin is shown after an invitation: never the link or code."""
+    if log is None:
+        return {"status": "FAILED", "channel": None, "recipient": None,
+                "errorMessage": "The delivery could not be recorded; check the server log"}
+    return {
+        "status": log.status.value,
+        "channel": log.channel.value,
+        "recipient": log.recipient,
+        "errorMessage": log.error_message,
+    }
 
 
 def _already_logged(job_id: str, milestone: NotificationMilestone, channel: NotificationChannel) -> bool:
@@ -42,107 +174,63 @@ def _already_logged(job_id: str, milestone: NotificationMilestone, channel: Noti
     )
 
 
-def _cfg():
-    return current_app.config
-
-
-NO_PROVIDER_REASON = "No email/SMS provider configured"
-_UNCONFIGURED_PROVIDERS = ("console", "sms_stub")
-
-
-def _deliver(log: NotificationLog, provider, console_fallback: bool, recipient: str, body: str):
-    """Send through ``provider`` and record the outcome on ``log``. Raises on provider error."""
-    provider.send(recipient, body)
-    if console_fallback or provider.name in _UNCONFIGURED_PROVIDERS:
-        log.status = NotificationStatus.NOT_SENT
-        log.error_message = NO_PROVIDER_REASON
-        log.sent_at = None
+def _send_job_update(job, client, milestone, channel, *, opted_in, recipient):
+    number = job.job_number
+    if channel == NotificationChannel.EMAIL:
+        subject = job_update_subject(milestone, number)
+        body = job_update_email(milestone, number, job.title or "", job.due_date)
     else:
-        log.status = NotificationStatus.SENT
-        log.sent_at = _utcnow()
-        log.error_message = None
+        subject = ""
+        body = job_update_sms(milestone, number, job.title or "", job.due_date)
+    return send_notification(
+        channel=channel,
+        recipient=recipient,
+        event=milestone.value,
+        subject=subject,
+        body=body,
+        job_order_id=job.id,
+        client_id=client.id,
+        milestone=milestone,
+        skip_reason=None if opted_in else OPTED_OUT,
+    )
 
 
 def notify_job_milestone(job_id: str, milestone: NotificationMilestone) -> list[NotificationLog]:
-    """
-    Send (or skip) notifications for a milestone. Commits its own log rows.
-    Never raises to the caller for provider failures.
-    """
+    """Client job-status update on each channel the client chose, once per job,
+    milestone and channel. Never raises."""
     logs: list[NotificationLog] = []
     try:
         job = JobOrder.query.get(job_id)
         if not job or not job.client:
             logger.warning("notify_job_milestone: job/client missing id=%s", job_id)
             return logs
-
         client = job.client
-        body = render_message(milestone, _job_number(job), job.title or "")
         channels = (
-            (NotificationChannel.EMAIL, client.notify_by_email, (client.email or "").strip()),
-            (NotificationChannel.SMS, client.notify_by_sms, (client.mobile_number or "").strip()),
+            (NotificationChannel.EMAIL, client.notify_by_email, client.email),
+            (NotificationChannel.SMS, client.notify_by_sms, client.mobile_number),
         )
-
         for channel, opted_in, recipient in channels:
             if _already_logged(job.id, milestone, channel):
                 continue
-
-            log = NotificationLog(
-                job_order_id=job.id,
-                client_id=client.id,
-                milestone=milestone,
-                channel=channel,
-                recipient=recipient or "(none)",
-                message_body=body,
-                status=NotificationStatus.PENDING,
+            log = _send_job_update(
+                job, client, milestone, channel, opted_in=bool(opted_in), recipient=recipient
             )
-            db.session.add(log)
-            db.session.flush()
-
-            if not opted_in:
-                log.status = NotificationStatus.SKIPPED
-                log.error_message = "Client opted out of this channel"
-            elif not recipient:
-                log.status = NotificationStatus.SKIPPED
-                log.error_message = "No contact detail for this channel"
-            else:
-                try:
-                    if channel == NotificationChannel.EMAIL:
-                        provider, console_fallback = build_email_provider(_cfg())
-                    else:
-                        provider, console_fallback = build_sms_provider(_cfg())
-                    _deliver(log, provider, console_fallback, recipient, body)
-                except Exception as exc:  # noqa: BLE001 — must not break job flow
-                    logger.exception(
-                        "Notification send failed job=%s milestone=%s channel=%s",
-                        job.id,
-                        milestone.value,
-                        channel.value,
-                    )
-                    log.status = NotificationStatus.FAILED
-                    log.error_message = str(exc)[:2000]
-
-            try:
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
-                logger.exception("Failed to commit NotificationLog")
-                continue
-            logs.append(log)
-        return logs
-    except Exception:
+            if log is not None:
+                logs.append(log)
+    except Exception:  # noqa: BLE001
         logger.exception("notify_job_milestone unexpected error job=%s", job_id)
         try:
             db.session.rollback()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
-        return logs
+    return logs
 
 
 def safe_notify_job_milestone(job_id: str, milestone: NotificationMilestone) -> None:
     """Fire-and-forget wrapper: never raises."""
     try:
         notify_job_milestone(job_id, milestone)
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.exception("safe_notify_job_milestone failed job=%s", job_id)
 
 
@@ -162,9 +250,7 @@ def list_notification_logs(job_order_id=None, client_id=None, status=None, limit
 
 
 def resend_notification(log_id: str) -> NotificationLog:
-    """Manual resend for FAILED or NOT_SENT entries. Creates a new attempt row."""
-    from app.utils.errors import AppError
-
+    """Manual resend of a FAILED or NOT_SENT job update. Creates a new attempt row."""
     original = NotificationLog.query.get(log_id)
     if not original:
         raise AppError("Notification not found", "NOT_FOUND", 404)
@@ -172,46 +258,45 @@ def resend_notification(log_id: str) -> NotificationLog:
         raise AppError(
             "Only failed or not-sent notifications can be resent", "VALIDATION_ERROR", 400
         )
-
     job = original.job_order
     client = original.client
-    if not job or not client:
-        raise AppError("Job or client missing", "NOT_FOUND", 404)
+    if not job or not client or not original.milestone:
+        raise AppError("Only client job updates can be resent", "VALIDATION_ERROR", 400)
 
     if original.channel == NotificationChannel.EMAIL:
-        recipient = (client.email or "").strip()
-        opted = bool(client.notify_by_email)
-        provider, console_fallback = build_email_provider(_cfg())
+        opted_in, recipient = client.notify_by_email, client.email
     else:
-        recipient = (client.mobile_number or "").strip()
-        opted = bool(client.notify_by_sms)
-        provider, console_fallback = build_sms_provider(_cfg())
-
-    body = render_message(original.milestone, _job_number(job), job.title or "")
-    log = NotificationLog(
-        job_order_id=job.id,
-        client_id=client.id,
-        milestone=original.milestone,
-        channel=original.channel,
-        recipient=recipient or "(none)",
-        message_body=body,
-        status=NotificationStatus.PENDING,
+        opted_in, recipient = client.notify_by_sms, client.mobile_number
+    log = _send_job_update(
+        job, client, original.milestone, original.channel, opted_in=bool(opted_in), recipient=recipient
     )
-    db.session.add(log)
-    db.session.flush()
+    if log is None:
+        raise AppError("Could not record the notification", "NOTIFICATION_LOG_FAILED", 500)
+    return log
 
-    if not opted:
-        log.status = NotificationStatus.SKIPPED
-        log.error_message = "Client opted out of this channel"
-    elif not recipient:
-        log.status = NotificationStatus.SKIPPED
-        log.error_message = "No contact detail for this channel"
+
+def send_test_message(channel: str | None, to: str | None) -> NotificationLog:
+    """Admin test: one message through the real path (switch, allowlist, backend)."""
+    choice = (channel or "").strip().lower()
+    if choice not in ("email", "sms"):
+        raise AppError("channel must be email or sms", "VALIDATION_ERROR", 400)
+    ch = NotificationChannel.EMAIL if choice == "email" else NotificationChannel.SMS
+    if not _normalize_recipient(ch, to):
+        what = "a Philippine mobile number" if ch == NotificationChannel.SMS else "an email address"
+        raise AppError(f"Enter {what}", "VALIDATION_ERROR", 400)
+
+    if ch == NotificationChannel.EMAIL:
+        subject = f"Test email - {SHOP_NAME}"
+        body = (
+            f"This is a test message from the {SHOP_NAME} Production Scheduling System.\n\n"
+            "If you can read this, email notifications are working."
+        )
     else:
-        try:
-            _deliver(log, provider, console_fallback, recipient, body)
-        except Exception as exc:  # noqa: BLE001
-            log.status = NotificationStatus.FAILED
-            log.error_message = str(exc)[:2000]
-
-    db.session.commit()
+        subject = ""
+        body = "BMSC: Test message from the production scheduling system. SMS notifications are working."
+    log = send_notification(
+        channel=ch, recipient=to, event=NotificationEvent.TEST, subject=subject, body=body
+    )
+    if log is None:
+        raise AppError("Could not record the test message", "NOTIFICATION_LOG_FAILED", 500)
     return log
