@@ -84,12 +84,12 @@ function LetterheadPreview({ values }: { values: Partial<ShopDetails> }) {
             <div className="shop-print-signature">
               <div className="shop-print-signature__space" />
               <div className="shop-print-signature__name">{preview.poApproverName}</div>
-              <div>{preview.poApproverTitle}</div>
+              <div className="shop-print-signature__title">{preview.poApproverTitle}</div>
             </div>
             <div className="shop-print-signature">
               <div className="shop-print-signature__space" />
               <div className="shop-print-signature__name">{preview.joApproverName}</div>
-              <div>{preview.joApproverTitle}</div>
+              <div className="shop-print-signature__title">{preview.joApproverTitle}</div>
             </div>
           </div>
         </div>
@@ -161,92 +161,89 @@ export default function ShopDetailsPage() {
     <div className="shop-details-page">
       {error && <Alert type="error" showIcon title={error} />}
       <Card className="shop-details-page__card" style={{ borderRadius: 12 }}>
-        <div className="shop-details-page__layout">
-          <Form
-            form={form}
-            layout="vertical"
-            onFinish={onSave}
-            requiredMark="optional"
-            className="shop-details-page__form"
-          >
-            <Section
-              title="Letterhead"
-              hint="Shown at the top of printed purchase orders and job orders."
-            />
-            <Form.Item name="shopName" label="Shop name" rules={[{ required: true }]}>
-              <Input maxLength={255} />
-            </Form.Item>
-            <Form.Item name="tagline" label="Tagline">
-              <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} maxLength={500} />
-            </Form.Item>
-            <Form.Item name="address" label="Address" rules={[{ required: true }]}>
-              <Input maxLength={500} />
-            </Form.Item>
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={onSave}
+          requiredMark="optional"
+          className="shop-details-page__form"
+        >
+          <div className="shop-details-page__layout">
+            <div className="shop-details-page__fields">
+              <div className="shop-details-page__block">
+                <Section
+                  title="Letterhead"
+                  hint="Shown at the top of printed purchase orders and job orders."
+                />
+                <Form.Item name="shopName" label="Shop name" rules={[{ required: true }]}>
+                  <Input maxLength={255} />
+                </Form.Item>
+                <Form.Item name="tagline" label="Tagline">
+                  <Input.TextArea autoSize={{ minRows: 2, maxRows: 3 }} maxLength={500} />
+                </Form.Item>
+                <Form.Item name="address" label="Address" rules={[{ required: true }]}>
+                  <Input maxLength={500} />
+                </Form.Item>
+              </div>
 
-            <Section title="Contact" hint="Printed under the letterhead on every shop document." />
-            <Row gutter={[16, 0]}>
-              <Col xs={24} sm={12}>
-                <Form.Item name="telephone" label="Telephone">
-                  <Input maxLength={100} placeholder="(043) 4303524" />
-                </Form.Item>
-              </Col>
-              <Col xs={24} sm={12}>
-                <Form.Item name="mobileNumbers" label="Mobile numbers">
-                  <Input maxLength={200} placeholder="0926… / 0915…" />
-                </Form.Item>
-              </Col>
-              <Col xs={24}>
+              <div className="shop-details-page__block">
+                <Section title="Contact" hint="Printed under the letterhead on every shop document." />
+                <div className="shop-details-page__contact-row">
+                  <Form.Item name="telephone" label="Telephone">
+                    <Input maxLength={100} placeholder="(043) 4303524" />
+                  </Form.Item>
+                  <Form.Item name="mobileNumbers" label="Mobile numbers">
+                    <Input maxLength={200} placeholder="0926… / 0915…" />
+                  </Form.Item>
+                </div>
                 <Form.Item name="email" label="Email" rules={[{ type: 'email' }]}>
                   <Input maxLength={255} />
                 </Form.Item>
-              </Col>
-            </Row>
+              </div>
 
-            <Section
-              title="Approvers"
-              hint="Signature lines on printed purchase orders and job orders."
-            />
-            <Row gutter={[16, 0]}>
-              <Col xs={24} sm={14}>
-                <Form.Item name="poApproverName" label="Purchase order approver">
-                  <Input maxLength={255} />
-                </Form.Item>
-              </Col>
-              <Col xs={24} sm={10}>
-                <Form.Item name="poApproverTitle" label="Title">
-                  <Input maxLength={255} />
-                </Form.Item>
-              </Col>
-              <Col xs={24} sm={14}>
-                <Form.Item name="joApproverName" label="Job order approver">
-                  <Input maxLength={255} />
-                </Form.Item>
-              </Col>
-              <Col xs={24} sm={10}>
-                <Form.Item name="joApproverTitle" label="Title">
-                  <Input maxLength={255} />
-                </Form.Item>
-              </Col>
-            </Row>
-
-            <div className="shop-details-page__save m-action-bar">
-              <span className="shop-details-page__save-note m-action-bar__note">
-                {updatedAt ? `Last saved ${formatShop(updatedAt, 'MMM D, YYYY h:mm A')}` : ''}
-              </span>
-              <Button
-                type="primary"
-                htmlType="submit"
-                icon={<SaveOutlined />}
-                loading={saving}
-                disabled={!dirty}
-                style={{ fontWeight: 700, minWidth: 120 }}
-              >
-                Save
-              </Button>
+              <div className="shop-details-page__block">
+                <Section
+                  title="Approvers"
+                  hint="Signature lines on printed purchase orders and job orders."
+                />
+                <div className="shop-details-page__approver-row">
+                  <Form.Item name="poApproverName" label="Purchase order approver">
+                    <Input maxLength={255} />
+                  </Form.Item>
+                  <Form.Item name="poApproverTitle" label="Title">
+                    <Input maxLength={255} />
+                  </Form.Item>
+                </div>
+                <div className="shop-details-page__approver-row">
+                  <Form.Item name="joApproverName" label="Job order approver">
+                    <Input maxLength={255} />
+                  </Form.Item>
+                  <Form.Item name="joApproverTitle" label="Title">
+                    <Input maxLength={255} />
+                  </Form.Item>
+                </div>
+              </div>
             </div>
-          </Form>
-          <LetterheadPreview values={watched || {}} />
-        </div>
+
+            <LetterheadPreview values={watched || {}} />
+          </div>
+
+          <div className="shop-details-page__save m-action-bar">
+            <span className="shop-details-page__save-note m-action-bar__note">
+              {updatedAt ? `Last saved ${formatShop(updatedAt, 'MMM D, YYYY h:mm A')}` : ''}
+            </span>
+            <Button
+              type="primary"
+              htmlType="submit"
+              icon={<SaveOutlined />}
+              loading={saving}
+              disabled={!dirty}
+              style={{ fontWeight: 700, minWidth: 120 }}
+            >
+              Save
+            </Button>
+          </div>
+        </Form>
       </Card>
       <TestEmailCard />
     </div>

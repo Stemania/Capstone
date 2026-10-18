@@ -49,9 +49,12 @@ describe('PeriodNavigator UI', () => {
       </ConfigProvider>
     );
 
+    const calBtn = container.querySelector('.period-nav__cal-btn') as HTMLButtonElement;
+    expect(calBtn).toBeTruthy();
+    expect(calBtn.getAttribute('aria-label')).toBe('Choose date');
     expect(container.querySelector('.period-nav__cal-icon, .anticon-calendar')).toBeTruthy();
 
-    const labelBtn = screen.getByRole('button', { name: 'Choose date' });
+    const labelBtn = container.querySelector('.period-nav__label') as HTMLButtonElement;
     expect(labelBtn.textContent).toContain('Mon, Oct 19, 2026');
     fireEvent.click(labelBtn);
     expect(document.querySelector('.ant-picker-dropdown')).toBeTruthy();

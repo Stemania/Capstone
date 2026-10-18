@@ -38,58 +38,60 @@
   background: transparent;
 }
 
-/* Icon-only date trigger; the bold label is the visible period text. */
+/* Explicit calendar trigger — not Ant DatePicker's suffix. */
+.period-nav__cal-btn.ant-btn {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #1f2937;
+}
+
+.period-nav__cal-btn.ant-btn:hover,
+.period-nav__cal-btn.ant-btn:focus-visible {
+  color: #1f2937 !important;
+  background: rgb(15 23 42 / 6%) !important;
+}
+
+.period-nav__cal-btn .anticon,
+.period-nav__cal-icon {
+  font-size: 16px !important;
+  color: #1f2937 !important;
+  line-height: 1;
+}
+
+.period-nav.is-open .period-nav__cal-icon {
+  color: #1f2937;
+}
+
+/* Hide the DatePicker input; open is controlled by label / icon. */
 .period-nav__picker.ant-picker {
-  width: 32px !important;
-  min-width: 32px !important;
-  padding: 0 4px !important;
+  position: absolute !important;
+  left: 0;
+  top: 100%;
+  width: 0 !important;
+  min-width: 0 !important;
+  height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
   border: none !important;
   background: transparent !important;
   box-shadow: none !important;
-  cursor: pointer;
-}
-
-.period-nav__picker .ant-picker-input {
-  width: 0 !important;
-  min-width: 0 !important;
   overflow: hidden;
-  padding: 0 !important;
-}
-
-.period-nav__picker .ant-picker-input > input {
-  width: 0 !important;
-  padding: 0 !important;
   opacity: 0;
-  cursor: pointer;
+  pointer-events: none;
 }
 
+.period-nav__picker .ant-picker-input,
+.period-nav__picker .ant-picker-input > input,
 .period-nav__picker .ant-picker-suffix {
-  margin: 0 !important;
-  display: inline-flex !important;
-  align-items: center;
-  justify-content: center;
-  color: var(--c-text-muted, #64748b);
-  font-size: 15px;
-  opacity: 1 !important;
-}
-
-.period-nav__cal-icon {
-  font-size: 15px;
-  color: var(--c-text-muted, #64748b);
-}
-
-.period-nav__picker:hover .ant-picker-suffix,
-.period-nav__picker:hover .period-nav__cal-icon,
-.period-nav.is-open .period-nav__cal-icon {
-  color: var(--c-text, #0f172a);
+  display: none !important;
 }
 
 /* Week picker: highlight the full Mon–Sun row while hovering / selected. */
-.period-nav__popup--week .ant-picker-cell-week,
-.period-nav__popup--week .ant-picker-cell-in-view.ant-picker-cell-week {
-  /* ant week column — leave as is */
-}
-
 .period-nav__popup--week .ant-picker-cell-in-view.ant-picker-cell-week:hover .ant-picker-cell-inner,
 .period-nav__popup--week tr:hover .ant-picker-cell-in-view .ant-picker-cell-inner {
   background: rgb(37 99 235 / 12%);

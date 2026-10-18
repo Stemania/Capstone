@@ -55,6 +55,7 @@ export default function PeriodNavigator({
 }: Props) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const labelRef = useRef<HTMLButtonElement>(null);
   const label = formatPeriodLabel(value, mode);
   const picker = pickerKindForMode(mode);
 
@@ -103,6 +104,7 @@ export default function PeriodNavigator({
       {!hidePicker ? (
         <>
           <button
+            ref={labelRef}
             type="button"
             className="period-nav__label"
             onClick={openPicker}
@@ -112,6 +114,16 @@ export default function PeriodNavigator({
           >
             {label}
           </button>
+          <Button
+            type="text"
+            className="period-nav__cal-btn"
+            icon={<CalendarOutlined className="period-nav__cal-icon" />}
+            onClick={openPicker}
+            aria-label="Choose date"
+            aria-haspopup="dialog"
+            aria-expanded={open}
+          />
+          {/* Invisible controlled picker — opened by label / icon, anchored under label. */}
           <DatePicker
             picker={picker}
             value={pickerValue}
@@ -119,7 +131,7 @@ export default function PeriodNavigator({
             onOpenChange={setOpen}
             allowClear={false}
             inputReadOnly
-            suffixIcon={<CalendarOutlined className="period-nav__cal-icon" />}
+            suffixIcon={null}
             onChange={applyPicked}
             className="period-nav__picker"
             classNames={{
@@ -130,9 +142,9 @@ export default function PeriodNavigator({
                     : 'period-nav__popup',
               },
             }}
-            getPopupContainer={() => wrapRef.current || document.body}
-            aria-label={chooseLabel}
-            // Hide the typed value; the bold label is the source of truth.
+            getPopupContainer={() => labelRef.current || wrapRef.current || document.body}
+            aria-hidden
+            tabIndex={-1}
             format={() => ''}
           />
         </>
