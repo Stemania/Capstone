@@ -45,9 +45,15 @@ class Tool(db.Model):
         index=True,
     )
     unit = db.Column(db.String(32), nullable=False, default="pcs")
+    # Previous unit when remapped to a countable container (display / Office review).
+    legacy_unit = db.Column(db.String(32), nullable=True)
+    unit_needs_review = db.Column(db.Boolean, nullable=False, default=False)
+    # Fallback unit cost for ABC when no received PO price exists.
+    unit_cost = db.Column(db.Numeric(14, 4), nullable=True)
     quantity_on_hand = db.Column(
         db.Numeric(12, 2), nullable=False, default=Decimal("0")
     )
+    # Kept for history; reorder triggers use computed ROP, not this field.
     minimum_stock = db.Column(db.Numeric(12, 2), nullable=True)
     size_spec = db.Column(db.String(64), nullable=True)
     shop_term = db.Column(db.String(100), nullable=True)
@@ -74,6 +80,9 @@ class Tool(db.Model):
             "code": self.code,
             "category": self.category.value if self.category else None,
             "unit": self.unit,
+            "legacyUnit": self.legacy_unit,
+            "unitNeedsReview": bool(self.unit_needs_review),
+            "unitCost": _num(self.unit_cost),
             "quantityOnHand": _num(self.quantity_on_hand),
             "minimumStock": _num(self.minimum_stock),
             "sizeSpec": self.size_spec,

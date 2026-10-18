@@ -26,6 +26,9 @@ class ToolEventType(enum.Enum):
     ISSUE = "ISSUE"
     ADJUST = "ADJUST"
     RECEIVE = "RECEIVE"
+    SCAN = "SCAN"
+    UNDO = "UNDO"
+    CORRECTION = "CORRECTION"
 
 
 class ToolEvent(db.Model):
@@ -33,7 +36,7 @@ class ToolEvent(db.Model):
     __table_args__ = (db.Index("ix_tool_event_tool_created", "tool_id", "created_at"),)
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
-    # Consumable stock ADJUST / RECEIVE (and legacy rows)
+    # Consumable stock ADJUST / RECEIVE / SCAN / UNDO / CORRECTION (and legacy rows)
     tool_id = db.Column(
         db.String(36), db.ForeignKey("tools.id"), nullable=True, index=True
     )
@@ -46,11 +49,19 @@ class ToolEvent(db.Model):
     )
     type = db.Column(db.Enum(ToolEventType), nullable=False)
     quantity = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("1"))
+    # Signed effect on quantity_on_hand (consumable movements). Null on borrow/return.
+    stock_delta = db.Column(db.Numeric(12, 2), nullable=True)
     reason = db.Column(db.String(255), nullable=True)
     supplier = db.Column(db.String(255), nullable=True)
     received_on = db.Column(db.Date, nullable=True)
     job_order_id = db.Column(
         db.String(36), db.ForeignKey("job_orders.id"), nullable=True
+    )
+    operation_id = db.Column(
+        db.String(36),
+        db.ForeignKey("operations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     # RECEIVE of a consumable line on a supplier order; NULL = Receive delivery
     # without a PO (e.g. a walk-in purchase).
@@ -60,13 +71,23 @@ class ToolEvent(db.Model):
         nullable=True,
         index=True,
     )
+    undoes_event_id = db.Column(
+        db.String(36),
+        db.ForeignKey("tool_events.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    undone_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # Offline / retry idempotency for consumable scans (partial unique when set).
+    client_action_id = db.Column(db.String(64), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, nullable=False)
 
     tool = db.relationship("Tool", back_populates="events")
     tool_unit = db.relationship("ToolUnit", back_populates="events")
     worker = db.relationship("User", back_populates="tool_events")
     job_order = db.relationship("JobOrder", back_populates="tool_events")
+    operation = db.relationship("JobOperation", foreign_keys=[operation_id])
     material_purchase = db.relationship("MaterialPurchase")
+    undoes_event = db.relationship("ToolEvent", remote_side=[id], foreign_keys=[undoes_event_id])
 
     def to_dict(self):
         unit = self.tool_unit
@@ -81,6 +102,7 @@ class ToolEvent(db.Model):
                 else (tool.name if tool else None)
             ),
             "toolCode": tool.code if tool else None,
+            "toolUnit": tool.unit if tool else None,
             "assetCode": unit.asset_code if unit else None,
             "toolCategory": (
                 "TOOL_UNIT"
@@ -99,10 +121,15 @@ class ToolEvent(db.Model):
             "workerName": self.worker.full_name if self.worker else None,
             "type": self.type.value,
             "quantity": _num(self.quantity),
+            "stockDelta": _num(self.stock_delta),
             "reason": self.reason,
             "supplier": self.supplier,
             "receivedOn": self.received_on.isoformat() if self.received_on else None,
             "jobOrderId": self.job_order_id,
+            "operationId": self.operation_id,
+            "undoesEventId": self.undoes_event_id,
+            "undoneAt": self.undone_at.isoformat() if self.undone_at else None,
+            "clientActionId": self.client_action_id,
             "supplierOrderId": (
                 self.material_purchase.supplier_order_id if self.material_purchase else None
             ),

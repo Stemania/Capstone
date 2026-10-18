@@ -59,6 +59,8 @@ class ShopSettings(db.Model):
     po_approver_title = db.Column(db.String(255), nullable=True)
     jo_approver_name = db.Column(db.String(255), nullable=True)
     jo_approver_title = db.Column(db.String(255), nullable=True)
+    # Working days until on-hand is projected to hit ROP → "Reorder soon".
+    reorder_soon_working_days = db.Column(db.Integer, nullable=False, default=7)
     updated_at = db.Column(db.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
     updated_by_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=True)
 
@@ -66,6 +68,7 @@ class ShopSettings(db.Model):
         return {
             "breakStart": self.break_start.strftime("%H:%M"),
             "breakEnd": self.break_end.strftime("%H:%M"),
+            "reorderSoonWorkingDays": int(self.reorder_soon_working_days or 7),
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
         }
 
