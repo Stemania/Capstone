@@ -184,7 +184,9 @@ export interface MaterialPurchase {
   toolCode?: string | null;
   plannedMaterialId?: string | null;
   materialName: string;
+  materialCatalogId?: string | null;
   gradeOrSpec?: string | null;
+  sizeSpec?: string | null;
   quantity: number;
   unit: string;
   unitCost: number;
@@ -335,12 +337,14 @@ export interface OutstandingMaterials {
   lowStockConsumables: LowStockConsumable[];
 }
 
-/** A job material typed when ordering (jobOrderId + materialName) or a consumable restock (toolId). */
+/** A job material from the catalog (jobOrderId + materialCatalogId) or a consumable restock (toolId). */
 export interface SupplierOrderLineInput {
   jobOrderId?: string;
   toolId?: string;
+  materialCatalogId?: string;
   materialName?: string;
   gradeOrSpec?: string | null;
+  sizeSpec?: string | null;
   quantity: number;
   unit?: string;
   unitCost: number;
@@ -358,6 +362,7 @@ export interface SupplierOrderPrint {
   rows: {
     materialName: string;
     gradeOrSpec?: string | null;
+    sizeSpec?: string | null;
     unit: string;
     unitCost: number;
     quantity: number;

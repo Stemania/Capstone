@@ -50,6 +50,7 @@ export const supplierOrdersApi = {
       quantity?: number;
       unitCost?: number;
       gradeOrSpec?: string | null;
+      sizeSpec?: string | null;
       materialName?: string;
       unit?: string;
     }

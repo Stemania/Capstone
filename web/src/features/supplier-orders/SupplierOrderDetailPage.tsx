@@ -18,7 +18,7 @@ import { useAuth } from '../../hooks/useAuth';
 import OverdueTag from '../../components/OverdueTag';
 import StatusPill from '../../components/StatusPill';
 import { IdChip, Page, PageSkeleton, SectionCard } from '../../components/ui';
-import { GradeInput } from '../../components/MaterialInputs';
+import { GradeInput, formatPoMaterialLabel } from '../../components/MaterialInputs';
 import type { DeliveryMode, MaterialPurchase, SupplierOrder } from '../../types';
 import OrderMaterialsModal from './OrderMaterialsModal';
 import { LINE_STATUS_PILL, ORDER_STATUS_PILL, fmtDay, fmtMoney, fmtQty } from './supplierOrderUi';
@@ -65,7 +65,8 @@ export default function SupplierOrderDetailPage() {
     quantity: number | null;
     unitCost: number | null;
     gradeOrSpec: string;
-  }>({ quantity: null, unitCost: null, gradeOrSpec: '' });
+    sizeSpec: string;
+  }>({ quantity: null, unitCost: null, gradeOrSpec: '', sizeSpec: '' });
   const [notes, setNotes] = useState('');
   const [vatRate, setVatRate] = useState<number | null>(null);
   const [terms, setTerms] = useState('');
@@ -234,6 +235,7 @@ export default function SupplierOrderDetailPage() {
       quantity: ln.quantity,
       unitCost: ln.unitCost,
       gradeOrSpec: ln.gradeOrSpec || '',
+      sizeSpec: ln.sizeSpec || '',
     });
   };
 
@@ -250,6 +252,7 @@ export default function SupplierOrderDetailPage() {
             quantity: editValues.quantity as number,
             unitCost: editValues.unitCost as number,
             gradeOrSpec: editValues.gradeOrSpec.trim() || null,
+            sizeSpec: editValues.sizeSpec.trim() || null,
           }),
         'Line updated'
       );
@@ -284,11 +287,10 @@ export default function SupplierOrderDetailPage() {
       key: 'material',
       render: (_: unknown, ln) => (
         <div style={ln.cancelledAt ? { textDecoration: 'line-through', color: '#94a3b8' } : undefined}>
-          {ln.materialName}
+          {formatPoMaterialLabel(ln.materialName, ln.gradeOrSpec, ln.sizeSpec)}
         </div>
       ),
     },
-    { title: 'Grade / spec', dataIndex: 'gradeOrSpec', width: 130, render: (v) => v || '—' },
     {
       title: 'Qty',
       key: 'qty',
@@ -727,7 +729,7 @@ export default function SupplierOrderDetailPage() {
       >
         <div style={{ display: 'grid', gap: 12 }}>
           <div>
-            <div style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>Grade / spec</div>
+            <div style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>Grade</div>
             <GradeInput
               placeholder=""
               materialName={editLine?.materialName}
@@ -735,6 +737,16 @@ export default function SupplierOrderDetailPage() {
               onChange={(g) => setEditValues((v) => ({ ...v, gradeOrSpec: g }))}
             />
           </div>
+          {editLine && !editLine.toolId ? (
+            <div>
+              <div style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>Size / spec</div>
+              <Input
+                placeholder="e.g. Ø50 × 200 mm"
+                value={editValues.sizeSpec}
+                onChange={(e) => setEditValues((v) => ({ ...v, sizeSpec: e.target.value }))}
+              />
+            </div>
+          ) : null}
           <div>
             <div style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>Quantity</div>
             <InputNumber

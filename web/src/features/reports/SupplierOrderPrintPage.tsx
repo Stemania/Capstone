@@ -35,8 +35,10 @@ function qty(v: number) {
 }
 
 function itemDescription(row: SupplierOrderPrint['rows'][number]) {
-  if (!row.gradeOrSpec) return row.materialName;
-  return `${row.materialName} – ${row.gradeOrSpec}`;
+  return [row.materialName, row.gradeOrSpec, row.sizeSpec]
+    .map((p) => (p || '').trim())
+    .filter(Boolean)
+    .join(' — ');
 }
 
 function SummaryRow({ label, amount, total }: { label: string; amount: number; total?: boolean }) {

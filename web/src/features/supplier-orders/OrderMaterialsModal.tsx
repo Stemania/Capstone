@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Input, InputNumber, Modal, Select, Typography, message } from 'antd';
 import { DeleteOutlined, PlusOutlined, ShoppingCartOutlined } from '@ant-design/icons';
+import { catalogApi, type CatalogItem } from '../../api/catalog.api';
 import { supplierOrdersApi } from '../../api/supplierOrders.api';
 import { suppliersApi } from '../../api/suppliers.api';
-import { toolsApi } from '../../api/tools.api';
 import { MATERIAL_UNITS } from '../../api/materialCatalog.api';
 import { getErrorMessage } from '../../api/client';
 import type {
@@ -13,10 +13,9 @@ import type {
   SupplierOrder,
   SupplierOrderLineInput,
   SupplierReliability,
-  Tool,
 } from '../../types';
 import { fmtDay, fmtQty } from './supplierOrderUi';
-import { GradeInput, MaterialNameInput } from '../../components/MaterialInputs';
+import { GradeSelect, MaterialCatalogPicker } from '../../components/MaterialInputs';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const { Text } = Typography;
@@ -47,12 +46,15 @@ function ReliabilityText({ row }: { row?: SupplierReliability }) {
 
 type PlannedEdit = { quantity: number | null; unitCost: number | null; gradeOrSpec: string };
 
-/** A job material line typed by Office Staff. */
+/** A job material line picked from the catalog by Office Staff. */
 type MaterialLineDraft = {
   key: number;
   jobOrderId?: string;
+  materialCatalogId: string | null;
   materialName: string;
+  grades: string[];
   gradeOrSpec: string;
+  sizeSpec: string;
   quantity: number | null;
   unit: string;
   unitCost: number | null;
@@ -62,15 +64,23 @@ let nextLineKey = 1;
 const blankLine = (jobOrderId?: string): MaterialLineDraft => ({
   key: nextLineKey++,
   jobOrderId,
+  materialCatalogId: null,
   materialName: '',
+  grades: [],
   gradeOrSpec: '',
+  sizeSpec: '',
   quantity: null,
   unit: 'pcs',
   unitCost: null,
 });
 
 const isBlank = (l: MaterialLineDraft) =>
-  !l.materialName.trim() && l.quantity == null && l.unitCost == null && !l.gradeOrSpec.trim();
+  !l.materialCatalogId &&
+  !l.materialName.trim() &&
+  l.quantity == null &&
+  l.unitCost == null &&
+  !l.gradeOrSpec.trim() &&
+  !l.sizeSpec.trim();
 
 /** A consumable restock row: from the low-stock list, or added from the consumables list. */
 type ConsumableRow = {
@@ -95,13 +105,24 @@ function fromLowStock(c: LowStockConsumable): ConsumableRow {
   };
 }
 
+function fromCatalogConsumable(item: CatalogItem): ConsumableRow {
+  return {
+    toolId: item.id,
+    name: item.name,
+    code: item.code || '',
+    unit: item.unit,
+    sizeSpec: item.sizeSpec || item.gradesOrSizes?.[0] || null,
+    shopTerm: item.shopTerm,
+  };
+}
+
 /**
  * The one path for purchasing: lines go onto the chosen supplier's open draft
  * order (a new draft is started if there is none). Job materials: Office Staff
- * type each line (catalog suggestions, grade, quantity, unit, unit cost) for a
- * job whose materials are To order. Consumable restock: chosen from the
- * consumables list, starting from those at or below minimum stock. With
- * ``jobId`` the lines are for that job only.
+ * pick each line from the catalog (grade, size/spec, quantity, unit, unit cost)
+ * for a job whose materials are To order. Consumable restock: all offered
+ * catalog consumables, including not-yet-stocked ones. With ``jobId`` the lines
+ * are for that job only.
  */
 export default function OrderMaterialsModal({
   open,
@@ -123,7 +144,7 @@ export default function OrderMaterialsModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [lines, setLines] = useState<MaterialLineDraft[]>([]);
-  const [consumables, setConsumables] = useState<Tool[]>([]);
+  const [consumables, setConsumables] = useState<CatalogItem[]>([]);
   const [consumableRows, setConsumableRows] = useState<ConsumableRow[]>([]);
   const [selectedConsumables, setSelectedConsumables] = useState<string[]>([]);
   const [consumableEdits, setConsumableEdits] = useState<Record<string, PlannedEdit>>({});
@@ -142,9 +163,10 @@ export default function OrderMaterialsModal({
       .then(({ data: rows }) => setReliability(Object.fromEntries(rows.map((r) => [r.supplierId, r]))))
       .catch(() => setReliability({}));
     if (offerConsumables) {
-      toolsApi
-        .list({ category: 'CONSUMABLE' })
-        .then(({ data: rows }) => setConsumables(rows))
+      // All offered consumables, including "Not stocked yet" (first order path).
+      catalogApi
+        .list({ type: 'CONSUMABLE' })
+        .then(({ data: res }) => setConsumables(res.items.filter((i) => i.active)))
         .catch(() => setConsumables([]));
     }
     Promise.all([suppliersApi.list({ activeOnly: true }), supplierOrdersApi.outstanding(jobId)])
@@ -180,21 +202,16 @@ export default function OrderMaterialsModal({
   const setConsumableEdit = (toolId: string, patch: Partial<PlannedEdit>) =>
     setConsumableEdits((prev) => ({ ...prev, [toolId]: { ...prev[toolId], ...patch } }));
   const addConsumable = (toolId: string) => {
-    const tool = consumables.find((t) => t.id === toolId);
-    if (!tool || consumableRows.some((r) => r.toolId === toolId)) return;
-    setConsumableRows((prev) => [
-      ...prev,
-      {
-        toolId: tool.id,
-        name: tool.name,
-        code: tool.code,
-        unit: tool.unit,
-        sizeSpec: tool.sizeSpec,
-        shopTerm: tool.shopTerm,
-      },
-    ]);
-    setConsumableEdit(tool.id, { quantity: 1, unitCost: null, gradeOrSpec: tool.sizeSpec || '' });
-    setSelectedConsumables((prev) => [...prev, tool.id]);
+    const item = consumables.find((t) => t.id === toolId);
+    if (!item || consumableRows.some((r) => r.toolId === toolId)) return;
+    const row = fromCatalogConsumable(item);
+    setConsumableRows((prev) => [...prev, row]);
+    setConsumableEdit(item.id, {
+      quantity: 1,
+      unitCost: null,
+      gradeOrSpec: row.sizeSpec || '',
+    });
+    setSelectedConsumables((prev) => [...prev, item.id]);
   };
   const onSubmit = async () => {
     if (!supplierId) {
@@ -210,8 +227,8 @@ export default function OrderMaterialsModal({
         message.error(`Choose the job for ${where}`);
         return;
       }
-      if (!name) {
-        message.error(`Enter the material on ${where}`);
+      if (!l.materialCatalogId) {
+        message.error(`Pick a material from the catalog on ${where}`);
         return;
       }
       if (!l.quantity || l.quantity <= 0) {
@@ -224,8 +241,10 @@ export default function OrderMaterialsModal({
       }
       payload.push({
         jobOrderId: l.jobOrderId,
+        materialCatalogId: l.materialCatalogId,
         materialName: name,
         gradeOrSpec: l.gradeOrSpec.trim() || null,
+        sizeSpec: l.sizeSpec.trim() || null,
         quantity: l.quantity,
         unit: l.unit,
         unitCost: l.unitCost,
@@ -293,8 +312,8 @@ export default function OrderMaterialsModal({
           </div>
           <div className="app-form-modal__sub">
             {offerConsumables
-              ? 'Pick a supplier, then type the job materials and tick the consumables to add to its draft order.'
-              : 'Pick a supplier, then type the materials to add to its draft order.'}
+              ? 'Pick a supplier, then pick catalog materials and tick consumables to add to its draft order.'
+              : 'Pick a supplier, then pick catalog materials to add to its draft order.'}
           </div>
         </div>
         <button type="button" className="app-form-modal__close" onClick={onClose} aria-label="Close">
@@ -419,32 +438,64 @@ export default function OrderMaterialsModal({
                 {
                   title: 'Material',
                   key: 'material',
+                  width: 200,
                   render: (_: unknown, l) => (
-                    <MaterialNameInput
-                      value={l.materialName}
-                      onChange={(v) => setLine(l.key, { materialName: v })}
-                      onPick={(item) => setLine(l.key, { unit: item.defaultUnit || l.unit })}
+                    <MaterialCatalogPicker
+                      catalogId={l.materialCatalogId}
+                      materialName={l.materialName}
+                      onPick={(item) =>
+                        setLine(l.key, {
+                          materialCatalogId: item.id,
+                          materialName: item.name,
+                          grades: item.grades || [],
+                          gradeOrSpec: '',
+                          unit: item.defaultUnit || l.unit,
+                        })
+                      }
+                      onClear={() =>
+                        setLine(l.key, {
+                          materialCatalogId: null,
+                          materialName: '',
+                          grades: [],
+                          gradeOrSpec: '',
+                        })
+                      }
                     />
                   ),
                 },
                 {
-                  title: 'Grade / spec',
+                  title: 'Grade',
                   key: 'grade',
-                  width: 140,
+                  width: 120,
                   render: (_: unknown, l) => (
-                    <GradeInput
+                    <GradeSelect
                       size="small"
-                      placeholder=""
+                      grades={l.grades}
                       materialName={l.materialName}
                       value={l.gradeOrSpec}
                       onChange={(v) => setLine(l.key, { gradeOrSpec: v })}
+                      disabled={!l.materialCatalogId}
+                    />
+                  ),
+                },
+                {
+                  title: 'Size / spec',
+                  key: 'size',
+                  width: 160,
+                  render: (_: unknown, l) => (
+                    <Input
+                      size="small"
+                      placeholder="e.g. Ø50 × 200 mm"
+                      value={l.sizeSpec}
+                      disabled={!l.materialCatalogId}
+                      onChange={(e) => setLine(l.key, { sizeSpec: e.target.value })}
                     />
                   ),
                 },
                 {
                   title: 'Quantity',
                   key: 'qty',
-                  width: 100,
+                  width: 90,
                   render: (_: unknown, l) => (
                     <InputNumber
                       size="small"
@@ -464,6 +515,7 @@ export default function OrderMaterialsModal({
                       size="small"
                       style={{ width: '100%' }}
                       value={l.unit}
+                      disabled={!l.materialCatalogId}
                       onChange={(v: string) => setLine(l.key, { unit: v })}
                       options={MATERIAL_UNITS.map((u) => ({ value: u, label: u }))}
                     />
@@ -502,8 +554,8 @@ export default function OrderMaterialsModal({
           )}
 
           <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 10 }}>
-            Type each material as it goes on the supplier order. Once the order is issued its
-            lines are locked; to change them, cancel the order and issue a new one.
+            Pick each material from the catalog. Once the order is issued its lines are locked; to
+            change them, cancel the order and issue a new one.
           </Text>
 
           {offerConsumables ? (
@@ -532,7 +584,9 @@ export default function OrderMaterialsModal({
                     .filter((t) => !consumableRows.some((r) => r.toolId === t.id))
                     .map((t) => ({
                       value: t.id,
-                      label: `${t.name}${t.shopTerm ? ` “${t.shopTerm}”` : ''} (${t.code})`,
+                      label: `${t.name}${t.shopTerm ? ` “${t.shopTerm}”` : ''}${
+                        t.code ? ` (${t.code})` : ''
+                      }${t.notStockedYet ? ' · not stocked yet' : ''}`,
                     }))}
                 />
               </div>
