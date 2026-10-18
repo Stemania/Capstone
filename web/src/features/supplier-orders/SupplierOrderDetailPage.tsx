@@ -22,6 +22,11 @@ import { GradeInput, formatPoMaterialLabel } from '../../components/MaterialInpu
 import type { DeliveryMode, MaterialPurchase, SupplierOrder } from '../../types';
 import OrderMaterialsModal from './OrderMaterialsModal';
 import { LINE_STATUS_PILL, ORDER_STATUS_PILL, fmtDay, fmtMoney, fmtQty } from './supplierOrderUi';
+import {
+  PRINT_BEFORE_RECEIVE_HINT,
+  canReceiveOrder,
+  printedStatusLabel,
+} from './printReceiveGate';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const DELIVERY_MODE_OPTIONS: { value: DeliveryMode; label: string }[] = [
@@ -124,9 +129,37 @@ export default function SupplierOrderDetailPage() {
   const lines = order.lines || [];
   const pill = ORDER_STATUS_PILL[order.status];
   const editableDraft = isDraft && isOfficeStaff;
+  const printed = canReceiveOrder(order.printedAt);
   const receivableByMe = receivable && isOfficeStaff;
   const cancelled = order.status === 'CANCELLED';
   const printTermsEditable = isOfficeStaff && !cancelled;
+
+  const printPo = async () => {
+    if (isDraft || cancelled) return;
+    setBusy(true);
+    try {
+      // Office Staff: POST records the print; Admin can still open the view via GET route.
+      if (isOfficeStaff) {
+        const { data } = await supplierOrdersApi.markPrinted(order.id);
+        setOrder((prev) =>
+          prev
+            ? {
+                ...prev,
+                printedAt: data.order.printedAt,
+                printedById: data.order.printedById,
+                printedByName: data.order.printedByName,
+                printCount: data.order.printCount,
+              }
+            : prev
+        );
+      }
+      navigate(`/supplier-orders/${order.id}/print`);
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   /** Saves only the printed terms, leaving unsaved notes and VAT as typed. */
   const savePrintTerms = async (patch: { termsOfPayment?: string; deliveryMode?: DeliveryMode }) => {
@@ -396,14 +429,16 @@ export default function SupplierOrderDetailPage() {
               </Tooltip>
             ) : null}
             {receivableByMe ? (
-              <Button
-                type="primary"
-                icon={<CheckOutlined />}
-                disabled={!openLines.length || busy}
-                onClick={receiveOrder}
-              >
-                Receive order
-              </Button>
+              <Tooltip title={!printed ? PRINT_BEFORE_RECEIVE_HINT : undefined}>
+                <Button
+                  type="primary"
+                  icon={<CheckOutlined />}
+                  disabled={!openLines.length || busy || !printed}
+                  onClick={receiveOrder}
+                >
+                  Receive order
+                </Button>
+              </Tooltip>
             ) : null}
             <Tooltip
               title={
@@ -416,8 +451,8 @@ export default function SupplierOrderDetailPage() {
             >
               <Button
                 icon={<PrinterOutlined />}
-                disabled={isDraft || cancelled}
-                onClick={() => navigate(`/supplier-orders/${order.id}/print`)}
+                disabled={isDraft || cancelled || busy}
+                onClick={() => void printPo()}
               >
                 Print PO
               </Button>
@@ -492,6 +527,11 @@ export default function SupplierOrderDetailPage() {
             },
             { key: 'prep', label: 'Prepared by', children: order.preparedByName || '—' },
             { key: 'iss', label: 'Issued by', children: order.issuedByName || '—' },
+            {
+              key: 'printed',
+              label: 'Printed',
+              children: printedStatusLabel(order.printedAt, order.printedByName, fmtDay),
+            },
             { key: 'rec', label: 'Received', children: fmtDay(order.receivedDate) },
             { key: 'sub', label: 'Subtotal', children: fmtMoney(order.subtotal) },
             {

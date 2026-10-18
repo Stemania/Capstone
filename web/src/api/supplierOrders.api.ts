@@ -42,7 +42,11 @@ export const supplierOrdersApi = {
   /** Receive order: every open line on one date. */
   receive: (id: string, receivedDate?: string) =>
     apiClient.post<SupplierOrder>(`/supplier-orders/${id}/receive`, { receivedDate }),
+  /** Read-only print payload (does not mark printed). */
   print: (id: string) => apiClient.get<SupplierOrderPrint>(`/supplier-orders/${id}/print`),
+  /** Records the print (sets printedAt / increments count) and returns the print payload. */
+  markPrinted: (id: string) =>
+    apiClient.post<SupplierOrderPrint>(`/supplier-orders/${id}/print`),
   updateLine: (
     id: string,
     lineId: string,

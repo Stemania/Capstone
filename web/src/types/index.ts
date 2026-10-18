@@ -291,6 +291,11 @@ export interface SupplierOrder {
   preparedByName?: string | null;
   issuedById?: string | null;
   issuedByName?: string | null;
+  /** Set on first Print PO; required before receive. */
+  printedAt?: string | null;
+  printedById?: string | null;
+  printedByName?: string | null;
+  printCount?: number;
   lineCount: number;
   jobCount: number;
   consumableLineCount?: number;
