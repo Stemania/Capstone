@@ -371,13 +371,17 @@ def wipe_history():
     db.session.flush()
 
     counts_n, deliveries_n = _wipe_stock_history()
+    from app.seed.consumable_forecast_demo import wipe_consumable_forecast_demo
+
+    fc_ev, fc_po = wipe_consumable_forecast_demo()
     orders_n = _wipe_seeded_orders()
     dts_n, cal_n, clients_n = _wipe_hist_artifacts(commit=True)
     print(
         f"Wiped: {len(jobs)} jobs, {op_count} operations, {log_count} time logs, "
         f"{purchase_count} purchase lines, {orders_n} supplier orders, "
         f"{dts_n} downtimes, {cal_n} calendar exceptions, {clients_n} clients, "
-        f"{counts_n} stock counts, {deliveries_n} consumable deliveries."
+        f"{counts_n} stock counts, {deliveries_n} consumable deliveries, "
+        f"{fc_ev} FC-DEMO scans, {fc_po} FC-DEMO PO lines."
     )
 
 
@@ -1673,7 +1677,15 @@ def _seed_stock_history(creator, window_start: date, today: date, rng: random.Ra
     a delivery after the newest count, which raises quantity on hand as a real
     delivery does (--wipe takes it back off).
     """
-    tools = Tool.query.filter_by(category=ToolCategory.CONSUMABLE).order_by(Tool.code).all()
+    from app.seed.consumable_forecast_demo import NO_DATA_TOOL_CODE
+
+    tools = [
+        t
+        for t in Tool.query.filter_by(category=ToolCategory.CONSUMABLE)
+        .order_by(Tool.code)
+        .all()
+        if t.code != NO_DATA_TOOL_CODE
+    ]
     dates = _stock_count_dates(window_start, today, rng)
     if len(dates) < 2 or not tools:
         return {"counts": 0, "deliveries": 0, "afterLastCount": 0, "items": 0}
@@ -2318,6 +2330,16 @@ def seed_history():
 
     stock_stats = _seed_stock_history(creator, window_start, today, random.Random(RNG_SEED + 5))
     numbered_n = _number_seeded_orders()
+
+    from app.seed.consumable_forecast_demo import seed_consumable_forecast_demo
+
+    fc_stats = seed_consumable_forecast_demo(replace=True)
+    if not fc_stats.get("skipped"):
+        print(
+            f"FC-DEMO forecast: {fc_stats.get('scanEvents', 0)} scans, "
+            f"{fc_stats.get('poLines', 0)} restock PO lines "
+            f"({fc_stats.get('noDataTool')} left without demo history)."
+        )
 
     db.session.commit()
 

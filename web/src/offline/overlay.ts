@@ -51,6 +51,9 @@ function apply(op: OverlaidOperation, a: QueuedAction): OverlaidOperation {
         ...(running ? { isPaused: true, timeLogs: [...logs, log(op, a, 'PAUSE')] } : {}),
       };
     }
+    case 'consumable_scan':
+      // Scans do not change operation overlay state.
+      return op;
   }
 }
 

@@ -244,6 +244,14 @@ def seed_database():
             if not WorkerSchedule.query.filter_by(worker_id=admin.id).first():
                 db.session.add_all(_default_schedule(admin.id))
         print("Database already seeded, skipping.")
+        from app.seed.consumable_forecast_demo import seed_consumable_forecast_demo
+
+        fc = seed_consumable_forecast_demo()
+        if not fc.get("skipped"):
+            print(
+                f"Forecast demo: {fc.get('scanEvents', 0)} scans, "
+                f"{fc.get('poLines', 0)} restock PO lines."
+            )
         db.session.commit()
         return
 
@@ -508,6 +516,16 @@ def seed_database():
                 quantity=Decimal("1"),
                 job_order_id=job1.id,
             )
+        )
+
+    from app.seed.consumable_forecast_demo import seed_consumable_forecast_demo
+
+    fc = seed_consumable_forecast_demo()
+    if not fc.get("skipped"):
+        print(
+            f"Forecast demo: {fc.get('scanEvents', 0)} scans, "
+            f"{fc.get('poLines', 0)} restock PO lines "
+            f"(no-data item {fc.get('noDataTool')})."
         )
 
     db.session.commit()
