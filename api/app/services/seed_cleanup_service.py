@@ -811,7 +811,7 @@ def report_lines(report: CleanupReport, *, applied: bool) -> list[str]:
         "",
     ]
     if report.nothing_to_do:
-        out.append("Nothing to do — database already clean of targeted seed records.")
+        out.append("Nothing to do - database already clean of targeted seed records.")
         out.append("")
         out.append(
             f"Final totals: suppliers={report.finals.get('suppliers')}, "
