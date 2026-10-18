@@ -1,0 +1,48 @@
+.period-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.period-nav__label {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--c-text, #0f172a);
+  text-align: center;
+  min-width: 9.5rem;
+  padding: 0 4px;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.period-nav__picker.ant-picker {
+  width: 32px !important;
+  min-width: 32px !important;
+  padding: 0 4px !important;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.period-nav__picker .ant-picker-input {
+  width: 0 !important;
+  min-width: 0 !important;
+  overflow: hidden;
+}
+
+.period-nav__picker .ant-picker-input > input {
+  width: 0 !important;
+  padding: 0 !important;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.period-nav__picker .ant-picker-suffix {
+  margin: 0;
+  color: var(--c-text-muted, #64748b);
+  font-size: 14px;
+}
+
+.period-nav__picker:hover .ant-picker-suffix {
+  color: var(--c-text, #0f172a);
+}

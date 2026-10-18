@@ -5,7 +5,6 @@ import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useSta
 import {
   Badge,
   Button,
-  DatePicker,
   Drawer,
   Grid,
   Select,
@@ -13,12 +12,9 @@ import {
   Skeleton,
   Switch,
   Tooltip,
-  Typography,
   message,
 } from 'antd';
 import {
-  LeftOutlined,
-  RightOutlined,
   AimOutlined,
   FilterOutlined,
   CloseOutlined,
@@ -26,8 +22,11 @@ import {
   DashboardOutlined,
   WarningOutlined,
   InboxOutlined,
+  LeftOutlined,
+  RightOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
+import PeriodNavigator from '../../components/PeriodNavigator';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -74,8 +73,6 @@ import { TOUCH_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import { PersonAvatar, crewNames } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
 import './scheduleBoard.css';
-
-const { Text } = Typography;
 
 type ViewMode = TimelineViewMode;
 type RowMode = 'machine' | 'worker';
@@ -338,8 +335,7 @@ function AdminOfficeScheduleBoard() {
     setAnchor(dayjs().tz(SHOP_TZ));
   };
 
-  const jumpToDate = (d: Dayjs | null) => {
-    if (!d) return;
+  const jumpToDate = (d: Dayjs) => {
     setAnchor(d.tz(SHOP_TZ));
   };
 
@@ -757,43 +753,12 @@ function AdminOfficeScheduleBoard() {
           }
           center={
             !isPhoneBoard ? (
-              <>
-                <Button
-                  icon={<LeftOutlined />}
-                  onClick={() => shiftPeriod(-1)}
-                  aria-label="Previous period"
-                />
-                <Text
-                  strong
-                  style={{
-                    color: NAVY,
-                    fontSize: isMobile ? 13 : 14,
-                    minWidth: isMobile ? '7.5rem' : '11rem',
-                    textAlign: 'center',
-                  }}
-                >
-                  {viewMode === 'day'
-                    ? from.format('ddd, MMM D')
-                    : viewMode === 'month'
-                      ? from.format('MMMM YYYY')
-                      : `${from.format('MMM D')} – ${to.format('MMM D, YYYY')}`}
-                </Text>
-                <DatePicker
-                  picker={viewMode === 'month' ? 'month' : 'date'}
-                  value={anchor}
-                  allowClear={false}
-                  format={viewMode === 'month' ? 'MMM YYYY' : 'MMM D, YYYY'}
-                  onChange={jumpToDate}
-                  suffixIcon={<CalendarOutlined />}
-                  aria-label={viewMode === 'month' ? 'Jump to month' : 'Jump to date'}
-                  style={{ width: viewMode === 'month' ? 118 : 138 }}
-                />
-                <Button
-                  icon={<RightOutlined />}
-                  onClick={() => shiftPeriod(1)}
-                  aria-label="Next period"
-                />
-              </>
+              <PeriodNavigator
+                mode={viewMode}
+                value={anchor}
+                onChange={jumpToDate}
+                onStep={shiftPeriod}
+              />
             ) : undefined
           }
           trailing={

@@ -12,13 +12,7 @@ import {
   message,
   DatePicker,
 } from 'antd';
-import {
-  LeftOutlined,
-  RightOutlined,
-  DeleteOutlined,
-  WarningOutlined,
-  CalendarOutlined,
-} from '@ant-design/icons';
+import { CalendarOutlined, DeleteOutlined, WarningOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { Link } from 'react-router-dom';
 import {
@@ -30,6 +24,7 @@ import {
 } from '../../api/calendar.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
+import PeriodNavigator from '../../components/PeriodNavigator';
 import RescheduleAffectedJobs from './RescheduleAffectedJobs';
 import { Legend, PageSkeleton } from '../../components/ui';
 import './workCalendar.css';
@@ -422,27 +417,10 @@ export default function WorkCalendarPage() {
       >
         <div className="work-calendar__toolbar">
           <div className="work-calendar__nav">
-            <Button
-              type="text"
-              icon={<LeftOutlined />}
-              onClick={() => setAnchor((a) => a.subtract(1, 'month'))}
-              aria-label="Previous month"
-            />
-            <DatePicker
-              picker="month"
+            <PeriodNavigator
+              mode="month"
               value={anchor}
-              allowClear={false}
-              format="MMMM YYYY"
-              onChange={(d) => d && setAnchor(d.startOf('month'))}
-              className="work-calendar__month-picker"
-              suffixIcon={<CalendarOutlined />}
-              aria-label="Jump to month"
-            />
-            <Button
-              type="text"
-              icon={<RightOutlined />}
-              onClick={() => setAnchor((a) => a.add(1, 'month'))}
-              aria-label="Next month"
+              onChange={(d) => setAnchor(d.startOf('month'))}
             />
             <Button size="small" onClick={() => setAnchor(shopToday())}>
               Today
