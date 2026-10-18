@@ -11,12 +11,12 @@ import {
   message,
 } from 'antd';
 import { SaveOutlined, SendOutlined } from '@ant-design/icons';
-import { useBlocker } from 'react-router-dom';
 import { shopDetailsApi, type ShopDetails } from '../../api/shopDetails.api';
 import { notificationsApi } from '../../api/notifications.api';
 import { getErrorMessage } from '../../api/client';
 import type { NotificationLog } from '../../types';
 import { invalidateShopDetails } from '../../hooks/useShopDetails';
+import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { formatShop } from '../../utils/shopTime';
 import { shopLetterheadPreview } from './shopLetterheadPreview';
 import './shopDetails.css';
@@ -118,29 +118,8 @@ export default function ShopDetailsPage() {
     );
   }, [baseline, watched]);
 
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) =>
-      dirty && currentLocation.pathname !== nextLocation.pathname
-  );
-
-  useEffect(() => {
-    if (blocker.state !== 'blocked') return;
-    if (window.confirm('You have unsaved changes. Leave without saving?')) {
-      blocker.proceed();
-    } else {
-      blocker.reset();
-    }
-  }, [blocker]);
-
-  useEffect(() => {
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (!dirty) return;
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [dirty]);
+  // BrowserRouter cannot use useBlocker (needs a data router).
+  useUnsavedChangesWarning(dirty);
 
   useEffect(() => {
     shopDetailsApi

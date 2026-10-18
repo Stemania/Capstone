@@ -1,17 +1,29 @@
+import { useMemo, useRef, useState } from 'react';
 import { Button, DatePicker } from 'antd';
 import { CalendarOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
-import type { Dayjs } from 'dayjs';
+import dayjs, { type Dayjs } from 'dayjs';
+import updateLocale from 'dayjs/plugin/updateLocale';
 import { periodBounds, type TimelineViewMode } from '../features/schedule/scheduleTimelineUtils';
 import './periodNavigator.css';
 
+dayjs.extend(updateLocale);
+// Schedule weeks are Mon–Sun; keep the week picker aligned.
+dayjs.updateLocale('en', { weekStart: 1 });
+
 export type PeriodMode = TimelineViewMode;
+
+/** Ant DatePicker mode for each schedule view. */
+export function pickerKindForMode(mode: PeriodMode): 'date' | 'week' | 'month' {
+  if (mode === 'week') return 'week';
+  if (mode === 'month') return 'month';
+  return 'date';
+}
 
 /** Bold period label for Day / Week / Month. */
 export function formatPeriodLabel(anchor: Dayjs, mode: PeriodMode): string {
   const { from, to } = periodBounds(anchor, mode);
   if (mode === 'day') return from.format('ddd, MMM D, YYYY');
   if (mode === 'month') return from.format('MMMM YYYY');
-  // Week: same year → "MMM D – MMM D, YYYY"; cross-year rare
   if (from.year() === to.year()) {
     return `${from.format('MMM D')} – ${to.format('MMM D, YYYY')}`;
   }
@@ -31,7 +43,7 @@ type Props = {
 
 /**
  * Shared ‹  bold label  📅  › navigator used on Schedule and Work calendar.
- * Picking a date jumps to the period that contains it.
+ * Label and icon both open the picker; mode picks date / week / month.
  */
 export default function PeriodNavigator({
   mode,
@@ -41,7 +53,11 @@ export default function PeriodNavigator({
   className,
   hidePicker,
 }: Props) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const label = formatPeriodLabel(value, mode);
+  const picker = pickerKindForMode(mode);
+
   const step = (delta: -1 | 1) => {
     if (onStep) {
       onStep(delta);
@@ -52,34 +68,79 @@ export default function PeriodNavigator({
     else onChange(value.add(delta, 'month').startOf('month'));
   };
 
+  const applyPicked = (d: Dayjs | null) => {
+    if (!d) return;
+    if (mode === 'month') onChange(d.startOf('month'));
+    else if (mode === 'week') {
+      // Ant week value is the week's start under weekStart=1 (Monday).
+      onChange(d.startOf('week'));
+    } else onChange(d.startOf('day'));
+    setOpen(false);
+  };
+
+  const pickerValue = useMemo(() => {
+    if (mode === 'week') return value.startOf('week');
+    if (mode === 'month') return value.startOf('month');
+    return value.startOf('day');
+  }, [mode, value]);
+
+  const openPicker = () => setOpen(true);
+
+  const chooseLabel =
+    mode === 'month' ? 'Choose month' : mode === 'week' ? 'Choose week' : 'Choose date';
+
   return (
-    <div className={`period-nav${className ? ` ${className}` : ''}`}>
+    <div
+      ref={wrapRef}
+      className={`period-nav${className ? ` ${className}` : ''}${open ? ' is-open' : ''}`}
+    >
       <Button
         type="text"
         icon={<LeftOutlined />}
         onClick={() => step(-1)}
         aria-label={mode === 'month' ? 'Previous month' : 'Previous period'}
       />
-      <span className="period-nav__label" aria-live="polite">
-        {label}
-      </span>
       {!hidePicker ? (
-        <DatePicker
-          picker={mode === 'month' ? 'month' : 'date'}
-          value={value}
-          allowClear={false}
-          inputReadOnly
-          suffixIcon={<CalendarOutlined />}
-          onChange={(d) => {
-            if (!d) return;
-            onChange(mode === 'month' ? d.startOf('month') : d.startOf('day'));
-          }}
-          className="period-nav__picker"
-          aria-label={mode === 'month' ? 'Jump to month' : 'Jump to date'}
-          // Hide the typed value; the bold label is the source of truth.
-          format={() => ''}
-        />
-      ) : null}
+        <>
+          <button
+            type="button"
+            className="period-nav__label"
+            onClick={openPicker}
+            aria-label={chooseLabel}
+            aria-haspopup="dialog"
+            aria-expanded={open}
+          >
+            {label}
+          </button>
+          <DatePicker
+            picker={picker}
+            value={pickerValue}
+            open={open}
+            onOpenChange={setOpen}
+            allowClear={false}
+            inputReadOnly
+            suffixIcon={<CalendarOutlined className="period-nav__cal-icon" />}
+            onChange={applyPicked}
+            className="period-nav__picker"
+            classNames={{
+              popup: {
+                root:
+                  mode === 'week'
+                    ? 'period-nav__popup period-nav__popup--week'
+                    : 'period-nav__popup',
+              },
+            }}
+            getPopupContainer={() => wrapRef.current || document.body}
+            aria-label={chooseLabel}
+            // Hide the typed value; the bold label is the source of truth.
+            format={() => ''}
+          />
+        </>
+      ) : (
+        <span className="period-nav__label period-nav__label--static" aria-live="polite">
+          {label}
+        </span>
+      )}
       <Button
         type="text"
         icon={<RightOutlined />}

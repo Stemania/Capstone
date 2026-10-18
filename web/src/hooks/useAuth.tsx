@@ -14,7 +14,34 @@ interface AuthContextType {
   isWorker: boolean;
 }
 
-const AuthContext = createContext<AuthContextType | null>(null);
+export const AuthContext = createContext<AuthContextType | null>(null);
+
+/** Test / Story helpers: provide a fixed session without touching localStorage. */
+export function TestAuthProvider({
+  user,
+  children,
+}: {
+  user: User;
+  children: ReactNode;
+}) {
+  const role = user.role;
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        loading: false,
+        login: async () => undefined,
+        applySession: () => undefined,
+        logout: () => undefined,
+        isAdmin: role === 'ADMIN',
+        isOfficeStaff: role === 'OFFICE_STAFF',
+        isWorker: role === 'PRODUCTION_WORKER',
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {

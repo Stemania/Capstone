@@ -18,6 +18,7 @@ import { workerTheme } from '../theme/antTheme';
 import { colors as tokenColors, tones } from '../theme/tokens';
 import PinOfferModal from '../features/auth/PinOfferModal';
 import KeepAliveOutlet from '../navigation/KeepAliveOutlet';
+import RouteErrorBoundary from '../components/RouteErrorBoundary';
 import { useNavMemory } from '../navigation/navMemory';
 import NeedsConnection from '../offline/NeedsConnection';
 import OfflineStatusBar from '../offline/OfflineStatusBar';
@@ -263,7 +264,9 @@ export default function WorkerLayout() {
                 </>
               )}
               <div style={needsConnection ? { display: 'none' } : undefined}>
-                <KeepAliveOutlet />
+                <RouteErrorBoundary resetKey={location.pathname}>
+                  <KeepAliveOutlet />
+                </RouteErrorBoundary>
               </div>
             </main>
             <PinOfferModal />

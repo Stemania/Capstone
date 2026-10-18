@@ -30,6 +30,7 @@ import { useAuth } from '../hooks/useAuth';
 import { confirmLogout } from '../utils/confirmLogout';
 import KeepAliveOutlet from '../navigation/KeepAliveOutlet';
 import { getNavSection, useNavMemory } from '../navigation/navMemory';
+import RouteErrorBoundary from '../components/RouteErrorBoundary';
 import NotificationBell from '../components/NotificationBell';
 import { PersonAvatar } from '../components/PersonAvatar';
 import { Breadcrumbs, type Crumb } from '../components/ui/PageHeader';
@@ -431,7 +432,9 @@ export default function AppLayout() {
         </Header>
         <div className="app-shell__scroll">
           <Content className="app-shell__content">
-            <KeepAliveOutlet />
+            <RouteErrorBoundary resetKey={location.pathname}>
+              <KeepAliveOutlet />
+            </RouteErrorBoundary>
           </Content>
         </div>
 

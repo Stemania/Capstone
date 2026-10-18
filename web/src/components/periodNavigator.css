@@ -2,19 +2,43 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  position: relative;
 }
 
 .period-nav__label {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font: inherit;
   font-size: 15px;
   font-weight: 800;
   color: var(--c-text, #0f172a);
   text-align: center;
   min-width: 9.5rem;
-  padding: 0 4px;
+  padding: 4px 8px;
+  margin: 0;
   white-space: nowrap;
   line-height: 1.2;
+  border-radius: 6px;
+  cursor: pointer;
 }
 
+.period-nav__label:hover,
+.period-nav__label:focus-visible {
+  background: rgb(15 23 42 / 6%);
+  outline: none;
+}
+
+.period-nav__label--static {
+  cursor: default;
+  pointer-events: none;
+}
+
+.period-nav__label--static:hover {
+  background: transparent;
+}
+
+/* Icon-only date trigger; the bold label is the visible period text. */
 .period-nav__picker.ant-picker {
   width: 32px !important;
   min-width: 32px !important;
@@ -22,12 +46,14 @@
   border: none !important;
   background: transparent !important;
   box-shadow: none !important;
+  cursor: pointer;
 }
 
 .period-nav__picker .ant-picker-input {
   width: 0 !important;
   min-width: 0 !important;
   overflow: hidden;
+  padding: 0 !important;
 }
 
 .period-nav__picker .ant-picker-input > input {
@@ -38,11 +64,39 @@
 }
 
 .period-nav__picker .ant-picker-suffix {
-  margin: 0;
+  margin: 0 !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
   color: var(--c-text-muted, #64748b);
-  font-size: 14px;
+  font-size: 15px;
+  opacity: 1 !important;
 }
 
-.period-nav__picker:hover .ant-picker-suffix {
+.period-nav__cal-icon {
+  font-size: 15px;
+  color: var(--c-text-muted, #64748b);
+}
+
+.period-nav__picker:hover .ant-picker-suffix,
+.period-nav__picker:hover .period-nav__cal-icon,
+.period-nav.is-open .period-nav__cal-icon {
   color: var(--c-text, #0f172a);
+}
+
+/* Week picker: highlight the full Mon–Sun row while hovering / selected. */
+.period-nav__popup--week .ant-picker-cell-week,
+.period-nav__popup--week .ant-picker-cell-in-view.ant-picker-cell-week {
+  /* ant week column — leave as is */
+}
+
+.period-nav__popup--week .ant-picker-cell-in-view.ant-picker-cell-week:hover .ant-picker-cell-inner,
+.period-nav__popup--week tr:hover .ant-picker-cell-in-view .ant-picker-cell-inner {
+  background: rgb(37 99 235 / 12%);
+}
+
+.period-nav__popup--week .ant-picker-cell-selected .ant-picker-cell-inner,
+.period-nav__popup--week tr:has(.ant-picker-cell-selected) .ant-picker-cell-in-view .ant-picker-cell-inner {
+  background: #2563eb !important;
+  color: #fff !important;
 }
