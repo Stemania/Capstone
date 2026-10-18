@@ -5,69 +5,59 @@
   position: relative;
 }
 
-.period-nav__label {
+/* Single clickable area: bold period text + calendar icon. */
+.period-nav__trigger {
   appearance: none;
   border: none;
   background: transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font: inherit;
-  font-size: 15px;
-  font-weight: 800;
-  color: var(--c-text, #0f172a);
-  text-align: center;
-  min-width: 9.5rem;
   padding: 4px 8px;
   margin: 0;
-  white-space: nowrap;
-  line-height: 1.2;
   border-radius: 6px;
   cursor: pointer;
+  color: var(--c-text, #0f172a);
+  line-height: 1.2;
 }
 
-.period-nav__label:hover,
-.period-nav__label:focus-visible {
+.period-nav__trigger:hover,
+.period-nav__trigger:focus-visible {
   background: rgb(15 23 42 / 6%);
   outline: none;
 }
 
-.period-nav__label--static {
+.period-nav__trigger--static {
   cursor: default;
   pointer-events: none;
 }
 
-.period-nav__label--static:hover {
+.period-nav__trigger--static:hover {
   background: transparent;
 }
 
-/* Explicit calendar trigger — not Ant DatePicker's suffix. */
-.period-nav__cal-btn.ant-btn {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #1f2937;
+.period-nav__label {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--c-text, #0f172a);
+  text-align: center;
+  white-space: nowrap;
+  min-width: 0;
 }
 
-.period-nav__cal-btn.ant-btn:hover,
-.period-nav__cal-btn.ant-btn:focus-visible {
-  color: #1f2937 !important;
-  background: rgb(15 23 42 / 6%) !important;
-}
-
-.period-nav__cal-btn .anticon,
 .period-nav__cal-icon {
   font-size: 16px !important;
   color: #1f2937 !important;
   line-height: 1;
+  flex: none;
 }
 
 .period-nav.is-open .period-nav__cal-icon {
-  color: #1f2937;
+  color: #1f2937 !important;
 }
 
-/* Hide the DatePicker input; open is controlled by label / icon. */
+/* Hide the DatePicker input; open is controlled by the combined trigger. */
 .period-nav__picker.ant-picker {
   position: absolute !important;
   left: 0;

@@ -41,7 +41,7 @@ describe('periodBounds (date pick jumps to containing period)', () => {
 });
 
 describe('PeriodNavigator UI', () => {
-  it('renders the calendar icon and opens the picker from the bold label', () => {
+  it('renders the calendar icon and opens the picker from the combined trigger', () => {
     const onChange = vi.fn();
     const { container } = render(
       <ConfigProvider>
@@ -49,14 +49,14 @@ describe('PeriodNavigator UI', () => {
       </ConfigProvider>
     );
 
-    const calBtn = container.querySelector('.period-nav__cal-btn') as HTMLButtonElement;
-    expect(calBtn).toBeTruthy();
-    expect(calBtn.getAttribute('aria-label')).toBe('Choose date');
+    const trigger = container.querySelector('.period-nav__trigger') as HTMLButtonElement;
+    expect(trigger).toBeTruthy();
+    expect(trigger.getAttribute('aria-label')).toBe('Choose date');
+    expect(trigger.textContent).toContain('Mon, Oct 19, 2026');
     expect(container.querySelector('.period-nav__cal-icon, .anticon-calendar')).toBeTruthy();
+    expect(container.querySelector('.period-nav__cal-btn')).toBeNull();
 
-    const labelBtn = container.querySelector('.period-nav__label') as HTMLButtonElement;
-    expect(labelBtn.textContent).toContain('Mon, Oct 19, 2026');
-    fireEvent.click(labelBtn);
+    fireEvent.click(trigger);
     expect(document.querySelector('.ant-picker-dropdown')).toBeTruthy();
   });
 

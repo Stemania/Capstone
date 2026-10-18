@@ -42,8 +42,8 @@ type Props = {
 };
 
 /**
- * Shared ‹  bold label  📅  › navigator used on Schedule and Work calendar.
- * Label and icon both open the picker; mode picks date / week / month.
+ * Shared ‹  [bold label + 📅]  › navigator used on Schedule and Work calendar.
+ * One combined control opens the picker; mode picks date / week / month.
  */
 export default function PeriodNavigator({
   mode,
@@ -55,7 +55,7 @@ export default function PeriodNavigator({
 }: Props) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const labelRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const label = formatPeriodLabel(value, mode);
   const picker = pickerKindForMode(mode);
 
@@ -104,26 +104,18 @@ export default function PeriodNavigator({
       {!hidePicker ? (
         <>
           <button
-            ref={labelRef}
+            ref={triggerRef}
             type="button"
-            className="period-nav__label"
+            className="period-nav__trigger"
             onClick={openPicker}
             aria-label={chooseLabel}
             aria-haspopup="dialog"
             aria-expanded={open}
           >
-            {label}
+            <span className="period-nav__label">{label}</span>
+            <CalendarOutlined className="period-nav__cal-icon" aria-hidden />
           </button>
-          <Button
-            type="text"
-            className="period-nav__cal-btn"
-            icon={<CalendarOutlined className="period-nav__cal-icon" />}
-            onClick={openPicker}
-            aria-label="Choose date"
-            aria-haspopup="dialog"
-            aria-expanded={open}
-          />
-          {/* Invisible controlled picker — opened by label / icon, anchored under label. */}
+          {/* Invisible controlled picker — opened by the combined trigger. */}
           <DatePicker
             picker={picker}
             value={pickerValue}
@@ -142,15 +134,15 @@ export default function PeriodNavigator({
                     : 'period-nav__popup',
               },
             }}
-            getPopupContainer={() => labelRef.current || wrapRef.current || document.body}
+            getPopupContainer={() => triggerRef.current || wrapRef.current || document.body}
             aria-hidden
             tabIndex={-1}
             format={() => ''}
           />
         </>
       ) : (
-        <span className="period-nav__label period-nav__label--static" aria-live="polite">
-          {label}
+        <span className="period-nav__trigger period-nav__trigger--static" aria-live="polite">
+          <span className="period-nav__label">{label}</span>
         </span>
       )}
       <Button
