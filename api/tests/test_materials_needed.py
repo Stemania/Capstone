@@ -9,6 +9,7 @@ from decimal import Decimal
 import pytest
 from flask_jwt_extended import create_access_token
 
+from tests.catalog_helpers import ensure_material
 from app.extensions import bcrypt, db
 from app.models.client import Client
 from app.models.job_order import JobOrder, JobOrderStatus
@@ -78,7 +79,7 @@ def _get(client, shop, job_id):
 def _add_line(client, shop, job_id, **body):
     payload = {
         "supplierId": shop["supplier"].id,
-        "materialName": "Round bar 50mm",
+        "materialCatalogId": ensure_material("Round bar 50mm"), "materialName": "Round bar 50mm",
         "quantity": 10,
         "unit": "pcs",
         "unitCost": 100,
@@ -102,6 +103,7 @@ def _issue(client, shop, order_id):
 
 
 def _receive(client, shop, order_id):
+    client.post(f"/api/v1/supplier-orders/{order_id}/print", headers=_headers(shop["office"]))
     res = client.post(
         f"/api/v1/supplier-orders/{order_id}/receive",
         json={"receivedDate": "2031-03-05"},
@@ -183,7 +185,7 @@ def test_lines_are_typed_with_grade_unit_and_cost(client, shop):
     assert Decimal(str(line["unitCost"])) == Decimal("480")
     assert line["plannedMaterialId"] is None
 
-    assert _add_line(client, shop, job["id"], materialName="").status_code == 400
+    assert _add_line(client, shop, job["id"], materialCatalogId=None).status_code == 400
     assert _add_line(client, shop, job["id"], quantity=0).status_code == 400
 
 

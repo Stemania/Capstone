@@ -119,7 +119,18 @@ def receive(order_id):
 @jwt_required()
 @require_roles(*_STAFF)
 def print_order(order_id):
+    """Read the print payload only; POST /print records the print."""
     return jsonify(svc.print_data(svc.get_order(order_id)))
+
+
+@supplier_orders_bp.route("/<order_id>/print", methods=["POST"])
+@supplier_orders_bp.route("/<order_id>/mark-printed", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.OFFICE_STAFF)
+def mark_printed(order_id):
+    """Record that the PO was printed (required before receive); returns the
+    same payload as GET /print so the UI can open the print view."""
+    return jsonify(svc.mark_printed(svc.get_order(order_id), get_current_user_id()))
 
 
 @supplier_orders_bp.route("/<order_id>/lines/<line_id>", methods=["PATCH"])

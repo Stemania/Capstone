@@ -477,10 +477,32 @@ def sync_job_material_from_purchases(job: JobOrder):
         job.material_received_date = None
 
 
+PICK_MATERIAL_MESSAGE = "Pick a material from the catalog."
+
+
+def require_active_catalog_item(catalog_id):
+    """The active catalog material a new job-material PO line must reference."""
+    from app.models.material_catalog import MaterialCatalogItem
+
+    item = db.session.get(MaterialCatalogItem, catalog_id) if catalog_id else None
+    if item is None or not item.active:
+        raise AppError(PICK_MATERIAL_MESSAGE, "VALIDATION_ERROR", 400)
+    return item
+
+
+def check_material_unit(unit: str):
+    from app.models.material_catalog import MATERIAL_UNITS
+
+    if unit not in MATERIAL_UNITS:
+        raise AppError(
+            f"Unit must be one of {', '.join(MATERIAL_UNITS)}", "VALIDATION_ERROR", 400
+        )
+
+
 def build_draft_line(job: JobOrder, supplier: Supplier, data: dict) -> MaterialPurchase:
     """Validate one job material line for a draft supplier order (not added to
-    the session). Office Staff type the material when ordering; the job must
-    need materials (To order)."""
+    the session). The material is picked from the catalog (``materialCatalogId``,
+    active items only); the job must need materials (To order)."""
     if job.material_status == MaterialStatus.NOT_REQUIRED:
         raise AppError(
             f"{job.job_number} has Materials needed set to Not required. Set it to "
@@ -488,11 +510,9 @@ def build_draft_line(job: JobOrder, supplier: Supplier, data: dict) -> MaterialP
             "MATERIALS_NOT_REQUIRED",
             409,
         )
-    name = (data.get("materialName") or data.get("material_name") or "").strip()
-    if not name:
-        raise AppError("materialName is required", "VALIDATION_ERROR", 400)
-    if len(name) > 255:
-        raise AppError("materialName is too long", "VALIDATION_ERROR", 400)
+    item = require_active_catalog_item(
+        data.get("materialCatalogId") or data.get("material_catalog_id")
+    )
 
     qty = _parse_decimal(data.get("quantity"), "quantity")
     if qty <= 0:
@@ -501,15 +521,22 @@ def build_draft_line(job: JobOrder, supplier: Supplier, data: dict) -> MaterialP
         data.get("unitCost") if data.get("unitCost") is not None else data.get("unit_cost", 0),
         "unitCost",
     )
-    unit = (data.get("unit") or "pcs").strip() or "pcs"
+    unit = (data.get("unit") or "").strip() or item.default_unit or "pcs"
+    check_material_unit(unit)
     grade = (
         data.get("gradeOrSpec") or data.get("grade_or_spec") or ""
     ).strip() or None
+    size_spec = (data.get("sizeSpec") or data.get("size_spec") or "").strip() or None
+    if size_spec and len(size_spec) > 255:
+        raise AppError("sizeSpec is too long", "VALIDATION_ERROR", 400)
 
     return MaterialPurchase(
         job_order=job,
-        material_name=name,
+        material_catalog_id=item.id,
+        # Text snapshot; kept as typed on the PO even if the catalog name changes later.
+        material_name=item.name,
         grade_or_spec=grade,
+        size_spec=size_spec,
         quantity=qty,
         unit=unit,
         unit_cost=unit_cost,

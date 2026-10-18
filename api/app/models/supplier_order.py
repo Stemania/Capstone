@@ -108,6 +108,14 @@ class SupplierOrder(db.Model):
     )
     prepared_by_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=False)
     issued_by_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=True)
+    # First print of the issued PO (the supplier needs the paper copy before receive).
+    printed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    printed_by_id = db.Column(
+        db.String(36), db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    print_count = db.Column(
+        db.Integer, nullable=False, default=0, server_default="0"
+    )
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
     updated_at = db.Column(
         db.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
@@ -116,6 +124,7 @@ class SupplierOrder(db.Model):
     supplier = db.relationship("Supplier")
     prepared_by = db.relationship("User", foreign_keys=[prepared_by_id])
     issued_by = db.relationship("User", foreign_keys=[issued_by_id])
+    printed_by = db.relationship("User", foreign_keys=[printed_by_id])
     lines = db.relationship(
         "MaterialPurchase",
         back_populates="supplier_order",
@@ -164,6 +173,10 @@ class SupplierOrder(db.Model):
             "preparedByName": self.prepared_by.full_name if self.prepared_by else None,
             "issuedById": self.issued_by_id,
             "issuedByName": self.issued_by.full_name if self.issued_by else None,
+            "printedAt": self.printed_at.isoformat() if self.printed_at else None,
+            "printedById": self.printed_by_id,
+            "printedByName": self.printed_by.full_name if self.printed_by else None,
+            "printCount": int(self.print_count or 0),
             "lineCount": len(self.active_lines),
             "jobCount": len({ln.job_order_id for ln in self.active_lines if ln.job_order_id}),
             "consumableLineCount": sum(1 for ln in self.active_lines if ln.tool_id),

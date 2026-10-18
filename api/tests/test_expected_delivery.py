@@ -161,6 +161,7 @@ def test_received_cancelled_and_draft_orders_cannot_be_changed(client, shop):
 
     _, _, received = _issued_for_job_in(client, shop, 20)
     so = db.session.get(SupplierOrder, received["id"])
+    client.post(f"/api/v1/supplier-orders/{so.id}/print", headers=_headers(shop["office"]))
     client.post(
         f"/api/v1/supplier-orders/{so.id}/receive",
         json={"receivedDate": shop["today"].isoformat()},

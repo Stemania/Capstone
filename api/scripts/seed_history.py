@@ -1263,6 +1263,10 @@ def _seeded_order(supplier, issued: date, creator, note: str) -> SupplierOrder:
         notes=note,
         prepared_by_id=creator.id,
         issued_by_id=creator.id,
+        # Printed on the issue day, as the supplier gets the paper copy before receive.
+        printed_at=shop_local_to_utc(issued, time(8, 30)),
+        printed_by_id=creator.id,
+        print_count=1,
         created_at=shop_local_to_utc(issued, time(8, 0)),
     )
     db.session.add(order)

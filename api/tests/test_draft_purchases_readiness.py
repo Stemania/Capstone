@@ -9,6 +9,7 @@ from decimal import Decimal
 import pytest
 from flask_jwt_extended import create_access_token
 
+from tests.catalog_helpers import ensure_material
 from app.extensions import bcrypt, db
 from app.models.client import Client
 from app.models.job_order import JobOrder, JobOrderStatus, JobType, MaterialStatus, PartCondition
@@ -113,7 +114,7 @@ def test_office_opens_draft_detail_and_records_purchase(client, shop):
     res = client.post(
         f"/api/v1/job-orders/{job.id}/material-purchases",
         json={
-            "materialName": "A36 plate 10mm",
+            "materialCatalogId": ensure_material("A36 plate 10mm"), "materialName": "A36 plate 10mm",
             "supplierId": shop["fast"].id,
             "quantity": 2,
             "unit": "pcs",
@@ -312,7 +313,7 @@ def test_draft_supplier_order_does_not_count_as_ordered(client, shop):
     res = client.post(
         f"/api/v1/job-orders/{job.id}/material-purchases",
         json={
-            "materialName": "A36 plate",
+            "materialCatalogId": ensure_material("A36 plate"), "materialName": "A36 plate",
             "supplierId": shop["fast"].id,
             "quantity": 1,
             "unitCost": 100,
@@ -380,6 +381,7 @@ def test_expected_arrival_matches_latest_outstanding_po_line(client, shop):
         res = client.post(
             f"/api/v1/job-orders/{job.id}/material-purchases",
             json={
+                "materialCatalogId": ensure_material(name),
                 "materialName": name,
                 "supplierId": supplier.id,
                 "quantity": 1,

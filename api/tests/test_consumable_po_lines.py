@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 
+from tests.catalog_helpers import ensure_material
 from app.extensions import db
 from app.models.tool import Tool, ToolCategory
 from app.models.tool_event import ToolEvent, ToolEventType
@@ -43,6 +44,9 @@ def _consumable_line(shop, quantity=20):
 
 
 def _receive(client, shop, order_id, when="2031-03-04", user=None):
+    client.post(
+        f"/api/v1/supplier-orders/{order_id}/print", headers=_headers(user or shop["office"])
+    )
     return client.post(
         f"/api/v1/supplier-orders/{order_id}/receive",
         json={"receivedDate": when},
@@ -145,7 +149,7 @@ def test_job_material_line_is_typed_without_a_planned_material(client, shop):
     res = _add_lines(
         client,
         shop,
-        [{"jobOrderId": shop["job"].id, "materialName": "Plate 10mm", "quantity": 1, "unit": "pcs"}],
+        [{"jobOrderId": shop["job"].id, "materialCatalogId": ensure_material("Plate 10mm"), "materialName": "Plate 10mm", "quantity": 1, "unit": "pcs"}],
         supplier=shop["hardware"],
     )
     assert res.status_code == 200, res.get_json()

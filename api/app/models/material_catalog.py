@@ -10,7 +10,18 @@ from datetime import datetime, timezone
 from app.extensions import db
 
 MATERIAL_UNITS = ["pcs", "kg", "m", "ft", "sheet"]
-MATERIAL_CATEGORIES = ["Steel", "Tool steel", "Non-ferrous", "Aluminium", "Plastic", "Other"]
+MATERIAL_CATEGORIES = [
+    "Steel",
+    "Tool steel",
+    "Stainless steel",
+    "Cast iron",
+    "Aluminium",
+    "Non-ferrous",
+    "Plastic",
+    "Other",
+]
+# Units a consumable (stocked by count/pack) may be bought and counted in.
+CONSUMABLE_UNITS = ["pcs", "pack", "roll", "box", "spool", "can", "pail", "bottle", "pair"]
 
 
 def _utcnow():

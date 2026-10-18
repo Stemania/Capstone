@@ -10,6 +10,7 @@ from decimal import Decimal
 import pytest
 from flask_jwt_extended import create_access_token
 
+from tests.catalog_helpers import ensure_material
 from app.extensions import bcrypt, db
 from app.models.audit_log import AuditLog
 from app.models.client import Client
@@ -480,7 +481,7 @@ def test_supplier_purchase_and_invoice_write_audit_rows_with_actor(client, shop)
     res = client.post(
         f"/api/v1/job-orders/{job.id}/material-purchases",
         json={
-            "materialName": "AISI 1045 round bar",
+            "materialCatalogId": ensure_material("AISI 1045 round bar"), "materialName": "AISI 1045 round bar",
             "supplierId": supplier_id,
             "quantity": 2,
             "unit": "pcs",

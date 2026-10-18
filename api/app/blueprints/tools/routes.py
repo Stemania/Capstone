@@ -1,8 +1,11 @@
 from flask import Blueprint, jsonify, request, send_file
 from flask_jwt_extended import jwt_required
+from sqlalchemy import exists
 
 from app.middleware.rbac import get_current_user_id, require_roles
+from app.models.material_purchase import MaterialPurchase
 from app.models.tool import Tool, ToolCategory
+from app.models.tool_event import ToolEvent
 from app.models.user import UserRole
 from app.services import tool_event_service as te_service
 from app.services import tool_type_service as tt_service
@@ -25,6 +28,13 @@ def list_tools():
             q = q.filter_by(category=ToolCategory(category.upper()))
         except ValueError as exc:
             raise AppError("Invalid category", "VALIDATION_ERROR", 400) from exc
+    if str(request.args.get("stockedOnly", "")).lower() in ("1", "true", "yes"):
+        # Consumables tab: hide catalog items that never had stock or a PO line.
+        q = q.filter(
+            (Tool.quantity_on_hand > 0)
+            | exists().where(ToolEvent.tool_id == Tool.id)
+            | exists().where(MaterialPurchase.tool_id == Tool.id)
+        )
     tools = q.all()
     worker_id = get_current_user_id()
     return jsonify(

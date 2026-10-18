@@ -49,8 +49,18 @@ class MaterialPurchase(db.Model):
     )
     # id of an entry in job_orders.raw_materials; NULL = "Other material".
     planned_material_id = db.Column(db.String(36), nullable=True, index=True)
+    # Job-material catalog entry picked on the PO line (NULL on older lines and
+    # consumables). material_name below stays the text snapshot shown on the PO.
+    material_catalog_id = db.Column(
+        db.String(36),
+        db.ForeignKey("material_catalog.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     material_name = db.Column(db.String(255), nullable=False)
     grade_or_spec = db.Column(db.String(255), nullable=True)
+    # Job-specific dimensions / form (e.g. 12 mm x 1 m); grade stays in grade_or_spec.
+    size_spec = db.Column(db.String(255), nullable=True)
     quantity = db.Column(db.Numeric(12, 4), nullable=False)
     unit = db.Column(db.String(32), nullable=False, default="pcs")
     unit_cost = db.Column(db.Numeric(14, 4), nullable=False, default=Decimal("0"))
@@ -82,6 +92,7 @@ class MaterialPurchase(db.Model):
 
     job_order = db.relationship("JobOrder", back_populates="material_purchases")
     tool = db.relationship("Tool")
+    material_catalog = db.relationship("MaterialCatalogItem")
     supplier = db.relationship("Supplier", back_populates="material_purchases")
     supplier_order = db.relationship("SupplierOrder", back_populates="lines")
 
@@ -178,8 +189,10 @@ class MaterialPurchase(db.Model):
             "toolId": self.tool_id,
             "toolCode": self.tool.code if self.tool else None,
             "plannedMaterialId": self.planned_material_id,
+            "materialCatalogId": self.material_catalog_id,
             "materialName": self.material_name,
             "gradeOrSpec": self.grade_or_spec,
+            "sizeSpec": self.size_spec,
             "quantity": _num(self.quantity),
             "unit": self.unit,
             "unitCost": _num(self.unit_cost),

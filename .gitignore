@@ -50,6 +50,9 @@ api/.email_previews/
 # Deploy tooling
 .vercel
 
+# Local documentation screenshots of the prototype (Playwright)
+docs-screens/
+
 # Flutter client — parked for now (React is primary). Remove this
 # block and commit flutter/ when/if the mobile client is revived.
 flutter/

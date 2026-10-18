@@ -9,6 +9,7 @@ from decimal import Decimal
 import pytest
 from flask_jwt_extended import create_access_token
 
+from tests.catalog_helpers import ensure_material
 from app.extensions import bcrypt, db
 from app.models.client import Client
 from app.models.job_order import JobOrder, JobOrderStatus, JobType, MaterialStatus, PartCondition
@@ -125,7 +126,7 @@ def _draft_order(client, shop, job, supplier):
             "lines": [
                 {
                     "jobOrderId": job.id,
-                    "materialName": "Plate",
+                    "materialCatalogId": ensure_material("Plate"), "materialName": "Plate",
                     "unit": "pcs",
                     "quantity": 1,
                     "unitCost": 100,
@@ -275,6 +276,9 @@ def test_overdue_at_issue_moves_job_and_receipt_never_moves_it_back(client, shop
     assert job.material_delay_supplier_order_id == order["id"]
     moved_to = starts[0]
 
+    client.post(
+        f"/api/v1/supplier-orders/{issued['id']}/print", headers=_headers(shop["office"])
+    )
     res = client.post(
         f"/api/v1/supplier-orders/{issued['id']}/receive",
         json={"receivedDate": shop["today"].isoformat()},

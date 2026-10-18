@@ -131,10 +131,28 @@ def ordering_context(job_id=None):
                 "notOrderedYet": not mp_service.placed_lines(job),
             }
         )
+    from app.models.material_catalog import CONSUMABLE_UNITS, MATERIAL_UNITS
+
     return {
         "jobs": jobs,
         "lowStockConsumables": [] if job_id else low_stock_consumables(),
+        # Every offered consumable (stocked or not yet) so a PO line can pick any.
+        "offeredConsumables": [] if job_id else offered_consumables(),
+        "materialUnits": MATERIAL_UNITS,
+        "consumableUnits": CONSUMABLE_UNITS,
     }
+
+
+def offered_consumables() -> list[dict]:
+    from app.models.tool import Tool, ToolCategory
+    from app.services import catalog_service
+
+    tools = (
+        Tool.query.filter(Tool.category == ToolCategory.CONSUMABLE, Tool.active.is_(True))
+        .order_by(func.lower(Tool.name))
+        .all()
+    )
+    return [catalog_service.consumable_item(t) | {"toolId": t.id} for t in tools]
 
 
 def _consumable_on_order() -> dict:
@@ -221,6 +239,12 @@ def _build_consumable_line(supplier: Supplier, data: dict) -> MaterialPurchase:
     tool = Tool.query.get(data.get("toolId") or "")
     if not tool or tool.category != ToolCategory.CONSUMABLE:
         raise AppError("Consumable not found", "NOT_FOUND", 404)
+    if not tool.active:
+        raise AppError(
+            f"{tool.name} is not offered. Mark it Offered on the catalog to order it.",
+            "VALIDATION_ERROR",
+            400,
+        )
     unit = (data.get("unit") or tool.unit or "pcs").strip()
     if unit != tool.unit:
         raise AppError(
@@ -336,6 +360,16 @@ def update_draft(order: SupplierOrder, data: dict) -> SupplierOrder:
     return order
 
 
+def refresh_draft_line_name(line: MaterialPurchase):
+    """A draft job-material line follows its catalog entry's current name. Once
+    the order is issued the name is a fixed snapshot and is never rewritten."""
+    if not line.is_draft or line.tool_id is not None or not line.material_catalog_id:
+        return
+    item = line.material_catalog
+    if item is not None and line.material_name != item.name:
+        line.material_name = item.name
+
+
 def update_draft_line(order: SupplierOrder, line: MaterialPurchase, data: dict):
     _require_draft(order)
     if "quantity" in data:
@@ -344,14 +378,25 @@ def update_draft_line(order: SupplierOrder, line: MaterialPurchase, data: dict):
         line.unit_cost = _decimal(data.get("unitCost"), "unitCost")
     if "gradeOrSpec" in data:
         line.grade_or_spec = (data.get("gradeOrSpec") or "").strip() or None
+    if "sizeSpec" in data and line.tool_id is None:
+        line.size_spec = (data.get("sizeSpec") or "").strip() or None
     if line.planned_material_id is None and line.tool_id is None:
-        if "materialName" in data:
+        if "materialCatalogId" in data:
+            item = mp_service.require_active_catalog_item(data.get("materialCatalogId"))
+            line.material_catalog_id = item.id
+            line.material_name = item.name
+        elif "materialName" in data and line.material_catalog_id is None:
+            # Older line with no catalog entry: its typed name is still editable.
             name = (data.get("materialName") or "").strip()
             if not name:
                 raise AppError("materialName is required", "VALIDATION_ERROR", 400)
             line.material_name = name
         if "unit" in data:
-            line.unit = (data.get("unit") or "pcs").strip() or "pcs"
+            unit = (data.get("unit") or "pcs").strip() or "pcs"
+            if unit != line.unit:
+                mp_service.check_material_unit(unit)
+            line.unit = unit
+    refresh_draft_line_name(line)
     db.session.commit()
     return line
 
@@ -422,6 +467,9 @@ def issue_order(order: SupplierOrder, actor_id: str, date_issued=None) -> Suppli
         order.prepared_by_id = actor_id
         order.status = SupplierOrderStatus.ISSUED
         for line in order.active_lines:
+            # Freeze the catalog name on the line (draft followed the catalog).
+            if line.material_catalog is not None and line.tool_id is None:
+                line.material_name = line.material_catalog.name
             line.date_ordered = issued
         db.session.flush()
         for job in _jobs_of(order.active_lines):
@@ -582,6 +630,10 @@ def expected_delivery_history(order: SupplierOrder) -> list[dict]:
 def receive_order(order: SupplierOrder, received_date=None, *, actor_id=None):
     """Deliveries arrive complete: receive every open line on one date. Also
     completes an order partly received before this rule."""
+    if order.status == SupplierOrderStatus.RECEIVED:
+        raise AppError(
+            "Every line on this order is already received.", "ALREADY_RECEIVED", 409
+        )
     if order.status not in RECEIVABLE_STATUSES:
         raise AppError(
             "Only an issued supplier order can be received.", "ORDER_NOT_ISSUED", 409
@@ -589,11 +641,59 @@ def receive_order(order: SupplierOrder, received_date=None, *, actor_id=None):
     lines = [ln for ln in order.active_lines if ln.date_received is None]
     if not lines:
         raise AppError("Every line on this order is already received.", "ALREADY_RECEIVED", 409)
+    # An order already partly received (before this rule) can still be completed.
+    already_started = any(ln.date_received is not None for ln in order.active_lines)
+    if order.printed_at is None and not already_started:
+        raise AppError(
+            "Print the PO first — the supplier needs the printed copy.",
+            "PO_NOT_PRINTED",
+            409,
+        )
     mp_service.receive_lines(lines, received_date, actor_id=actor_id)
     return order
 
 
 # Printing
+
+PO_PRINTED = "SUPPLIER_ORDER_PRINTED"
+
+
+def mark_printed(order: SupplierOrder, actor_id: str) -> dict:
+    """Record a print of the issued PO and return the print payload. The first
+    print sets who and when; every print adds to the count. Receiving needs a
+    print first."""
+    from app.services.audit_service import write_audit_event
+
+    # Raises for a draft or cancelled order, so those are never marked printed.
+    print_data(order)
+    now = datetime.now(timezone.utc)
+    first = order.printed_at is None
+    try:
+        before = {
+            "printedAt": order.printed_at.isoformat() if order.printed_at else None,
+            "printCount": int(order.print_count or 0),
+        }
+        if first:
+            order.printed_at = now
+            order.printed_by_id = actor_id
+        order.print_count = int(order.print_count or 0) + 1
+        write_audit_event(
+            PO_PRINTED,
+            "SupplierOrder",
+            order.id,
+            before=before,
+            after={
+                "printedAt": order.printed_at.isoformat(),
+                "printedById": order.printed_by_id,
+                "printCount": order.print_count,
+                "poNumber": order.po_number,
+            },
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+    return print_data(order)
 
 
 def _money(v: Decimal) -> Decimal:
@@ -619,6 +719,7 @@ def print_data(order: SupplierOrder) -> dict:
             ln.is_consumable,
             (ln.material_name or "").strip().lower(),
             (ln.grade_or_spec or "").strip().lower(),
+            (ln.size_spec or "").strip().lower(),
             (ln.unit or "").strip().lower(),
         )
         row = groups.get(key)
@@ -626,6 +727,7 @@ def print_data(order: SupplierOrder) -> dict:
             row = groups[key] = {
                 "materialName": ln.material_name,
                 "gradeOrSpec": ln.grade_or_spec,
+                "sizeSpec": ln.size_spec,
                 "unit": ln.unit,
                 "isConsumable": ln.is_consumable,
                 "amount": Decimal("0"),

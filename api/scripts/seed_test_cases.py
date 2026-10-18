@@ -323,6 +323,30 @@ def work_in_past(op, start_utc):
     operation_service.complete_operation(op, worker, WORKER, end.isoformat())
 
 
+def _catalog_material(name, unit):
+    """The active catalog entry for a typed material, added when missing: PO
+    lines must pick a catalog material."""
+    from sqlalchemy import func
+
+    from app.models.material_catalog import MATERIAL_UNITS, MaterialCatalogItem
+
+    item = MaterialCatalogItem.query.filter(
+        func.lower(MaterialCatalogItem.name) == name.lower()
+    ).first()
+    if item is None:
+        item = MaterialCatalogItem(
+            name=name,
+            default_unit=unit if unit in MATERIAL_UNITS else "pcs",
+            grades=[],
+            active=True,
+        )
+        db.session.add(item)
+        db.session.flush()
+    elif not item.active:
+        item.active = True
+    return item
+
+
 def order_materials(ctx, job, supplier_code, *, issued, received=None):
     """Order the job's materials from one supplier on its own PO, typed as in
     Order materials; the delivery arrives complete."""
@@ -330,6 +354,7 @@ def order_materials(ctx, job, supplier_code, *, issued, received=None):
     lines = [
         {
             "jobOrderId": job.id,
+            "materialCatalogId": _catalog_material(m["name"], m["unit"]).id,
             "materialName": m["name"],
             "quantity": m["quantity"],
             "unit": m["unit"],
@@ -340,6 +365,8 @@ def order_materials(ctx, job, supplier_code, *, issued, received=None):
     order, _ = so_service.add_lines_to_draft(supplier.id, lines, ctx.office.id)
     so_service.issue_order(order, ctx.office.id, date_issued=issued.isoformat())
     if received:
+        # The supplier needs the printed copy before the delivery is received.
+        so_service.mark_printed(order, ctx.office.id)
         so_service.receive_order(order, received.isoformat(), actor_id=ctx.office.id)
     db.session.refresh(job)
     return order

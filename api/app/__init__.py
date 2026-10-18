@@ -156,9 +156,14 @@ def _register_blueprints(app):
     from app.blueprints.schedule.routes import schedule_bp
     from app.blueprints.attendance.routes import attendance_bp
     from app.blueprints.alerts.routes import alerts_bp
-    from app.blueprints.reference.routes import material_catalog_bp, shop_details_bp
+    from app.blueprints.reference.routes import (
+        catalog_bp,
+        material_catalog_bp,
+        shop_details_bp,
+    )
 
     app.register_blueprint(material_catalog_bp, url_prefix=f"{prefix}/material-catalog")
+    app.register_blueprint(catalog_bp, url_prefix=f"{prefix}/catalog")
     app.register_blueprint(shop_details_bp, url_prefix=f"{prefix}/shop-details")
     app.register_blueprint(alerts_bp, url_prefix=f"{prefix}/alerts")
     app.register_blueprint(notifications_bp, url_prefix=f"{prefix}/notifications")

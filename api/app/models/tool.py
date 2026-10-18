@@ -57,6 +57,10 @@ class Tool(db.Model):
     minimum_stock = db.Column(db.Numeric(12, 2), nullable=True)
     size_spec = db.Column(db.String(64), nullable=True)
     shop_term = db.Column(db.String(100), nullable=True)
+    # Offered: shown on the catalog and orderable on a PO. Not offered hides it.
+    active = db.Column(
+        db.Boolean, nullable=False, default=True, server_default=db.text("true")
+    )
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
 
     events = db.relationship(
@@ -73,6 +77,26 @@ class Tool(db.Model):
             str(self.minimum_stock)
         )
 
+    @property
+    def is_stocked(self) -> bool:
+        """True once the item has had stock: on hand, any stock event, or a PO line.
+        A catalog item with none of these is "not stocked yet"."""
+        if Decimal(str(self.quantity_on_hand or 0)) > 0:
+            return True
+        if self.id is None:
+            return False
+        from app.models.material_purchase import MaterialPurchase
+        from app.models.tool_event import ToolEvent
+
+        if db.session.query(ToolEvent.id).filter(ToolEvent.tool_id == self.id).first():
+            return True
+        return (
+            db.session.query(MaterialPurchase.id)
+            .filter(MaterialPurchase.tool_id == self.id)
+            .first()
+            is not None
+        )
+
     def to_dict(self, include_custody=False, worker_id=None):
         data = {
             "id": self.id,
@@ -87,6 +111,7 @@ class Tool(db.Model):
             "minimumStock": _num(self.minimum_stock),
             "sizeSpec": self.size_spec,
             "shopTerm": self.shop_term,
+            "active": bool(self.active) if self.active is not None else True,
             "lowStock": self.low_stock,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }

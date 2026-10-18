@@ -53,11 +53,38 @@ for _name, _value in {
 }.items():
     os.environ[_name] = _value
 
+from sqlalchemy import text  # noqa: E402
+
 from app import create_app  # noqa: E402
 from app.config import TestConfig  # noqa: E402
 from app.extensions import db  # noqa: E402
 
 _schema = {"present": False}
+
+
+def _drop_leftover_enums():
+    """Postgres keeps ENUM types after drop_all(). Drop them (no CASCADE) so
+    the next create_all can recreate types without UniqueViolation."""
+    db.session.rollback()
+    db.session.execute(
+        text(
+            """
+            DO $$
+            DECLARE r RECORD;
+            BEGIN
+              FOR r IN
+                SELECT t.typname
+                FROM pg_type t
+                JOIN pg_namespace n ON n.oid = t.typnamespace
+                WHERE n.nspname = 'public' AND t.typtype = 'e'
+              LOOP
+                EXECUTE format('DROP TYPE IF EXISTS %I', r.typname);
+              END LOOP;
+            END $$;
+            """
+        )
+    )
+    db.session.commit()
 
 
 @pytest.fixture(autouse=True)
@@ -79,6 +106,7 @@ def app():
         yield app
         db.session.remove()
         db.drop_all()
+        _drop_leftover_enums()
         _schema["present"] = False
 
 

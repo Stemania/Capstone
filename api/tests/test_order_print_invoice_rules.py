@@ -10,6 +10,7 @@ from decimal import Decimal
 import pytest
 from flask_jwt_extended import create_access_token
 
+from tests.catalog_helpers import ensure_material
 from app.extensions import bcrypt, db
 from app.models.audit_log import AuditLog
 from app.models.client import Client
@@ -109,7 +110,7 @@ def test_draft_order_cannot_be_printed_until_issued(client, shop):
         [
             {
                 "jobOrderId": job.id,
-                "materialName": "Round bar 50mm",
+                "materialCatalogId": ensure_material("Round bar 50mm"), "materialName": "Round bar 50mm",
                 "quantity": 4,
                 "unitCost": 250,
             }
@@ -139,7 +140,7 @@ def _issued_order(client, shop, job=None):
     order = _add_lines(
         client,
         shop,
-        [{"jobOrderId": job.id, "materialName": "Round bar 50mm", "quantity": 4, "unitCost": 250}],
+        [{"jobOrderId": job.id, "materialCatalogId": ensure_material("Round bar 50mm"), "materialName": "Round bar 50mm", "quantity": 4, "unitCost": 250}],
     ).get_json()
     res = client.post(
         f"/api/v1/supplier-orders/{order['id']}/issue",

@@ -9,6 +9,8 @@ from decimal import Decimal
 import pytest
 from flask_jwt_extended import create_access_token
 
+from tests.catalog_helpers import ensure_material
+
 from app.extensions import bcrypt, db
 from app.models.client import Client
 from app.models.job_order import JobOrder, JobOrderStatus, JobType, MaterialStatus, PartCondition
@@ -39,14 +41,14 @@ def _headers(user):
 
 def _job(shop, title):
     job = JobOrder(
-        client_id=shop["client"].id,
+        client_id=shop.get("client_id") or shop["client"].id,
         title=title,
         due_date=date(2031, 6, 1),
         status=JobOrderStatus.DRAFT,
         job_type=JobType.FABRICATION,
         part_condition=PartCondition.RAW_MATERIAL,
         material_status=MaterialStatus.TO_ORDER,
-        created_by_id=shop["office"].id,
+        created_by_id=shop.get("office_id") or shop["office"].id,
     )
     db.session.add(job)
     db.session.commit()
@@ -61,8 +63,19 @@ def shop(app):
     steel = Supplier(name="PO Steel", code="PSL", typical_lead_time_days=5, address="1 Mill Rd")
     other = Supplier(name="Other Metals", code="OTM", typical_lead_time_days=2)
     db.session.add_all([client_row, steel, other])
+    db.session.flush()
+    # Capture PKs before commit expires the instances (expire_on_commit).
+    s = {
+        "admin": admin,
+        "office": office,
+        "client": client_row,
+        "client_id": client_row.id,
+        "steel": steel,
+        "other": other,
+        "admin_id": admin.id,
+        "office_id": office.id,
+    }
     db.session.commit()
-    s = {"admin": admin, "office": office, "client": client_row, "steel": steel, "other": other}
     s["job_a"] = _job(s, "Shaft A")
     s["job_b"] = _job(s, "Shaft B")
     return s
@@ -71,6 +84,7 @@ def shop(app):
 def _line(job, name="Round bar 50mm", quantity=4, unit_cost=250, **extra):
     return {
         "jobOrderId": job.id,
+        "materialCatalogId": ensure_material(name),
         "materialName": name,
         "quantity": quantity,
         "unit": "pcs",
@@ -108,7 +122,16 @@ def _issue(client, shop, order_id, user=None, when="2031-03-02"):
     )
 
 
-def _receive(client, shop, order_id, when, user=None):
+def _print(client, shop, order_id, user=None):
+    return client.post(
+        f"/api/v1/supplier-orders/{order_id}/print",
+        headers=_headers(user or shop["office"]),
+    )
+
+
+def _receive(client, shop, order_id, when, user=None, print_first=True):
+    if print_first:
+        _print(client, shop, order_id, user)
     return client.post(
         f"/api/v1/supplier-orders/{order_id}/receive",
         json={"receivedDate": when},

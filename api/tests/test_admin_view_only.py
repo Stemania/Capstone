@@ -9,6 +9,7 @@ from decimal import Decimal
 
 import pytest
 
+from tests.catalog_helpers import ensure_material
 from app.extensions import db
 from app.models.client import Client
 from app.models.material_purchase import MaterialPurchase
@@ -30,6 +31,7 @@ ADMIN_REFUSED = [
     ("POST", f"/api/v1/supplier-orders/{X}/issue"),
     ("POST", f"/api/v1/supplier-orders/{X}/cancel"),
     ("POST", f"/api/v1/supplier-orders/{X}/receive"),
+    ("POST", f"/api/v1/supplier-orders/{X}/print"),
     ("PATCH", f"/api/v1/supplier-orders/{X}/lines/{X}"),
     ("DELETE", f"/api/v1/supplier-orders/{X}/lines/{X}"),
     ("POST", "/api/v1/inventory/stocktakes"),
@@ -198,6 +200,8 @@ def test_office_staff_can_still_run_supplier_orders_and_job_materials(client, sh
     )
     assert res.status_code == 200, res.get_json()
     _issue(client, shop, order["id"], shop["today"])
+    res = client.post(f"/api/v1/supplier-orders/{order['id']}/print", headers=h)
+    assert res.status_code == 200, res.get_json()
     res = client.post(
         f"/api/v1/supplier-orders/{order['id']}/receive",
         json={"receivedDate": shop["today"].isoformat()},
@@ -210,7 +214,7 @@ def test_office_staff_can_still_run_supplier_orders_and_job_materials(client, sh
 
     res = client.post(
         f"/api/v1/job-orders/{job.id}/material-purchases",
-        json={"supplierId": shop["quick"].id, "materialName": "Plate", "quantity": 4, "unitCost": 5},
+        json={"supplierId": shop["quick"].id, "materialCatalogId": ensure_material("Plate"), "materialName": "Plate", "quantity": 4, "unitCost": 5},
         headers=h,
     )
     assert res.status_code == 201, res.get_json()

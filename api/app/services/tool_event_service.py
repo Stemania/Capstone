@@ -34,6 +34,15 @@ def _parse_quantity(raw, *, default=Decimal("1")) -> Decimal:
     return qty
 
 
+def _check_consumable_unit(unit: str):
+    from app.models.material_catalog import CONSUMABLE_UNITS
+
+    if unit not in CONSUMABLE_UNITS:
+        raise AppError(
+            f"Unit must be one of {', '.join(CONSUMABLE_UNITS)}", "VALIDATION_ERROR", 400
+        )
+
+
 def create_tool(data):
     """Create a consumable inventory item."""
     name = (data.get("name") or "").strip()
@@ -53,9 +62,24 @@ def create_tool(data):
         )
     category = ToolCategory.CONSUMABLE
 
-    qty = _parse_quantity(data.get("quantityOnHand"), default=Decimal("0"))
-    if qty < 0:
-        raise AppError("quantityOnHand cannot be negative", "VALIDATION_ERROR", 400)
+    raw_qty = data.get("quantityOnHand")
+    if raw_qty not in (None, ""):
+        try:
+            qty = Decimal(str(raw_qty))
+        except Exception as exc:
+            raise AppError("quantityOnHand must be a number", "VALIDATION_ERROR", 400) from exc
+        if qty < 0:
+            raise AppError("quantityOnHand cannot be negative", "VALIDATION_ERROR", 400)
+        if qty > 0:
+            raise AppError(
+                "New consumables start with no stock. Order them on a purchase order "
+                "and receive it to add stock.",
+                "VALIDATION_ERROR",
+                400,
+            )
+
+    unit = (data.get("unit") or "pcs").strip() or "pcs"
+    _check_consumable_unit(unit)
 
     min_stock = data.get("minimumStock")
     minimum = None if min_stock in (None, "") else _parse_quantity(min_stock, default=Decimal("0"))
@@ -64,11 +88,12 @@ def create_tool(data):
         name=name,
         code=code,
         category=category,
-        unit=(data.get("unit") or "pcs").strip() or "pcs",
-        quantity_on_hand=qty,
+        unit=unit,
+        quantity_on_hand=Decimal("0"),
         minimum_stock=minimum,
         size_spec=(data.get("sizeSpec") or None) or None,
         shop_term=(data.get("shopTerm") or "").strip() or None,
+        active=bool(data["active"]) if "active" in data else True,
     )
     db.session.add(tool)
     db.session.commit()
@@ -96,7 +121,14 @@ def update_tool(tool_id, data):
         tool.code = code
 
     if "unit" in data:
-        tool.unit = (data.get("unit") or "pcs").strip() or "pcs"
+        unit = (data.get("unit") or "pcs").strip() or "pcs"
+        # Legacy units stay as they are; only a change to a new unit is validated.
+        if unit != tool.unit:
+            _check_consumable_unit(unit)
+        tool.unit = unit
+
+    if "active" in data:
+        tool.active = bool(data.get("active"))
 
     if "sizeSpec" in data:
         tool.size_spec = (data.get("sizeSpec") or None) or None

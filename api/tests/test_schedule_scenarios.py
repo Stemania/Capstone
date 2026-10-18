@@ -13,6 +13,7 @@ from decimal import Decimal
 import pytest
 from flask_jwt_extended import create_access_token
 
+from tests.catalog_helpers import ensure_material
 from app.extensions import db
 from app.models.client import Client
 from app.models.job_order import JobOrder, JobOrderStatus, JobType, MaterialStatus, PartCondition
@@ -376,7 +377,7 @@ def _order_line(client, shop, job, issued, expected):
     res = client.post(
         "/api/v1/supplier-orders/draft-lines",
         json={"supplierId": shop["supplier"].id, "lines": [
-            {"jobOrderId": job.id, "materialName": "Plate", "unit": "pcs", "quantity": 1, "unitCost": 100}
+            {"jobOrderId": job.id, "materialCatalogId": ensure_material("Plate"), "materialName": "Plate", "unit": "pcs", "quantity": 1, "unitCost": 100}
         ]},
         headers=_headers(shop["office"]),
     )
