@@ -16,8 +16,13 @@ import type {
 } from '../types';
 
 export const toolsApi = {
-  list: (params?: { category?: ToolCategory }) =>
-    apiClient.get<Tool[]>('/tools', { params }),
+  list: (params?: { category?: ToolCategory; stockedOnly?: boolean }) =>
+    apiClient.get<Tool[]>('/tools', {
+      params: {
+        category: params?.category,
+        stockedOnly: params?.stockedOnly ? '1' : undefined,
+      },
+    }),
   create: (data: {
     name: string;
     code?: string;

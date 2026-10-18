@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button, Modal, Form, Input, InputNumber, Select, Segmented, DatePicker, Alert, Dropdown, Drawer, Row, Col, message, Tooltip } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
-  PlusOutlined,
   SearchOutlined,
   DownloadOutlined,
   MoreOutlined,
@@ -27,6 +26,7 @@ import ToolsAssetsPanel from './ToolsAssetsPanel';
 import RawMaterialsPanel from './RawMaterialsPanel';
 import MaterialCatalogPanel from './MaterialCatalogPanel';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
+import { INVENTORY_TAB_OPTIONS } from './inventoryTabs';
 
 type PageTab = 'tools' | 'consumables' | 'raw-materials' | 'catalog';
 type StockFilter = 'low' | 'ok';
@@ -36,11 +36,12 @@ function sectionLabel(text: string) {
 }
 
 export default function ToolsPage() {
-  const { isOfficeStaff: canEdit } = useAuth();
+  const { isOfficeStaff, isAdmin } = useAuth();
+  const canEdit = isOfficeStaff;
+  const canEditCatalog = isOfficeStaff || isAdmin;
   const [tab, setTab] = useState<PageTab>('tools');
   const [tools, setTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
   const [editTool, setEditTool] = useState<Tool | null>(null);
   const [adjustTool, setAdjustTool] = useState<Tool | null>(null);
   const [receiveTool, setReceiveTool] = useState<Tool | null>(null);
@@ -50,18 +51,17 @@ export default function ToolsPage() {
   const [stockFilter, setStockFilter] = useState<StockFilter[]>([]);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  const [form] = Form.useForm();
   const [editForm] = Form.useForm();
   const [adjustForm] = Form.useForm();
   const [receiveForm] = Form.useForm();
-  const [creating, setCreating] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const isPhone = useIsPhone();
 
   const fetchTools = async () => {
     setLoading(true);
     try {
-      const { data } = await toolsApi.list({ category: 'CONSUMABLE' });
+      // Consumables tab = what we have (stocked); Catalog holds not-yet-stocked items.
+      const { data } = await toolsApi.list({ category: 'CONSUMABLE', stockedOnly: true });
       setTools(data);
     } catch (err) {
       message.error(getErrorMessage(err));
@@ -108,29 +108,6 @@ export default function ToolsPage() {
   }, [tools, query, stockFilter]);
 
   const lowCount = tools.filter((t) => t.lowStock).length;
-
-  const onCreate = async (values: {
-    name: string;
-    code?: string;
-    unit: string;
-    quantityOnHand: number;
-    minimumStock?: number | null;
-    sizeSpec?: string;
-    shopTerm?: string;
-  }) => {
-    try {
-      setCreating(true);
-      await toolsApi.create({ ...values, category: 'CONSUMABLE' });
-      message.success('Consumable added');
-      setModalOpen(false);
-      form.resetFields();
-      await fetchTools();
-    } catch (err) {
-      message.error(getErrorMessage(err));
-    } finally {
-      setCreating(false);
-    }
-  };
 
   const onEdit = async (values: {
     name: string;
@@ -293,7 +270,7 @@ export default function ToolsPage() {
 
   const stockEmpty =
     tools.length === 0
-      ? 'No consumables in the catalog yet. Add items, then workers can scan usage and you can correct counts here.'
+      ? 'Consumables appear here after their first supplier order is received.'
       : stockFilter.includes('low') && !stockFilter.includes('ok') && lowCount === 0
         ? 'No items are at or below reorder level right now.'
         : 'No items match your search or stock filter.';
@@ -305,12 +282,7 @@ export default function ToolsPage() {
           style={{ marginBottom: 16 }}
           value={tab}
           onChange={(v) => setTab(v as PageTab)}
-          options={[
-            { label: 'Tools', value: 'tools' },
-            { label: 'Consumables', value: 'consumables' },
-            { label: 'Raw materials', value: 'raw-materials' },
-            { label: 'Material catalog', value: 'catalog' },
-          ]}
+          options={[...INVENTORY_TAB_OPTIONS]}
         />
       </div>
 
@@ -318,7 +290,7 @@ export default function ToolsPage() {
 
       {tab === 'raw-materials' && <RawMaterialsPanel />}
 
-      {tab === 'catalog' && <MaterialCatalogPanel canEdit={canEdit} />}
+      {tab === 'catalog' && <MaterialCatalogPanel canEdit={canEditCatalog} />}
 
       {tab === 'consumables' && (
         <>
@@ -406,16 +378,6 @@ export default function ToolsPage() {
                     </Button>
                   </>
                 )}
-                {canEdit && (
-                  <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={() => setModalOpen(true)}
-                    style={{ fontWeight: 700 }}
-                  >
-                    Add consumable
-                  </Button>
-                )}
               </div>
             </div>
 
@@ -481,95 +443,6 @@ export default function ToolsPage() {
           >
             <ToolEventsPage category="CONSUMABLE" />
           </Drawer>
-
-          <Modal
-            open={modalOpen}
-            onCancel={() => setModalOpen(false)}
-            footer={null}
-            width={560}
-            centered
-            destroyOnHidden
-            className="app-form-modal"
-            styles={{
-              container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
-              body: { padding: 0 },
-            }}
-            closable={false}
-          >
-            <div className="app-form-modal__head">
-              <div className="app-form-modal__icon">
-                <AppstoreAddOutlined />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div className="app-form-modal__title">Add consumable</div>
-                <div className="app-form-modal__sub">Workers scan usage; office receives deliveries and corrects counts.</div>
-              </div>
-              <button type="button" className="app-form-modal__close" onClick={() => setModalOpen(false)}>
-                ×
-              </button>
-            </div>
-            <Form
-              form={form}
-              layout="vertical"
-              onFinish={onCreate}
-              style={{ padding: '20px 24px 8px' }}
-              initialValues={{ unit: 'pcs', quantityOnHand: 0 }}
-            >
-              {sectionLabel('Item details')}
-              <Row gutter={12}>
-                <Col xs={24} sm={14}>
-                  <Form.Item name="name" label="Name" rules={[{ required: true }]}>
-                    <Input placeholder="e.g. Sandpaper" />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} sm={10}>
-                  <Form.Item
-                    name="shopTerm"
-                    label="Shop term"
-                    tooltip="What the shop calls it; searchable."
-                  >
-                    <Input placeholder="e.g. Liha" />
-                  </Form.Item>
-                </Col>
-              </Row>
-              <Row gutter={12}>
-                <Col xs={24} sm={14}>
-                  <Form.Item name="code" label="Code">
-                    <Input placeholder="Auto-generated if empty" />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} sm={10}>
-                  <Form.Item name="sizeSpec" label="Size / spec">
-                    <Input placeholder="e.g. 10mm" />
-                  </Form.Item>
-                </Col>
-              </Row>
-              {sectionLabel('Stock levels')}
-              <Row gutter={12}>
-                <Col xs={24} sm={8}>
-                  <Form.Item name="unit" label="Unit" rules={[{ required: true }]}>
-                    <Input />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} sm={8}>
-                  <Form.Item name="quantityOnHand" label="In stock" rules={[{ required: true }]}>
-                    <InputNumber min={0} style={{ width: '100%' }} />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} sm={8}>
-                  <Form.Item name="minimumStock" label="Reorder level">
-                    <InputNumber min={0} style={{ width: '100%' }} />
-                  </Form.Item>
-                </Col>
-              </Row>
-            </Form>
-            <div className="app-form-modal__footer">
-              <Button onClick={() => setModalOpen(false)}>Cancel</Button>
-              <Button type="primary" loading={creating} onClick={() => form.submit()} style={{ fontWeight: 700 }}>
-                Create
-              </Button>
-            </div>
-          </Modal>
 
           <Modal
             open={Boolean(editTool)}

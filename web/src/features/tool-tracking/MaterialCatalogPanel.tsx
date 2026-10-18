@@ -1,41 +1,51 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Col, Form, Input, Modal, Row, Select, Switch, Tag, message } from 'antd';
+import { Button, Col, Form, Input, Modal, Row, Select, Segmented, Switch, Tag, message } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { EditOutlined, PlusOutlined, SearchOutlined, ExperimentOutlined } from '@ant-design/icons';
+import { EditOutlined, PlusOutlined, SearchOutlined, BookOutlined } from '@ant-design/icons';
 import {
+  CONSUMABLE_UNITS,
   MATERIAL_UNITS,
-  materialCatalogApi,
-  materialMatches,
-  type MaterialCatalogInput,
-  type MaterialCatalogItem,
-} from '../../api/materialCatalog.api';
+  catalogApi,
+  catalogMatches,
+  type CatalogCreateInput,
+  type CatalogItem,
+  type CatalogKind,
+  type CatalogTypeFilter,
+} from '../../api/catalog.api';
 import { getErrorMessage } from '../../api/client';
 import { invalidateMaterialCatalog } from '../../hooks/useMaterialCatalog';
 import StatusPill from '../../components/StatusPill';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
+import { ADD_CATALOG_ITEM_LABEL } from './inventoryTabs';
 
 function sectionLabel(text: string) {
   return <div className="app-form-section">{text}</div>;
 }
 
-/** Common raw materials suggested on order lines. Office Staff manage it;
- *  the Admin views it. */
+/** Unified buy-list: materials and consumables. Stock lives on the Consumables tab
+ *  after the first PO receipt; Catalog is what we can order. */
 export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) {
-  const [rows, setRows] = useState<MaterialCatalogItem[]>([]);
+  const [rows, setRows] = useState<CatalogItem[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
+  const [materialUnits, setMaterialUnits] = useState<string[]>(MATERIAL_UNITS);
+  const [consumableUnits, setConsumableUnits] = useState<string[]>(CONSUMABLE_UNITS);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
-  const [editing, setEditing] = useState<MaterialCatalogItem | null>(null);
+  const [typeFilter, setTypeFilter] = useState<CatalogTypeFilter>('all');
+  const [editing, setEditing] = useState<CatalogItem | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
+  const kindWatch = Form.useWatch('kind', form) as CatalogKind | undefined;
 
   const fetchRows = async () => {
     setLoading(true);
     try {
-      const { data } = await materialCatalogApi.list({ includeInactive: true });
+      const { data } = await catalogApi.list({ includeInactive: true });
       setRows(data.items);
       setCategories(data.categories);
+      setMaterialUnits(data.materialUnits?.length ? data.materialUnits : MATERIAL_UNITS);
+      setConsumableUnits(data.consumableUnits?.length ? data.consumableUnits : CONSUMABLE_UNITS);
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
@@ -47,37 +57,75 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
     void fetchRows();
   }, []);
 
-  const filtered = useMemo(() => rows.filter((r) => materialMatches(r, query)), [rows, query]);
+  const filtered = useMemo(() => {
+    return rows.filter((r) => {
+      if (typeFilter === 'MATERIAL' && r.kind !== 'MATERIAL') return false;
+      if (typeFilter === 'CONSUMABLE' && r.kind !== 'CONSUMABLE') return false;
+      return catalogMatches(r, query);
+    });
+  }, [rows, query, typeFilter]);
 
   const openCreate = () => {
     setEditing(null);
     form.resetFields();
-    form.setFieldsValue({ defaultUnit: 'kg', grades: [], active: true });
+    form.setFieldsValue({
+      kind: 'MATERIAL',
+      defaultUnit: 'kg',
+      unit: 'pcs',
+      grades: [],
+      active: true,
+    });
     setModalOpen(true);
   };
 
-  const openEdit = (r: MaterialCatalogItem) => {
+  const openEdit = (r: CatalogItem) => {
     setEditing(r);
     form.setFieldsValue({
+      kind: r.kind,
       name: r.name,
       shopTerm: r.shopTerm,
-      grades: r.grades,
-      defaultUnit: r.defaultUnit,
+      grades: r.kind === 'MATERIAL' ? r.gradesOrSizes || r.grades || [] : undefined,
+      sizeSpec: r.kind === 'CONSUMABLE' ? r.sizeSpec || r.gradesOrSizes?.[0] || undefined : undefined,
+      defaultUnit: r.defaultUnit || r.unit,
+      unit: r.unit,
       category: r.category,
       active: r.active,
     });
     setModalOpen(true);
   };
 
-  const onSave = async (values: MaterialCatalogInput) => {
+  const onSave = async (values: CatalogCreateInput & { grades?: string[]; sizeSpec?: string }) => {
     try {
       setSaving(true);
       if (editing) {
-        await materialCatalogApi.update(editing.id, values);
-        message.success('Material updated');
+        const body = {
+          name: values.name,
+          shopTerm: values.shopTerm,
+          active: values.active,
+          category: values.category,
+          ...(editing.kind === 'MATERIAL'
+            ? { grades: values.grades || [], defaultUnit: values.defaultUnit || values.unit }
+            : { sizeSpec: values.sizeSpec || null, unit: values.unit }),
+        };
+        if (editing.kind === 'MATERIAL') {
+          await catalogApi.updateMaterial(editing.id, body);
+        } else {
+          await catalogApi.updateConsumable(editing.id, body);
+        }
+        message.success('Catalog item updated');
       } else {
-        await materialCatalogApi.create(values);
-        message.success('Material added');
+        const kind = values.kind;
+        await catalogApi.create({
+          kind,
+          name: values.name,
+          shopTerm: values.shopTerm,
+          active: values.active ?? true,
+          category: kind === 'MATERIAL' ? values.category : undefined,
+          ...(kind === 'MATERIAL'
+            ? { grades: values.grades || [], defaultUnit: values.defaultUnit || 'kg' }
+            : { sizeSpec: values.sizeSpec || null, unit: values.unit || 'pcs' }),
+        });
+        message.success('Catalog item added');
       }
       invalidateMaterialCatalog();
       setModalOpen(false);
@@ -89,27 +137,52 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
     }
   };
 
-  const columns: TableColumnsType<MaterialCatalogItem> = [
+  const columns: TableColumnsType<CatalogItem> = [
     {
-      title: 'Material',
+      title: 'Item',
       key: 'name',
       sorter: (a, b) => a.name.localeCompare(b.name),
       render: (_: unknown, r) => (
         <div>
           <div style={{ fontWeight: 600, color: '#0f172a' }}>{r.name}</div>
-          {r.shopTerm ? (
-            <div style={{ fontSize: 12, color: '#64748b' }}>Shop term: “{r.shopTerm}”</div>
-          ) : null}
+          <div style={{ fontSize: 12, color: '#64748b' }}>
+            {r.shopTerm ? <>Shop term: “{r.shopTerm}”</> : null}
+            {r.kind === 'CONSUMABLE' && r.code ? (
+              <>
+                {r.shopTerm ? ' · ' : null}
+                Code: {r.code}
+              </>
+            ) : null}
+          </div>
         </div>
       ),
     },
     {
-      title: 'Grades / specs',
-      dataIndex: 'grades',
-      render: (grades: string[]) =>
-        grades.length ? grades.map((g) => <Tag key={g}>{g}</Tag>) : <span style={{ color: '#94a3b8' }}>—</span>,
+      title: 'Type',
+      dataIndex: 'kind',
+      width: 120,
+      render: (kind: CatalogKind) =>
+        kind === 'MATERIAL' ? (
+          <Tag color="blue">Material</Tag>
+        ) : (
+          <Tag color="purple">Consumable</Tag>
+        ),
     },
-    { title: 'Unit', dataIndex: 'defaultUnit', width: 80 },
+    {
+      title: 'Grades / sizes',
+      key: 'grades',
+      render: (_: unknown, r) => {
+        const list = r.gradesOrSizes?.length
+          ? r.gradesOrSizes
+          : r.grades || (r.sizeSpec ? [r.sizeSpec] : []);
+        return list.length ? (
+          list.map((g) => <Tag key={g}>{g}</Tag>)
+        ) : (
+          <span style={{ color: '#94a3b8' }}>—</span>
+        );
+      },
+    },
+    { title: 'Unit', dataIndex: 'unit', width: 80 },
     {
       title: 'Category',
       dataIndex: 'category',
@@ -119,14 +192,26 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
     },
     {
       title: 'Status',
-      dataIndex: 'active',
-      width: 100,
-      render: (v: boolean) =>
-        v ? (
-          <StatusPill color="green" compact>Offered</StatusPill>
-        ) : (
-          <StatusPill color="gray" compact>Hidden</StatusPill>
-        ),
+      key: 'status',
+      width: 160,
+      render: (_: unknown, r) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {r.active ? (
+            <StatusPill color="green" compact>
+              Offered
+            </StatusPill>
+          ) : (
+            <StatusPill color="gray" compact>
+              Not offered
+            </StatusPill>
+          )}
+          {r.kind === 'CONSUMABLE' && r.notStockedYet ? (
+            <StatusPill color="amber" compact>
+              Not stocked yet
+            </StatusPill>
+          ) : null}
+        </div>
+      ),
     },
     ...(canEdit
       ? [
@@ -134,7 +219,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
             title: '',
             key: 'actions',
             width: 56,
-            render: (_: unknown, r: MaterialCatalogItem) => (
+            render: (_: unknown, r: CatalogItem) => (
               <Button type="text" icon={<EditOutlined />} onClick={() => openEdit(r)} />
             ),
           },
@@ -142,23 +227,35 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
       : []),
   ];
 
+  const kind = editing?.kind || kindWatch || 'MATERIAL';
+  const isMaterial = kind === 'MATERIAL';
+
   return (
     <div className="std-list-page">
       <div className="std-list-toolbar">
         <div className="std-list-filters">
           <Input
             allowClear
-            placeholder="Search name, shop term, grade…"
+            placeholder="Search name, shop term, grade, code…"
             prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="std-list-search"
           />
+          <Segmented
+            value={typeFilter}
+            onChange={(v) => setTypeFilter(v as CatalogTypeFilter)}
+            options={[
+              { label: 'All', value: 'all' },
+              { label: 'Materials', value: 'MATERIAL' },
+              { label: 'Consumables', value: 'CONSUMABLE' },
+            ]}
+          />
         </div>
         <div className="std-list-actions">
           {canEdit && (
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} style={{ fontWeight: 700 }}>
-              Add material
+              {ADD_CATALOG_ITEM_LABEL}
             </Button>
           )}
         </div>
@@ -166,17 +263,17 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
 
       <ResponsiveTable
         className="std-list-table"
-        rowKey="id"
+        rowKey={(r) => `${r.kind}-${r.id}`}
         size="small"
         loading={loading}
         columns={columns}
         dataSource={filtered}
-        scroll={{ x: 720 }}
+        scroll={{ x: 880 }}
         pagination={{ pageSize: 20, hideOnSinglePage: true }}
         locale={{
           emptyText: rows.length
-            ? 'No materials match your search.'
-            : 'No materials in the catalog yet.',
+            ? 'No catalog items match your search.'
+            : 'No items in the catalog yet.',
         }}
       />
 
@@ -196,12 +293,15 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
       >
         <div className="app-form-modal__head">
           <div className="app-form-modal__icon">
-            <ExperimentOutlined />
+            <BookOutlined />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="app-form-modal__title">{editing ? 'Edit material' : 'Add material'}</div>
+            <div className="app-form-modal__title">
+              {editing ? 'Edit catalog item' : ADD_CATALOG_ITEM_LABEL}
+            </div>
             <div className="app-form-modal__sub">
-              Suggested when entering order lines; free text is still allowed.
+              Catalog is what the shop can buy. Stock for consumables arrives only by receiving a
+              purchase order.
             </div>
           </div>
           <button
@@ -214,11 +314,25 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
           </button>
         </div>
         <Form form={form} layout="vertical" onFinish={onSave} style={{ padding: '20px 24px 8px' }}>
-          {sectionLabel('Material')}
+          {sectionLabel('Type')}
+          <Form.Item name="kind" label="Type" rules={[{ required: true }]}>
+            <Select
+              disabled={Boolean(editing)}
+              options={[
+                { value: 'MATERIAL', label: 'Material' },
+                { value: 'CONSUMABLE', label: 'Consumable' },
+              ]}
+            />
+          </Form.Item>
+          {sectionLabel(isMaterial ? 'Material' : 'Consumable')}
           <Row gutter={12}>
             <Col xs={24} md={14}>
               <Form.Item name="name" label="Name" rules={[{ required: true }]}>
-                <Input placeholder="e.g. AISI 4140 alloy steel" />
+                <Input
+                  placeholder={
+                    isMaterial ? 'e.g. AISI 4140 alloy steel' : 'e.g. Cutting disc'
+                  }
+                />
               </Form.Item>
             </Col>
             <Col xs={24} md={10}>
@@ -227,29 +341,43 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
                 label="Shop term"
                 tooltip="What the shop calls it; searching by it finds this entry."
               >
-                <Input placeholder="e.g. 41-40" />
+                <Input placeholder={isMaterial ? 'e.g. 41-40' : 'e.g. Liha'} />
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item
-            name="grades"
-            label="Grade / spec suggestions"
-            tooltip="Type a grade and press Enter to add it."
-          >
-            <Select mode="tags" open={false} placeholder="e.g. A36" tokenSeparators={[',']} />
-          </Form.Item>
+          {isMaterial ? (
+            <Form.Item
+              name="grades"
+              label="Grade / spec suggestions"
+              tooltip="Type a grade and press Enter to add it."
+            >
+              <Select mode="tags" open={false} placeholder="e.g. A36" tokenSeparators={[',']} />
+            </Form.Item>
+          ) : (
+            <Form.Item name="sizeSpec" label="Size / spec">
+              <Input placeholder='e.g. 4" (107 mm)' />
+            </Form.Item>
+          )}
           <Row gutter={12}>
             <Col xs={12} md={8}>
-              <Form.Item name="defaultUnit" label="Default unit" rules={[{ required: true }]}>
-                <Select options={MATERIAL_UNITS.map((u) => ({ value: u, label: u }))} />
-              </Form.Item>
+              {isMaterial ? (
+                <Form.Item name="defaultUnit" label="Default unit" rules={[{ required: true }]}>
+                  <Select options={materialUnits.map((u) => ({ value: u, label: u }))} />
+                </Form.Item>
+              ) : (
+                <Form.Item name="unit" label="Unit" rules={[{ required: true }]}>
+                  <Select options={consumableUnits.map((u) => ({ value: u, label: u }))} />
+                </Form.Item>
+              )}
             </Col>
-            <Col xs={12} md={10}>
-              <Form.Item name="category" label="Category">
-                <Select allowClear options={categories.map((c) => ({ value: c, label: c }))} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={6}>
+            {isMaterial ? (
+              <Col xs={12} md={10}>
+                <Form.Item name="category" label="Category">
+                  <Select allowClear options={categories.map((c) => ({ value: c, label: c }))} />
+                </Form.Item>
+              </Col>
+            ) : null}
+            <Col xs={24} md={isMaterial ? 6 : 8}>
               <Form.Item name="active" label="Offered" valuePropName="checked">
                 <Switch checkedChildren="Yes" unCheckedChildren="No" />
               </Form.Item>
