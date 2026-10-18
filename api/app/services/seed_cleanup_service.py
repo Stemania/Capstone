@@ -31,10 +31,14 @@ MERGE_SUPPLIERS = {
     "Seno Metals": "Railim Industrial Corporation",
 }
 
+# Never delete / rename / merge these users (match full_name case-insensitively).
 KEEP_USER_NAMES = {
     "admin user",
     "office staff",
     "test",
+    "anthony serrano",
+    "ericka valinado",
+    "mea angel",
     "anthony pajantoy",
     "ariel macairap",
     "emerson agao",
@@ -49,6 +53,25 @@ KEEP_USER_NAMES = {
     "melvin cablao",
     "olimpio grajo iii",
     "pao bobila",
+}
+
+# Ensure these exist (name only). BSU is left alone.
+INTERVIEW_CLIENTS = (
+    "Aboitiz",
+    "CyberAge",
+    "MMV Builders",
+    "Revery Construction",
+    "Sanitary Care",
+    "SIDC",
+    "Sunjin Philippines Corporation",
+    "Tosoh Polyvin Corporation",
+)
+
+# Demo flask-seed clients → interview targets (after INTERVIEW_CLIENTS exist).
+PLACEHOLDER_CLIENT_MERGES = {
+    "ABC Manufacturing": "Aboitiz",
+    "Metro Steel Corp": "MMV Builders",
+    "Pacific Engineering": "Tosoh Polyvin Corporation",
 }
 
 SEED_WORKER_EMAIL_SUFFIX = "@bmsc.local"
@@ -92,9 +115,12 @@ class CleanupReport:
     host: str = ""
     db_name: str = ""
     nothing_to_do: bool = False
+    users_kept: list[dict] = field(default_factory=list)
     suppliers_cleared_seed: list[str] = field(default_factory=list)
     suppliers_merged: list[dict] = field(default_factory=list)
     suppliers_left_seed: list[str] = field(default_factory=list)
+    clients_created: list[str] = field(default_factory=list)
+    clients_placeholders_merged: list[dict] = field(default_factory=list)
     clients_renamed: list[dict] = field(default_factory=list)
     clients_merged: list[dict] = field(default_factory=list)
     clients_contacts_cleared: list[str] = field(default_factory=list)
@@ -111,6 +137,8 @@ class CleanupReport:
         return bool(
             self.suppliers_cleared_seed
             or self.suppliers_merged
+            or self.clients_created
+            or self.clients_placeholders_merged
             or self.clients_renamed
             or self.clients_merged
             or self.worker_mapping
@@ -390,16 +418,80 @@ def _clear_fake_contacts(client, report: CleanupReport) -> None:
         report.clients_contacts_cleared.append(client.name)
 
 
-def _merge_client(src, dest, report: CleanupReport) -> None:
+def _merge_client(src, dest, report: CleanupReport, *, bucket: list | None = None) -> None:
     counts = MoveCounts()
     _reassign_all_fks(src.id, dest.id, ("clients",), counts)
     db.session.flush()
     name = src.name
     db.session.delete(src)
     db.session.flush()
-    report.clients_merged.append(
+    (bucket if bucket is not None else report.clients_merged).append(
         {"from": name, "to": dest.name, "moved": dict(counts.by_table)}
     )
+
+
+def _client_by_name(name: str):
+    from app.models.client import Client
+
+    return Client.query.filter(db.func.lower(Client.name) == name.lower()).first()
+
+
+def ensure_interview_clients(report: CleanupReport) -> None:
+    """Create missing interview clients (name only). Never touches BSU."""
+    from app.models.client import Client
+
+    for name in INTERVIEW_CLIENTS:
+        if _client_by_name(name):
+            continue
+        db.session.add(
+            Client(
+                name=name,
+                contact=None,
+                email=None,
+                mobile_number=None,
+                notify_by_email=False,
+                notify_by_sms=False,
+            )
+        )
+        report.clients_created.append(name)
+    db.session.flush()
+
+
+def merge_placeholder_clients(report: CleanupReport) -> None:
+    """Merge flask-seed demo clients into interview targets."""
+    for src_name, dest_name in PLACEHOLDER_CLIENT_MERGES.items():
+        src = _client_by_name(src_name)
+        dest = _client_by_name(dest_name)
+        if not src:
+            continue
+        if not dest:
+            report.clients_placeholders_merged.append(
+                {"from": src_name, "to": f"(missing {dest_name!r})", "moved": {}}
+            )
+            continue
+        if src.id == dest.id:
+            continue
+        _merge_client(src, dest, report, bucket=report.clients_placeholders_merged)
+
+
+def resolve_kept_users(report: CleanupReport) -> set[str]:
+    """Record every keep-list user found (by name). Returns their ids."""
+    from app.models.user import User
+
+    keep_ids: set[str] = set()
+    for u in User.query.order_by(User.full_name.asc()).all():
+        if (u.full_name or "").strip().lower() not in KEEP_USER_NAMES:
+            continue
+        keep_ids.add(u.id)
+        report.users_kept.append(
+            {
+                "fullName": u.full_name,
+                "id": u.id,
+                "email": u.email,
+                "role": u.role.value if u.role else None,
+            }
+        )
+    return keep_ids
 
 
 def cleanup_clients(report: CleanupReport) -> None:
@@ -412,7 +504,7 @@ def cleanup_clients(report: CleanupReport) -> None:
         _merge_client(note, bsu, report)
     elif note and not bsu:
         report.clients_merged.append(
-            {"from": note.name, "to": "(missing BSU — left alone)", "moved": {}}
+            {"from": note.name, "to": "(missing BSU - left alone)", "moved": {}}
         )
 
     seeded = [
@@ -494,8 +586,18 @@ def _skill_types(user_id: str) -> set[str]:
     return {r[0] for r in rows}
 
 
+def _is_active_worker(u) -> bool:
+    from app.models.user import UserStatus
+
+    return bool(u.active) and u.status == UserStatus.ACTIVE
+
+
 def _build_worker_mapping(seeded: list, keepers: list) -> list[tuple]:
-    """Map each seeded worker → a keep worker. Prefer shared skills, else fewest rows."""
+    """Map each seeded worker → a kept PRODUCTION_WORKER.
+
+    Prefer active keepers (e.g. ``test`` on live), then shared skills, then
+    fewest existing rows. Never maps onto Admin / Office Staff.
+    """
     loads = {k.id: _worker_load(k.id) for k in keepers}
     skills = {k.id: _skill_types(k.id) for k in keepers}
     mapping = []
@@ -505,7 +607,8 @@ def _build_worker_mapping(seeded: list, keepers: list) -> list[tuple]:
         best_key = None
         for k in keepers:
             shared = len(seed_skills & skills[k.id])
-            key = (-shared, loads[k.id], k.full_name.lower())
+            # active first (0), then more shared skills, then fewer rows
+            key = (0 if _is_active_worker(k) else 1, -shared, loads[k.id], k.full_name.lower())
             if best_key is None or key < best_key:
                 best_key = key
                 best = k
@@ -586,19 +689,15 @@ def _delete_user_owned(user_id: str) -> None:
     _delete_rows("worker_profiles", "user_id", user_id)
 
 
-def cleanup_workers(report: CleanupReport) -> None:
+def cleanup_workers(report: CleanupReport, keep_ids: set[str]) -> None:
     from app.models.user import User, UserRole
 
+    # Mapping targets: kept PRODUCTION_WORKERs only (never Admin / Office Staff).
     keepers = [
         u
         for u in User.query.filter_by(role=UserRole.PRODUCTION_WORKER).all()
-        if (u.full_name or "").strip().lower() in KEEP_USER_NAMES
+        if u.id in keep_ids
     ]
-    # Also keep non-worker named accounts (Admin User, Office Staff, test) — never delete them.
-    keep_ids = {u.id for u in keepers}
-    for u in User.query.all():
-        if (u.full_name or "").strip().lower() in KEEP_USER_NAMES:
-            keep_ids.add(u.id)
 
     seeded = [
         u
@@ -608,7 +707,7 @@ def cleanup_workers(report: CleanupReport) -> None:
         if (u.email or "").lower().endswith(SEED_WORKER_EMAIL_SUFFIX) and u.id not in keep_ids
     ]
 
-    # Anything else that looks seeded (listed only).
+    # Anything else that looks seeded (listed only). Keep-list users are never listed here.
     for u in User.query.order_by(User.full_name).all():
         email = (u.email or "").lower()
         name = (u.full_name or "").strip().lower()
@@ -618,17 +717,17 @@ def cleanup_workers(report: CleanupReport) -> None:
             continue
         if email.endswith(SEED_WORKER_EMAIL_SUFFIX) and u.role != UserRole.PRODUCTION_WORKER:
             report.workers_listed_only.append(
-                f"{u.full_name} <{u.email}> role={u.role.value} (not a worker — left alone)"
+                f"{u.full_name} <{u.email}> role={u.role.value} (not a worker - left alone)"
             )
         elif name.startswith("hist-seed") or name.startswith("tc-seed"):
-            report.workers_listed_only.append(f"{u.full_name} <{u.email}> (looks seeded — left alone)")
+            report.workers_listed_only.append(f"{u.full_name} <{u.email}> (looks seeded - left alone)")
 
     if not seeded:
         return
     if not keepers:
         for s in seeded:
             report.workers_listed_only.append(
-                f"{s.full_name} <{s.email}> (no real employees to map onto — left alone)"
+                f"{s.full_name} <{s.email}> (no kept PRODUCTION_WORKER to map onto - left alone)"
             )
         return
 
@@ -785,9 +884,12 @@ def run(*, apply: bool = False, confirm_host: str | None = None) -> CleanupRepor
             )
 
     try:
+        keep_ids = resolve_kept_users(report)
         cleanup_suppliers(report)
+        ensure_interview_clients(report)
+        merge_placeholder_clients(report)
         cleanup_clients(report)
-        cleanup_workers(report)
+        cleanup_workers(report, keep_ids)
         cleanup_seed_text(report)
         db.session.flush()
         report.finals = _final_totals()
@@ -810,6 +912,16 @@ def report_lines(report: CleanupReport, *, applied: bool) -> list[str]:
         f"Mode: {'APPLY (committed)' if applied else 'DRY RUN (rolled back)'}",
         "",
     ]
+    out.append(f"KEPT USERS ({len(report.users_kept)}):")
+    for row in report.users_kept or []:
+        out.append(
+            f"  - kept {row['fullName']} id={row['id']} email={row['email'] or '-'} "
+            f"role={row.get('role') or '-'}"
+        )
+    if not report.users_kept:
+        out.append("  - (none of the keep-list names found)")
+    out.append("")
+
     if report.nothing_to_do:
         out.append("Nothing to do - database already clean of targeted seed records.")
         out.append("")
@@ -820,34 +932,41 @@ def report_lines(report: CleanupReport, *, applied: bool) -> list[str]:
         )
         return out
 
-    out.append(f"SUPPLIERS — {verb}")
+    out.append(f"SUPPLIERS - {verb}")
     out.append(f"  Seed flag cleared ({len(report.suppliers_cleared_seed)}):")
     for n in report.suppliers_cleared_seed or ["(none)"]:
         out.append(f"    - {n}")
     out.append(f"  Merged then deleted ({len(report.suppliers_merged)}):")
     for row in report.suppliers_merged or []:
         moved = ", ".join(f"{k}={v}" for k, v in (row.get("moved") or {}).items()) or "no FK rows"
-        out.append(f"    - {row['from']!r} → {row['to']!r}  [{moved}]")
+        out.append(f"    - {row['from']!r} -> {row['to']!r}  [{moved}]")
     if report.suppliers_left_seed:
         out.append("  Other seed-flagged suppliers (left alone):")
         for n in report.suppliers_left_seed:
             out.append(f"    - {n}")
     out.append("")
 
-    out.append(f"CLIENTS — {verb}")
+    out.append(f"CLIENTS - {verb}")
+    out.append(f"  Clients created ({len(report.clients_created)}):")
+    for n in report.clients_created or ["(none)"]:
+        out.append(f"    - {n}")
+    out.append(f"  Placeholder clients merged ({len(report.clients_placeholders_merged)}):")
+    for row in report.clients_placeholders_merged or []:
+        moved = ", ".join(f"{k}={v}" for k, v in (row.get("moved") or {}).items()) or "no FK rows"
+        out.append(f"    - {row['from']!r} -> {row['to']!r}  [{moved}]")
     out.append(f"  Renamed ({len(report.clients_renamed)}):")
     for row in report.clients_renamed or []:
-        out.append(f"    - {row['from']!r} → {row['to']!r}")
+        out.append(f"    - {row['from']!r} -> {row['to']!r}")
     out.append(f"  Merged then deleted ({len(report.clients_merged)}):")
     for row in report.clients_merged or []:
         moved = ", ".join(f"{k}={v}" for k, v in (row.get("moved") or {}).items()) or "no FK rows"
-        out.append(f"    - {row['from']!r} → {row['to']!r}  [{moved}]")
+        out.append(f"    - {row['from']!r} -> {row['to']!r}  [{moved}]")
     out.append(f"  Contacts cleared ({len(report.clients_contacts_cleared)}):")
     for n in report.clients_contacts_cleared or ["(none)"]:
         out.append(f"    - {n}")
     out.append("")
 
-    out.append(f"WORKERS — {verb}")
+    out.append(f"WORKERS - {verb}")
     out.append(f"  Mapping ({len(report.worker_mapping)}):")
     for row in report.worker_mapping or []:
         out.append(f"    - {row['from']} <{row['fromEmail']}> → {row['to']}")
@@ -873,7 +992,7 @@ def report_lines(report: CleanupReport, *, applied: bool) -> list[str]:
             out.append(f"    - {n}")
     out.append("")
 
-    out.append(f"TEXT CLEANUP — {verb}")
+    out.append(f"TEXT CLEANUP - {verb}")
     if not report.text_cleanup:
         out.append("  - (none)")
     for k, v in sorted(report.text_cleanup.items()):

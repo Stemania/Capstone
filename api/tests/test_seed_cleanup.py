@@ -9,6 +9,12 @@ from app.extensions import bcrypt, db
 from app.models.attendance import AttendanceRecord
 from app.models.client import Client
 from app.models.job_order import JobOrder, JobOrderStatus, JobType, MaterialStatus, PartCondition
+from app.models.notification import (
+    NotificationChannel,
+    NotificationLog,
+    NotificationMilestone,
+    NotificationStatus,
+)
 from app.models.operation import JobOperation, OperationStatus
 from app.models.operation_time import OperationTimeEvent, OperationTimeLog
 from app.models.supplier import Supplier
@@ -297,12 +303,16 @@ def test_apply_merges_and_moves(world):
     assert "Sanitary Care" in names
     assert "Aboitiz" in names
     assert "BSU" in names
+    for interview in cleanup.INTERVIEW_CLIENTS:
+        assert any(n.lower() == interview.lower() for n in names), interview
     assert not any(n.startswith("HIST-SEED ") or n.startswith("TC-SEED ") for n in names)
     assert "TC-SEED Notification Client (TC-29)" not in names
 
     assert User.query.filter_by(email="worker1@bmsc.local").count() == 0
     assert User.query.filter_by(email="worker2@bmsc.local").count() == 0
     assert User.query.filter_by(full_name="Anthony Pajantoy").count() == 1
+    assert any(k["fullName"] == "Anthony Pajantoy" for k in report.users_kept)
+    assert any(k["fullName"] == "Admin User" for k in report.users_kept)
 
     done = db.session.get(JobOperation, world["done_op"].id)
     assert done.assigned_worker_id == world["keep_a"].id
@@ -391,3 +401,92 @@ def test_mask_database_url_hides_credentials(url, shown):
     masked = mask_database_url(url)
     assert masked == shown
     assert "s3cret" not in masked and "p%40ss" not in masked
+
+
+def test_keep_list_never_deleted_even_with_bmsc_email(world):
+    """Keep-list names are never removed, even when email is @bmsc.local."""
+    kept = _worker("worker99@bmsc.local", "Anthony Serrano")
+    db.session.commit()
+    host = cleanup.database_label()[1]
+    report = cleanup.run(apply=True, confirm_host=host)
+    assert db.session.get(User, kept.id) is not None
+    assert User.query.filter_by(email="worker99@bmsc.local").count() == 1
+    assert any(k["id"] == kept.id for k in report.users_kept)
+    assert "worker99@bmsc.local" not in (report.workers_deleted or [])
+    assert not any(m.get("fromEmail") == "worker99@bmsc.local" for m in report.worker_mapping)
+
+
+def test_interview_clients_created_once_idempotent(world):
+    host = cleanup.database_label()[1]
+    # Ensure a couple of interview names are absent before the first apply.
+    for name in ("CyberAge", "SIDC", "MMV Builders"):
+        row = Client.query.filter(db.func.lower(Client.name) == name.lower()).first()
+        if row:
+            db.session.delete(row)
+    db.session.commit()
+    assert Client.query.filter(db.func.lower(Client.name) == "cyberage").count() == 0
+
+    first = cleanup.run(apply=True, confirm_host=host)
+    assert "CyberAge" in first.clients_created
+    assert "SIDC" in first.clients_created
+    assert "MMV Builders" in first.clients_created
+    assert Client.query.filter(db.func.lower(Client.name) == "cyberage").count() == 1
+
+    second = cleanup.run(apply=True, confirm_host=host)
+    assert second.clients_created == []
+    assert Client.query.filter(db.func.lower(Client.name) == "cyberage").count() == 1
+
+
+def test_placeholder_merge_moves_jobs_and_notification_logs(world):
+    admin = world["admin"]
+    abc = Client(name="ABC Manufacturing", contact="09171234567")
+    metro = Client(name="Metro Steel Corp", contact="09181234567")
+    pacific = Client(name="Pacific Engineering", contact="09191234567")
+    db.session.add_all([abc, metro, pacific])
+    db.session.flush()
+
+    job = JobOrder(
+        client_id=abc.id,
+        title="Placeholder job",
+        due_date=date(2026, 11, 1),
+        status=JobOrderStatus.COMPLETED,
+        job_type=JobType.FABRICATION,
+        part_condition=PartCondition.RAW_MATERIAL,
+        material_status=MaterialStatus.NOT_REQUIRED,
+        raw_materials=[],
+        amount=Decimal("10"),
+        created_by_id=admin.id,
+    )
+    db.session.add(job)
+    db.session.flush()
+    log = NotificationLog(
+        job_order_id=job.id,
+        client_id=abc.id,
+        milestone=NotificationMilestone.JOB_COMPLETED,
+        channel=NotificationChannel.EMAIL,
+        recipient="nobody@example.com",
+        message_body="done",
+        status=NotificationStatus.SENT,
+    )
+    db.session.add(log)
+    db.session.commit()
+    job_id, log_id = job.id, log.id
+
+    report = cleanup.run(apply=True, confirm_host=cleanup.database_label()[1])
+    assert Client.query.filter_by(name="ABC Manufacturing").count() == 0
+    assert Client.query.filter_by(name="Metro Steel Corp").count() == 0
+    assert Client.query.filter_by(name="Pacific Engineering").count() == 0
+
+    aboitiz = Client.query.filter(db.func.lower(Client.name) == "aboitiz").filter(
+        ~Client.name.like("HIST-SEED %"), ~Client.name.like("TC-SEED %")
+    ).one()
+    moved_job = db.session.get(JobOrder, job_id)
+    moved_log = db.session.get(NotificationLog, log_id)
+    assert moved_job.client_id == aboitiz.id
+    assert moved_log.client_id == aboitiz.id
+
+    placeholder = {row["from"]: row for row in report.clients_placeholders_merged}
+    assert "ABC Manufacturing" in placeholder
+    assert placeholder["ABC Manufacturing"]["to"] == aboitiz.name
+    assert placeholder["ABC Manufacturing"]["moved"].get("job_orders", 0) >= 1
+    assert placeholder["ABC Manufacturing"]["moved"].get("notification_logs", 0) >= 1
