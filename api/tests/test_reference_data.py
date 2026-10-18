@@ -104,7 +104,7 @@ def test_fresh_database_gets_full_reference_data(app):
 
     tools = {t.name: t for t in Tool.query.all()}
     assert tools["Sandpaper"].shop_term == "Liha"
-    assert tools["Sandpaper"].unit == "sheet"
+    assert tools["Sandpaper"].unit == "pack"
     assert tools["Tungsten carbide tip"].shop_term == "Tungatip"
     assert all(t.minimum_stock is None for t in tools.values())
 

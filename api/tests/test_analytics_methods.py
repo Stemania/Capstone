@@ -165,16 +165,17 @@ def test_safety_stock_and_reorder_point_by_hand():
 
 
 def test_stock_status_bands():
-    assert fs.stock_status(0, 2, 10) == "LIKELY_OUT"
-    assert fs.stock_status(8, 2, 10) == "REORDER_NOW"
-    assert fs.stock_status(10, 2, 10) == "REORDER_NOW"
-    assert fs.stock_status(11, 2, 10) == "OK"
-    assert fs.stock_status(None, None, None) == "NO_DATA"
+    # on_hand, adu, reorder_pt, days_to_rop, soon_days
+    assert fs.stock_status(5, 2, 10, 0, 7) == "REORDER_NOW"
+    assert fs.stock_status(10, 2, 10, 0, 7) == "REORDER_NOW"
+    assert fs.stock_status(20, 2, 10, 3, 7) == "REORDER_SOON"
+    assert fs.stock_status(50, 2, 10, 20, 7) == "OK"
+    assert fs.stock_status(None, None, None, None, 7) == "NO_DATA"
 
 
 def test_lead_time_prefers_measured_then_supplier_then_default():
-    assert fs.lead_time_for({"measured": [4, 6], "stated": 9}) == (5.0, "MEASURED")
-    assert fs.lead_time_for({"measured": [], "stated": 9}) == (9.0, "SUPPLIER")
+    assert fs.lead_time_for({"measured_wd": [4, 6], "stated": 9}) == (5.0, "MEASURED")
+    assert fs.lead_time_for({"measured_wd": [], "stated": 9}) == (9.0, "SUPPLIER")
     assert fs.lead_time_for(None) == (float(fs.DEFAULT_LEAD_TIME_DAYS), "DEFAULT")
 
 
