@@ -245,21 +245,30 @@ export function DemandForecastCard({
 // ---------- Stock ----------
 
 export function stockCounts(data: ConsumableRunOut | null) {
-  const c = { LIKELY_OUT: 0, REORDER_NOW: 0, OK: 0, NO_DATA: 0 };
-  for (const i of data?.items ?? []) c[i.status ?? 'NO_DATA'] += 1;
+  const c = { LIKELY_OUT: 0, REORDER_NOW: 0, REORDER_SOON: 0, OK: 0, NO_DATA: 0 };
+  for (const i of data?.items ?? []) {
+    const key = (i.status ?? 'NO_DATA') as keyof typeof c;
+    if (key in c) c[key] += 1;
+    else c.NO_DATA += 1;
+  }
   return c;
 }
 
 function stockLine(i: ConsumableRunOutRow) {
-  if (i.status === 'LIKELY_OUT') return 'Probably out now';
+  if (i.status === 'LIKELY_OUT' || (i.quantityOnHand != null && i.quantityOnHand <= 0 && (i.adu || i.dailyUsage))) {
+    return 'Probably out now';
+  }
   const parts = [];
   if (i.daysLeft != null) parts.push(`${fmtNum(i.daysLeft, 0)} working days left`);
   if (i.runOutDate) parts.push(`out ${fmtDay(i.runOutDate)}`);
+  if (i.orderByDate) parts.push(`order by ${fmtDay(i.orderByDate)}`);
   return parts.join(' · ') || '—';
 }
 
 export function StockAlertsCard({ data, span = 6 }: { data: ConsumableRunOut | null; span?: Span }) {
-  const alerts = (data?.items ?? []).filter((i) => i.status === 'LIKELY_OUT' || i.status === 'REORDER_NOW');
+  const alerts = (data?.items ?? []).filter(
+    (i) => i.status === 'LIKELY_OUT' || i.status === 'REORDER_NOW' || i.status === 'REORDER_SOON'
+  );
   return (
     <Card
       title="Stock alerts"
@@ -286,7 +295,7 @@ export function StockAlertsCard({ data, span = 6 }: { data: ConsumableRunOut | n
       {!data ? (
         <CardLoading />
       ) : !alerts.length && !data.items.some((i) => i.status === 'OK') ? (
-        <ChartEmpty title="No reorder points yet" text="Each consumable needs 2 stocktakes." height={120} />
+        <ChartEmpty title="No reorder points yet" text="Scan usage builds ADU; then reorder levels appear." height={120} />
       ) : !alerts.length ? (
         <ChartEmpty title="All consumables above their reorder point" height={120} />
       ) : (

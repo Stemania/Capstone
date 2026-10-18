@@ -1055,6 +1055,10 @@ export interface Tool {
   code: string;
   category: ToolCategory;
   unit: string;
+  /** Previous unit label when the item was remapped; shown until reviewed. */
+  legacyUnit?: string | null;
+  unitNeedsReview?: boolean;
+  unitCost?: number | null;
   quantityOnHand: number;
   minimumStock: number | null;
   sizeSpec: string | null;
@@ -1102,7 +1106,19 @@ export interface ToolType {
   units?: ToolUnit[];
 }
 
-export type ToolEventType = 'BORROW' | 'RETURN' | 'ISSUE' | 'ADJUST' | 'RECEIVE';
+export type ToolEventType =
+  | 'BORROW'
+  | 'RETURN'
+  | 'ISSUE'
+  | 'ADJUST'
+  | 'RECEIVE'
+  | 'SCAN'
+  | 'UNDO'
+  | 'CORRECTION';
+
+export type ConsumableStockStatus = 'OK' | 'REORDER_SOON' | 'REORDER_NOW' | 'NO_DATA' | 'LIKELY_OUT';
+export type ConsumableForecastLabel = 'Computed' | 'Estimated' | 'No data yet';
+export type ConsumableAbcClass = 'A' | 'B' | 'C';
 
 export interface ToolEvent {
   id: string;
@@ -1110,6 +1126,7 @@ export interface ToolEvent {
   toolUnitId?: string | null;
   toolName?: string;
   toolCode?: string;
+  toolUnit?: string | null;
   assetCode?: string | null;
   toolCategory?: ToolCategory | 'TOOL_UNIT' | null;
   toolSizeSpec?: string | null;
@@ -1120,11 +1137,22 @@ export interface ToolEvent {
   workerName?: string;
   type: ToolEventType;
   quantity: number;
+  stockDelta?: number | null;
   reason?: string | null;
   supplier?: string | null;
   receivedOn?: string | null;
   jobOrderId?: string;
+  operationId?: string | null;
+  undoesEventId?: string | null;
+  undoneAt?: string | null;
+  clientActionId?: string | null;
   createdAt: string;
+  /** Unified scan extras (POST /tools/scan). */
+  kind?: 'CONSUMABLE_SCAN' | 'CONSUMABLE_UNDO' | 'TOOL_UNIT' | string;
+  needsConfirm?: boolean;
+  confirmMessage?: string | null;
+  displayLine?: string | null;
+  canUndoUntil?: string | null;
 }
 
 export interface InventoryPurchaseSuggestion {
@@ -1136,11 +1164,15 @@ export interface InventoryPurchaseSuggestion {
   unit: string;
   quantityOnHand: number | null;
   minimumStock: number | null;
+  reorderLevel?: number | null;
   suggestedOrderQuantity: number | null;
   recentConsumptionQuantity: number | null;
   consumptionPerWorkingDay: number | null;
   lookbackWorkingDays: number;
-  consumptionSource?: 'STOCKTAKE' | 'BORROW' | string;
+  consumptionSource?: 'STOCKTAKE' | 'BORROW' | 'SCAN' | string;
+  status?: ConsumableStockStatus;
+  label?: ConsumableForecastLabel | string | null;
+  abcClass?: 'A' | 'B' | 'C' | null;
 }
 
 export interface InventoryPurchaseSuggestions {
@@ -1150,6 +1182,8 @@ export interface InventoryPurchaseSuggestions {
   workingDaysInSample: number;
   itemCount: number;
   items: InventoryPurchaseSuggestion[];
+  howComputed?: string;
+  formulas?: Record<string, string>;
 }
 
 export interface InventoryUsageByWorker {
@@ -1670,37 +1704,56 @@ export interface ConsumableRunOutRow {
   code: string;
   sizeSpec: string | null;
   unit: string;
+  legacyUnit?: string | null;
+  unitNeedsReview?: boolean;
   quantityOnHand: number | null;
   minimumStock: number | null;
   lowStock: boolean;
-  lastCountedOn: string | null;
-  periodsUsed: number;
-  periods: ConsumableRunOutPeriod[];
-  enoughData: boolean;
-  notEnoughDataNote: string | null;
-  dailyUsage: number | null;
-  lastCountQuantity: number | null;
-  deliveriesSinceCount: number | null;
-  shopDaysSinceCount: number | null;
-  estimatedOnHand: number | null;
+  lastCountedOn?: string | null;
+  periodsUsed?: number;
+  periods?: ConsumableRunOutPeriod[];
+  enoughData?: boolean;
+  notEnoughDataNote?: string | null;
+  /** Average daily usage (scans / working days). */
+  adu?: number | null;
+  dailyUsage?: number | null;
+  maxDailyUsage?: number | null;
+  scanWorkingDays?: number | null;
+  label?: ConsumableForecastLabel | string | null;
+  lastCountQuantity?: number | null;
+  deliveriesSinceCount?: number | null;
+  shopDaysSinceCount?: number | null;
+  estimatedOnHand?: number | null;
   daysLeft: number | null;
   runOutDate: string | null;
-  likelyOut: boolean;
+  orderByDate?: string | null;
+  daysToReorderLevel?: number | null;
+  suggestedOrderQty?: number | null;
+  likelyOut?: boolean;
   leadTimeDays?: number | null;
   leadTimeSource?: 'MEASURED' | 'SUPPLIER' | 'DEFAULT';
   leadTimeWorkingDays?: number | null;
+  leadTimeWorkingDaysAvg?: number | null;
+  leadTimeWorkingDaysMax?: number | null;
   safetyStock?: number | null;
   reorderPoint?: number | null;
-  status?: 'OK' | 'REORDER_NOW' | 'LIKELY_OUT' | 'NO_DATA';
+  reorderLevel?: number | null;
+  status?: ConsumableStockStatus;
+  abcClass?: ConsumableAbcClass | null;
+  usageValue90d?: number | null;
+  unitCost?: number | null;
 }
 
 export interface ConsumableRunOut {
   label: string;
   method: string;
   description: string;
+  formulas?: Record<string, string>;
   today: string;
   serviceLevelPct?: number;
   defaultLeadTimeDays?: number;
+  reorderSoonWorkingDays?: number;
+  reviewPeriodDays?: number;
   items: ConsumableRunOutRow[];
 }
 

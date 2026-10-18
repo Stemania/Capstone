@@ -6,9 +6,9 @@ import { downloadCsv, rowsToCsv } from '../../utils/csvExport';
 import { inventoryApi, toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
 import type {
+  InventoryPurchaseSuggestions,
   InventoryUsageByItem,
   InventoryUsageByWorker,
-  InventoryUsageConsumables,
   Tool,
 } from '../../types';
 import {
@@ -26,9 +26,7 @@ export default function InventoryReportPage() {
   const [tools, setTools] = useState<Tool[]>([]);
   const [usageItem, setUsageItem] = useState<InventoryUsageByItem | null>(null);
   const [usageWorker, setUsageWorker] = useState<InventoryUsageByWorker | null>(null);
-  const [usageConsumables, setUsageConsumables] = useState<InventoryUsageConsumables | null>(
-    null
-  );
+  const [suggestions, setSuggestions] = useState<InventoryPurchaseSuggestions | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -36,17 +34,17 @@ export default function InventoryReportPage() {
     (async () => {
       setLoading(true);
       try {
-        const [t, byItem, byWorker, byCons] = await Promise.all([
+        const [t, byItem, byWorker, sug] = await Promise.all([
           toolsApi.list(),
           inventoryApi.usageByItem(params),
           inventoryApi.usageByWorker(params),
-          inventoryApi.usageConsumables(params),
+          inventoryApi.purchaseSuggestions(),
         ]);
         if (!cancelled) {
           setTools(t.data);
           setUsageItem(byItem.data);
           setUsageWorker(byWorker.data);
-          setUsageConsumables(byCons.data);
+          setSuggestions(sug.data);
         }
       } catch (err) {
         if (!cancelled) message.error(getErrorMessage(err));
@@ -69,6 +67,7 @@ export default function InventoryReportPage() {
   );
 
   const outstanding = usageWorker?.outstandingUnreturned || [];
+  const suggestionRows = suggestions?.items || [];
 
   const exportReport = () => {
     const sections = [
@@ -105,12 +104,17 @@ export default function InventoryReportPage() {
         { key: 'borrowed', header: 'Borrowed', value: (r) => r.borrowQuantity },
         { key: 'perDay', header: 'Per working day', value: (r) => r.consumptionPerWorkingDay },
       ]),
-      'Consumable use between stocktakes',
-      rowsToCsv(usageConsumables?.items || [], [
+      'Scan-based purchase suggestions',
+      rowsToCsv(suggestionRows, [
         { key: 'name', header: 'Item', value: (r) => r.name },
         { key: 'code', header: 'Code', value: (r) => r.code },
-        { key: 'consumed', header: 'Consumed', value: (r) => r.consumptionQuantity },
-        { key: 'perDay', header: 'Per working day', value: (r) => r.consumptionPerWorkingDay },
+        { key: 'onHand', header: 'On hand', value: (r) => r.quantityOnHand },
+        { key: 'rop', header: 'Reorder level', value: (r) => r.reorderLevel ?? r.minimumStock },
+        { key: 'sug', header: 'Suggested qty', value: (r) => r.suggestedOrderQuantity },
+        { key: 'adu', header: 'ADU', value: (r) => r.consumptionPerWorkingDay },
+        { key: 'status', header: 'Status', value: (r) => r.status ?? '' },
+        { key: 'abc', header: 'ABC', value: (r) => r.abcClass ?? '' },
+        { key: 'label', header: 'Label', value: (r) => r.label ?? '' },
       ]),
     ];
     downloadCsv(`inventory-status-${params.from}-to-${params.to}`, sections.join('\r\n\r\n'));
@@ -247,34 +251,71 @@ export default function InventoryReportPage() {
           </ReportSection>
 
           <ReportSection
-            title="Consumable use between stocktakes"
+            title="Scan-based purchase suggestions"
             note={
-              usageConsumables?.note ||
-              'Usage is measured between stocktakes, not per person.'
+              suggestions?.description ||
+              suggestions?.howComputed ||
+              'Consumables at or near reorder level from worker scan usage (ADU). Not an automatic purchase order.'
             }
           >
             <Table
               size="small"
               pagination={false}
               rowKey="toolId"
-              dataSource={usageConsumables?.items || []}
-              locale={{ emptyText: 'No stocktake-based consumption in this period yet' }}
+              dataSource={suggestionRows}
+              locale={{ emptyText: 'No scan-based reorder suggestions right now' }}
               columns={[
                 { title: 'Item', dataIndex: 'name' },
                 { title: 'Code', dataIndex: 'code', width: 100 },
                 {
-                  title: 'Consumed',
-                  dataIndex: 'consumptionQuantity',
-                  width: 110,
+                  title: 'On hand',
+                  dataIndex: 'quantityOnHand',
+                  width: 90,
                   align: 'right',
-                  render: (v: number | null) => (v == null ? '—' : formatNum(v, 2)),
+                  render: (v: number | null, r) =>
+                    v == null ? '—' : `${formatNum(v, 2)} ${r.unit}`,
                 },
                 {
-                  title: 'Per working day',
-                  dataIndex: 'consumptionPerWorkingDay',
-                  width: 120,
+                  title: 'Reorder level',
+                  key: 'rop',
+                  width: 110,
                   align: 'right',
-                  render: (v: number | null) => (v == null ? '—' : formatNum(v, 2)),
+                  render: (_: unknown, r) => {
+                    const v = r.reorderLevel ?? r.minimumStock;
+                    return v == null ? '—' : formatNum(v, 2);
+                  },
+                },
+                {
+                  title: 'Suggested qty',
+                  dataIndex: 'suggestedOrderQuantity',
+                  width: 110,
+                  align: 'right',
+                  render: (v: number | null) => (v == null ? '—' : formatNum(v, 0)),
+                },
+                {
+                  title: 'ADU',
+                  dataIndex: 'consumptionPerWorkingDay',
+                  width: 90,
+                  align: 'right',
+                  render: (v: number | null) => (v == null ? '—' : formatNum(v, 3)),
+                },
+                {
+                  title: 'Status',
+                  dataIndex: 'status',
+                  width: 120,
+                  render: (v: string | undefined) => v || '—',
+                },
+                {
+                  title: 'ABC',
+                  dataIndex: 'abcClass',
+                  width: 64,
+                  render: (v: string | null | undefined) => v || '—',
+                },
+                {
+                  title: 'Label',
+                  dataIndex: 'label',
+                  width: 110,
+                  render: (v: string | null | undefined) => v || '—',
                 },
               ]}
             />

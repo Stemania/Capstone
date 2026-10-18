@@ -1,105 +1,110 @@
-import { formatShop, shopToday } from '../../utils/shopTime';
-import { useEffect, useMemo, useState } from 'react';
-import { Button, DatePicker, Input, InputNumber, Space, Typography, message } from 'antd';
-import { type Dayjs } from 'dayjs';
-import { inventoryApi } from '../../api/tools.api';
+import { formatShop } from '../../utils/shopTime';
+import { useCallback, useEffect, useState } from 'react';
+import { Button, Form, Input, InputNumber, Select, Space, Typography, message } from 'antd';
+import { toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
 import InfoTip from '../../components/InfoTip';
-import type { StocktakeFormItem, StocktakeSummary } from '../../types';
+import type { Tool, ToolEvent } from '../../types';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 type Props = {
   onSaved?: () => void;
-  /** When true, omit the page-level Stocktake heading (e.g. inside a drawer). */
+  /** When true, omit the page-level heading (e.g. inside a drawer). */
   hideTitle?: boolean;
-  /** Show counts and history without the count form. */
+  /** Show movement log without the correction form. */
   readOnly?: boolean;
 };
 
-export default function StocktakePanel({ onSaved, hideTitle, readOnly }: Props) {
-  const [formItems, setFormItems] = useState<StocktakeFormItem[]>([]);
-  const [previousOn, setPreviousOn] = useState<string | null>(null);
-  const [previousBy, setPreviousBy] = useState<string | null>(null);
-  const [counts, setCounts] = useState<Record<string, number | null>>({});
-  const [countedOn, setCountedOn] = useState<Dayjs>(shopToday());
-  const [notes, setNotes] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [history, setHistory] = useState<StocktakeSummary[]>([]);
+const MOVEMENT_LABEL: Record<string, string> = {
+  RECEIVE: 'Receive',
+  SCAN: 'Scan (−1)',
+  UNDO: 'Undo scan',
+  CORRECTION: 'Correction',
+  ADJUST: 'Adjust',
+};
 
-  const load = async () => {
-    setLoading(true);
+function formatDelta(delta: number | null | undefined, unit?: string | null) {
+  if (delta == null) return '—';
+  const sign = delta > 0 ? '+' : '';
+  return `${sign}${delta}${unit ? ` ${unit}` : ''}`;
+}
+
+export default function StocktakePanel({ onSaved, hideTitle, readOnly }: Props) {
+  const [tools, setTools] = useState<Tool[]>([]);
+  const [toolId, setToolId] = useState<string | undefined>();
+  const [movements, setMovements] = useState<ToolEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [form] = Form.useForm<{ actualCount: number; reason: string }>();
+
+  const selected = tools.find((t) => t.id === toolId) || null;
+
+  const loadTools = useCallback(async () => {
     try {
-      const [form, hist] = await Promise.all([
-        inventoryApi.stocktakeForm(),
-        inventoryApi.listStocktakes({ page: 1, perPage: 8 }),
-      ]);
-      setFormItems(form.data.items);
-      setPreviousOn(form.data.previousStocktakeOn);
-      setPreviousBy(form.data.previousCountedByName);
-      const next: Record<string, number | null> = {};
-      for (const item of form.data.items) {
-        next[item.toolId] = item.quantityOnHand ?? 0;
-      }
-      setCounts(next);
-      setHistory(hist.data.items);
+      const { data } = await toolsApi.list({ category: 'CONSUMABLE' });
+      setTools(data);
+      setToolId((prev) => prev || data[0]?.id);
     } catch (err) {
       message.error(getErrorMessage(err));
+    }
+  }, []);
+
+  const loadMovements = useCallback(async (id?: string) => {
+    setLoading(true);
+    try {
+      const { data } = await toolsApi.listMovements({
+        toolId: id,
+        page: 1,
+        perPage: 40,
+      });
+      setMovements(data.items);
+    } catch (err) {
+      message.error(getErrorMessage(err));
+      setMovements([]);
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    void load();
   }, []);
 
-  const incomplete = useMemo(
-    () => formItems.some((i) => counts[i.toolId] == null || Number.isNaN(Number(counts[i.toolId]))),
-    [formItems, counts]
-  );
+  useEffect(() => {
+    void loadTools();
+  }, [loadTools]);
 
-  const submit = async () => {
-    if (!formItems.length) {
-      message.warning('Add consumable items to the catalog before counting');
-      return;
+  useEffect(() => {
+    void loadMovements(toolId);
+  }, [toolId, loadMovements]);
+
+  useEffect(() => {
+    if (selected) {
+      form.setFieldsValue({ actualCount: selected.quantityOnHand, reason: undefined });
     }
-    if (incomplete) {
-      message.warning('Enter a counted quantity for every consumable');
-      return;
-    }
-    setSubmitting(true);
+  }, [selected, form]);
+
+  const submit = async (values: { actualCount: number; reason: string }) => {
+    if (!selected) return;
+    setSaving(true);
     try {
-      await inventoryApi.submitStocktake({
-        countedOn: countedOn.format('YYYY-MM-DD'),
-        notes: notes.trim() || undefined,
-        lines: formItems.map((i) => ({
-          toolId: i.toolId,
-          countedQuantity: Number(counts[i.toolId]),
-        })),
+      await toolsApi.correct(selected.id, {
+        actualCount: values.actualCount,
+        reason: values.reason.trim(),
       });
-      message.success('Stocktake saved — on-hand quantities updated');
-      setNotes('');
-      await load();
+      message.success('Stock corrected');
+      form.setFieldsValue({ reason: undefined });
+      await loadTools();
+      await loadMovements(selected.id);
       onSaved?.();
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
   const tip = (
     <InfoTip
-      title="Periodic shelf count"
-      label="About stocktake"
-      content={
-        previousOn
-          ? `Last count: ${formatShop(previousOn, 'MMM D, YYYY')}${
-              previousBy ? ` by ${previousBy}` : ''
-            }. Enter what is on the shelf now. Log deliveries with Receive delivery so they are not treated as consumption.`
-          : 'No stocktake yet. Count the shelf to start tracking consumable consumption between counts.'
-      }
+      title="Stock correction"
+      label="About correction"
+      content="Workers deduct consumables by scanning. Use correction only when the shelf count does not match the system (missed scans, damage, etc.). Always enter a reason. Log deliveries with Receive delivery."
     />
   );
 
@@ -117,133 +122,118 @@ export default function StocktakePanel({ onSaved, hideTitle, readOnly }: Props) 
             gap: 6,
           }}
         >
-          Stocktake
+          Stock correction
           {tip}
         </Typography.Title>
       )}
 
-      {readOnly ? (
-        hideTitle && <div style={{ marginBottom: 16 }}>{tip}</div>
-      ) : (
       <Space wrap style={{ marginBottom: 16 }} align="center">
         {hideTitle && tip}
-        <span style={{ fontSize: 13, color: '#64748b' }}>Count date</span>
-        <DatePicker
-          value={countedOn}
-          allowClear={false}
-          onChange={(d) => d && setCountedOn(d)}
-          disabledDate={(d) => d.isAfter(shopToday(), 'day')}
+        <span style={{ fontSize: 13, color: '#64748b' }}>Item</span>
+        <Select
+          showSearch
+          optionFilterProp="label"
+          style={{ minWidth: 260 }}
+          placeholder="Select consumable"
+          value={toolId}
+          onChange={(v) => setToolId(v)}
+          options={tools.map((t) => ({
+            value: t.id,
+            label: `${t.name}${t.sizeSpec ? ` · ${t.sizeSpec}` : ''} (${t.code})`,
+          }))}
         />
-        <Input
-          placeholder="Notes (optional)"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          style={{ width: 240 }}
-        />
-        <Button
-          type="primary"
-          loading={submitting}
-          disabled={loading || !formItems.length}
-          onClick={() => void submit()}
-        >
-          Submit stocktake
-        </Button>
+        {selected ? (
+          <span style={{ fontSize: 13, color: '#64748b' }}>
+            On hand: <b style={{ color: '#0f172a' }}>{selected.quantityOnHand} {selected.unit}</b>
+          </span>
+        ) : null}
       </Space>
-      )}
 
+      {!readOnly && selected ? (
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={(v) => void submit(v)}
+          style={{ maxWidth: 420, marginBottom: 24 }}
+        >
+          <Form.Item
+            name="actualCount"
+            label="Actual count on shelf"
+            rules={[{ required: true, message: 'Enter the counted quantity' }]}
+            style={{ marginBottom: 12 }}
+          >
+            <InputNumber min={0} step={1} style={{ width: '100%' }} addonAfter={selected.unit} />
+          </Form.Item>
+          <Form.Item
+            name="reason"
+            label="Reason"
+            rules={[{ required: true, whitespace: true, message: 'Reason is required' }]}
+            style={{ marginBottom: 12 }}
+          >
+            <Input.TextArea rows={2} placeholder="e.g. Missed scans, damaged stock, recount" />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" loading={saving} disabled={!tools.length}>
+            Save correction
+          </Button>
+        </Form>
+      ) : null}
+
+      <Typography.Title level={5} style={{ marginTop: readOnly ? 0 : 8, color: '#0f1c2e' }}>
+        Movement log
+      </Typography.Title>
       <ResponsiveTable
         className="std-list-table"
         size="small"
-        rowKey="toolId"
+        rowKey="id"
         loading={loading}
-        dataSource={formItems}
+        dataSource={movements}
         pagination={false}
         locale={{
-          emptyText:
-            'No consumables in the catalog yet. Add items first, then count the shelf here.',
+          emptyText: toolId
+            ? 'No movements for this item yet. Scans, receives, and corrections appear here.'
+            : 'Select a consumable to see its movement log.',
         }}
         columns={[
           {
-            title: 'Item',
-            render: (_: unknown, r: StocktakeFormItem) => (
-              <div>
-                <div style={{ fontWeight: 600 }}>{r.name}</div>
-                <div style={{ fontSize: 12, color: '#64748b' }}>
-                  {[r.sizeSpec, r.code].filter(Boolean).join(' · ')}
-                </div>
-              </div>
-            ),
+            title: 'When',
+            dataIndex: 'createdAt',
+            width: 140,
+            render: (d: string) => (d ? formatShop(d, 'MMM D, h:mm A') : '—'),
           },
           {
-            title: 'System qty',
-            dataIndex: 'quantityOnHand',
+            title: 'Type',
+            dataIndex: 'type',
+            width: 110,
+            render: (t: string) => MOVEMENT_LABEL[t] || t,
+          },
+          {
+            title: 'Change',
+            key: 'delta',
             align: 'right',
-            render: (v: number, r) => `${v ?? 0} ${r.unit}`,
+            width: 100,
+            render: (_: unknown, r: ToolEvent) => formatDelta(r.stockDelta, r.toolUnit),
           },
           {
-            title: 'Last count',
-            render: (_: unknown, r: StocktakeFormItem) =>
-              r.lastCountedOn
-                ? `${formatShop(r.lastCountedOn, 'MMM D')} · ${r.lastCountedQuantity ?? '—'} ${r.unit}`
-                : 'Never counted',
+            title: 'On hand after',
+            dataIndex: 'quantityOnHandAfter',
+            align: 'right',
+            width: 110,
+            render: (v: number | null | undefined, r: ToolEvent) =>
+              v == null ? '—' : `${v}${r.toolUnit ? ` ${r.toolUnit}` : ''}`,
           },
-          ...(readOnly
-            ? []
-            : [
-                {
-                  title: 'Counted now',
-                  align: 'right' as const,
-                  render: (_: unknown, r: StocktakeFormItem) => (
-                    <InputNumber
-                      min={0}
-                      step={1}
-                      value={counts[r.toolId] ?? 0}
-                      onChange={(v) =>
-                        setCounts((prev) => ({ ...prev, [r.toolId]: v == null ? null : Number(v) }))
-                      }
-                      addonAfter={r.unit}
-                      style={{ width: 140 }}
-                    />
-                  ),
-                },
-              ]),
+          {
+            title: 'By',
+            dataIndex: 'workerName',
+            render: (n: string | undefined) => n || '—',
+          },
+          {
+            title: 'Note',
+            dataIndex: 'reason',
+            render: (n: string | null | undefined, r: ToolEvent) =>
+              n || r.supplier || '—',
+          },
         ]}
       />
-
-      {history.length > 0 ? (
-        <>
-          <Typography.Title level={5} style={{ marginTop: 28, color: '#0f1c2e' }}>
-            Recent stocktakes
-          </Typography.Title>
-          <ResponsiveTable
-            className="std-list-table"
-            size="small"
-            rowKey="id"
-            dataSource={history}
-            pagination={false}
-            columns={[
-              {
-                title: 'Date',
-                dataIndex: 'countedOn',
-                render: (d: string) => formatShop(d, 'MMM D, YYYY'),
-              },
-              { title: 'Counted by', dataIndex: 'countedByName' },
-              { title: 'Lines', dataIndex: 'lineCount', align: 'right' },
-              {
-                title: 'Notes',
-                dataIndex: 'notes',
-                render: (n: string | null) => n || '—',
-              },
-            ]}
-          />
-        </>
-      ) : (
-        !loading && (
-          <Typography.Paragraph type="secondary" style={{ marginTop: 16, marginBottom: 0 }}>
-            No stocktake history yet. After the first count, dates and who counted appear here.
-          </Typography.Paragraph>
-        )
-      )}
     </div>
   );
 }

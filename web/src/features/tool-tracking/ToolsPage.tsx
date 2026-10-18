@@ -1,6 +1,6 @@
 import { shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Modal, Form, Input, InputNumber, Space, Select, Segmented, DatePicker, Alert, Dropdown, Drawer, Row, Col, message, Tooltip } from 'antd';
+import { Button, Modal, Form, Input, InputNumber, Select, Segmented, DatePicker, Alert, Dropdown, Drawer, Row, Col, message, Tooltip } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
   PlusOutlined,
@@ -13,11 +13,10 @@ import {
   AuditOutlined,
 } from '@ant-design/icons';
 import { type Dayjs } from 'dayjs';
-import { inventoryApi, toolsApi } from '../../api/tools.api';
+import { toolsApi } from '../../api/tools.api';
 import StatusPill from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
-import InfoTip from '../../components/InfoTip';
-import type { InventoryUsageConsumables, Tool } from '../../types';
+import type { Tool } from '../../types';
 import { getErrorMessage } from '../../api/client';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import { exportCsv } from '../../utils/csvExport';
@@ -31,7 +30,6 @@ import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 type PageTab = 'tools' | 'consumables' | 'raw-materials' | 'catalog';
 type StockFilter = 'low' | 'ok';
-type CountsDrawerTab = 'stocktake' | 'consumption';
 
 function sectionLabel(text: string) {
   return <div className="app-form-section">{text}</div>;
@@ -48,7 +46,6 @@ export default function ToolsPage() {
   const [receiveTool, setReceiveTool] = useState<Tool | null>(null);
   const [eventsOpen, setEventsOpen] = useState(false);
   const [countsOpen, setCountsOpen] = useState(false);
-  const [countsTab, setCountsTab] = useState<CountsDrawerTab>('stocktake');
   const [query, setQuery] = useState('');
   const [stockFilter, setStockFilter] = useState<StockFilter[]>([]);
   const [selectMode, setSelectMode] = useState(false);
@@ -60,15 +57,6 @@ export default function ToolsPage() {
   const [creating, setCreating] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const isPhone = useIsPhone();
-
-  const [usageConsumables, setUsageConsumables] = useState<InventoryUsageConsumables | null>(
-    null
-  );
-  const [usageRange, setUsageRange] = useState<[Dayjs, Dayjs]>([
-    shopToday().subtract(29, 'day').startOf('day'),
-    shopToday().endOf('day'),
-  ]);
-  const [usageLoading, setUsageLoading] = useState(false);
 
   const fetchTools = async () => {
     setLoading(true);
@@ -82,32 +70,11 @@ export default function ToolsPage() {
     }
   };
 
-  const fetchUsage = async () => {
-    setUsageLoading(true);
-    try {
-      const c = await inventoryApi.usageConsumables({
-        from: usageRange[0].format('YYYY-MM-DD'),
-        to: usageRange[1].format('YYYY-MM-DD'),
-      });
-      setUsageConsumables(c.data);
-    } catch (err) {
-      message.error(getErrorMessage(err));
-    } finally {
-      setUsageLoading(false);
-    }
-  };
-
   useEffect(() => {
     if (tab === 'consumables') {
       void fetchTools();
     }
   }, [tab]);
-
-  useEffect(() => {
-    if (countsOpen && countsTab === 'consumption') {
-      void fetchUsage();
-    }
-  }, [countsOpen, countsTab]);
 
   useEffect(() => {
     if (editTool) {
@@ -187,15 +154,17 @@ export default function ToolsPage() {
     }
   };
 
-  const onAdjust = async (values: { quantity: number; reason: string }) => {
+  const onAdjust = async (values: { actualCount: number; reason: string }) => {
     if (!adjustTool) return;
     try {
-      await toolsApi.adjust(adjustTool.id, values);
-      message.success('Stock adjusted');
+      await toolsApi.correct(adjustTool.id, {
+        actualCount: values.actualCount,
+        reason: values.reason,
+      });
+      message.success('Stock corrected');
       setAdjustTool(null);
       adjustForm.resetFields();
       await fetchTools();
-      void fetchUsage();
     } catch (err) {
       message.error(getErrorMessage(err));
     }
@@ -219,7 +188,6 @@ export default function ToolsPage() {
       setReceiveTool(null);
       receiveForm.resetFields();
       await fetchTools();
-      void fetchUsage();
     } catch (err) {
       message.error(getErrorMessage(err));
     }
@@ -235,7 +203,14 @@ export default function ToolsPage() {
         receiveForm.setFieldsValue({ receivedOn: shopToday(), quantity: 1 });
       },
     },
-    { key: 'adjust', label: 'Adjust stock', onClick: () => setAdjustTool(record) },
+    {
+      key: 'correct',
+      label: 'Correct stock',
+      onClick: () => {
+        setAdjustTool(record);
+        adjustForm.setFieldsValue({ actualCount: record.quantityOnHand, reason: undefined });
+      },
+    },
   ];
 
   const columns: TableColumnsType<Tool> = [
@@ -318,7 +293,7 @@ export default function ToolsPage() {
 
   const stockEmpty =
     tools.length === 0
-      ? 'No consumables in the catalog yet. Add items, then use stocktake to count the shelf.'
+      ? 'No consumables in the catalog yet. Add items, then workers can scan usage and you can correct counts here.'
       : stockFilter.includes('low') && !stockFilter.includes('ok') && lowCount === 0
         ? 'No items are at or below reorder level right now.'
         : 'No items match your search or stock filter.';
@@ -392,9 +367,9 @@ export default function ToolsPage() {
                     menu={{
                       items: [
                         {
-                          key: 'stocktake',
+                          key: 'correction',
                           icon: <AuditOutlined />,
-                          label: 'Stocktake',
+                          label: 'Stock correction',
                           onClick: () => setCountsOpen(true),
                         },
                         {
@@ -418,7 +393,7 @@ export default function ToolsPage() {
                 ) : (
                   <>
                     <Button icon={<AuditOutlined />} onClick={() => setCountsOpen(true)}>
-                      Stocktake
+                      Stock correction
                     </Button>
                     <Button icon={<HistoryOutlined />} onClick={() => setEventsOpen(true)}>
                       Event log
@@ -482,96 +457,19 @@ export default function ToolsPage() {
           </div>
 
           <Drawer
-            title="Stocktake & consumption"
+            title="Stock correction & movements"
             open={countsOpen}
             onClose={() => setCountsOpen(false)}
             size={isPhone ? '100%' : 880}
             destroyOnHidden
           >
-            <Segmented
-              style={{ marginBottom: 16 }}
-              value={countsTab}
-              onChange={(v) => setCountsTab(v as CountsDrawerTab)}
-              options={[
-                { label: 'Stocktake', value: 'stocktake' },
-                { label: 'Consumption', value: 'consumption' },
-              ]}
+            <StocktakePanel
+              hideTitle
+              readOnly={!canEdit}
+              onSaved={() => {
+                void fetchTools();
+              }}
             />
-            {countsTab === 'stocktake' && (
-              <StocktakePanel
-                hideTitle
-                readOnly={!canEdit}
-                onSaved={() => {
-                  void fetchTools();
-                  void fetchUsage();
-                }}
-              />
-            )}
-            {countsTab === 'consumption' && (
-              <>
-                <Space style={{ marginBottom: 12 }} wrap align="center">
-                  <InfoTip
-                    title="Consumption"
-                    content="Usage is measured between stocktakes, not per person."
-                    label="About consumption"
-                  />
-                  <DatePicker.RangePicker
-                    value={usageRange}
-                    allowClear={false}
-                    onChange={(vals) => {
-                      if (vals?.[0] && vals?.[1]) {
-                        setUsageRange([vals[0].startOf('day'), vals[1].endOf('day')]);
-                      }
-                    }}
-                  />
-                  <Button type="primary" onClick={() => void fetchUsage()} loading={usageLoading}>
-                    Refresh
-                  </Button>
-                </Space>
-                <ResponsiveTable
-                  className="std-list-table"
-                  size="small"
-                  rowKey="toolId"
-                  loading={usageLoading}
-                  dataSource={usageConsumables?.items || []}
-                  locale={{
-                    emptyText:
-                      'No stocktake yet. Count the shelf to start tracking consumption between counts.',
-                  }}
-                  columns={[
-                    {
-                      title: 'Item',
-                      render: (_: unknown, r) => (
-                        <div>
-                          <div style={{ fontWeight: 600 }}>{r.name}</div>
-                          <div style={{ fontSize: 12, color: '#64748b' }}>
-                            {[r.sizeSpec, r.code].filter(Boolean).join(' · ')}
-                          </div>
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Consumed',
-                      dataIndex: 'consumptionQuantity',
-                      align: 'right',
-                      render: (v: number, r) => `${v ?? 0} ${r.unit}`,
-                    },
-                    {
-                      title: 'Per working day',
-                      dataIndex: 'consumptionPerWorkingDay',
-                      align: 'right',
-                      render: (v: number | null) => (v == null ? '—' : v.toFixed(3)),
-                    },
-                    {
-                      title: 'In stock',
-                      dataIndex: 'quantityOnHand',
-                      align: 'right',
-                      render: (v: number, r) => `${v} ${r.unit}`,
-                    },
-                  ]}
-                />
-              </>
-            )}
           </Drawer>
 
           <Drawer
@@ -604,7 +502,7 @@ export default function ToolsPage() {
               </div>
               <div style={{ flex: 1 }}>
                 <div className="app-form-modal__title">Add consumable</div>
-                <div className="app-form-modal__sub">Tracked with periodic stocktake counts.</div>
+                <div className="app-form-modal__sub">Workers scan usage; office receives deliveries and corrects counts.</div>
               </div>
               <button type="button" className="app-form-modal__close" onClick={() => setModalOpen(false)}>
                 ×
@@ -794,10 +692,10 @@ export default function ToolsPage() {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="app-form-modal__title">
-                  {adjustTool ? `Adjust stock: ${adjustTool.name}` : 'Adjust stock'}
+                  {adjustTool ? `Correct stock: ${adjustTool.name}` : 'Correct stock'}
                 </div>
                 <div className="app-form-modal__sub">
-                  Corrections only — use Receive delivery for supplier stock.
+                  Set the actual shelf count. Use Receive delivery for supplier stock.
                 </div>
               </div>
               <button
@@ -815,22 +713,27 @@ export default function ToolsPage() {
               onFinish={onAdjust}
               style={{ padding: '20px 24px 8px' }}
             >
-              {sectionLabel('Adjustment')}
+              {sectionLabel('Correction')}
+              {adjustTool ? (
+                <div style={{ marginBottom: 12, fontSize: 13, color: '#64748b' }}>
+                  Current on hand: {adjustTool.quantityOnHand} {adjustTool.unit}
+                </div>
+              ) : null}
               <Form.Item
-                name="quantity"
-                label="Quantity change (+ add / − remove)"
+                name="actualCount"
+                label="Actual count on shelf"
                 rules={[{ required: true }]}
                 style={{ marginBottom: 14 }}
               >
-                <InputNumber style={{ width: '100%' }} />
+                <InputNumber min={0} style={{ width: '100%' }} addonAfter={adjustTool?.unit} />
               </Form.Item>
               <Form.Item
                 name="reason"
                 label="Reason"
-                rules={[{ required: true }]}
+                rules={[{ required: true, whitespace: true }]}
                 style={{ marginBottom: 14 }}
               >
-                <Input.TextArea rows={2} placeholder="e.g. Count correction, damaged stock" />
+                <Input.TextArea rows={2} placeholder="e.g. Missed scans, damaged stock, recount" />
               </Form.Item>
             </Form>
             <div className="app-form-modal__footer">
@@ -842,7 +745,7 @@ export default function ToolsPage() {
                 onClick={() => adjustForm.submit()}
                 style={{ fontWeight: 700, minWidth: 140 }}
               >
-                Save adjustment
+                Save correction
               </Button>
             </div>
           </Modal>
@@ -870,7 +773,7 @@ export default function ToolsPage() {
                   {receiveTool ? `Receive delivery: ${receiveTool.name}` : 'Receive delivery'}
                 </div>
                 <div className="app-form-modal__sub">
-                  Increases stock on hand and counts toward stocktake consumption.
+                  Increases stock on hand when a delivery arrives.
                 </div>
               </div>
               <button

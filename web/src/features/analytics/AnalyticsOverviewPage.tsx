@@ -99,8 +99,10 @@ function AdminOverview() {
         />
         <Kpi
           label="To reorder"
-          value={fmtNum(counts.LIKELY_OUT + counts.REORDER_NOW)}
-          valueTone={counts.LIKELY_OUT + counts.REORDER_NOW ? 'amber' : undefined}
+          value={fmtNum(counts.LIKELY_OUT + counts.REORDER_NOW + counts.REORDER_SOON)}
+          valueTone={
+            counts.LIKELY_OUT + counts.REORDER_NOW + counts.REORDER_SOON ? 'amber' : undefined
+          }
           sub="consumables, now"
         />
       </Kpis>
@@ -291,8 +293,10 @@ function OfficeOverview() {
         />
         <Kpi
           label="To reorder"
-          value={fmtNum(counts.LIKELY_OUT + counts.REORDER_NOW)}
-          valueTone={counts.LIKELY_OUT + counts.REORDER_NOW ? 'amber' : undefined}
+          value={fmtNum(counts.LIKELY_OUT + counts.REORDER_NOW + counts.REORDER_SOON)}
+          valueTone={
+            counts.LIKELY_OUT + counts.REORDER_NOW + counts.REORDER_SOON ? 'amber' : undefined
+          }
           sub="consumables, now"
         />
       </Kpis>

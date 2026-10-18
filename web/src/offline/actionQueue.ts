@@ -9,7 +9,13 @@
 
 import type { OperationPauseReason } from '../types';
 
-export type OfflineActionKind = 'start' | 'pause' | 'resume' | 'complete' | 'breakdown';
+export type OfflineActionKind =
+  | 'start'
+  | 'pause'
+  | 'resume'
+  | 'complete'
+  | 'breakdown'
+  | 'consumable_scan';
 
 export interface QueuedActionError {
   code?: string;
@@ -23,8 +29,12 @@ export interface QueuedAction {
   seq: number;
   userId: string;
   kind: OfflineActionKind;
-  operationId: string;
-  jobOrderId: string;
+  /** Required for operation actions; unused for consumable_scan. */
+  operationId?: string;
+  jobOrderId?: string;
+  /** Consumable or tool-unit QR payload for consumable_scan. */
+  scanCode?: string;
+  confirmRepeat?: boolean;
   /** When it happened on the phone (ISO, UTC). */
   at: string;
   reason?: OperationPauseReason;

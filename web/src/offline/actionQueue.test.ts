@@ -110,6 +110,26 @@ describe('offline action queue', () => {
     });
   });
 
+  it('sends a consumable scan with the code and client action id', async () => {
+    const queue = createActionQueue(memoryStore());
+    const a = queue.add(
+      action('consumable_scan', '2031-03-03T01:30:00.000Z', {
+        operationId: undefined,
+        jobOrderId: undefined,
+        scanCode: 'TEST-OIL-BOTTLE',
+        confirmRepeat: true,
+        label: 'Scan TEST-OIL-BOTTLE',
+      })
+    );
+    await syncQueue(queue, 'worker-1', sendAction);
+    expect(posted[0].url).toBe('/tools/scan');
+    expect(posted[0].body).toMatchObject({
+      code: 'TEST-OIL-BOTTLE',
+      clientActionId: a.id,
+      confirmRepeat: true,
+    });
+  });
+
   it('keeps everything waiting while offline and resends with the same action id', async () => {
     const queue = createActionQueue(memoryStore());
     const first = queue.add(action('start', '2031-03-03T00:10:00.000Z'));

@@ -45,6 +45,16 @@ export function postAction(a: QueuedAction) {
         },
         opts
       );
+    case 'consumable_scan':
+      return apiClient.post(
+        '/tools/scan',
+        {
+          code: a.scanCode,
+          clientActionId: a.id,
+          confirmRepeat: Boolean(a.confirmRepeat),
+        },
+        opts
+      );
   }
 }
 

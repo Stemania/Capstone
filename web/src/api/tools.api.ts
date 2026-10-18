@@ -44,13 +44,33 @@ export const toolsApi = {
     options?: {
       intent?: 'BORROW' | 'RETURN';
       quantity?: number;
+      clientActionId?: string;
+      confirmRepeat?: boolean;
     }
   ) =>
-    apiClient.post<ToolEvent>('/tools/scan', {
+    apiClient.post<
+      ToolEvent & {
+        kind?: string;
+        needsConfirm?: boolean;
+        confirmMessage?: string | null;
+        displayLine?: string | null;
+        canUndoUntil?: string | null;
+      }
+    >('/tools/scan', {
       code,
       intent: options?.intent,
       quantity: options?.quantity,
+      clientActionId: options?.clientActionId,
+      confirmRepeat: options?.confirmRepeat,
     }),
+  undoScan: (eventId: string) => apiClient.post<ToolEvent>(`/tools/scans/${eventId}/undo`),
+  correct: (id: string, data: { actualCount: number; reason: string }) =>
+    apiClient.post<ToolEvent>(`/tools/${id}/correct`, data),
+  listMovements: (params?: { toolId?: string; page?: number; perPage?: number }) =>
+    apiClient.get<{ items: ToolEvent[]; total: number; page: number; pages: number }>(
+      '/tools/movements',
+      { params }
+    ),
   adjust: (id: string, data: { quantity: number; reason: string }) =>
     apiClient.post<ToolEvent>(`/tools/${id}/adjust`, data),
   receive: (

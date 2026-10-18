@@ -7,12 +7,14 @@ import {
   ArrowDownOutlined,
   QrcodeOutlined,
   StopOutlined,
+  UndoOutlined,
 } from '@ant-design/icons';
 import { Html5Qrcode } from 'html5-qrcode';
 import { toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { useWorkerTheme } from '../../layouts/WorkerLayout';
+import { useOfflineOptional } from '../../offline/OfflineProvider';
 import { announceToolsChanged } from '../worker/toolsEvents';
 import type { ToolEvent, ToolUnit } from '../../types';
 
@@ -50,9 +52,16 @@ function AllowCameraSteps() {
   );
 }
 
+function undoStillOpen(canUndoUntil?: string | null) {
+  if (!canUndoUntil) return false;
+  const until = Date.parse(canUndoUntil);
+  return Number.isFinite(until) && until > Date.now();
+}
+
 export default function ScanToolPage() {
   const { colors } = useWorkerTheme();
   const { user } = useAuth();
+  const offline = useOfflineOptional();
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const [cameraState, setCameraState] = useState<CameraState>('starting');
   const [detectedCode, setDetectedCode] = useState('');
@@ -64,8 +73,12 @@ export default function ScanToolPage() {
   const [manualCode, setManualCode] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [undoing, setUndoing] = useState(false);
   const lookupSeq = useRef(0);
   const detectedCodeRef = useRef('');
+  const submittingRef = useRef(false);
+  const offlineRef = useRef(offline);
+  offlineRef.current = offline;
 
   const clearDetected = useCallback(() => {
     detectedCodeRef.current = '';
@@ -101,6 +114,66 @@ export default function ScanToolPage() {
     [user?.id]
   );
 
+  const showScanResult = useCallback((data: ToolEvent) => {
+    setResult(data);
+    setManualCode('');
+    clearDetected();
+    announceToolsChanged();
+  }, [clearDetected]);
+
+  const performScan = useCallback(
+    async (code: string, options?: { intent?: ScanIntent; confirmRepeat?: boolean }) => {
+      if (submittingRef.current) return;
+      submittingRef.current = true;
+      setSubmitting(true);
+      try {
+        const offlineCtx = offlineRef.current;
+        if (offlineCtx && !offlineCtx.online) {
+          const outcome = await offlineCtx.record({
+            kind: 'consumable_scan',
+            scanCode: code.trim(),
+            confirmRepeat: Boolean(options?.confirmRepeat),
+            label: `Scan ${code.trim()}`,
+          });
+          if (outcome === 'queued') {
+            message.success('Saved on this phone — will send when you are back online');
+          } else {
+            message.success('Scan recorded');
+          }
+          clearDetected();
+          setManualCode('');
+          announceToolsChanged();
+          return;
+        }
+
+        const { data } = await toolsApi.scan(code.trim(), {
+          intent: options?.intent,
+          confirmRepeat: options?.confirmRepeat,
+        });
+
+        if (data.needsConfirm) {
+          Modal.confirm({
+            title: 'Scan again?',
+            content: data.confirmMessage || 'You just scanned this item. Scan again?',
+            okText: 'Yes, scan again',
+            cancelText: 'Cancel',
+            centered: true,
+            onOk: () => performScan(code, { ...options, confirmRepeat: true }),
+          });
+          return;
+        }
+
+        showScanResult(data);
+      } catch (err) {
+        message.error(getErrorMessage(err));
+      } finally {
+        submittingRef.current = false;
+        setSubmitting(false);
+      }
+    },
+    [clearDetected, showScanResult]
+  );
+
   const lookupUnit = useCallback(
     async (code: string) => {
       const seq = ++lookupSeq.current;
@@ -115,15 +188,19 @@ export default function ScanToolPage() {
         const { intent, error } = resolveIntent(unit);
         setDetectedIntent(intent);
         setLookupError(error);
-      } catch (err) {
-        if (seq !== lookupSeq.current) return;
-        setLookupError(getErrorMessage(err));
+      } catch {
+        if (seq !== lookupSeq.current || detectedCodeRef.current !== code) return;
+        // Not a tool unit — treat as consumable (or unknown) and scan immediately.
+        setDetectedUnit(null);
         setDetectedIntent(null);
+        setLookingUp(false);
+        await performScan(code);
+        return;
       } finally {
         if (seq === lookupSeq.current) setLookingUp(false);
       }
     },
-    [resolveIntent]
+    [resolveIntent, performScan]
   );
 
   const onCodeDetected = useCallback(
@@ -136,22 +213,6 @@ export default function ScanToolPage() {
     },
     [lookupUnit]
   );
-
-  const submit = async (code: string, intent: ScanIntent) => {
-    if (submitting) return;
-    setSubmitting(true);
-    try {
-      const { data } = await toolsApi.scan(code.trim(), { intent });
-      setResult(data);
-      setManualCode('');
-      clearDetected();
-      announceToolsChanged();
-    } catch (err) {
-      message.error(getErrorMessage(err));
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   const handleManual = async () => {
     const code = manualCode.trim();
@@ -173,12 +234,26 @@ export default function ScanToolPage() {
         if (error) message.error(error);
         return;
       }
-      await submit(code, intent);
-    } catch (err) {
-      message.error(getErrorMessage(err));
-      setLookupError(getErrorMessage(err));
+      await performScan(code, { intent });
+    } catch {
+      await performScan(code);
     } finally {
       setLookingUp(false);
+    }
+  };
+
+  const handleUndo = async () => {
+    if (!result?.id || undoing) return;
+    setUndoing(true);
+    try {
+      const { data } = await toolsApi.undoScan(result.id);
+      message.success(data.displayLine || 'Scan undone');
+      setResult(null);
+      announceToolsChanged();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setUndoing(false);
     }
   };
 
@@ -220,14 +295,19 @@ export default function ScanToolPage() {
 
   const actionLabel = detectedIntent === 'RETURN' ? 'Return' : 'Borrow';
   const canSubmit = Boolean(detectedIntent) && !submitting && !lookingUp;
-
   const blocked = cameraState === 'denied' || cameraState === 'unavailable';
+  const canUndo = Boolean(result?.kind === 'CONSUMABLE_SCAN' && undoStillOpen(result?.canUndoUntil));
+  const offlineBanner = offline && !offline.online;
 
   return (
     <div className="w-scan">
       <div className="w-scan__head">
-        <div className="w-scan__title">Scan tool QR</div>
-        <div className="w-scan__sub">Borrow or return a tool unit</div>
+        <div className="w-scan__title">Scan QR</div>
+        <div className="w-scan__sub">
+          {offlineBanner
+            ? 'Offline — scans save on this phone'
+            : 'Borrow or return a tool, or scan a consumable (−1)'}
+        </div>
       </div>
 
       <div className="w-scan__camera">
@@ -269,7 +349,7 @@ export default function ScanToolPage() {
             </span>
             <div className="w-scan__status-title">Camera not available here</div>
             <span style={{ fontSize: 13, maxWidth: 300 }}>
-              This page needs a secure (https) connection to use the camera. Type the asset code below
+              This page needs a secure (https) connection to use the camera. Type the code below
               instead.
             </span>
           </div>
@@ -286,13 +366,13 @@ export default function ScanToolPage() {
             </div>
             {lookingUp ? (
               <div className="w-note" style={{ marginTop: 4 }}>
-                Looking up unit…
+                Looking up…
               </div>
             ) : detectedUnit ? (
               <>
                 <div className="w-scan__tool">{detectedUnit.toolTypeName}</div>
                 <div className="w-note">
-                  {detectedUnit.assetCode} ?{' '}
+                  {detectedUnit.assetCode} ·{' '}
                   {detectedUnit.currentHolderName ? `Held by ${detectedUnit.currentHolderName}` : 'Available'}
                 </div>
               </>
@@ -300,7 +380,9 @@ export default function ScanToolPage() {
           </div>
         ) : (
           <div className="w-scan__prompt">
-            {blocked ? "Type the asset code from the tool's tag" : "Point the camera at a tool's QR code"}
+            {blocked
+              ? 'Type the asset or consumable code'
+              : "Point the camera at a tool or consumable QR"}
           </div>
         )}
         {lookupError && <div className="w-scan__error">{lookupError}</div>}
@@ -311,17 +393,19 @@ export default function ScanToolPage() {
             className="w-action"
             loading={submitting}
             icon={detectedIntent === 'RETURN' ? <ArrowDownOutlined /> : <ArrowUpOutlined />}
-            onClick={() => submit(detectedCode, detectedIntent)}
+            onClick={() => void performScan(detectedCode, { intent: detectedIntent })}
             style={{
               background: detectedIntent === 'RETURN' ? '#2563eb' : colors.green,
               marginBottom: 10,
+              height: 48,
+              fontWeight: 700,
             }}
           >
             {actionLabel}
           </Button>
         )}
         {detectedCode && !lookingUp && !canSubmit ? (
-          <Button block style={{ height: 44, marginBottom: 10 }} onClick={clearDetected}>
+          <Button block style={{ height: 48, marginBottom: 10 }} onClick={clearDetected}>
             Scan another
           </Button>
         ) : null}
@@ -333,13 +417,13 @@ export default function ScanToolPage() {
           }}
         >
           <Input
-            placeholder={blocked ? 'e.g. SEED-ANGLE-GRINDER-001' : 'Or type the asset code'}
+            placeholder={blocked ? 'e.g. SEED-ANGLE-GRINDER-001' : 'Or type the code'}
             value={manualCode}
             onChange={(e) => setManualCode(e.target.value)}
             autoCapitalize="characters"
             autoCorrect="off"
             spellCheck={false}
-            aria-label="Asset code"
+            aria-label="Scan code"
           />
           <Button
             type={blocked ? 'primary' : 'default'}
@@ -356,13 +440,39 @@ export default function ScanToolPage() {
       <Modal open={Boolean(result)} onCancel={() => setResult(null)} footer={null} centered closable={false}>
         <div style={{ textAlign: 'center', padding: '16px 0' }}>
           <CheckCircleFilled style={{ fontSize: 64, color: colors.green, marginBottom: 16 }} />
-          <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: 2, marginBottom: 4 }}>
-            {result?.type === 'RETURN' ? 'RETURNED' : 'BORROWED'}
-          </div>
-          <div style={{ fontSize: 16, marginBottom: 4 }}>{result?.toolName}</div>
-          <div style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 8 }}>
-            {result?.assetCode}
-          </div>
+          {result?.displayLine ? (
+            <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 8, lineHeight: 1.3 }}>
+              {result.displayLine}
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: 2, marginBottom: 4 }}>
+                {result?.type === 'RETURN' ? 'RETURNED' : 'BORROWED'}
+              </div>
+              <div style={{ fontSize: 16, marginBottom: 4 }}>{result?.toolName}</div>
+              <div style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 8 }}>
+                {result?.assetCode}
+              </div>
+            </>
+          )}
+          {result?.quantityOnHandAfter != null && result.kind === 'CONSUMABLE_SCAN' ? (
+            <div style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 12 }}>
+              On hand now: {result.quantityOnHandAfter} {result.toolUnit || ''}
+            </div>
+          ) : (
+            <div style={{ height: 8 }} />
+          )}
+          {canUndo && (
+            <Button
+              block
+              icon={<UndoOutlined />}
+              loading={undoing}
+              onClick={() => void handleUndo()}
+              style={{ height: 48, fontWeight: 700, marginBottom: 10 }}
+            >
+              Undo
+            </Button>
+          )}
           <Button
             type="primary"
             block

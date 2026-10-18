@@ -854,6 +854,7 @@ export function Grade({ grade }: { grade: string | null }) {
 
 export const STOCK_TONE: Record<string, Tone> = {
   OK: 'green',
+  REORDER_SOON: 'amber',
   REORDER_NOW: 'amber',
   LIKELY_OUT: 'red',
   NO_DATA: 'grey',
@@ -861,9 +862,10 @@ export const STOCK_TONE: Record<string, Tone> = {
 
 export const STOCK_LABEL: Record<string, string> = {
   OK: 'OK',
+  REORDER_SOON: 'Reorder soon',
   REORDER_NOW: 'Reorder now',
   LIKELY_OUT: 'Likely out',
-  NO_DATA: 'No usage yet',
+  NO_DATA: 'No data yet',
 };
 
 /** On-hand bar with a tick at the reorder point. */

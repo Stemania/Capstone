@@ -268,8 +268,8 @@ export default function InventoryPage() {
           </div>
         </div>
         <div className="w-note" style={{ padding: '0 4px' }}>
-          Take what you need from the stockroom. The office counts consumables at stocktake, so there is
-          nothing to log here. Tell the office when something runs low.
+          Take what you need, then scan the consumable QR on the Scan page (−1 each time). Tell the
+          office if something looks wrong on the shelf.
         </div>
       </>
     );
