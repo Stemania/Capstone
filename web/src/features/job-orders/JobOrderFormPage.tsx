@@ -9,7 +9,6 @@ import {
   Alert,
   Row,
   Col,
-  Space,
   Radio,
 } from 'antd';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -19,6 +18,7 @@ import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import type { Client, JobOrderStatus } from '../../types';
 import { jobOrdersDraftsListPath } from './jobOrderListPaths';
+import { MATERIALS_NEEDED_OPTIONS } from './jobOrderListTabs';
 import { IdChip, Page, SectionCard, PageSkeleton } from '../../components/ui';
 import './joForm.css';
 
@@ -303,37 +303,35 @@ export default function JobOrderFormPage() {
           </Row>
 
           <div className="ui-form-section">Description and materials</div>
-          <Row gutter={[16, 16]} className="jo-form__desc-materials">
-            <Col xs={24} md={14}>
-              <Form.Item name="description" label="Description" className="jo-form__desc-item">
-                <TextArea rows={4} placeholder="Notes from PO / special instructions (optional)" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={10}>
-              <Form.Item
-                name="materialsNeeded"
-                label="Materials needed"
-                rules={[{ required: true }]}
-                className="jo-form__materials-item"
-                style={{ marginBottom: 8 }}
-              >
-                <Radio.Group>
-                  <Space orientation="vertical" size={6}>
-                    <Radio value="TO_ORDER">To order</Radio>
-                    <Radio value="NOT_REQUIRED" disabled={released && !isAdmin}>
-                      Not required (client-supplied or from stock)
-                    </Radio>
-                  </Space>
-                </Radio.Group>
-              </Form.Item>
-              <div className="ui-muted-note jo-form__materials-note">
-                Materials are entered when ordering (Order materials on the job), not here.
-                {released && !isAdmin ? ' After release only the Admin can set Not required.' : ''}
-              </div>
-            </Col>
-          </Row>
+          <Form.Item name="description" label="Description" className="jo-form__desc-item">
+            <TextArea rows={4} placeholder="Notes from PO / special instructions (optional)" />
+          </Form.Item>
+          <Form.Item
+            name="materialsNeeded"
+            label="Materials needed"
+            rules={[{ required: true }]}
+            className="jo-form__materials-item"
+            style={{ marginBottom: 4 }}
+          >
+            <Radio.Group className="jo-form__materials-radios">
+              {MATERIALS_NEEDED_OPTIONS.map((opt) => (
+                <Radio
+                  key={opt.value}
+                  value={opt.value}
+                  disabled={opt.value === 'NOT_REQUIRED' && released && !isAdmin}
+                >
+                  {opt.label}
+                </Radio>
+              ))}
+            </Radio.Group>
+          </Form.Item>
+          <div className="ui-muted-note jo-form__materials-note">
+            Materials are entered when ordering (Order materials on the job), not here.
+            {released && !isAdmin ? ' After release only the Admin can set Not required.' : ''}
+          </div>
 
           <div className="jo-form__footer m-action-bar">
+            <span className="m-action-bar__spacer" aria-hidden />
             <Button onClick={() => navigate(backTo)}>Cancel</Button>
             <Button type="primary" loading={submitting} onClick={saveJob} style={{ minWidth: 140 }}>
               Save
