@@ -17,7 +17,7 @@ import { suppliersApi } from '../../api/suppliers.api';
 import { getErrorMessage } from '../../api/client';
 import type { Supplier } from '../../types';
 import StatusPill from '../../components/StatusPill';
-import { DataTable, EmptyState, FilterBar } from '../../components/ui';
+import { DataTable, EmptyState, EllipsisText, FilterBar, TwoLineCell } from '../../components/ui';
 import { useAuth } from '../../hooks/useAuth';
 
 function sectionLabel(text: string) {
@@ -109,17 +109,29 @@ export default function SuppliersPage() {
       title: 'Supplier',
       key: 'name',
       render: (_: unknown, r) => (
-        <div>
-          <div style={{ fontWeight: 600 }}>
-            {r.name}{' '}
-            {r.code ? <Tag color="blue" style={{ marginLeft: 4 }}>{r.code}</Tag> : null}
-            {r.isSeed ? <Tag style={{ marginLeft: 4 }}>Seed</Tag> : null}
-          </div>
-          <div style={{ fontSize: 12, color: '#64748b' }}>{r.contactPerson || '—'}</div>
-        </div>
+        <TwoLineCell
+          primary={
+            <>
+              {r.name}
+              {r.code ? (
+                <Tag color="blue" style={{ marginLeft: 4 }}>
+                  {r.code}
+                </Tag>
+              ) : null}
+              {r.isSeed ? <Tag style={{ marginLeft: 4 }}>Seed</Tag> : null}
+            </>
+          }
+          secondary={r.contactPerson || null}
+        />
       ),
     },
-    { title: 'Phone', dataIndex: 'phone', width: 130, render: (v) => v || '—' },
+    {
+      title: 'Phone',
+      dataIndex: 'phone',
+      width: 130,
+      ellipsis: true,
+      render: (v: string | null) => <EllipsisText>{v || '—'}</EllipsisText>,
+    },
     {
       title: 'Lead time',
       dataIndex: 'typicalLeadTimeDays',

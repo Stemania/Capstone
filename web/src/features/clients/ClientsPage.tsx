@@ -11,7 +11,7 @@ import { clientsApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
-import { ResponsiveTable } from '../../components/ui';
+import { EllipsisText, ResponsiveTable } from '../../components/ui';
 import { useAuth } from '../../hooks/useAuth';
 import type { Client } from '../../types';
 import { useNavigate } from 'react-router-dom';
@@ -92,10 +92,12 @@ export default function ClientsPage() {
       dataIndex: 'name',
       key: 'name',
       sorter: (a, b) => a.name.localeCompare(b.name),
+      ellipsis: true,
       render: (n: string, r: Client) => (
         <button
           type="button"
           className="client-name-link"
+          title={n}
           onClick={() => navigate(`/clients/${r.id}`)}
           style={{
             fontWeight: 600,
@@ -106,6 +108,10 @@ export default function ClientsPage() {
             padding: 0,
             cursor: 'pointer',
             textAlign: 'left',
+            maxWidth: '100%',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
           }}
         >
           {n}
@@ -118,9 +124,7 @@ export default function ClientsPage() {
       key: 'contact',
       ellipsis: true,
       sorter: (a, b) => (a.contact || '').localeCompare(b.contact || ''),
-      render: (v?: string) => (
-        <span style={{ fontSize: 14, color: '#0f172a' }}>{v || '—'}</span>
-      ),
+      render: (v?: string) => <EllipsisText>{v || '—'}</EllipsisText>,
     },
     {
       title: 'Email',
@@ -128,19 +132,16 @@ export default function ClientsPage() {
       key: 'email',
       ellipsis: true,
       sorter: (a, b) => (a.email || '').localeCompare(b.email || ''),
-      render: (v?: string) => (
-        <span style={{ fontSize: 13, color: '#475569' }}>{v || '—'}</span>
-      ),
+      render: (v?: string) => <EllipsisText>{v || '—'}</EllipsisText>,
     },
     {
       title: 'Mobile',
       dataIndex: 'mobileNumber',
       key: 'mobileNumber',
       width: 140,
+      ellipsis: true,
       sorter: (a, b) => (a.mobileNumber || '').localeCompare(b.mobileNumber || ''),
-      render: (v?: string) => (
-        <span style={{ fontSize: 13, color: '#475569' }}>{v || '—'}</span>
-      ),
+      render: (v?: string) => <EllipsisText>{v || '—'}</EllipsisText>,
     },
     {
       title: 'Notify',

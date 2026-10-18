@@ -23,6 +23,7 @@ import ToolEventsPage from './ToolEventsPage';
 import { useAuth } from '../../hooks/useAuth';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
+import { TwoLineCell } from '../../components/ui';
 import { Package, Wrench } from 'lucide-react';
 import {
   CategoryTile,
@@ -238,19 +239,21 @@ export default function ToolsAssetsPanel() {
       title: 'Type',
       key: 'name',
       render: (_: unknown, r) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <CategoryTile category="tool" />
-          <div>
-            <div style={{ fontWeight: 600, color: '#0f172a' }}>
-              {r.name}
-              {r.isSeed && showSeedBadge() ? (
-                <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
-                  seed
-                </Typography.Text>
-              ) : null}
-            </div>
-            <div style={{ fontSize: 12, color: '#64748b' }}>{r.code}</div>
-          </div>
+          <TwoLineCell
+            primary={
+              <>
+                {r.name}
+                {r.isSeed && showSeedBadge() ? (
+                  <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
+                    seed
+                  </Typography.Text>
+                ) : null}
+              </>
+            }
+            secondary={r.code}
+          />
         </div>
       ),
     },

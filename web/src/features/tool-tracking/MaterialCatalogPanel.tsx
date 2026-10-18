@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button, Col, Form, Input, Modal, Row, Select, Segmented, Switch, Tag, message } from 'antd';
+import { ChipOverflow, TwoLineCell } from '../../components/ui';
 import type { TableColumnsType } from 'antd';
 import { EditOutlined, PlusOutlined, SearchOutlined, BookOutlined } from '@ant-design/icons';
 import { BookOpen, Clock, Package, Layers } from 'lucide-react';
@@ -167,23 +168,20 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
       title: 'Item',
       key: 'name',
       sorter: (a, b) => a.name.localeCompare(b.name),
-      render: (_: unknown, r) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <CategoryTile category={r.category || r.name} />
-          <div>
-            <div style={{ fontWeight: 600, color: '#0f172a' }}>{r.name}</div>
-            <div style={{ fontSize: 12, color: '#64748b' }}>
-              {r.shopTerm ? <>Shop term: “{r.shopTerm}”</> : null}
-              {r.kind === 'CONSUMABLE' && r.code ? (
-                <>
-                  {r.shopTerm ? ' · ' : null}
-                  Code: {r.code}
-                </>
-              ) : null}
-            </div>
+      render: (_: unknown, r) => {
+        const secondary = [
+          r.shopTerm ? `Shop term: “${r.shopTerm}”` : null,
+          r.kind === 'CONSUMABLE' && r.code ? `Code: ${r.code}` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <CategoryTile category={r.category || r.name} />
+            <TwoLineCell primary={r.name} secondary={secondary || null} />
           </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: 'Type',
@@ -199,15 +197,12 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
     {
       title: 'Grades / sizes',
       key: 'grades',
+      ellipsis: true,
       render: (_: unknown, r) => {
         const list = r.gradesOrSizes?.length
           ? r.gradesOrSizes
           : r.grades || (r.sizeSpec ? [r.sizeSpec] : []);
-        return list.length ? (
-          list.map((g) => <Tag key={g}>{g}</Tag>)
-        ) : (
-          <span style={{ color: '#94a3b8' }}>—</span>
-        );
+        return <ChipOverflow items={list} max={2} />;
       },
     },
     { title: 'Unit', dataIndex: 'unit', width: 80 },

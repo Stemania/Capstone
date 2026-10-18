@@ -17,7 +17,7 @@ import { usersApi, type InviteDelivery } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
-import { ResponsiveTable } from '../../components/ui';
+import { EllipsisText, ResponsiveTable } from '../../components/ui';
 import { PersonAvatar, PersonChip } from '../../components/PersonAvatar';
 import PhotoUploadControl from '../../components/PhotoUploadControl';
 import type { User, UserRole } from '../../types';
@@ -305,7 +305,7 @@ export default function UsersPage() {
       sorter: (a, b) => (a.email || '').localeCompare(b.email || ''),
       render: (v: string | null) =>
         v ? (
-          <span style={{ fontSize: 13, color: '#475569' }}>{v}</span>
+          <EllipsisText>{v}</EllipsisText>
         ) : (
           <span style={{ fontSize: 13, color: '#94a3b8' }}>No email yet</span>
         ),

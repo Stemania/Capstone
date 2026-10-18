@@ -27,6 +27,7 @@ import ToolsAssetsPanel from './ToolsAssetsPanel';
 import RawMaterialsPanel from './RawMaterialsPanel';
 import MaterialCatalogPanel from './MaterialCatalogPanel';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
+import { TwoLineCell } from '../../components/ui';
 import { INVENTORY_TAB_OPTIONS } from './inventoryTabs';
 import {
   CategoryTile,
@@ -280,17 +281,16 @@ export default function ToolsPage() {
       key: 'name',
       sorter: (a, b) => a.name.localeCompare(b.name),
       render: (_: unknown, r) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <CategoryTile category={r.name} />
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>
-              {r.name}
-              {r.shopTerm ? (
-                <span style={{ fontWeight: 500, color: '#64748b' }}> “{r.shopTerm}”</span>
-              ) : null}
-            </div>
-            <div style={{ fontSize: 12, color: '#64748b' }}>{r.code}</div>
-          </div>
+          <TwoLineCell
+            primary={r.name}
+            secondary={
+              [r.code, r.shopTerm ? `Shop term: “${r.shopTerm}”` : null]
+                .filter(Boolean)
+                .join(' · ') || null
+            }
+          />
         </div>
       ),
     },
@@ -298,6 +298,7 @@ export default function ToolsPage() {
       title: 'Size',
       dataIndex: 'sizeSpec',
       width: 100,
+      ellipsis: true,
       render: (v: string | null) => v || '—',
     },
     {
@@ -306,11 +307,12 @@ export default function ToolsPage() {
       width: 120,
       sorter: (a, b) => (a.quantityOnHand ?? 0) - (b.quantityOnHand ?? 0),
       render: (_: unknown, r) => (
-        <div>
+        <div style={{ minWidth: 0 }}>
           <span
             style={{
               fontWeight: consumableListStatus(r) === 'REORDER_NOW' ? 700 : 500,
               color: consumableListStatus(r) === 'REORDER_NOW' ? '#b45309' : '#475569',
+              whiteSpace: 'nowrap',
             }}
           >
             {r.quantityOnHand} {r.unit}

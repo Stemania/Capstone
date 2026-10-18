@@ -410,8 +410,72 @@ a.ui-id:hover {
   white-space: nowrap;
 }
 
-.ui-table .ant-table-tbody > tr > td {
+/* Fixed row height across DataTable (ui-table) and std/jo list tables. */
+.ui-table .ant-table-tbody > tr > td,
+.std-list-table .ant-table-tbody > tr:not(.ant-table-measure-row) > td,
+.jo-list-table .ant-table-tbody > tr:not(.ant-table-measure-row) > td {
   font-size: var(--fs-base);
+  height: 56px;
+  max-height: 56px;
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.ui-ellipsis {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.ui-cell-stack {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  max-height: 40px;
+}
+
+.ui-cell-stack__primary {
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.ui-cell-stack__secondary {
+  font-size: var(--fs-xs, 12px);
+  color: var(--c-text-muted, #64748b);
+  line-height: 1.2;
+}
+
+.ui-chip-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.ui-chip-row__item {
+  display: inline-flex;
+  max-width: 7.5rem;
+}
+
+.ui-chip-row__item .ant-tag {
+  margin-inline-end: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ui-chip-row__more.ant-tag {
+  margin-inline-end: 0;
+  cursor: default;
+  flex-shrink: 0;
 }
 
 .ui-table .ant-pagination {
