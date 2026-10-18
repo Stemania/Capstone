@@ -666,7 +666,7 @@ function JobOrderDetailView() {
   const handleArchive = () => {
     Modal.confirm({
       title: 'Archive this job order?',
-      content: 'It leaves the default list. Open the Archived tab to find it again.',
+      content: 'It leaves the default list. Open Archived job orders to find it again.',
       okText: 'Archive',
       onOk: async () => {
         try {

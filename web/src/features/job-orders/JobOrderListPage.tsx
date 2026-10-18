@@ -23,7 +23,7 @@ import { formatShopDate, scheduleFlagStyle, formatShop, shopToday } from '../../
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill from '../../components/StatusPill';
-import { IdChip, TabBar } from '../../components/ui';
+import { EllipsisText, IdChip, TabBar } from '../../components/ui';
 import { JOB_FLAG, JOB_STATUS } from '../../theme/statuses';
 import MaterialDelayTag from '../../components/MaterialDelayTag';
 import NeedsReplanTag from '../../components/NeedsReplanTag';
@@ -35,15 +35,21 @@ import { useIsPhone } from '../../hooks/useIsPhone';
 import { NARROW_QUERY } from '../../hooks/useViewport';
 import type { JobOrder, JobOrderStatus } from '../../types';
 import { compareByDue } from './jobOrderSort';
+import { isJobOrderListTab } from './jobOrderListTabs';
 import CancelJobModal from './CancelJobModal';
 
 type ListTab = 'production' | 'drafts' | 'archived';
 
 function tabFromSearch(param: string | null): ListTab {
-  if (param === 'drafts') return 'drafts';
-  if (param === 'archived') return 'archived';
+  // Legacy ?tab=archived → handled by redirect to /job-orders/archived
+  if (isJobOrderListTab(param)) return param;
   return 'production';
 }
+
+type JobOrderListPageProps = {
+  /** Separate archived page; not a day-to-day tab. */
+  mode?: 'active' | 'archived';
+};
 
 const PRODUCTION_STATUS_OPTIONS: { value: JobOrderStatus; label: string }[] = [
   { value: 'SCHEDULED', label: 'Scheduled' },
@@ -237,13 +243,14 @@ function jobSearchHaystack(job: JobOrder) {
     .toLowerCase();
 }
 
-export default function JobOrderListPage() {
+export default function JobOrderListPage({ mode = 'active' }: JobOrderListPageProps) {
+  const archivedOnly = mode === 'archived';
   const [jobs, setJobs] = useState<JobOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
   const [listTab, setListTab] = useState<ListTab>(() =>
-    tabFromSearch(searchParams.get('tab'))
+    archivedOnly ? 'archived' : tabFromSearch(searchParams.get('tab'))
   );
   const [draftCount, setDraftCount] = useState(0);
   const [archivedCount, setArchivedCount] = useState(0);
@@ -272,17 +279,26 @@ export default function JobOrderListPage() {
   const isPhone = useIsPhone();
 
   useEffect(() => {
+    if (archivedOnly) {
+      setListTab('archived');
+      return;
+    }
+    // Old bookmark: send people to the dedicated archived page.
+    if (searchParams.get('tab') === 'archived') {
+      navigate('/job-orders/archived', { replace: true });
+      return;
+    }
     const next = tabFromSearch(searchParams.get('tab'));
     setListTab((prev) => (prev === next ? prev : next));
-  }, [searchParams]);
+  }, [searchParams, archivedOnly, navigate]);
 
   const selectListTab = (tab: ListTab) => {
+    if (archivedOnly) return;
     setListTab(tab);
     setStatusFilter([]);
     setAwaitingMaterialOnly(false);
     setSelectedKeys([]);
     if (tab === 'drafts') setSearchParams({ tab: 'drafts' }, { replace: true });
-    else if (tab === 'archived') setSearchParams({ tab: 'archived' }, { replace: true });
     else setSearchParams({}, { replace: true });
   };
 
@@ -550,7 +566,9 @@ export default function JobOrderListPage() {
       ellipsis: true,
       sorter: (a, b) => a.title.localeCompare(b.title),
       render: (t: string) => (
-        <span style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>{t}</span>
+        <EllipsisText title={t}>
+          <span style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>{t}</span>
+        </EllipsisText>
       ),
     },
     {
@@ -560,9 +578,7 @@ export default function JobOrderListPage() {
       width: 160,
       ellipsis: true,
       sorter: (a, b) => (a.clientName || '').localeCompare(b.clientName || ''),
-      render: (v: string | undefined) => (
-        <span style={{ fontSize: 14, color: '#0f172a' }}>{v || '—'}</span>
-      ),
+      render: (v: string | undefined) => <EllipsisText>{v || '—'}</EllipsisText>,
     },
     {
       title: 'Last modified',
@@ -710,25 +726,25 @@ export default function JobOrderListPage() {
 
   const columns = listTab === 'drafts' ? draftColumns : productionColumns;
 
-  const listTabs = (isAdmin || isOfficeStaff) ? (
-    <div style={{ marginBottom: isPhone ? 10 : 14 }}>
-      <TabBar<ListTab>
-        block={isPhone}
-        value={listTab}
-        onChange={selectListTab}
-        items={[
-          { label: 'Released', value: 'production', count: releasedCount },
-          {
-            label: isAdmin ? 'To plan' : 'Pending',
-            value: 'drafts',
-            count: draftCount,
-            countTone: draftCount > 0 ? 'red' : undefined,
-          },
-          { label: 'Archived', value: 'archived', count: archivedCount },
-        ]}
-      />
-    </div>
-  ) : null;
+  const listTabs =
+    !archivedOnly && (isAdmin || isOfficeStaff) ? (
+      <div style={{ marginBottom: isPhone ? 10 : 14 }}>
+        <TabBar<ListTab>
+          block={isPhone}
+          value={listTab === 'archived' ? 'production' : listTab}
+          onChange={selectListTab}
+          items={[
+            { label: 'Released', value: 'production', count: releasedCount },
+            {
+              label: isAdmin ? 'To plan' : 'Pending',
+              value: 'drafts',
+              count: draftCount,
+              countTone: draftCount > 0 ? 'red' : undefined,
+            },
+          ]}
+        />
+      </div>
+    ) : null;
 
   const openJob = (job: JobOrder) => {
     if (job.status === 'DRAFT' && isAdmin) navigate(`/job-orders/${job.id}/plan`);
@@ -902,7 +918,16 @@ export default function JobOrderListPage() {
               aria-label={selectMode ? 'Done selecting' : 'Select multiple'}
             />
           </Tooltip>
-          {isOfficeStaff && (
+          {!archivedOnly ? (
+            <Button type="link" onClick={() => navigate('/job-orders/archived')}>
+              Archived{archivedCount ? ` (${archivedCount})` : ''}
+            </Button>
+          ) : (
+            <Button type="link" onClick={() => navigate('/job-orders')}>
+              Back to job orders
+            </Button>
+          )}
+          {isOfficeStaff && !archivedOnly && (
             <Button
               type="primary"
               icon={<PlusOutlined />}

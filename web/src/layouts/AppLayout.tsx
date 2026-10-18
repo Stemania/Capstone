@@ -112,6 +112,13 @@ type Meta = { title: string; subtitle?: string; crumbs?: Crumb[] };
 
 function routeMeta(pathname: string, section: string | null): Meta {
   const jobs: Crumb = { label: 'Job Orders', to: '/job-orders' };
+  if (pathname === '/job-orders/archived') {
+    return {
+      title: 'Archived job orders',
+      subtitle: 'Jobs removed from the day-to-day list',
+      crumbs: [jobs, { label: 'Archived' }],
+    };
+  }
   if (pathname === '/job-orders/new') return { title: 'New job order', crumbs: [jobs, { label: 'New' }] };
   if (/^\/job-orders\/[^/]+\/edit$/.test(pathname)) return { title: 'Edit job order', crumbs: [jobs, { label: 'Edit' }] };
   if (/^\/job-orders\/[^/]+\/plan$/.test(pathname)) {

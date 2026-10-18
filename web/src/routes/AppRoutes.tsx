@@ -127,6 +127,10 @@ export default function AppRoutes() {
                   <Route element={<ProtectedRoute roles={['ADMIN', 'OFFICE_STAFF']} />}>
                     <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/job-orders" element={<JobOrderListPage />} />
+                    <Route
+                      path="/job-orders/archived"
+                      element={<JobOrderListPage mode="archived" />}
+                    />
                     <Route element={<ProtectedRoute roles={['OFFICE_STAFF']} />}>
                       <Route path="/job-orders/new" element={<JobOrderFormPage />} />
                     </Route>
