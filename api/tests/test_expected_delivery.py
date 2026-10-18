@@ -3,7 +3,7 @@
 Uses the bmsc_test database from conftest (schema built from the models).
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from app.extensions import db
 from app.models.audit_log import AuditLog
@@ -11,7 +11,13 @@ from app.models.job_order import JobOrder
 from app.models.staff_alert import StaffAlert
 from app.models.supplier_order import SupplierOrder, SupplierOrderStatus
 from app.services import material_purchase_service as mp_service
-from app.services.schedule_calendar import ensure_utc, next_shop_working_day, utc_to_shop
+from app.services import schedule_calendar as cal
+from app.services.schedule_calendar import (
+    SHOP_TZ,
+    ensure_utc,
+    next_shop_working_day,
+    utc_to_shop,
+)
 from tests.test_material_delay import (  # noqa: F401  (fixtures)
     _draft_order,
     _headers,
@@ -178,3 +184,20 @@ def test_received_cancelled_and_draft_orders_cannot_be_changed(client, shop):
     job, _ = _job(shop, _local(shop["today"] + timedelta(days=20), 9))
     draft = _draft_order(client, shop, job, shop["slow"])
     assert _change(client, shop["office"], draft["id"], new).status_code == 409
+
+
+def test_issue_without_date_uses_manila_day_at_utc_sunday(client, shop, monkeypatch):
+    """Monday 00:30 PHT is still Sunday in UTC — default issue date must be Monday."""
+    monday_0030_pht = datetime(2026, 10, 19, 0, 30, tzinfo=SHOP_TZ)
+    assert monday_0030_pht.astimezone(timezone.utc).date() == date(2026, 10, 18)
+    monkeypatch.setattr(cal, "shop_now", lambda: monday_0030_pht)
+
+    job, _ = _job(shop, _local(shop["today"] + timedelta(days=20), 9))
+    order = _draft_order(client, shop, job, shop["quick"])
+    res = client.post(
+        f"/api/v1/supplier-orders/{order['id']}/issue",
+        json={},
+        headers=_headers(shop["office"]),
+    )
+    assert res.status_code == 200, res.get_json()
+    assert res.get_json()["dateIssued"] == "2026-10-19"

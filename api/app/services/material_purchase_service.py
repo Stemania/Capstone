@@ -686,7 +686,9 @@ def receive_lines(
     consumable lines (once: a received line cannot be received again)."""
     from app.services.supplier_order_service import recompute_order_status
 
-    when = _parse_date(received_date) or date.today()
+    from app.services.schedule_calendar import shop_now
+
+    when = _parse_date(received_date) or shop_now().date()
     if any(p.is_consumable for p in lines) and not actor_id:
         raise AppError("Receiving consumables needs the receiver", "VALIDATION_ERROR", 400)
     for p in lines:

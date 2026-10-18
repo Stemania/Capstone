@@ -190,13 +190,16 @@ def test_original_start_is_never_overwritten(client, shop):
     job, after_issue = _starts(job)
 
     so = db.session.get(SupplierOrder, order["id"])
-    so.expected_delivery_date = so.expected_delivery_date + timedelta(days=3)
+    # Match the API: bump then snap to a shop working day (raw +3 can hit Sunday).
+    so.expected_delivery_date = next_shop_working_day(
+        so.expected_delivery_date + timedelta(days=3)
+    )
     db.session.commit()
     outcomes = delay_service.reschedule_for_order(so, delay_service.EXPECTED_DATE_CHANGED)
     assert [o["outcome"] for o in outcomes] == ["MOVED"]
 
     job, after_edit = _starts(job)
-    assert utc_to_shop(after_edit[0]).date() == next_shop_working_day(so.expected_delivery_date)
+    assert utc_to_shop(after_edit[0]).date() == so.expected_delivery_date
     assert after_edit[0] > after_issue[0]
     assert ensure_utc(job.material_delay_original_start) == first_planned
     assert "expected delivery changed" in job.material_delay_reason

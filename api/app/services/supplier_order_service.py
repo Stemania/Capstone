@@ -22,7 +22,7 @@ from app.models.supplier_order import (
 )
 from app.services import material_delay_service as delay_service
 from app.services import material_purchase_service as mp_service
-from app.services.schedule_calendar import next_shop_working_day
+from app.services.schedule_calendar import next_shop_working_day, shop_now
 from app.utils.errors import AppError
 
 CENT = Decimal("0.01")
@@ -457,7 +457,8 @@ def issue_order(order: SupplierOrder, actor_id: str, date_issued=None) -> Suppli
             "SUPPLIER_CODE_MISSING",
             400,
         )
-    issued = _parse_date(date_issued, "dateIssued") or date.today()
+    # Shop calendar date (Asia/Manila), never the server's local/UTC date.today().
+    issued = _parse_date(date_issued, "dateIssued") or shop_now().date()
     try:
         seq = _next_po_seq(order.supplier_id, issued.year)
         order.po_seq = seq
@@ -555,7 +556,6 @@ def change_expected_delivery(order: SupplierOrder, new_date, note) -> dict:
     new = _parse_date(new_date, "expectedDeliveryDate")
     if new is None:
         raise AppError("Choose the new expected delivery date.", "VALIDATION_ERROR", 400)
-    new = next_shop_working_day(new)
     note = (note or "").strip()
     if not note:
         raise AppError(
@@ -563,6 +563,8 @@ def change_expected_delivery(order: SupplierOrder, new_date, note) -> dict:
             "VALIDATION_ERROR",
             400,
         )
+    # Reject the chosen calendar day before snapping to a working day, so a
+    # Sunday before Monday's issue date cannot silently become Monday.
     if order.date_issued and new < order.date_issued:
         raise AppError(
             f"The expected delivery date cannot be before the issue date "
@@ -570,6 +572,7 @@ def change_expected_delivery(order: SupplierOrder, new_date, note) -> dict:
             "VALIDATION_ERROR",
             400,
         )
+    new = next_shop_working_day(new)
     old = order.expected_delivery_date
     if new == old:
         raise AppError(
