@@ -1,769 +1,888 @@
-"""Find, and optionally remove, data made by the seed scripts.
+"""One-off cleanup of seeded/sample people and companies.
 
-Used by `flask cleanup-seed-data` (a dry run unless --apply). Every client and
-supplier is put in one group:
-
-- REAL: a supplier from the reference loader (by code, name or alias, or a
-  retired reference supplier), or a record entered in the app (an audit-log
-  CREATE by a user, or job orders / supplier orders that are not seed-tagged).
-- SEED: made by a seed script. Clients: a name starting "HIST-SEED " or
-  "TC-SEED ", a contact or email ending ".local", one of `flask seed`'s demo
-  clients, or a name given with --also-clients. Job orders entered in the app
-  on such a client go with it and are listed first. Suppliers: is_seed or the
-  same markers, and not REAL.
-- DUPLICATE: a supplier renamed "<name> (duplicate)" by the reference loader;
-  it merges into the reference supplier that name or alias belongs to.
-- UNSURE: anything else. Never changed.
-
---apply (option A) removes:
-- SEED clients and suppliers with their job orders, operations, time logs,
-  helpers, material lines, schedule moves, alerts, notifications and
-  invoices; supplier orders that are seed-tagged or carry only seed-job
-  lines; seed-tagged or seed-job machine downtimes.
-- Seed-tagged stock counts and stock movements. Each consumable's quantity on
-  hand drops by what those rows added after its latest real count, never
-  below 0.
-- Seed-tagged calendar entries, except "holiday / no work" entries, which are
-  kept (and flagged when the date is not a Philippine holiday).
-DUPLICATE suppliers have their references moved to the target and are then
-deleted. Users, machines, operation types, the catalog, consumable items,
-shop details and every REAL or UNSURE record are never changed. Running it
-twice changes nothing the second time.
+Used by ``flask cleanup-seed-data`` (dry run unless ``--apply``). Merges seed
+suppliers and clients into real records, remaps ``@bmsc.local`` workers onto
+real employees, then deletes the seed accounts. Not seeding — safe to invoke
+in any environment; never runs from migrations or deploy.
 """
 
 from __future__ import annotations
 
+import re
+from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date, timedelta
-from decimal import Decimal
+from typing import Iterable
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import MetaData, inspect, text
 
 from app.extensions import db
-from app.services.reference_data_service import (
-    DUPLICATE_SUFFIX,
-    INACTIVE_SUPPLIERS,
-    SUPPLIERS,
-)
+from app.utils.db_url import mask_database_url
 
-SEED_TAGS = ("HIST-SEED", "TC-SEED")
-SEED_EMAIL_SUFFIX = ".local"
-# `flask seed`'s demo clients, as (name, contact).
-DEMO_CLIENTS = (
-    ("ABC Manufacturing", "09171234567"),
-    ("Metro Steel Corp", "09181234567"),
-    ("Pacific Engineering", "09191234567"),
-)
-
-REAL, SEED, DUPLICATE, UNSURE = "REAL", "SEED", "DUPLICATE", "UNSURE"
-GROUPS = (REAL, SEED, DUPLICATE, UNSURE)
-
-EVENT_REASON = "coalesce(reason, '')"
-STOCK_EVENT_SIGN = {"RECEIVE": 1, "RETURN": 1, "ISSUE": -1, "BORROW": -1}
-
-
-@dataclass
-class Record:
-    kind: str  # "client" | "supplier"
-    id: str
-    name: str
-    group: str
-    reason: str
-    merge_into: tuple[str, str] | None = None  # (id, name) for DUPLICATE
-    linked: dict = field(default_factory=dict)
-    notes: list = field(default_factory=list)
-
-
-@dataclass
-class Plan:
-    clients: list[Record]
-    suppliers: list[Record]
-    seed_job_ids: list[str]
-    seed_order_ids: list[str]
-    seed_downtime_ids: list[str]
-    seed_orders_by_supplier: dict
-    seed_stocktake_ids: list[str]
-    seed_stock_event_ids: list[str]
-    calendar: list[dict]
-    stock: list[dict]
-    untouched: dict
-    missing_names: list[str] = field(default_factory=list)
-    database: str = ""
-    before: dict | None = None
-    after: dict | None = None
-
-    def records(self, kind=None, group=None):
-        rows = self.clients + self.suppliers
-        return [
-            r for r in rows if (kind is None or r.kind == kind) and (group is None or r.group == group)
-        ]
-
-
-def _stmt(sql, params):
-    stmt = text(sql)
-    expanding = [k for k, v in params.items() if isinstance(v, (list, tuple, set))]
-    if expanding:
-        stmt = stmt.bindparams(*(bindparam(k, expanding=True) for k in expanding))
-        params = {k: (list(v) or [""] if k in expanding else v) for k, v in params.items()}
-    return stmt, params
-
-
-def _rows(sql, **params):
-    return db.session.execute(*_stmt(sql, params)).all()
-
-
-def _scalar(sql, **params):
-    return _rows(sql, **params)[0][0]
-
-
-def _exec(sql, **params):
-    return db.session.execute(*_stmt(sql, params)).rowcount
-
-
-def _tagged(value) -> bool:
-    v = (value or "").strip()
-    return any(v == t or v.startswith(f"{t} ") or v.startswith(f"{t}-") for t in SEED_TAGS)
-
-
-def _seed_po(po) -> bool:
-    return any((po or "").startswith(f"{t}-") for t in SEED_TAGS)
-
-
-def _local(value) -> bool:
-    return (value or "").strip().lower().endswith(SEED_EMAIL_SUFFIX)
-
-
-def _like_any(column):
-    return "(" + " OR ".join(f"{column} LIKE '%{t}%'" for t in SEED_TAGS) + ")"
-
-
-def _created_in_app(entity_type) -> dict:
-    """{entity id: role} for records an audit log says a user created."""
-    return {
-        eid: role
-        for eid, role in _rows(
-            "SELECT entity_id, user_role FROM audit_logs "
-            "WHERE entity_type = :t AND action = 'CREATE' AND user_id IS NOT NULL",
-            t=entity_type,
-        )
-    }
-
-
-def _reference_supplier(name):
-    """The reference spec a supplier name (or alias) belongs to, if any."""
-    low = (name or "").strip().lower()
-    for spec in SUPPLIERS:
-        if low in {n.lower() for n in (spec["name"], *spec["aliases"])}:
-            return spec
-    return None
-
-
-# --- Philippine holidays ----------------------------------------------------------
-
-FIXED_PH_HOLIDAYS = {
-    (1, 1): "New Year's Day",
-    (4, 9): "Araw ng Kagitingan",
-    (5, 1): "Labor Day",
-    (6, 12): "Independence Day",
-    (8, 21): "Ninoy Aquino Day",
-    (11, 1): "All Saints' Day",
-    (11, 30): "Bonifacio Day",
-    (12, 8): "Feast of the Immaculate Conception",
-    (12, 24): "Christmas Eve",
-    (12, 25): "Christmas Day",
-    (12, 30): "Rizal Day",
-    (12, 31): "Last day of the year",
+KEEP_SUPPLIER_NAMES = {
+    "Railim Industrial Corporation",
+    "Raitech Industrial Corporation",
+    "STP Industrial Inc.",
+}
+# Exact seed/duplicate names → keep-supplier name.
+MERGE_SUPPLIERS = {
+    "Railim Industrial Corporation (duplicate)": "Railim Industrial Corporation",
+    "STP Industrial Hardware Inc. (duplicate)": "STP Industrial Inc.",
+    "Metro Hardware": "STP Industrial Inc.",
+    "Seno Metals": "Railim Industrial Corporation",
 }
 
+KEEP_USER_NAMES = {
+    "admin user",
+    "office staff",
+    "test",
+    "anthony pajantoy",
+    "ariel macairap",
+    "emerson agao",
+    "ervin agao",
+    "geoff agao",
+    "gio agao",
+    "jerick aringo",
+    "john rey ganal",
+    "joseph carido",
+    "marvin fondevilla",
+    "marvin sese",
+    "melvin cablao",
+    "olimpio grajo iii",
+    "pao bobila",
+}
 
-def _easter(year: int) -> date:
-    """Western Easter Sunday (anonymous Gregorian algorithm)."""
-    a, b, c = year % 19, year // 100, year % 100
-    d, e = divmod(b, 4)
-    f = (b + 8) // 25
-    g = (b - f + 1) // 3
-    h = (19 * a + b - d - g + 15) % 30
-    i, k = divmod(c, 4)
-    l = (32 + 2 * e + 2 * i - h - k) % 7  # noqa: E741
-    m = (a + 11 * h + 22 * l) // 451
-    month, day = divmod(h + l - 7 * m + 114, 31)
-    return date(year, month, day + 1)
+SEED_WORKER_EMAIL_SUFFIX = "@bmsc.local"
+CLIENT_PREFIXES = ("HIST-SEED ", "TC-SEED ")
+TITLE_PREFIXES = ("[HIST-SEED] ", "[TC-SEED] ")
+TEXT_PREFIXES = ("HIST-SEED ", "TC-SEED ")
+NOTIFICATION_CLIENT = "TC-SEED Notification Client (TC-29)"
+BSU_NAME = "BSU"
+
+# When deleting a worker these are removed, not remapped.
+USER_OWNED_DELETE_TABLES = {
+    "worker_profiles",
+    "worker_skills",
+    "worker_schedules",
+    "user_devices",
+    "user_photos",
+    "password_reset_tokens",
+    "offline_action_receipts",
+}
+
+OPEN_OP_STATUSES = ("PENDING", "SCHEDULED", "IN_PROGRESS", "REWORK")
+
+FAKE_EMAIL_RE = re.compile(
+    r"(@hist-seed\.local|@example\.com|@tc-seed\.local|@.*\.local)$", re.I
+)
+FAKE_CONTACT_RE = re.compile(r"replace with a real contact", re.I)
 
 
-def ph_holiday(on: date) -> str | None:
-    """The Philippine holiday on a date: the fixed-date ones, Holy Week and
-    National Heroes Day. Chinese New Year and the Eid holidays move each
-    year by proclamation and are not included."""
-    if (on.month, on.day) in FIXED_PH_HOLIDAYS:
-        return FIXED_PH_HOLIDAYS[(on.month, on.day)]
-    easter = _easter(on.year)
-    holy = {
-        easter - timedelta(days=3): "Maundy Thursday",
-        easter - timedelta(days=2): "Good Friday",
-        easter - timedelta(days=1): "Black Saturday",
-    }
-    if on in holy:
-        return holy[on]
-    if on.month == 8 and on.weekday() == 0 and (on + timedelta(days=7)).month == 9:
-        return "National Heroes Day"
+@dataclass
+class MoveCounts:
+    by_table: dict[str, int] = field(default_factory=dict)
+
+    def add(self, table: str, n: int = 1) -> None:
+        if n:
+            self.by_table[table] = self.by_table.get(table, 0) + n
+
+
+@dataclass
+class CleanupReport:
+    database: str = ""
+    host: str = ""
+    db_name: str = ""
+    nothing_to_do: bool = False
+    suppliers_cleared_seed: list[str] = field(default_factory=list)
+    suppliers_merged: list[dict] = field(default_factory=list)
+    suppliers_left_seed: list[str] = field(default_factory=list)
+    clients_renamed: list[dict] = field(default_factory=list)
+    clients_merged: list[dict] = field(default_factory=list)
+    clients_contacts_cleared: list[str] = field(default_factory=list)
+    worker_mapping: list[dict] = field(default_factory=list)
+    worker_moves: dict[str, dict[str, int]] = field(default_factory=dict)
+    attendance_dropped: int = 0
+    open_ops_unassigned: list[dict] = field(default_factory=list)
+    workers_deleted: list[str] = field(default_factory=list)
+    workers_listed_only: list[str] = field(default_factory=list)
+    text_cleanup: dict[str, int] = field(default_factory=dict)
+    finals: dict = field(default_factory=dict)
+
+    def has_work(self) -> bool:
+        return bool(
+            self.suppliers_cleared_seed
+            or self.suppliers_merged
+            or self.clients_renamed
+            or self.clients_merged
+            or self.worker_mapping
+            or self.text_cleanup
+            or self.open_ops_unassigned
+        )
+
+
+def database_label(url=None) -> tuple[str, str, str]:
+    """Return (masked host/db, host, db name) for the current engine URL."""
+    raw = url if url is not None else str(db.engine.url)
+    masked = mask_database_url(raw)
+    host, _, db_name = masked.partition("/")
+    return masked, host, db_name
+
+
+def _fk_refs(*parent_tables: str) -> list[tuple[str, str, str]]:
+    """(child_table, child_column, parent_table) for FKs pointing at parents."""
+    parents = set(parent_tables)
+    out = []
+    md = MetaData()
+    md.reflect(bind=db.engine)
+    for table in md.tables.values():
+        for fk in table.foreign_keys:
+            ref = fk.column.table.name
+            if ref in parents:
+                out.append((table.name, fk.parent.name, ref))
+    return out
+
+
+def _unique_column_sets(table_name: str) -> list[tuple[str, ...]]:
+    """Full unique keys only. Partial unique indexes (e.g. one DRAFT per
+    supplier) are skipped — Postgres enforces them on UPDATE; we catch that
+    and delete the conflicting source row then."""
+    insp = inspect(db.engine)
+    sets = []
+    for uq in insp.get_unique_constraints(table_name):
+        cols = tuple(uq.get("column_names") or ())
+        if cols:
+            sets.append(cols)
+    for idx in insp.get_indexes(table_name):
+        if not idx.get("unique"):
+            continue
+        # Partial unique indexes (postgresql_where) must not be treated as
+        # full-table unique — that falsely conflicts every order per supplier.
+        dialect_opts = idx.get("dialect_options") or {}
+        if dialect_opts.get("postgresql_where") is not None:
+            continue
+        if idx.get("duplicates_constraint"):
+            continue
+        cols = tuple(idx.get("column_names") or ())
+        if cols:
+            sets.append(cols)
+    return sets
+
+
+def _force_delete_row(table: str, pk_cols: list[str], pk_vals: dict) -> None:
+    """Delete one row, clearing or deleting children that RESTRICT first."""
+    # Children that reference this table.
+    for child_table, child_col, parent in _fk_refs(table):
+        if parent != table:
+            continue
+        # Match child rows pointing at this PK (single-column FK only).
+        if len(pk_cols) != 1:
+            continue
+        parent_pk = pk_cols[0]
+        child_pk = list(
+            inspect(db.engine).get_pk_constraint(child_table).get("constrained_columns") or []
+        )
+        kids = db.session.execute(
+            text(f"SELECT * FROM {child_table} WHERE {child_col} = :v"),
+            {"v": pk_vals[f"pk_{parent_pk}"]},
+        ).mappings().all()
+        nullable = any(
+            c["name"] == child_col and c.get("nullable", True)
+            for c in inspect(db.engine).get_columns(child_table)
+        )
+        for kid in kids:
+            if nullable:
+                if child_pk:
+                    where = " AND ".join(f"{c} = :k_{c}" for c in child_pk)
+                    db.session.execute(
+                        text(f"UPDATE {child_table} SET {child_col} = NULL WHERE {where}"),
+                        {f"k_{c}": kid[c] for c in child_pk},
+                    )
+                else:
+                    db.session.execute(
+                        text(
+                            f"UPDATE {child_table} SET {child_col} = NULL "
+                            f"WHERE {child_col} = :v"
+                        ),
+                        {"v": pk_vals[f"pk_{parent_pk}"]},
+                    )
+            elif child_pk:
+                _force_delete_row(child_table, child_pk, {f"pk_{c}": kid[c] for c in child_pk})
+    where_pk = " AND ".join(f"{c} = :pk_{c}" for c in pk_cols)
+    db.session.execute(text(f"DELETE FROM {table} WHERE {where_pk}"), pk_vals)
+
+
+def _reassign_fk(
+    table: str,
+    column: str,
+    old_id: str,
+    new_id: str,
+    counts: MoveCounts,
+) -> int:
+    """Point ``table.column`` from old_id to new_id. On unique conflict, delete
+    the old row instead. Returns rows moved + deleted."""
+    if old_id == new_id:
+        return 0
+    moved = deleted = 0
+    rows = db.session.execute(
+        text(f"SELECT * FROM {table} WHERE {column} = :old"),
+        {"old": old_id},
+    ).mappings().all()
+    if not rows:
+        return 0
+
+    uq_sets = [cols for cols in _unique_column_sets(table) if column in cols]
+    pk_cols = list(inspect(db.engine).get_pk_constraint(table).get("constrained_columns") or [])
+
+    for row in rows:
+        conflict = False
+        for cols in uq_sets:
+            vals = {c: (new_id if c == column else row[c]) for c in cols}
+            if any(v is None for v in vals.values()):
+                continue
+            where = " AND ".join(f"{c} = :{c}" for c in cols)
+            if pk_cols:
+                where += " AND NOT (" + " AND ".join(
+                    f"{c} IS NOT DISTINCT FROM :pk_{c}" for c in pk_cols
+                ) + ")"
+                for c in pk_cols:
+                    vals[f"pk_{c}"] = row[c]
+            hit = db.session.execute(
+                text(f"SELECT 1 FROM {table} WHERE {where} LIMIT 1"),
+                vals,
+            ).first()
+            if hit:
+                conflict = True
+                break
+        if not conflict and pk_cols:
+            # Attempt update; catch partial-unique / other integrity errors.
+            where_pk = " AND ".join(f"{c} = :pk_{c}" for c in pk_cols)
+            try:
+                with db.session.begin_nested():
+                    db.session.execute(
+                        text(f"UPDATE {table} SET {column} = :new WHERE {where_pk}"),
+                        {"new": new_id, **{f"pk_{c}": row[c] for c in pk_cols}},
+                    )
+                moved += 1
+                counts.add(table, 1)
+                continue
+            except Exception:
+                conflict = True
+        if conflict:
+            if pk_cols:
+                _force_delete_row(table, pk_cols, {f"pk_{c}": row[c] for c in pk_cols})
+            else:
+                db.session.execute(
+                    text(f"DELETE FROM {table} WHERE {column} = :old"),
+                    {"old": old_id},
+                )
+            deleted += 1
+            counts.add(f"{table} (deleted, unique)", 1)
+        else:
+            # No PK path (rare): bulk update.
+            db.session.execute(
+                text(f"UPDATE {table} SET {column} = :new WHERE {column} = :old"),
+                {"new": new_id, "old": old_id},
+            )
+            moved += 1
+            counts.add(table, 1)
+            break
+    return moved + deleted
+
+
+def _reassign_all_fks(
+    old_id: str,
+    new_id: str,
+    parent_tables: Iterable[str],
+    counts: MoveCounts,
+    *,
+    skip_tables: set[str] | None = None,
+    skip_columns: set[tuple[str, str]] | None = None,
+) -> None:
+    skip_tables = skip_tables or set()
+    skip_columns = skip_columns or set()
+    for table, column, _parent in _fk_refs(*parent_tables):
+        if table in skip_tables or (table, column) in skip_columns:
+            continue
+        _reassign_fk(table, column, old_id, new_id, counts)
+
+
+def _delete_rows(table: str, column: str, value: str) -> int:
+    result = db.session.execute(
+        text(f"DELETE FROM {table} WHERE {column} = :v"),
+        {"v": value},
+    )
+    return result.rowcount or 0
+
+
+# --- Suppliers -----------------------------------------------------------------
+
+
+def _supplier_by_name(name: str):
+    from app.models.supplier import Supplier
+
+    return Supplier.query.filter(db.func.lower(Supplier.name) == name.lower()).first()
+
+
+def cleanup_suppliers(report: CleanupReport) -> None:
+    from app.models.supplier import Supplier
+
+    for name in KEEP_SUPPLIER_NAMES:
+        s = _supplier_by_name(name)
+        if s and s.is_seed:
+            s.is_seed = False
+            report.suppliers_cleared_seed.append(s.name)
+
+    for src_name, dest_name in MERGE_SUPPLIERS.items():
+        src = _supplier_by_name(src_name)
+        dest = _supplier_by_name(dest_name)
+        if not src:
+            continue
+        if not dest:
+            report.suppliers_left_seed.append(f"{src_name} (no target {dest_name!r})")
+            continue
+        if src.id == dest.id:
+            continue
+        counts = MoveCounts()
+        _reassign_all_fks(src.id, dest.id, ("suppliers",), counts)
+        db.session.flush()
+        db.session.delete(src)
+        db.session.flush()
+        report.suppliers_merged.append(
+            {"from": src_name, "to": dest_name, "moved": dict(counts.by_table)}
+        )
+
+    for s in Supplier.query.filter_by(is_seed=True).order_by(Supplier.name).all():
+        if s.name in KEEP_SUPPLIER_NAMES:
+            continue
+        if s.name in MERGE_SUPPLIERS:
+            continue
+        report.suppliers_left_seed.append(s.name)
+
+
+# --- Clients -------------------------------------------------------------------
+
+
+def _strip_client_prefix(name: str) -> str | None:
+    for p in CLIENT_PREFIXES:
+        if name.startswith(p):
+            return name[len(p) :].strip()
     return None
 
 
-# --- Classification ----------------------------------------------------------
+def _is_fake_contact(contact, email, mobile) -> bool:
+    if email and FAKE_EMAIL_RE.search(email.strip()):
+        return True
+    if contact and FAKE_CONTACT_RE.search(contact):
+        return True
+    if contact and FAKE_EMAIL_RE.search(contact.strip()):
+        return True
+    if mobile and FAKE_EMAIL_RE.search(str(mobile).strip()):
+        return True
+    return False
 
 
-def _classify_clients(app_created, also_names) -> tuple[list[Record], list[str]]:
-    jobs = {}
-    for cid, jid, po, title, status, created in _rows(
-        "SELECT client_id, id, client_po_number, title, status, created_at FROM job_orders ORDER BY created_at"
-    ):
-        jobs.setdefault(cid, []).append((jid, po, title, status, created))
-    demo = {(n.lower(), c) for n, c in DEMO_CLIENTS}
-    wanted = {n.strip() for n in also_names if n and n.strip()}
-    found = set()
-    out = []
-    for cid, name, contact, email in _rows("SELECT id, name, contact, email FROM clients ORDER BY name"):
-        app_jobs = [j for j in jobs.get(cid, []) if not _seed_po(j[1])]
-        markers = []
-        if _tagged(name):
-            markers.append("seed name")
-        if _local(contact) or _local(email):
-            markers.append(".local contact")
-        if ((name or "").strip().lower(), (contact or "").strip()) in demo:
-            markers.append("`flask seed` demo client")
-        if name in wanted:
-            found.add(name)
-            markers.append("named with --also-clients")
-        if markers:
-            rec = Record("client", cid, name, SEED, ", ".join(markers))
-            for _jid, po, title, status, created in app_jobs:
-                rec.notes.append(
-                    f"entered in the app: {title!r} (PO {po or '-'}, {status}, {created:%Y-%m-%d})"
-                )
-            out.append(rec)
-        elif cid in app_created:
-            out.append(Record("client", cid, name, REAL, f"entered in the app by {app_created[cid]}"))
-        elif app_jobs:
-            out.append(Record("client", cid, name, REAL, f"{len(app_jobs)} job order(s) entered in the app"))
-        else:
-            out.append(Record("client", cid, name, UNSURE, "no seed markers and no app history"))
-    return out, sorted(wanted - found)
+def _clear_fake_contacts(client, report: CleanupReport) -> None:
+    if _is_fake_contact(client.contact, client.email, client.mobile_number):
+        client.contact = None
+        client.email = None
+        client.mobile_number = None
+        client.notify_by_email = False
+        client.notify_by_sms = False
+        report.clients_contacts_cleared.append(client.name)
 
 
-def _seed_supplier_order_ids(seed_job_ids) -> tuple[set, dict]:
-    """Supplier orders that are seed-tagged or carry only seed-job lines, and
-    none that belong to other jobs. Also {supplier id: count}."""
-    info = {}
-    for oid, sid, notes, line_id, job_id in _rows(
-        "SELECT o.id, o.supplier_id, o.notes, m.id, m.job_order_id "
-        "FROM supplier_orders o LEFT JOIN material_purchases m ON m.supplier_order_id = o.id"
-    ):
-        row = info.setdefault(oid, {"supplier": sid, "tagged": _tagged(notes), "seed": 0, "other": 0, "restock": 0})
-        if line_id is None:
-            continue
-        if job_id is None:
-            row["restock"] += 1
-        elif job_id in seed_job_ids:
-            row["seed"] += 1
-        else:
-            row["other"] += 1
-    ids, by_supplier = set(), {}
-    for oid, row in info.items():
-        if row["other"]:
-            continue
-        if row["tagged"] or (row["seed"] > 0 and row["restock"] == 0):
-            ids.add(oid)
-            by_supplier[row["supplier"]] = by_supplier.get(row["supplier"], 0) + 1
-    return ids, by_supplier
-
-
-def _classify_suppliers(app_created, seed_order_ids) -> list[Record]:
-    rows = _rows("SELECT id, name, code, is_seed, email FROM suppliers ORDER BY name")
-    by_code = {code: (sid, name) for sid, name, code, _s, _e in rows if code}
-    retired = {n.lower() for n in INACTIVE_SUPPLIERS}
-    app_orders = dict(
-        _rows(
-            "SELECT supplier_id, count(*) FROM supplier_orders WHERE NOT (id IN :ids) GROUP BY supplier_id",
-            ids=seed_order_ids,
-        )
-    )
-    out = []
-    for sid, name, code, is_seed, email in rows:
-        if name.endswith(DUPLICATE_SUFFIX):
-            spec = _reference_supplier(name[: -len(DUPLICATE_SUFFIX)])
-            target = by_code.get(spec["code"]) if spec else None
-            if target and target[0] != sid:
-                out.append(
-                    Record(
-                        "supplier", sid, name, DUPLICATE,
-                        f"renamed by the reference loader; same as {spec['code']}", merge_into=target,
-                    )
-                )
-            else:
-                out.append(Record("supplier", sid, name, UNSURE, "marked duplicate, but no reference supplier matches"))
-            continue
-        spec = next((s for s in SUPPLIERS if s["code"] == code), None) or _reference_supplier(name)
-        if spec:
-            out.append(Record("supplier", sid, name, REAL, f"reference supplier {spec['code']}"))
-        elif name.strip().lower() in retired:
-            out.append(Record("supplier", sid, name, REAL, "retired reference supplier"))
-        elif sid in app_created:
-            out.append(Record("supplier", sid, name, REAL, f"entered in the app by {app_created[sid]}"))
-        elif is_seed or _tagged(name) or _local(email):
-            if app_orders.get(sid):
-                out.append(
-                    Record("supplier", sid, name, UNSURE, f"seed flag, but {app_orders[sid]} supplier order(s) entered in the app")
-                )
-            else:
-                out.append(Record("supplier", sid, name, SEED, "seed flag" if is_seed else "seed name or .local email"))
-        elif app_orders.get(sid):
-            out.append(Record("supplier", sid, name, REAL, f"{app_orders[sid]} supplier order(s) entered in the app"))
-        else:
-            out.append(Record("supplier", sid, name, UNSURE, "no seed markers and no app history"))
-    return out
-
-
-# --- Linked rows ---------------------------------------------------------------
-
-
-def _job_links(job_ids) -> dict:
-    ids = list(job_ids)
-    ops = "SELECT id FROM operations WHERE job_order_id IN :ids"
-    return {
-        "job orders": len(ids),
-        "operations": _scalar("SELECT count(*) FROM operations WHERE job_order_id IN :ids", ids=ids),
-        "time records": _scalar(f"SELECT count(*) FROM operation_time_logs WHERE operation_id IN ({ops})", ids=ids),
-        "helpers": _scalar(f"SELECT count(*) FROM operation_helpers WHERE operation_id IN ({ops})", ids=ids),
-        "material lines": _scalar("SELECT count(*) FROM material_purchases WHERE job_order_id IN :ids", ids=ids),
-        "deliveries received": _scalar(
-            "SELECT count(*) FROM material_purchases WHERE job_order_id IN :ids AND date_received IS NOT NULL",
-            ids=ids,
-        ),
-        "invoices": _scalar("SELECT count(*) FROM sales_invoices WHERE job_order_id IN :ids", ids=ids),
-        "notifications": _scalar("SELECT count(*) FROM notification_logs WHERE job_order_id IN :ids", ids=ids),
-        "staff alerts": _scalar("SELECT count(*) FROM staff_alerts WHERE job_order_id IN :ids", ids=ids),
-        "schedule moves": _scalar("SELECT count(*) FROM schedule_moves WHERE job_order_id IN :ids", ids=ids),
-        "machine downtimes": _scalar(
-            f"SELECT count(*) FROM machine_downtimes WHERE job_order_id IN :ids OR operation_id IN ({ops})",
-            ids=ids,
-        ),
-        "stock movements (kept, unlinked)": _scalar(
-            f"SELECT count(*) FROM tool_events WHERE job_order_id IN :ids AND NOT {_like_any(EVENT_REASON)}",
-            ids=ids,
-        ),
-    }
-
-
-def _order_links(order_ids) -> dict:
-    ids = list(order_ids)
-    return {
-        "supplier orders": len(ids),
-        "order lines": _scalar("SELECT count(*) FROM material_purchases WHERE supplier_order_id IN :ids", ids=ids),
-        "deliveries received": _scalar(
-            "SELECT count(*) FROM material_purchases WHERE supplier_order_id IN :ids AND date_received IS NOT NULL",
-            ids=ids,
-        ),
-    }
-
-
-def _calendar_plan() -> list[dict]:
-    out = []
-    for cid, on, kind, start, end, note in _rows(
-        f"SELECT id, date, type, start_time, end_time, note FROM work_calendar_exceptions "
-        f"WHERE {_like_any('note')} ORDER BY date"
-    ):
-        holiday = ph_holiday(on)
-        if kind == "HOLIDAY_NO_WORK":
-            action = "keep" if holiday else "keep (check)"
-            why = f"Philippine holiday: {holiday}" if holiday else "not a known Philippine holiday date"
-        else:
-            action = "delete"
-            why = f"seed {kind.lower().replace('_', ' ')}"
-            if holiday:
-                why += f" (date is {holiday}, but the entry is not a holiday)"
-        hours = f" {start:%H:%M}-{end:%H:%M}" if start and end else ""
-        out.append({"id": cid, "date": on, "type": kind, "hours": hours, "note": note, "action": action, "why": why})
-    return out
-
-
-def _stock_plan(stocktake_ids, event_ids) -> list[dict]:
-    """Per consumable: on hand now and after the seed stock rows go.
-
-    The seed rows' effect after the latest real count is taken off: a count
-    added (counted - previous), a delivery added its quantity. A real count
-    after them already replaced their effect.
-    """
-    real_last = dict(
-        _rows(
-            "SELECT l.tool_id, max(s.counted_on) FROM stocktake_lines l JOIN stocktakes s ON s.id = l.stocktake_id "
-            "WHERE NOT (s.id IN :ids) GROUP BY l.tool_id",
-            ids=stocktake_ids,
-        )
-    )
-    effect, rows_per_tool, unsigned = {}, {}, {}
-    for tool_id, on, delta in _rows(
-        "SELECT l.tool_id, s.counted_on, l.counted_quantity - l.previous_quantity "
-        "FROM stocktake_lines l JOIN stocktakes s ON s.id = l.stocktake_id WHERE s.id IN :ids",
-        ids=stocktake_ids,
-    ):
-        rows_per_tool[tool_id] = rows_per_tool.get(tool_id, 0) + 1
-        if real_last.get(tool_id) is None or on > real_last[tool_id]:
-            effect[tool_id] = effect.get(tool_id, Decimal(0)) + Decimal(delta)
-    for tool_id, kind, qty, received, created in _rows(
-        "SELECT tool_id, type, quantity, received_on, created_at FROM tool_events WHERE id IN :ids",
-        ids=event_ids,
-    ):
-        if tool_id is None:
-            continue
-        rows_per_tool[tool_id] = rows_per_tool.get(tool_id, 0) + 1
-        on = received or created.date()
-        if real_last.get(tool_id) is not None and on <= real_last[tool_id]:
-            continue
-        sign = STOCK_EVENT_SIGN.get(kind)
-        if sign is None:
-            unsigned[tool_id] = unsigned.get(tool_id, 0) + 1
-            continue
-        effect[tool_id] = effect.get(tool_id, Decimal(0)) + sign * Decimal(qty)
-    out = []
-    for tid, name, code, unit, size, on_hand in _rows(
-        "SELECT id, name, code, unit, size_spec, quantity_on_hand FROM tools "
-        "WHERE category = 'CONSUMABLE' ORDER BY name, code"
-    ):
-        now = Decimal(on_hand or 0)
-        raw = now - effect.get(tid, Decimal(0))
-        after = max(raw, Decimal(0))
-        notes = []
-        if raw < 0:
-            notes.append(f"would be {raw:g}; set to 0")
-        if unsigned.get(tid):
-            notes.append(f"{unsigned[tid]} seed adjustment(s) without a direction left in")
-        if real_last.get(tid):
-            notes.append(f"last real count {real_last[tid]:%Y-%m-%d}")
-        elif rows_per_tool.get(tid):
-            notes.append("no real count")
-        out.append(
-            {
-                "id": tid, "name": name, "code": code, "unit": unit, "size": size,
-                "now": now, "after": after, "seedRows": rows_per_tool.get(tid, 0), "notes": notes,
-            }
-        )
-    return out
-
-
-def build_plan(also_clients=()) -> Plan:
-    from app.utils.db_url import mask_database_url
-
-    app_clients = _created_in_app("Client")
-    app_suppliers = _created_in_app("Supplier")
-    clients, missing = _classify_clients(app_clients, also_clients)
-    seed_client_ids = [c.id for c in clients if c.group == SEED]
-
-    jobs_by_client = {}
-    for jid, cid in _rows("SELECT id, client_id FROM job_orders WHERE client_id IN :ids", ids=seed_client_ids):
-        jobs_by_client.setdefault(cid, []).append(jid)
-    seed_job_ids = {j for js in jobs_by_client.values() for j in js}
-
-    order_ids, orders_by_supplier = _seed_supplier_order_ids(seed_job_ids)
-    suppliers = _classify_suppliers(app_suppliers, order_ids)
-    seed_supplier_ids = {s.id for s in suppliers if s.group == SEED}
-
-    for c in clients:
-        if c.group == SEED:
-            c.linked = _job_links(jobs_by_client.get(c.id, []))
-    for s in suppliers:
-        if s.group in (SEED, DUPLICATE):
-            own = [oid for (oid,) in _rows("SELECT id FROM supplier_orders WHERE supplier_id = :s", s=s.id)]
-            s.linked = {
-                **_order_links(own),
-                "job orders naming it": _scalar("SELECT count(*) FROM job_orders WHERE supplier_id = :s", s=s.id),
-                "lines without an order": _scalar(
-                    "SELECT count(*) FROM material_purchases WHERE supplier_id = :s AND supplier_order_id IS NULL",
-                    s=s.id,
-                ),
-            }
-            if s.group == SEED:
-                new = set(own) - order_ids
-                order_ids |= new
-                if new:
-                    orders_by_supplier[s.id] = orders_by_supplier.get(s.id, 0) + len(new)
-
-    downtime_ids = [
-        did
-        for (did,) in _rows(
-            f"SELECT id FROM machine_downtimes WHERE {_like_any('note')} "
-            "OR job_order_id IN :jobs OR operation_id IN (SELECT id FROM operations WHERE job_order_id IN :jobs)",
-            jobs=seed_job_ids,
-        )
-    ]
-    stocktake_ids = [sid for (sid,) in _rows(f"SELECT id FROM stocktakes WHERE {_like_any('notes')}")]
-    event_ids = [eid for (eid,) in _rows(f"SELECT id FROM tool_events WHERE {_like_any('reason')}")]
-
-    non_seed_clients = [c.id for c in clients if c.group != SEED]
-    untouched = {
-        "seed-tagged jobs on clients that are not SEED": _scalar(
-            "SELECT count(*) FROM job_orders WHERE client_id IN :ids AND ("
-            + " OR ".join(f"client_po_number LIKE '{t}-%'" for t in SEED_TAGS)
-            + ")",
-            ids=non_seed_clients,
-        ),
-        "seed suppliers' lines on other jobs": _scalar(
-            "SELECT count(*) FROM material_purchases WHERE supplier_id IN :s AND job_order_id IS NOT NULL "
-            "AND NOT (job_order_id IN :jobs)",
-            s=seed_supplier_ids,
-            jobs=seed_job_ids,
-        ),
-    }
-    return Plan(
-        clients=clients,
-        suppliers=suppliers,
-        seed_job_ids=sorted(seed_job_ids),
-        seed_order_ids=sorted(order_ids),
-        seed_downtime_ids=sorted(downtime_ids),
-        seed_orders_by_supplier=orders_by_supplier,
-        seed_stocktake_ids=stocktake_ids,
-        seed_stock_event_ids=event_ids,
-        calendar=_calendar_plan(),
-        stock=_stock_plan(stocktake_ids, event_ids),
-        untouched=untouched,
-        missing_names=missing,
-        database=mask_database_url(str(db.engine.url)),
-    )
-
-
-# --- Apply (option A) ----------------------------------------------------------
-
-
-def _apply(plan: Plan) -> None:
-    jobs = plan.seed_job_ids
-    orders = plan.seed_order_ids
-    ops = "SELECT id FROM operations WHERE job_order_id IN :ids"
-    _exec("DELETE FROM machine_downtimes WHERE id IN :ids", ids=plan.seed_downtime_ids)
-    _exec("DELETE FROM tool_events WHERE id IN :ids", ids=plan.seed_stock_event_ids)
-    _exec("DELETE FROM stocktake_lines WHERE stocktake_id IN :ids", ids=plan.seed_stocktake_ids)
-    _exec("DELETE FROM stocktakes WHERE id IN :ids", ids=plan.seed_stocktake_ids)
-    for row in plan.stock:
-        if row["after"] != row["now"]:
-            _exec("UPDATE tools SET quantity_on_hand = :q WHERE id = :id", q=row["after"], id=row["id"])
-    _exec(
-        "DELETE FROM work_calendar_exceptions WHERE id IN :ids",
-        ids=[c["id"] for c in plan.calendar if c["action"] == "delete"],
-    )
-
-    _exec("UPDATE tool_events SET job_order_id = NULL WHERE job_order_id IN :ids", ids=jobs)
-    _exec(
-        "UPDATE tool_events SET material_purchase_id = NULL WHERE material_purchase_id IN "
-        "(SELECT id FROM material_purchases WHERE job_order_id IN :jobs OR supplier_order_id IN :orders)",
-        jobs=jobs,
-        orders=orders,
-    )
-    for table in ("notification_logs", "sales_invoices", "staff_alerts", "schedule_moves"):
-        _exec(f"DELETE FROM {table} WHERE job_order_id IN :ids", ids=jobs)
-    _exec(f"DELETE FROM operation_time_logs WHERE operation_id IN ({ops})", ids=jobs)
-    _exec(f"DELETE FROM operation_helpers WHERE operation_id IN ({ops})", ids=jobs)
-    _exec(f"UPDATE machine_downtimes SET operation_id = NULL WHERE operation_id IN ({ops})", ids=jobs)
-    _exec("UPDATE machine_downtimes SET job_order_id = NULL WHERE job_order_id IN :ids", ids=jobs)
-    _exec("DELETE FROM material_purchases WHERE job_order_id IN :ids", ids=jobs)
-    _exec(
-        "UPDATE job_orders SET material_delay_supplier_order_id = NULL WHERE material_delay_supplier_order_id IN :ids",
-        ids=orders,
-    )
-    _exec("DELETE FROM staff_alerts WHERE supplier_order_id IN :ids", ids=orders)
-    _exec("DELETE FROM schedule_moves WHERE supplier_order_id IN :ids", ids=orders)
-    _exec("DELETE FROM material_purchases WHERE supplier_order_id IN :ids", ids=orders)
-    _exec("DELETE FROM supplier_orders WHERE id IN :ids", ids=orders)
-    _exec("UPDATE operations SET rework_of_operation_id = NULL WHERE job_order_id IN :ids", ids=jobs)
-    _exec("DELETE FROM operations WHERE job_order_id IN :ids", ids=jobs)
-    _exec("DELETE FROM job_orders WHERE id IN :ids", ids=jobs)
-
-    seed_clients = [c.id for c in plan.records("client", SEED)]
-    _exec("DELETE FROM notification_logs WHERE client_id IN :ids", ids=seed_clients)
-    _exec("DELETE FROM sales_invoices WHERE client_id IN :ids", ids=seed_clients)
-    _exec("DELETE FROM clients WHERE id IN :ids", ids=seed_clients)
-
-    seed_suppliers = [s.id for s in plan.records("supplier", SEED)]
-    _exec("UPDATE job_orders SET supplier_id = NULL WHERE supplier_id IN :ids", ids=seed_suppliers)
-    _exec("UPDATE schedule_moves SET supplier_id = NULL WHERE supplier_id IN :ids", ids=seed_suppliers)
-    _exec(
-        "DELETE FROM material_purchases WHERE supplier_id IN :ids AND job_order_id IS NULL AND supplier_order_id IS NULL",
-        ids=seed_suppliers,
-    )
-    _exec("DELETE FROM suppliers WHERE id IN :ids", ids=seed_suppliers)
-
-    for dup in plan.records("supplier", DUPLICATE):
-        target = dup.merge_into[0]
-        for table in ("supplier_orders", "material_purchases", "job_orders", "schedule_moves"):
-            _exec(f"UPDATE {table} SET supplier_id = :t WHERE supplier_id = :d", t=target, d=dup.id)
-        _exec("DELETE FROM suppliers WHERE id = :d", d=dup.id)
+def _merge_client(src, dest, report: CleanupReport) -> None:
+    counts = MoveCounts()
+    _reassign_all_fks(src.id, dest.id, ("clients",), counts)
     db.session.flush()
+    name = src.name
+    db.session.delete(src)
+    db.session.flush()
+    report.clients_merged.append(
+        {"from": name, "to": dest.name, "moved": dict(counts.by_table)}
+    )
 
 
-# --- Analytics snapshot ----------------------------------------------------------
+def cleanup_clients(report: CleanupReport) -> None:
+    from app.models.client import Client
+
+    # Special: notification client → BSU
+    note = Client.query.filter(Client.name == NOTIFICATION_CLIENT).first()
+    bsu = Client.query.filter(db.func.lower(Client.name) == BSU_NAME.lower()).first()
+    if note and bsu:
+        _merge_client(note, bsu, report)
+    elif note and not bsu:
+        report.clients_merged.append(
+            {"from": note.name, "to": "(missing BSU — left alone)", "moved": {}}
+        )
+
+    seeded = [
+        c
+        for c in Client.query.order_by(Client.created_at.asc(), Client.name.asc()).all()
+        if _strip_client_prefix(c.name)
+    ]
+    # Group by stripped name (case-insensitive).
+    groups: dict[str, list] = defaultdict(list)
+    for c in seeded:
+        stripped = _strip_client_prefix(c.name)
+        if stripped:
+            groups[stripped.lower()].append((c, stripped))
+
+    for _key, members in groups.items():
+        stripped = members[0][1]
+        # Prefer an already-real client with that name.
+        real = (
+            Client.query.filter(db.func.lower(Client.name) == stripped.lower())
+            .filter(~Client.name.in_([m[0].name for m in members]))
+            .first()
+        )
+        if real is None:
+            # Exact match among non-prefixed existing (may already exist as Sanitary Care).
+            real = (
+                Client.query.filter(db.func.lower(Client.name) == stripped.lower())
+                .filter(~Client.name.like("HIST-SEED %"))
+                .filter(~Client.name.like("TC-SEED %"))
+                .first()
+            )
+
+        if real is not None:
+            for c, _s in members:
+                if c.id == real.id:
+                    continue
+                if db.session.get(Client, c.id) is None:
+                    continue
+                _merge_client(c, real, report)
+            continue
+
+        # Rename first (oldest), merge the rest into it.
+        keep_client, keep_stripped = members[0]
+        if keep_client.name != keep_stripped:
+            old = keep_client.name
+            keep_client.name = keep_stripped
+            _clear_fake_contacts(keep_client, report)
+            report.clients_renamed.append({"from": old, "to": keep_stripped})
+            db.session.flush()
+        else:
+            _clear_fake_contacts(keep_client, report)
+
+        for c, _s in members[1:]:
+            if db.session.get(Client, c.id) is None:
+                continue
+            _merge_client(c, keep_client, report)
 
 
-def analytics_snapshot(today: date | None = None) -> dict:
-    """The analytics numbers the cleanup can change, over all history."""
-    from app.services import analytics_service, forecast_service
-    from app.services.schedule_calendar import shop_now
-    from app.services.supplier_reliability_service import supplier_reliability
+# --- Workers -------------------------------------------------------------------
 
-    today = today or shop_now().date()
-    first = _scalar("SELECT min(created_at) FROM job_orders")
-    from_s = (first.date() if first else today).isoformat()
-    to_s = today.isoformat()
 
-    def fc(result):
-        return {
-            "fullMonths": result["monthsAvailable"],
-            "method": result["method"],
-            "forecast": result["forecast"],
-            "mapePct": result["mapePct"],
-            "mae": result["mae"],
+def _worker_load(user_id: str) -> int:
+    """How many history rows a worker already carries (for even spreading)."""
+    n = 0
+    for sql in (
+        "SELECT count(*) FROM operations WHERE assigned_worker_id = :id",
+        "SELECT count(*) FROM operation_time_logs WHERE worker_id = :id",
+        "SELECT count(*) FROM tool_events WHERE worker_id = :id",
+        "SELECT count(*) FROM attendance_records WHERE worker_id = :id",
+    ):
+        n += db.session.execute(text(sql), {"id": user_id}).scalar() or 0
+    return n
+
+
+def _skill_types(user_id: str) -> set[str]:
+    rows = db.session.execute(
+        text("SELECT machine_type_id FROM worker_skills WHERE worker_id = :id"),
+        {"id": user_id},
+    ).all()
+    return {r[0] for r in rows}
+
+
+def _build_worker_mapping(seeded: list, keepers: list) -> list[tuple]:
+    """Map each seeded worker → a keep worker. Prefer shared skills, else fewest rows."""
+    loads = {k.id: _worker_load(k.id) for k in keepers}
+    skills = {k.id: _skill_types(k.id) for k in keepers}
+    mapping = []
+    for seed in seeded:
+        seed_skills = _skill_types(seed.id)
+        best = None
+        best_key = None
+        for k in keepers:
+            shared = len(seed_skills & skills[k.id])
+            key = (-shared, loads[k.id], k.full_name.lower())
+            if best_key is None or key < best_key:
+                best_key = key
+                best = k
+        mapping.append((seed, best))
+        loads[best.id] = loads.get(best.id, 0) + _worker_load(seed.id) + 1
+    return mapping
+
+
+def _intervals_overlap(a0, a1, b0, b1) -> bool:
+    if not a0 or not a1 or not b0 or not b1:
+        return False
+    return a0 < b1 and b0 < a1
+
+
+def _handle_open_operations(seed, keep, report: CleanupReport) -> None:
+    from app.models.job_order import JobOrder
+    from app.models.operation import JobOperation, OperationStatus
+    from app.services.job_order_service import mark_needs_replan
+
+    open_statuses = [OperationStatus[s] for s in OPEN_OP_STATUSES if s in OperationStatus.__members__]
+    ops = (
+        JobOperation.query.filter(
+            JobOperation.assigned_worker_id == seed.id,
+            JobOperation.status.in_(open_statuses),
+        ).all()
+    )
+    keep_ops = (
+        JobOperation.query.filter(
+            JobOperation.assigned_worker_id == keep.id,
+            JobOperation.status.in_(open_statuses),
+        ).all()
+    )
+    for op in ops:
+        conflict = any(
+            _intervals_overlap(
+                op.scheduled_start, op.scheduled_end, other.scheduled_start, other.scheduled_end
+            )
+            for other in keep_ops
+        )
+        if conflict:
+            op.assigned_worker_id = None
+            job = db.session.get(JobOrder, op.job_order_id)
+            if job is not None:
+                mark_needs_replan(
+                    job,
+                    "Seed worker removed; booking conflict",
+                    f"Operation '{op.operation_name}' was unassigned during seed cleanup "
+                    f"because it overlapped {keep.full_name}'s schedule.",
+                    dedupe_key=f"seed-cleanup-unassign:{op.id}",
+                )
+            report.open_ops_unassigned.append(
+                {
+                    "operationId": op.id,
+                    "jobId": op.job_order_id,
+                    "from": seed.full_name,
+                    "wouldHaveBeen": keep.full_name,
+                    "status": op.status.value if op.status else None,
+                }
+            )
+        else:
+            op.assigned_worker_id = keep.id
+            keep_ops.append(op)
+            report.worker_moves.setdefault(seed.email or seed.id, {})
+            report.worker_moves[seed.email or seed.id]["operations"] = (
+                report.worker_moves[seed.email or seed.id].get("operations", 0) + 1
+            )
+
+
+def _delete_user_owned(user_id: str) -> None:
+    """Drop PIN devices, sessions, tokens, skills, schedule, profile for a seed user."""
+    _delete_rows("user_invitations", "user_id", user_id)
+    _delete_rows("user_devices", "user_id", user_id)
+    _delete_rows("user_photos", "user_id", user_id)
+    _delete_rows("password_reset_tokens", "user_id", user_id)
+    _delete_rows("offline_action_receipts", "user_id", user_id)
+    _delete_rows("worker_skills", "worker_id", user_id)
+    _delete_rows("worker_schedules", "worker_id", user_id)
+    _delete_rows("worker_profiles", "user_id", user_id)
+
+
+def cleanup_workers(report: CleanupReport) -> None:
+    from app.models.user import User, UserRole
+
+    keepers = [
+        u
+        for u in User.query.filter_by(role=UserRole.PRODUCTION_WORKER).all()
+        if (u.full_name or "").strip().lower() in KEEP_USER_NAMES
+    ]
+    # Also keep non-worker named accounts (Admin User, Office Staff, test) — never delete them.
+    keep_ids = {u.id for u in keepers}
+    for u in User.query.all():
+        if (u.full_name or "").strip().lower() in KEEP_USER_NAMES:
+            keep_ids.add(u.id)
+
+    seeded = [
+        u
+        for u in User.query.filter_by(role=UserRole.PRODUCTION_WORKER)
+        .order_by(User.email.asc(), User.full_name.asc())
+        .all()
+        if (u.email or "").lower().endswith(SEED_WORKER_EMAIL_SUFFIX) and u.id not in keep_ids
+    ]
+
+    # Anything else that looks seeded (listed only).
+    for u in User.query.order_by(User.full_name).all():
+        email = (u.email or "").lower()
+        name = (u.full_name or "").strip().lower()
+        if u.id in keep_ids:
+            continue
+        if u in seeded:
+            continue
+        if email.endswith(SEED_WORKER_EMAIL_SUFFIX) and u.role != UserRole.PRODUCTION_WORKER:
+            report.workers_listed_only.append(
+                f"{u.full_name} <{u.email}> role={u.role.value} (not a worker — left alone)"
+            )
+        elif name.startswith("hist-seed") or name.startswith("tc-seed"):
+            report.workers_listed_only.append(f"{u.full_name} <{u.email}> (looks seeded — left alone)")
+
+    if not seeded:
+        return
+    if not keepers:
+        for s in seeded:
+            report.workers_listed_only.append(
+                f"{s.full_name} <{s.email}> (no real employees to map onto — left alone)"
+            )
+        return
+
+    mapping = _build_worker_mapping(seeded, keepers)
+    for seed, keep in mapping:
+        report.worker_mapping.append(
+            {
+                "from": seed.full_name,
+                "fromEmail": seed.email,
+                "to": keep.full_name,
+                "toId": keep.id,
+            }
+        )
+        counts = MoveCounts()
+        key = seed.email or seed.id
+
+        # Open ops first (special overlap rules); skip assigned_worker later.
+        _handle_open_operations(seed, keep, report)
+        db.session.flush()
+
+        # Attendance: move unless keep already has that day.
+        att_rows = db.session.execute(
+            text("SELECT id, work_date FROM attendance_records WHERE worker_id = :id"),
+            {"id": seed.id},
+        ).all()
+        for att_id, work_date in att_rows:
+            exists = db.session.execute(
+                text(
+                    "SELECT 1 FROM attendance_records WHERE worker_id = :k AND work_date = :d LIMIT 1"
+                ),
+                {"k": keep.id, "d": work_date},
+            ).first()
+            if exists:
+                db.session.execute(
+                    text("DELETE FROM attendance_records WHERE id = :id"),
+                    {"id": att_id},
+                )
+                report.attendance_dropped += 1
+                counts.add("attendance_records (dropped)", 1)
+            else:
+                db.session.execute(
+                    text("UPDATE attendance_records SET worker_id = :k WHERE id = :id"),
+                    {"k": keep.id, "id": att_id},
+                )
+                counts.add("attendance_records", 1)
+
+        skip_tables = set(USER_OWNED_DELETE_TABLES) | {
+            "user_invitations",  # invitee rows deleted with the seed account
+            "attendance_records",
         }
+        skip_columns = {("operations", "assigned_worker_id")}
 
-    delays = analytics_service.delays(from_s, to_s)
-    causes = delays["causes"]
-    workers = analytics_service.efficiency_by_worker(from_s, to_s, min_ops=1)["workers"]
-    stock = forecast_service.consumable_run_out(today)["items"]
-    statuses = {}
-    for item in stock:
-        statuses[item["status"]] = statuses.get(item["status"], 0) + 1
+        _reassign_all_fks(
+            seed.id,
+            keep.id,
+            ("users",),
+            counts,
+            skip_tables=skip_tables,
+            skip_columns=skip_columns,
+        )
+        # Remaining ops still pointing at the seed (completed, or open that moved).
+        _reassign_fk("operations", "assigned_worker_id", seed.id, keep.id, counts)
+
+        _delete_user_owned(seed.id)
+        db.session.flush()
+        # Safety net for any leftover FKs (e.g. invitations.created_by_id).
+        _reassign_all_fks(seed.id, keep.id, ("users",), counts, skip_tables={"users"})
+        db.session.flush()
+        db.session.delete(seed)
+        db.session.flush()
+        report.workers_deleted.append(f"{seed.full_name} <{key}>")
+        report.worker_moves[key] = dict(counts.by_table)
+
+
+# --- Leftover seed text --------------------------------------------------------
+
+
+def cleanup_seed_text(report: CleanupReport) -> None:
+    """Strip known seed prefixes from visible title/notes fields only."""
+    # Job titles: [HIST-SEED] / [TC-SEED]
+    for prefix in TITLE_PREFIXES:
+        result = db.session.execute(
+            text(
+                "UPDATE job_orders SET title = substr(title, :n) "
+                "WHERE title LIKE :pat"
+            ),
+            {"n": len(prefix) + 1, "pat": prefix + "%"},
+        )
+        if result.rowcount:
+            report.text_cleanup["job_orders.title"] = (
+                report.text_cleanup.get("job_orders.title", 0) + result.rowcount
+            )
+
+    # Job descriptions / PO numbers / supplier order notes: HIST-SEED / TC-SEED
+    text_targets = [
+        ("job_orders", "description"),
+        ("job_orders", "client_po_number"),
+        ("supplier_orders", "notes"),
+        ("machine_downtimes", "note"),
+        ("work_calendar_exceptions", "note"),
+        ("stocktakes", "notes"),
+        ("tool_events", "reason"),
+    ]
+    for table, column in text_targets:
+        # Skip if column missing (older schemas).
+        cols = {c["name"] for c in inspect(db.engine).get_columns(table)}
+        if column not in cols:
+            continue
+        for prefix in TEXT_PREFIXES:
+            result = db.session.execute(
+                text(
+                    f"UPDATE {table} SET {column} = substr({column}, :n) "
+                    f"WHERE {column} LIKE :pat"
+                ),
+                {"n": len(prefix) + 1, "pat": prefix + "%"},
+            )
+            if result.rowcount:
+                key = f"{table}.{column}"
+                report.text_cleanup[key] = report.text_cleanup.get(key, 0) + result.rowcount
+
+
+def _final_totals() -> dict:
+    from app.models.client import Client
+    from app.models.supplier import Supplier
+    from app.models.user import User, UserRole, UserStatus
+
+    by_role = {}
+    for role in UserRole:
+        by_role[role.value] = User.query.filter(
+            User.role == role,
+            User.status == UserStatus.ACTIVE,
+            User.active.is_(True),
+        ).count()
     return {
-        "jobOrders": _scalar("SELECT count(*) FROM job_orders"),
-        "salesForecast": fc(forecast_service.sales_forecast(today)),
-        "demandForecast": fc(forecast_service.demand_forecast(today)),
-        "delayHours": round(float(delays["totalDelayHours"] or 0), 1),
-        "topCause": (causes[0]["label"], round(float(causes[0]["shareOfTotalPct"]))) if causes else None,
-        "suppliers": {
-            r["supplierName"]: (r["dueDeliveries"], r["score"], r["grade"])
-            for r in supplier_reliability(today)
-        },
-        "finishedOperations": sum(w["operationCount"] for w in workers),
-        "workersWithHistory": len(workers),
-        "workersAtMinimum": sum(1 for w in workers if w["operationCount"] >= analytics_service.DEFAULT_MIN_OPS),
-        "minimumOperations": analytics_service.DEFAULT_MIN_OPS,
-        "stockStatuses": dict(sorted(statuses.items())),
+        "suppliers": Supplier.query.count(),
+        "clients": Client.query.count(),
+        "activeUsersByRole": by_role,
     }
 
 
-def run(apply: bool = False, today: date | None = None, also_clients=()) -> Plan:
-    """Build the plan and the analytics impact; with apply, delete and commit.
-    Without apply everything is rolled back."""
+def run(*, apply: bool = False, confirm_host: str | None = None) -> CleanupReport:
+    """Run cleanup in one transaction. Dry run rolls back; ``apply`` commits.
+
+    When ``apply`` is True, ``confirm_host`` must equal the database host
+    (case-insensitive). Pass ``confirm_host`` from the CLI after prompting.
+    """
+    masked, host, db_name = database_label()
+    report = CleanupReport(database=masked, host=host, db_name=db_name)
+
+    if apply:
+        if not confirm_host or confirm_host.strip().lower() != host.lower():
+            raise ValueError(
+                f"Host confirmation failed (expected {host!r}, got {confirm_host!r}). Aborted."
+            )
+
     try:
-        plan = build_plan(also_clients)
-        plan.before = analytics_snapshot(today)
-        _apply(plan)
-        db.session.expire_all()
-        plan.after = analytics_snapshot(today)
+        cleanup_suppliers(report)
+        cleanup_clients(report)
+        cleanup_workers(report)
+        cleanup_seed_text(report)
+        db.session.flush()
+        report.finals = _final_totals()
+        report.nothing_to_do = not report.has_work()
     except Exception:
         db.session.rollback()
         raise
+
     if apply:
         db.session.commit()
     else:
         db.session.rollback()
-    return plan
+    return report
 
 
-# --- Report ------------------------------------------------------------------------
-
-
-def _fc_text(f):
-    if not f["method"]:
-        return f"Not enough history yet ({f['fullMonths']} full months)"
-    error = f"MAPE {f['mapePct']}%" if f["mapePct"] is not None else f"MAE {f['mae']:,.1f}"
-    return f"{f['fullMonths']} full months, {f['method']}, next {f['forecast']:,.0f} ({error})"
-
-
-def _qty(v: Decimal) -> str:
-    return f"{v.normalize():f}" if v == v.to_integral() else f"{v:.2f}"
-
-
-def report_lines(plan: Plan, applied: bool) -> list[str]:
-    out = [f"Database: {plan.database}", ""]
-    verb = "Deleted" if applied else "Would delete"
-    for name in plan.missing_names:
-        out.append(f"--also-clients {name!r}: no client has exactly this name; nothing done for it.")
-    if plan.missing_names:
+def report_lines(report: CleanupReport, *, applied: bool) -> list[str]:
+    verb = "Applied" if applied else "Would apply"
+    out = [
+        f"Database: {report.database}",
+        f"Mode: {'APPLY (committed)' if applied else 'DRY RUN (rolled back)'}",
+        "",
+    ]
+    if report.nothing_to_do:
+        out.append("Nothing to do — database already clean of targeted seed records.")
         out.append("")
-    for kind, rows in (("CLIENTS", plan.clients), ("SUPPLIERS", plan.suppliers)):
-        out.append(f"{kind} ({len(rows)})")
-        for group in GROUPS:
-            members = [r for r in rows if r.group == group]
-            if not members:
-                continue
-            out.append(f"  {group} ({len(members)})")
-            for r in members:
-                extra = f" -> merge into {r.merge_into[1]!r}" if r.merge_into else ""
-                out.append(f"    - {r.name}{extra}  [{r.reason}]")
-                for note in r.notes:
-                    out.append(f"        ! {note}")
-                linked = {k: v for k, v in r.linked.items() if v}
-                if linked:
-                    out.append("        " + ", ".join(f"{v} {k}" for k, v in linked.items()))
-        out.append("")
-
-    out.append(f"{verb} (option A):")
-    seed_clients = plan.records("client", SEED)
-    totals = {}
-    for c in seed_clients:
-        for k, v in c.linked.items():
-            totals[k] = totals.get(k, 0) + v
-    out.append(f"  - {len(seed_clients)} seed clients")
-    if any(totals.values()):
-        out.append("  - " + ", ".join(f"{v} {k}" for k, v in totals.items() if v))
-    out.append(f"  - {len(plan.seed_order_ids)} seed supplier orders (seed-tagged or only seed-job lines)")
-    names = {s.id: s.name for s in plan.suppliers}
-    for sid, n in sorted(plan.seed_orders_by_supplier.items(), key=lambda kv: names.get(kv[0], "")):
-        out.append(f"      {names.get(sid, sid)}: {n}")
-    out.append(f"  - {len(plan.seed_downtime_ids)} machine downtimes (seed-tagged or on seed jobs)")
-    out.append(f"  - {len(plan.seed_stocktake_ids)} seed stock counts, {len(plan.seed_stock_event_ids)} seed stock movements")
-    deleted_cal = [c for c in plan.calendar if c["action"] == "delete"]
-    out.append(f"  - {len(deleted_cal)} seed calendar entries")
-    out.append(f"  - {len(plan.records('supplier', SEED))} seed suppliers")
-    out.append(f"  - {len(plan.records('supplier', DUPLICATE))} duplicate suppliers merged into their reference supplier")
-    out.append("")
-
-    out.append(f"Seed calendar entries ({len(plan.calendar)}):")
-    for c in plan.calendar or []:
-        out.append(f"  - {c['date']:%a %Y-%m-%d} {c['type']}{c['hours']}  {c['action'].upper()}  [{c['why']}]")
-    if not plan.calendar:
-        out.append("  - none")
-    out.append("")
-
-    changed = [s for s in plan.stock if s["seedRows"]]
-    out.append(f"Consumables on hand after the seed stock rows go ({len(plan.stock)} items; recount afterwards):")
-    for s in plan.stock:
-        label = s["name"] + (f" {s['size']}" if s["size"] else "") + f" ({s['code']})"
-        change = f"{_qty(s['now'])} -> {_qty(s['after'])} {s['unit']}"
-        notes = f"  [{'; '.join(s['notes'])}]" if s["notes"] else ""
-        mark = "" if s["seedRows"] else "  (no seed rows)"
-        out.append(f"  - {label}: {change}{notes}{mark}")
-    out.append(f"  {len(changed)} items had seed stock rows.")
-    out.append("")
-
-    out.append("Left alone:")
-    for k, v in plan.untouched.items():
-        out.append(f"  - {k}: {v}")
-    kept = [c for c in plan.calendar if c["action"] != "delete"]
-    out.append(f"  - seed-tagged holiday entries kept: {len(kept)}")
-    out.append("")
-
-    if plan.before and plan.after:
-        b, a = plan.before, plan.after
-        out.append("Analytics impact (all history, before -> after):")
-        out.append(f"  - Job orders: {b['jobOrders']} -> {a['jobOrders']}")
-        out.append(f"  - Sales forecast: {_fc_text(b['salesForecast'])} -> {_fc_text(a['salesForecast'])}")
-        out.append(f"  - Demand forecast: {_fc_text(b['demandForecast'])} -> {_fc_text(a['demandForecast'])}")
-        top_b = f"{b['topCause'][0]} {b['topCause'][1]}%" if b["topCause"] else "none"
-        top_a = f"{a['topCause'][0]} {a['topCause'][1]}%" if a["topCause"] else "none"
-        out.append(f"  - Delay Pareto: {b['delayHours']} h (top: {top_b}) -> {a['delayHours']} h (top: {top_a})")
-        out.append("  - Supplier scores (deliveries due, score, grade):")
-        for name in sorted(set(b["suppliers"]) | set(a["suppliers"])):
-            out.append(f"      {name}: {b['suppliers'].get(name, '-')} -> {a['suppliers'].get(name, 'removed')}")
         out.append(
-            f"  - Worker performance: {b['finishedOperations']} finished operations, "
-            f"{b['workersAtMinimum']} workers with >= {b['minimumOperations']} -> "
-            f"{a['finishedOperations']} operations, {a['workersAtMinimum']} workers"
+            f"Final totals: suppliers={report.finals.get('suppliers')}, "
+            f"clients={report.finals.get('clients')}, "
+            f"active users by role={report.finals.get('activeUsersByRole')}"
         )
-        out.append(f"  - Consumable status: {b['stockStatuses']} -> {a['stockStatuses']}")
+        return out
+
+    out.append(f"SUPPLIERS — {verb}")
+    out.append(f"  Seed flag cleared ({len(report.suppliers_cleared_seed)}):")
+    for n in report.suppliers_cleared_seed or ["(none)"]:
+        out.append(f"    - {n}")
+    out.append(f"  Merged then deleted ({len(report.suppliers_merged)}):")
+    for row in report.suppliers_merged or []:
+        moved = ", ".join(f"{k}={v}" for k, v in (row.get("moved") or {}).items()) or "no FK rows"
+        out.append(f"    - {row['from']!r} → {row['to']!r}  [{moved}]")
+    if report.suppliers_left_seed:
+        out.append("  Other seed-flagged suppliers (left alone):")
+        for n in report.suppliers_left_seed:
+            out.append(f"    - {n}")
+    out.append("")
+
+    out.append(f"CLIENTS — {verb}")
+    out.append(f"  Renamed ({len(report.clients_renamed)}):")
+    for row in report.clients_renamed or []:
+        out.append(f"    - {row['from']!r} → {row['to']!r}")
+    out.append(f"  Merged then deleted ({len(report.clients_merged)}):")
+    for row in report.clients_merged or []:
+        moved = ", ".join(f"{k}={v}" for k, v in (row.get("moved") or {}).items()) or "no FK rows"
+        out.append(f"    - {row['from']!r} → {row['to']!r}  [{moved}]")
+    out.append(f"  Contacts cleared ({len(report.clients_contacts_cleared)}):")
+    for n in report.clients_contacts_cleared or ["(none)"]:
+        out.append(f"    - {n}")
+    out.append("")
+
+    out.append(f"WORKERS — {verb}")
+    out.append(f"  Mapping ({len(report.worker_mapping)}):")
+    for row in report.worker_mapping or []:
+        out.append(f"    - {row['from']} <{row['fromEmail']}> → {row['to']}")
+    out.append("  Rows moved per seeded worker:")
+    if not report.worker_moves:
+        out.append("    - (none)")
+    for email, moves in report.worker_moves.items():
+        moved = ", ".join(f"{k}={v}" for k, v in moves.items()) or "none"
+        out.append(f"    - {email}: {moved}")
+    out.append(f"  Attendance rows dropped (unique day): {report.attendance_dropped}")
+    out.append(f"  Open operations unassigned + jobs flagged ({len(report.open_ops_unassigned)}):")
+    for row in report.open_ops_unassigned or []:
+        out.append(
+            f"    - op {row['operationId']} job {row['jobId']} "
+            f"({row['from']} → would be {row['wouldHaveBeen']}, {row['status']})"
+        )
+    out.append(f"  Deleted workers ({len(report.workers_deleted)}):")
+    for n in report.workers_deleted or ["(none)"]:
+        out.append(f"    - {n}")
+    if report.workers_listed_only:
+        out.append("  Listed only (not removed):")
+        for n in report.workers_listed_only:
+            out.append(f"    - {n}")
+    out.append("")
+
+    out.append(f"TEXT CLEANUP — {verb}")
+    if not report.text_cleanup:
+        out.append("  - (none)")
+    for k, v in sorted(report.text_cleanup.items()):
+        out.append(f"  - {k}: {v}")
+    out.append("")
+
+    out.append(
+        f"Final totals: suppliers={report.finals.get('suppliers')}, "
+        f"clients={report.finals.get('clients')}, "
+        f"active users by role={report.finals.get('activeUsersByRole')}"
+    )
     return out

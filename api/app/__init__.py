@@ -256,27 +256,40 @@ def _register_cli(app):
         "--apply",
         "apply_changes",
         is_flag=True,
-        help="Delete the SEED records and merge the DUPLICATE suppliers. Without it, a dry run.",
+        help="Commit the cleanup. Without it, dry run (prints the report then rolls back).",
     )
-    @click.option(
-        "--also-clients",
-        "also_clients",
-        multiple=True,
-        metavar="NAME",
-        help="Also treat the client with exactly this name as SEED. Repeat for more.",
-    )
-    def cleanup_seed_data_command(apply_changes, also_clients):
-        """Group every client and supplier as REAL, SEED, DUPLICATE or UNSURE,
-        list what is linked to the SEED ones, the seed stock rows and calendar
-        entries, and the effect on analytics. A dry run unless --apply. Safe
-        in production: REAL and UNSURE records, users, machines, the catalog
-        and shop details are never changed."""
-        from app.services.seed_cleanup_service import report_lines, run
+    def cleanup_seed_data_command(apply_changes):
+        """Merge seed suppliers/clients, remap @bmsc.local workers onto real
+        employees, strip leftover seed text, then delete the seed records.
+        Dry run by default. With --apply, confirms the database host first.
+        Cleanup (not seeding) — allowed in any environment; never auto-run."""
+        from app.services.seed_cleanup_service import database_label, report_lines, run
 
-        plan = run(apply=apply_changes, also_clients=also_clients)
-        for line in report_lines(plan, applied=apply_changes):
+        masked, host, _db_name = database_label()
+        print(f"Target database: {masked}")
+        confirm_host = None
+        if apply_changes:
+            typed = click.prompt(
+                f"Type the host name to confirm ({host})",
+                default="",
+                show_default=False,
+            )
+            confirm_host = typed.strip()
+            if confirm_host.lower() != host.lower():
+                raise click.ClickException(
+                    f"Host confirmation failed (expected {host!r}, got {confirm_host!r}). Aborted."
+                )
+        try:
+            report = run(apply=apply_changes, confirm_host=confirm_host)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        for line in report_lines(report, applied=apply_changes):
             print(line)
-        print("Applied." if apply_changes else "Dry run: nothing was saved. Run with --apply to delete.")
+        print(
+            "Applied."
+            if apply_changes
+            else "Dry run: nothing was saved. Run with --apply to commit."
+        )
 
     @app.cli.command("import-employees")
     @click.option("--file", "file_path", required=True, help="CSV file, e.g. api/data/employees.local.csv")
