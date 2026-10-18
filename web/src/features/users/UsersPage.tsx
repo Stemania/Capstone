@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Button, Modal, Form, Input, Select, Dropdown, message, Tooltip,
+  Button, Modal, Form, Input, Select, Dropdown, message, Tooltip, QRCode, Space,
 } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
@@ -11,6 +11,7 @@ import {
   StopOutlined,
   CheckCircleOutlined,
   EditOutlined,
+  CopyOutlined,
 } from '@ant-design/icons';
 import { usersApi, type InviteDelivery } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
@@ -31,24 +32,91 @@ const roleStyle: Record<string, { label: string; color: PillColor }> = {
 
 type StatusFilter = 'active' | 'inactive';
 
+/** Show the one-time setup link + QR so a worker without reliable email can still activate. */
+function showSetupLink(setupUrl: string | null | undefined) {
+  if (!setupUrl) return;
+  Modal.info({
+    title: 'Setup link for this user',
+    width: 440,
+    icon: null,
+    content: (
+      <div style={{ textAlign: 'center' }}>
+        <p style={{ color: '#475569', marginBottom: 16 }}>
+          They can open the email link, or scan this QR / copy the link on a phone.
+          This link works once and expires in 48 hours.
+        </p>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+          <QRCode value={setupUrl} size={168} />
+        </div>
+        <Space.Compact style={{ width: '100%' }}>
+          <Input value={setupUrl} readOnly />
+          <Button
+            icon={<CopyOutlined />}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(setupUrl);
+                message.success('Link copied');
+              } catch {
+                message.error('Could not copy');
+              }
+            }}
+          >
+            Copy
+          </Button>
+        </Space.Compact>
+      </div>
+    ),
+  });
+}
+
 /** A failed or skipped invitation stays on screen until dismissed, so the admin
- *  knows the person has no way in yet. */
-function reportInviteDelivery(delivery: InviteDelivery | undefined, saved: string) {
+ *  knows the person has no way in yet. Always offer the on-screen setup link. */
+function reportInviteDelivery(
+  delivery: InviteDelivery | undefined,
+  saved: string,
+  setupUrl?: string | null,
+) {
   if (!delivery || delivery.status === 'SENT') {
-    const how = delivery?.channel === 'SMS' ? 'by SMS' : 'by email';
-    message.success(`${saved} Invitation sent ${how}${delivery?.recipient ? ` to ${delivery.recipient}` : ''}.`);
+    message.success(
+      `${saved} Invitation sent by email${delivery?.recipient ? ` to ${delivery.recipient}` : ''}.`,
+    );
+    showSetupLink(setupUrl);
     return;
   }
   Modal.warning({
-    title: delivery.status === 'FAILED' ? 'The invitation could not be sent' : 'The invitation was not sent',
+    title: delivery.status === 'FAILED' ? 'The invitation email could not be sent' : 'The invitation email was not sent',
+    width: 480,
     content: (
       <>
         <p>
-          {saved} The person has not received an invitation
-          {delivery.recipient ? ` at ${delivery.recipient}` : ''}, so they cannot set a password yet.
+          {saved} The email was not delivered
+          {delivery.recipient ? ` to ${delivery.recipient}` : ''}.
+          Use the setup link below so they can still set a password on a phone.
         </p>
         {delivery.errorMessage && <p style={{ color: '#64748b' }}>Reason: {delivery.errorMessage}</p>}
-        <p>Fix the problem, then use Send invite in the row menu to try again.</p>
+        {setupUrl ? (
+          <div style={{ textAlign: 'center', marginTop: 12 }}>
+            <QRCode value={setupUrl} size={148} />
+            <Space.Compact style={{ width: '100%', marginTop: 12 }}>
+              <Input value={setupUrl} readOnly />
+              <Button
+                icon={<CopyOutlined />}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(setupUrl);
+                    message.success('Link copied');
+                  } catch {
+                    message.error('Could not copy');
+                  }
+                }}
+              >
+                Copy
+              </Button>
+            </Space.Compact>
+          </div>
+        ) : (
+          <p>Add an email address for this user, then use Send invite again.</p>
+        )}
       </>
     ),
   });
@@ -108,19 +176,17 @@ export default function UsersPage() {
     nickname?: string;
     role: string;
     mobileNumber: string;
-    inviteChannel: 'EMAIL' | 'SMS';
   }) => {
     setSubmitting(true);
     try {
-          const { data } = await usersApi.create({
-            email: values.email,
-            fullName: values.fullName,
-            nickname: values.nickname?.trim() || undefined,
-            role: values.role,
-            mobileNumber: values.mobileNumber,
-            inviteChannel: values.inviteChannel,
-          });
-          reportInviteDelivery(data.delivery, 'User saved.');
+      const { data } = await usersApi.create({
+        email: values.email,
+        fullName: values.fullName,
+        nickname: values.nickname?.trim() || undefined,
+        role: values.role,
+        mobileNumber: values.mobileNumber,
+      });
+      reportInviteDelivery(data.delivery, 'User saved.', data.setupUrl);
       closeModal();
       fetchUsers();
     } catch (err) {
@@ -141,10 +207,10 @@ export default function UsersPage() {
     });
   };
 
-  const sendInvite = async (u: User, channel: 'EMAIL' | 'SMS') => {
+  const sendInvite = async (u: User) => {
     try {
-      const { data } = await usersApi.resendInvite(u.id, channel);
-      reportInviteDelivery(data.delivery, 'New invitation created.');
+      const { data } = await usersApi.resendInvite(u.id);
+      reportInviteDelivery(data.delivery, 'New invitation created.', data.setupUrl);
       fetchUsers();
     } catch (err) {
       message.error(getErrorMessage(err));
@@ -292,20 +358,12 @@ export default function UsersPage() {
             items.push({
               key: 'invite-email',
               label: 'Send invite by email',
-              onClick: () => sendInvite(record, 'EMAIL'),
+              onClick: () => sendInvite(record),
             });
-          }
-          if (record.mobileNumber) {
+          } else {
             items.push({
-              key: 'invite-sms',
-              label: 'Send invite by SMS',
-              onClick: () => sendInvite(record, 'SMS'),
-            });
-          }
-          if (!record.email && !record.mobileNumber) {
-            items.push({
-              key: 'invite-needs-contact',
-              label: 'Add email or mobile to invite',
+              key: 'invite-needs-email',
+              label: 'Add email to invite',
               onClick: () => openEdit(record),
             });
           }
@@ -592,24 +650,9 @@ export default function UsersPage() {
             label="Mobile number"
             rules={[{ required: true, message: 'Mobile number is required' }]}
             style={{ marginBottom: 14 }}
+            extra="Used for sign-in. The invitation is always sent by email (a setup link is also shown on screen)."
           >
             <Input size="large" placeholder="09XX XXX XXXX" />
-          </Form.Item>
-
-          <Form.Item
-            name="inviteChannel"
-            label="Send invite via"
-            rules={[{ required: true }]}
-            style={{ marginBottom: 14 }}
-            initialValue="EMAIL"
-          >
-            <Select
-              size="large"
-              options={[
-                { value: 'EMAIL', label: 'Email link' },
-                { value: 'SMS', label: 'SMS code' },
-              ]}
-            />
           </Form.Item>
 
           {sectionLabel('Role & access')}

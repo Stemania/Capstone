@@ -124,4 +124,3 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for step-by-step instructions to deploy on 
 
 - Efficiency Analytics
 - Inventory Management
-- SMS Notifications

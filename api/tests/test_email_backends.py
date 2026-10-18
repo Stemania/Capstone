@@ -66,7 +66,12 @@ def http(monkeypatch):
 def test_token_refresh_request_and_send_call(http):
     fake = http(token=[_token()], send=[FakeResponse(200, {"id": "gmail-msg-1"})])
 
-    ref = eb.GmailApiBackend(**CREDS).send("client@example.com", "Job received", "Hello\n\nLine two")
+    ref = eb.GmailApiBackend(**CREDS).send(
+        "client@example.com",
+        "Job received",
+        "Hello\n\nLine two",
+        html_body="<p>Hello</p><p>Line two</p>",
+    )
 
     assert ref == "gmail-msg-1"
     (token_url, token_kw), (send_url, send_kw) = fake.calls
@@ -83,9 +88,13 @@ def test_token_refresh_request_and_send_call(http):
     assert send_kw["timeout"] == 10
 
     msg = email.message_from_bytes(base64.urlsafe_b64decode(send_kw["json"]["raw"]))
-    assert msg["From"] == CREDS["from_addr"]
+    assert "Brothers Machine Shop" in msg["From"]
+    assert "shop@example.com" in msg["From"]
     assert msg["To"] == "client@example.com"
     assert msg["Subject"] == "Job received"
+    assert msg.get("Date")
+    assert msg.get("Message-ID")
+    assert msg.get("Reply-To")
     assert msg.get_content_type() == "multipart/alternative"
     parts = {p.get_content_type(): p.get_payload(decode=True).decode() for p in msg.walk() if not p.is_multipart()}
     assert "Line two" in parts["text/plain"]
@@ -101,13 +110,13 @@ def test_token_is_cached_until_shortly_before_expiry(http, monkeypatch):
     )
     backend = eb.GmailApiBackend(**CREDS)
 
-    backend.send("a@example.com", "s", "b")
+    backend.send("a@example.com", "s", "b", html_body="<p>b</p>")
     now[0] += 3600 - 61
-    backend.send("a@example.com", "s", "b")
+    backend.send("a@example.com", "s", "b", html_body="<p>b</p>")
     assert fake.count(eb.GOOGLE_TOKEN_URL) == 1
 
     now[0] += 2  # inside the last 60 seconds: refresh
-    backend.send("a@example.com", "s", "b")
+    backend.send("a@example.com", "s", "b", html_body="<p>b</p>")
     assert fake.count(eb.GOOGLE_TOKEN_URL) == 2
     assert fake.calls[-1][1]["headers"]["Authorization"] == "Bearer access-2"
 
@@ -118,7 +127,7 @@ def test_401_refreshes_the_token_once_and_retries(http):
         send=[FakeResponse(401, {"error": {"message": "Invalid Credentials"}}), FakeResponse(200, {"id": "ok"})],
     )
 
-    assert eb.GmailApiBackend(**CREDS).send("a@example.com", "s", "b") == "ok"
+    assert eb.GmailApiBackend(**CREDS).send("a@example.com", "s", "b", html_body="<p>b</p>") == "ok"
     assert fake.count(eb.GOOGLE_TOKEN_URL) == 2
     assert fake.count(eb.GMAIL_SEND_URL) == 2
     assert fake.calls[-1][1]["headers"]["Authorization"] == "Bearer fresh"
@@ -131,7 +140,7 @@ def test_second_401_fails_without_looping(http):
     )
 
     with pytest.raises(RuntimeError, match="HTTP 401"):
-        eb.GmailApiBackend(**CREDS).send("a@example.com", "s", "b")
+        eb.GmailApiBackend(**CREDS).send("a@example.com", "s", "b", html_body="<p>b</p>")
     assert fake.count(eb.GMAIL_SEND_URL) == 2
 
 
@@ -140,7 +149,7 @@ def test_invalid_grant_logs_clear_message(http, caplog):
 
     with caplog.at_level(logging.ERROR, logger="app.services.email_backends"):
         with pytest.raises(eb.GmailAuthError) as exc:
-            eb.GmailApiBackend(**CREDS).send("a@example.com", "s", "b")
+            eb.GmailApiBackend(**CREDS).send("a@example.com", "s", "b", html_body="<p>b</p>")
 
     assert str(exc.value) == "Gmail refresh token expired or revoked - generate a new one"
     assert "Gmail refresh token expired or revoked - generate a new one" in caplog.text
@@ -151,7 +160,7 @@ def test_errors_never_contain_secret_values(http, caplog):
 
     with caplog.at_level(logging.DEBUG):
         with pytest.raises(eb.GmailAuthError) as exc:
-            eb.GmailApiBackend(**CREDS).send("a@example.com", "s", "b")
+            eb.GmailApiBackend(**CREDS).send("a@example.com", "s", "b", html_body="<p>b</p>")
 
     text = str(exc.value) + caplog.text
     for secret in ("client-secret-value", "refresh-token-value"):
@@ -182,7 +191,24 @@ def test_backend_selection_defaults_to_console():
     assert isinstance(gmail, eb.GmailApiBackend)
 
 
-def test_html_alternative_escapes_and_links():
-    out = eb.text_to_html("Hi <b>&\n\nOpen https://example.com/set-password?token=abc now")
-    assert "&lt;b&gt;&amp;" in out
-    assert '<a href="https://example.com/set-password?token=abc">' in out
+def test_build_message_is_multipart_with_headers():
+    msg = eb.build_message(
+        "shop@example.com",
+        "to@example.com",
+        "Subject line",
+        "Plain with https://app.example.com/set-password?token=abc",
+        '<p><a href="https://app.example.com/set-password?token=abc">Set password</a></p>',
+    )
+    assert msg.get_content_type() == "multipart/alternative"
+    assert msg["From"].startswith("Brothers Machine Shop")
+    assert "shop@example.com" in msg["From"]
+    assert msg.get("Date")
+    assert msg.get("Message-ID")
+    assert msg.get("Reply-To")
+    parts = {
+        p.get_content_type(): p.get_payload(decode=True).decode()
+        for p in msg.walk()
+        if not p.is_multipart()
+    }
+    assert "https://app.example.com/set-password?token=abc" in parts["text/plain"]
+    assert 'href="https://app.example.com/set-password?token=abc"' in parts["text/html"]

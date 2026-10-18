@@ -1,7 +1,6 @@
-"""Client job-status messages: a short email and an SMS of at most 160 characters."""
+"""Client job-status message copy (plain text fragments used by email templates)."""
 
 from app.models.notification import NotificationMilestone
-from app.services.sms_backends import sanitize_sms
 
 SHOP_NAME = "Brothers Machine Shop"
 
@@ -48,7 +47,3 @@ def job_update_subject(milestone, job_number: str) -> str:
 
 def job_update_email(milestone, job_number: str, title: str, target_date=None) -> str:
     return render_message(milestone, job_number, title, target_date) + f"\n\n{SHOP_NAME}"
-
-
-def job_update_sms(milestone, job_number: str, title: str, target_date=None) -> str:
-    return sanitize_sms("BMSC: " + render_message(milestone, job_number, title, target_date))

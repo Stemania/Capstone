@@ -197,7 +197,7 @@ export default function ClientDetailPage() {
   const counts = Object.fromEntries(FILTERS.map((f) => [f.value, jobs.filter(f.match).length])) as Record<JobFilter, number>;
   const shown = jobs.filter(FILTERS.find((f) => f.value === filter)!.match);
   const draftLabel = isAdmin ? 'To plan' : 'Pending';
-  const notify = [data.notifyByEmail ? 'Email' : null, data.notifyBySms ? 'SMS' : null].filter((n): n is string => Boolean(n));
+  const notify = data.notifyByEmail ? ['Email'] : [];
 
   const columns: TableColumnsType<Job> = [
     {

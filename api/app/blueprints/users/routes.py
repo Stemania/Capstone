@@ -72,23 +72,23 @@ def create_user_route():
         )
 
     channel_raw = (data.get("inviteChannel") or data.get("channel") or "EMAIL").upper()
-    try:
-        channel = InvitationChannel(channel_raw)
-    except ValueError as exc:
-        raise AppError("inviteChannel must be EMAIL or SMS", "VALIDATION_ERROR", 400) from exc
+    if channel_raw != "EMAIL":
+        raise AppError("Invitations are sent by email only", "VALIDATION_ERROR", 400)
 
     user, invitation, _raw = create_invited_user(
         full_name=data["fullName"],
         email=data["email"],
         mobile_number=data["mobileNumber"],
         role=UserRole(data["role"]),
-        channel=channel,
+        channel=InvitationChannel.EMAIL,
         created_by_id=get_current_user_id(),
         nickname=data.get("nickname"),
     )
     payload = user.to_dict(include_profile=True, include_skills=True)
     payload["invitation"] = invitation.to_dict()
     payload["delivery"] = delivery_summary(getattr(invitation, "delivery", None))
+    # One-time setup link for the admin (email may be delayed or console-only).
+    payload["setupUrl"] = getattr(invitation, "setup_url", None)
     return jsonify(payload), 201
 
 
@@ -153,14 +153,13 @@ def deactivate_user(user_id):
 def resend_invite(user_id):
     user = get_user_by_id(user_id)
     data = request.get_json() or {}
-    channel = None
-    if data.get("channel") or data.get("inviteChannel"):
-        channel = InvitationChannel(
-            (data.get("channel") or data.get("inviteChannel")).upper()
-        )
-    invitation, _raw = resend_invitation(user, get_current_user_id(), channel)
+    channel_raw = (data.get("channel") or data.get("inviteChannel") or "EMAIL").upper()
+    if channel_raw != "EMAIL":
+        raise AppError("Invitations are sent by email only", "VALIDATION_ERROR", 400)
+    invitation, _raw = resend_invitation(user, get_current_user_id(), InvitationChannel.EMAIL)
     payload = invitation.to_dict()
     payload["delivery"] = delivery_summary(getattr(invitation, "delivery", None))
+    payload["setupUrl"] = getattr(invitation, "setup_url", None)
     return jsonify(payload)
 
 

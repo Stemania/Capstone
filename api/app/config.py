@@ -107,13 +107,13 @@ class Config:
     GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET")
     GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN")
     MAIL_FROM = os.getenv("MAIL_FROM") or os.getenv("SMTP_FROM")
+    # Optional; defaults to MAIL_FROM when sending.
+    MAIL_REPLY_TO = os.getenv("MAIL_REPLY_TO") or None
     SMTP_HOST = os.getenv("SMTP_HOST")
     SMTP_PORT = os.getenv("SMTP_PORT", "587")
     SMTP_USER = os.getenv("SMTP_USER")
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
     SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true")
-    # console only for now; a real SMS provider plugs into sms_backends.get_sms_backend.
-    SMS_BACKEND = os.getenv("SMS_BACKEND") or "console"
     FRONTEND_URL = os.getenv("FRONTEND_URL") or "http://localhost:5173"
     INVITATION_TOKEN_PEPPER = os.getenv("INVITATION_TOKEN_PEPPER", SECRET_KEY)
 
@@ -123,7 +123,6 @@ class TestConfig(Config):
     NOTIFICATIONS_ENABLED = False
     NOTIFY_ALLOWLIST = ""
     EMAIL_BACKEND = "console"
-    SMS_BACKEND = "console"
     GMAIL_CLIENT_ID = None
     GMAIL_CLIENT_SECRET = None
     GMAIL_REFRESH_TOKEN = None

@@ -146,9 +146,9 @@ export default function SetPasswordPage() {
               <Form.Item
                 name="token"
                 label="Invitation code"
-                rules={[{ required: true, message: 'Enter the 6-digit SMS code' }]}
+                rules={[{ required: true, message: 'Enter the invitation code' }]}
               >
-                <Input size="large" inputMode="numeric" maxLength={6} placeholder="6-digit code" />
+                <Input size="large" inputMode="numeric" maxLength={6} placeholder="Invitation code" />
               </Form.Item>
               <Button
                 type="primary"

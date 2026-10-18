@@ -1,4 +1,4 @@
-"""Invitation issue/accept and password setup."""
+"""Invitation issue/accept and password setup (email delivery only)."""
 
 from __future__ import annotations
 
@@ -12,10 +12,10 @@ from flask import current_app
 from flask_jwt_extended import create_access_token, create_refresh_token
 
 from app.extensions import bcrypt, db
+from app.models.notification import NotificationChannel, NotificationEvent
 from app.models.user import User, UserRole, UserStatus
 from app.models.user_security import InvitationChannel, UserInvitation
 from app.services.audit_service import write_audit_event
-from app.models.notification import NotificationChannel, NotificationEvent
 from app.services.notification_service import send_notification
 from app.utils.errors import AppError
 from app.utils.passwords import validate_password
@@ -38,6 +38,12 @@ def hash_invite_secret(raw: str) -> str:
     return hmac.new(_pepper().encode("utf-8"), raw.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def invitation_setup_url(raw_secret: str) -> str:
+    from app.services.email_templates import absolute_frontend_url
+
+    return absolute_frontend_url(f"/set-password?token={raw_secret}")
+
+
 def _invalidate_open_invites(user_id: str) -> None:
     now = _utcnow()
     open_invites = UserInvitation.query.filter(
@@ -55,7 +61,7 @@ def create_invited_user(
     email: str,
     mobile_number: str,
     role: UserRole,
-    channel: InvitationChannel,
+    channel: InvitationChannel | None = None,
     created_by_id: str,
     nickname: str | None = None,
 ) -> tuple[User, UserInvitation, str]:
@@ -68,6 +74,13 @@ def create_invited_user(
     mobile = normalize_ph_mobile(mobile_number, required=True)
     if User.query.filter_by(mobile_number=mobile).first():
         raise AppError("Mobile number already exists", "CONFLICT", 409)
+
+    if channel is not None and channel != InvitationChannel.EMAIL:
+        raise AppError(
+            "Invitations are sent by email only",
+            "VALIDATION_ERROR",
+            400,
+        )
 
     user = User(
         email=email_norm,
@@ -86,37 +99,45 @@ def create_invited_user(
 
     ensure_worker_profile(user)
 
-    invitation, raw_secret = issue_invitation(user, channel, created_by_id, commit=False)
+    invitation, raw_secret = issue_invitation(
+        user, InvitationChannel.EMAIL, created_by_id, commit=False
+    )
     db.session.commit()
     invitation.delivery = _deliver_invitation(user, invitation, raw_secret)
+    invitation.setup_url = invitation_setup_url(raw_secret)
     return user, invitation, raw_secret
 
 
 def issue_invitation(
     user: User,
-    channel: InvitationChannel,
-    created_by_id: str,
+    channel: InvitationChannel | None = None,
+    created_by_id: str | None = None,
     *,
     commit: bool = True,
 ) -> tuple[UserInvitation, str]:
     if user.status == UserStatus.DISABLED:
         raise AppError("Cannot invite a disabled user", "VALIDATION_ERROR", 400)
-    if channel == InvitationChannel.SMS and not user.mobile_number:
-        raise AppError("User has no mobile number for SMS invite", "VALIDATION_ERROR", 400)
-    if channel == InvitationChannel.EMAIL and not user.email:
-        raise AppError("User has no email for invite", "VALIDATION_ERROR", 400)
+    if channel is not None and channel != InvitationChannel.EMAIL:
+        raise AppError(
+            "Invitations are sent by email only",
+            "VALIDATION_ERROR",
+            400,
+        )
+    if not user.email:
+        raise AppError(
+            "This user has no email address. Add an email, then send the invite again. "
+            "You can also copy the setup link shown after a successful invite.",
+            "VALIDATION_ERROR",
+            400,
+        )
 
     _invalidate_open_invites(user.id)
 
-    if channel == InvitationChannel.SMS:
-        raw_secret = f"{secrets.randbelow(1_000_000):06d}"
-    else:
-        raw_secret = secrets.token_urlsafe(32)
-
+    raw_secret = secrets.token_urlsafe(32)
     invitation = UserInvitation(
         user_id=user.id,
         token_hash=hash_invite_secret(raw_secret),
-        channel=channel,
+        channel=InvitationChannel.EMAIL,
         expires_at=_utcnow() + INVITE_TTL,
         created_by_id=created_by_id,
     )
@@ -129,12 +150,13 @@ def issue_invitation(
         "INVITATION_SENT",
         "UserInvitation",
         None,
-        after={"userId": user.id, "channel": channel.value},
+        after={"userId": user.id, "channel": InvitationChannel.EMAIL.value},
     )
     if commit:
         db.session.commit()
         # Not a column: the outcome of this send, for the admin's response.
         invitation.delivery = _deliver_invitation(user, invitation, raw_secret)
+        invitation.setup_url = invitation_setup_url(raw_secret)
     else:
         db.session.flush()
     return invitation, raw_secret
@@ -145,19 +167,13 @@ def resend_invitation(user: User, created_by_id: str, channel: InvitationChannel
         raise AppError("User already activated", "VALIDATION_ERROR", 400)
     if user.status == UserStatus.DISABLED:
         raise AppError("User is disabled", "VALIDATION_ERROR", 400)
-
-    last = (
-        UserInvitation.query.filter_by(user_id=user.id)
-        .order_by(UserInvitation.created_at.desc())
-        .first()
-    )
-    if channel:
-        ch = channel
-    elif last:
-        ch = last.channel
-    else:
-        ch = InvitationChannel.EMAIL if user.email or not user.mobile_number else InvitationChannel.SMS
-    return issue_invitation(user, ch, created_by_id, commit=True)
+    if channel is not None and channel != InvitationChannel.EMAIL:
+        raise AppError(
+            "Invitations are sent by email only",
+            "VALIDATION_ERROR",
+            400,
+        )
+    return issue_invitation(user, InvitationChannel.EMAIL, created_by_id, commit=True)
 
 
 def revoke_invitation(user: User) -> int:
@@ -184,36 +200,24 @@ def _deliver_invitation(user: User, invitation: UserInvitation, raw_secret: str)
     (None if even that failed); delivery problems are logged, never raised."""
     log = None
     try:
-        frontend = (current_app.config.get("FRONTEND_URL") or "http://localhost:5173").rstrip("/")
-        if invitation.channel == InvitationChannel.EMAIL:
-            link = f"{frontend}/set-password?token={raw_secret}"
-            body = (
-                f"Hello {user.full_name},\n\n"
-                f"You have been invited to Brothers Machine Shop.\n"
-                f"Set your password using this link (expires in 48 hours):\n\n"
-                f"{link}\n\n"
-                f"If you did not expect this, ignore this message.\n"
-            )
-            channel, recipient = NotificationChannel.EMAIL, user.email
-        else:
-            body = (
-                f"BMSC invite code: {raw_secret}. "
-                f"Enter it with your email/mobile at {frontend}/set-password. Expires in 48h."
-            )
-            channel, recipient = NotificationChannel.SMS, user.mobile_number
+        from app.services.email_templates import invitation_email
+
+        link = invitation_setup_url(raw_secret)
+        content = invitation_email(user.full_name or "", link)
         log = send_notification(
-            channel=channel,
-            recipient=recipient,
+            channel=NotificationChannel.EMAIL,
+            recipient=user.email,
             event=NotificationEvent.INVITATION,
-            subject="Set your Brothers Machine Shop password",
-            body=body,
+            subject=content.subject,
+            body=content.text,
+            html_body=content.html,
             store_body=False,
         )
         # Never include the raw token/code — safe for production logs.
         logger.info(
             "Invitation delivery user_id=%s to=%s channel=%s status=%s",
             user.id,
-            recipient,
+            user.email,
             invitation.channel.value,
             log.status.value if log else "NOT_LOGGED",
         )
@@ -266,6 +270,7 @@ def _require_open_invitation(
     user = User.query.get(invitation.user_id)
     if not user or user.status == UserStatus.DISABLED:
         raise AppError("Invalid invitation", "INVITE_INVALID", 400)
+    # Legacy SMS invites still require identifier; email-link invites are optional.
     if invitation.channel == InvitationChannel.SMS:
         if not identifier or not _user_matches_identifier(user, identifier):
             raise AppError("Invalid invitation", "INVITE_INVALID", 400)

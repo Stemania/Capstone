@@ -44,6 +44,9 @@ Thumbs.db
 .coverage
 htmlcov/
 
+# Local email HTML previews (api/scripts/render_email_previews.py)
+api/.email_previews/
+
 # Deploy tooling
 .vercel
 

@@ -45,7 +45,6 @@ for _name, _value in {
     "NOTIFICATIONS_ENABLED": "false",
     "NOTIFY_ALLOWLIST": "",
     "EMAIL_BACKEND": "console",
-    "SMS_BACKEND": "console",
     "GMAIL_CLIENT_ID": "",
     "GMAIL_CLIENT_SECRET": "",
     "GMAIL_REFRESH_TOKEN": "",

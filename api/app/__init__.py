@@ -85,6 +85,16 @@ def create_app(config_object=None):
 
     configure_mappers()
 
+    # Warn about mail misconfiguration without printing secrets.
+    try:
+        from app.services.email_backends import warn_if_mail_from_mismatch
+        from app.services.email_templates import frontend_base_url
+
+        frontend_base_url(app.config)
+        warn_if_mail_from_mismatch(app.config)
+    except Exception:  # noqa: BLE001 - startup warnings must never block boot
+        app.logger.warning("Email configuration check failed", exc_info=True)
+
     return app
 
 

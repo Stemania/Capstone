@@ -139,7 +139,7 @@ export default function ResetPasswordPage() {
               <Form.Item
                 name="token"
                 label="Reset code"
-                rules={[{ required: true, message: 'Enter the 6-digit SMS code' }]}
+                rules={[{ required: true, message: 'Enter the reset code' }]}
               >
                 <Input size="large" inputMode="numeric" maxLength={6} placeholder="6-digit code" />
               </Form.Item>

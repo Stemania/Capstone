@@ -23,6 +23,8 @@ export default function ClientFormModal({
 }) {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const notifyByEmail = Form.useWatch('notifyByEmail', form);
+  const email = Form.useWatch('email', form);
 
   useEffect(() => {
     if (!open) return;
@@ -33,11 +35,10 @@ export default function ClientFormModal({
         email: client.email,
         mobileNumber: client.mobileNumber,
         notifyByEmail: !!client.notifyByEmail,
-        notifyBySms: !!client.notifyBySms,
       });
     } else {
       form.resetFields();
-      form.setFieldsValue({ notifyByEmail: false, notifyBySms: false });
+      form.setFieldsValue({ notifyByEmail: false });
     }
   }, [open, client, form]);
 
@@ -51,7 +52,6 @@ export default function ClientFormModal({
         email: values.email || undefined,
         mobileNumber: values.mobileNumber || undefined,
         notifyByEmail: !!values.notifyByEmail,
-        notifyBySms: !!values.notifyBySms,
       };
       if (client) {
         const { data } = await clientsApi.update(client.id, payload);
@@ -69,6 +69,8 @@ export default function ClientFormModal({
       setSaving(false);
     }
   };
+
+  const emailMissing = !!notifyByEmail && !(email || '').trim();
 
   return (
     <Modal
@@ -93,8 +95,8 @@ export default function ClientFormModal({
           <div className="app-form-modal__title">{client ? 'Edit client' : 'Register client'}</div>
           <div className="app-form-modal__sub">
             {client
-              ? 'Update contact details and how they get job updates.'
-              : 'Company or person, plus how they should get job updates.'}
+              ? 'Update contact details and email job updates.'
+              : 'Company or person, plus email job updates if they want them.'}
           </div>
         </div>
         <button type="button" className="app-form-modal__close" onClick={onClose} aria-label="Close">
@@ -116,7 +118,7 @@ export default function ClientFormModal({
           <Input placeholder="Optional — who to ask for, or a short note" />
         </Form.Item>
 
-        {sectionLabel('Reach them')}
+        {sectionLabel('Contact Details and Email Updates')}
         <Row gutter={12}>
           <Col xs={24} sm={14}>
             <Form.Item
@@ -135,26 +137,23 @@ export default function ClientFormModal({
           </Col>
         </Row>
 
-        {sectionLabel('Job updates')}
         <div className="client-notify">
           <div className="client-notify__row">
             <div className="client-notify__copy">
-              <div className="client-notify__title">Email</div>
-              <div className="client-notify__hint">Send status updates to the address above</div>
+              <div className="client-notify__title">Send job updates by email</div>
+              <div className="client-notify__hint">
+                Status updates when a job is received, started, completed, or ready for delivery
+              </div>
             </div>
             <Form.Item name="notifyByEmail" valuePropName="checked" style={{ marginBottom: 0 }}>
               <Switch />
             </Form.Item>
           </div>
-          <div className="client-notify__row">
-            <div className="client-notify__copy">
-              <div className="client-notify__title">SMS</div>
-              <div className="client-notify__hint">Send status updates to the mobile number</div>
+          {emailMissing && (
+            <div style={{ fontSize: 12, color: '#b45309', marginTop: 8 }}>
+              Add an email address above — updates cannot be sent without one.
             </div>
-            <Form.Item name="notifyBySms" valuePropName="checked" style={{ marginBottom: 0 }}>
-              <Switch />
-            </Form.Item>
-          </div>
+          )}
         </div>
       </Form>
 

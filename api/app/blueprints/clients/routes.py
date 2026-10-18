@@ -38,10 +38,14 @@ def _apply_client_fields(client: Client, data: dict, *, creating: bool = False):
         client.notify_by_email = _parse_bool(
             data.get("notifyByEmail", data.get("notify_by_email")), False
         )
-    if "notifyBySms" in data or "notify_by_sms" in data:
-        client.notify_by_sms = _parse_bool(
-            data.get("notifyBySms", data.get("notify_by_sms")), False
-        )
+        if client.notify_by_email and not (client.email or "").strip():
+            raise AppError(
+                "Add an email address before enabling job updates by email",
+                "VALIDATION_ERROR",
+                400,
+            )
+    # SMS delivery is retired; keep the column but always leave it off.
+    client.notify_by_sms = False
 
 
 @clients_bp.route("", methods=["GET"])

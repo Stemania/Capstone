@@ -29,14 +29,13 @@ export default function PrivacyPolicyPage() {
           <h2>Why we collect it</h2>
           <p>
             We use this information to schedule work, monitor production, and send clients
-            job-status updates by email or SMS.
+            job-status updates by email when they have agreed to receive them.
           </p>
 
           <h2>How we store and share it</h2>
           <p>
             Data is stored in a secured cloud database. We do not sell it or share it with anyone,
-            except our email provider (Gmail) and SMS provider (UniSMS), and only so they can
-            deliver notifications.
+            except our email provider (Gmail), and only so they can deliver notifications.
           </p>
 
           <h2>Your choices</h2>

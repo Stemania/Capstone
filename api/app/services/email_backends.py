@@ -8,26 +8,30 @@ switch and allowlist and writes the notification log.
 from __future__ import annotations
 
 import base64
-import html
 import logging
-import re
 import smtplib
 import threading
 import time
 from abc import ABC, abstractmethod
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 
 import requests
+
+from app.services.email_templates import (
+    SHOP_DISPLAY_NAME,
+    extract_email_address,
+    format_from_header,
+)
 
 logger = logging.getLogger(__name__)
 
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+GMAIL_PROFILE_URL = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
 HTTP_TIMEOUT = 10
 TOKEN_EXPIRY_MARGIN = 60
 EXPIRED_REFRESH_TOKEN = "Gmail refresh token expired or revoked - generate a new one"
-
-_URL_RE = re.compile(r"(https?://[^\s<]+)")
 
 
 def is_development_environment(config=None) -> bool:
@@ -41,26 +45,32 @@ def is_development_environment(config=None) -> bool:
     return env in ("development", "dev")
 
 
-def text_to_html(text: str) -> str:
-    """Plain text as minimal HTML: escaped, paragraphs kept, links clickable."""
-    paragraphs = []
-    for block in re.split(r"\n\s*\n", (text or "").strip()):
-        escaped = html.escape(block)
-        linked = _URL_RE.sub(r'<a href="\1">\1</a>', escaped)
-        paragraphs.append("<p>" + linked.replace("\n", "<br>") + "</p>")
-    return (
-        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;'
-        'line-height:1.5;color:#111">' + "".join(paragraphs) + "</div>"
-    )
+def build_message(
+    from_addr: str,
+    to: str,
+    subject: str,
+    text: str,
+    html_body: str,
+    *,
+    reply_to: str | None = None,
+):
+    """multipart/alternative with Date, Message-ID, Reply-To, UTF-8 parts."""
+    addr = extract_email_address(from_addr) or from_addr
+    domain = addr.split("@", 1)[-1] if "@" in (addr or "") else "localhost"
+    from_header = format_from_header(from_addr, SHOP_DISPLAY_NAME)
 
-
-def build_message(from_addr: str, to: str, subject: str, text: str, html_body: str | None = None):
     msg = EmailMessage()
-    msg["From"] = from_addr
+    msg["From"] = from_header
     msg["To"] = to
     msg["Subject"] = subject
-    msg.set_content(text)
-    msg.add_alternative(html_body or text_to_html(text), subtype="html")
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=domain)
+    msg["MIME-Version"] = "1.0"
+    reply = (reply_to or "").strip() or from_header
+    msg["Reply-To"] = reply
+
+    msg.set_content(text or "", charset="utf-8")
+    msg.add_alternative(html_body or text or "", subtype="html", charset="utf-8")
     return msg
 
 
@@ -92,16 +102,21 @@ class SmtpEmailBackend(EmailBackend):
 
     name = "smtp"
 
-    def __init__(self, host, port, username, password, from_addr, use_tls=True):
+    def __init__(self, host, port, username, password, from_addr, use_tls=True, reply_to=None):
         self.host = host
         self.port = port
         self.username = username
         self.password = password
         self.from_addr = from_addr
         self.use_tls = use_tls
+        self.reply_to = reply_to
 
     def send(self, to, subject, text, html_body=None):
-        msg = build_message(self.from_addr, to, subject, text, html_body)
+        if not html_body:
+            raise ValueError("html_body is required for multipart email")
+        msg = build_message(
+            self.from_addr, to, subject, text, html_body, reply_to=self.reply_to
+        )
         with smtplib.SMTP(self.host, self.port, timeout=HTTP_TIMEOUT) as smtp:
             if self.use_tls:
                 smtp.starttls()
@@ -140,11 +155,12 @@ class GmailApiBackend(EmailBackend):
 
     name = "gmail_api"
 
-    def __init__(self, client_id, client_secret, refresh_token, from_addr):
+    def __init__(self, client_id, client_secret, refresh_token, from_addr, reply_to=None):
         self.client_id = client_id
         self.client_secret = client_secret
         self.refresh_token = refresh_token
         self.from_addr = from_addr
+        self.reply_to = reply_to
 
     def _fetch_token(self) -> str:
         resp = requests.post(
@@ -179,7 +195,11 @@ class GmailApiBackend(EmailBackend):
         return self._fetch_token()
 
     def send(self, to, subject, text, html_body=None):
-        msg = build_message(self.from_addr, to, subject, text, html_body)
+        if not html_body:
+            raise ValueError("html_body is required for multipart email")
+        msg = build_message(
+            self.from_addr, to, subject, text, html_body, reply_to=self.reply_to
+        )
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
         for attempt in (1, 2):
             token = self._access_token(force_refresh=attempt == 2)
@@ -197,8 +217,66 @@ class GmailApiBackend(EmailBackend):
         return None
 
 
+def warn_if_mail_from_mismatch(config) -> None:
+    """Log if MAIL_FROM address != Gmail OAuth account (no secrets in the log)."""
+    if str(config.get("EMAIL_BACKEND") or "").strip().lower() != "gmail_api":
+        return
+    mail_from = config.get("MAIL_FROM")
+    addr = extract_email_address(mail_from)
+    if not addr:
+        logger.warning(
+            "MAIL_FROM is missing or not a valid email; Gmail may reject or rewrite From"
+        )
+        return
+    needed = ("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN")
+    if any(not config.get(k) for k in needed):
+        return
+    try:
+        backend = GmailApiBackend(
+            config["GMAIL_CLIENT_ID"],
+            config["GMAIL_CLIENT_SECRET"],
+            config["GMAIL_REFRESH_TOKEN"],
+            mail_from,
+        )
+        token = backend._access_token()
+        resp = requests.get(
+            GMAIL_PROFILE_URL,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=HTTP_TIMEOUT,
+        )
+        if resp.status_code == 403:
+            logger.warning(
+                "Could not verify MAIL_FROM against the Gmail OAuth account "
+                "(token lacks gmail.readonly / profile scope). "
+                "Ensure MAIL_FROM is the same Gmail address used for the refresh token."
+            )
+            return
+        if resp.status_code >= 400:
+            logger.warning(
+                "Could not verify MAIL_FROM against Gmail (HTTP %s). "
+                "Ensure MAIL_FROM matches the OAuth Gmail account.",
+                resp.status_code,
+            )
+            return
+        gmail_addr = (resp.json().get("emailAddress") or "").strip().lower()
+        if gmail_addr and gmail_addr != addr.lower():
+            logger.warning(
+                "MAIL_FROM does not match the authenticated Gmail account. "
+                "Set MAIL_FROM to that Gmail address (display name is added automatically). "
+                "Mismatch often causes spam or delivery failure."
+            )
+        elif gmail_addr:
+            logger.info("MAIL_FROM matches the authenticated Gmail account")
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Could not verify MAIL_FROM against Gmail at startup",
+            exc_info=is_development_environment(config),
+        )
+
+
 def get_email_backend(config) -> EmailBackend:
     choice = str(config.get("EMAIL_BACKEND") or "console").strip().lower()
+    reply_to = config.get("MAIL_REPLY_TO") or None
     if choice == "gmail_api":
         needed = ("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN", "MAIL_FROM")
         missing = [name for name in needed if not config.get(name)]
@@ -209,6 +287,7 @@ def get_email_backend(config) -> EmailBackend:
             config["GMAIL_CLIENT_SECRET"],
             config["GMAIL_REFRESH_TOKEN"],
             config["MAIL_FROM"],
+            reply_to=reply_to,
         )
     if choice == "smtp":
         missing = [name for name in ("SMTP_HOST", "MAIL_FROM") if not config.get(name)]
@@ -221,6 +300,7 @@ def get_email_backend(config) -> EmailBackend:
             password=config.get("SMTP_PASSWORD"),
             from_addr=config["MAIL_FROM"],
             use_tls=str(config.get("SMTP_USE_TLS", "true")).lower() in ("1", "true", "yes"),
+            reply_to=reply_to,
         )
     if choice != "console":
         logger.warning("Unknown EMAIL_BACKEND %r; using console", choice)

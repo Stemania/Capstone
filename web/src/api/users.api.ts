@@ -9,6 +9,11 @@ export interface InviteDelivery {
   errorMessage: string | null;
 }
 
+export type InviteResponse = {
+  delivery?: InviteDelivery;
+  setupUrl?: string | null;
+};
+
 export const usersApi = {
   list: () => apiClient.get<User[]>('/users'),
   get: (id: string) => apiClient.get<User>(`/users/${id}`),
@@ -18,8 +23,7 @@ export const usersApi = {
     nickname?: string;
     role: string;
     mobileNumber: string;
-    inviteChannel?: 'EMAIL' | 'SMS';
-  }) => apiClient.post<User & { delivery?: InviteDelivery }>('/users', data),
+  }) => apiClient.post<User & InviteResponse>('/users', data),
   update: (id: string, data: Partial<User>) =>
     apiClient.patch<User>(`/users/${id}`, data),
   uploadPhoto: (id: string, file: File) => {
@@ -32,8 +36,8 @@ export const usersApi = {
   deletePhoto: (id: string) => apiClient.delete<User>(`/users/${id}/photo`),
   getPhoto: (id: string) => apiClient.get<Blob>(`/users/${id}/photo`, { responseType: 'blob' }),
   deactivate: (id: string) => apiClient.delete(`/users/${id}`),
-  resendInvite: (id: string, channel?: 'EMAIL' | 'SMS') =>
-    apiClient.post<{ delivery?: InviteDelivery }>(`/users/${id}/invite`, channel ? { channel } : {}),
+  resendInvite: (id: string) =>
+    apiClient.post<InviteResponse>(`/users/${id}/invite`, {}),
   revokeInvite: (id: string) => apiClient.delete(`/users/${id}/invite`),
   revokeDevices: (id: string) => apiClient.delete(`/users/${id}/devices`),
 };

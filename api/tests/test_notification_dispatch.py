@@ -47,7 +47,6 @@ def fake_db(monkeypatch):
 def backend(monkeypatch):
     b = Backend()
     monkeypatch.setattr(svc, "get_email_backend", lambda cfg: b)
-    monkeypatch.setattr(svc, "get_sms_backend", lambda cfg: b)
     return b
 
 
@@ -72,11 +71,8 @@ def test_allowlist_blocks_everyone_else(fake_db, backend):
     with app.app_context():
         blocked = _email("stranger@example.com")
         allowed = _email("BOSS@example.com")
-        sms_allowed = svc.send_notification(
+        sms_retired = svc.send_notification(
             channel=NotificationChannel.SMS, recipient="+639171234567", event="TEST", subject="", body="hi"
-        )
-        sms_blocked = svc.send_notification(
-            channel=NotificationChannel.SMS, recipient="09179999999", event="TEST", subject="", body="hi"
         )
 
     assert blocked.status == NotificationStatus.SKIPPED
@@ -84,10 +80,10 @@ def test_allowlist_blocks_everyone_else(fake_db, backend):
     assert allowed.status == NotificationStatus.SENT
     assert allowed.recipient == "boss@example.com"
     assert allowed.provider_reference == "provider-id-1"
-    assert sms_allowed.status == NotificationStatus.SENT
-    assert sms_blocked.status == NotificationStatus.SKIPPED
-    assert [to for to, _ in backend.sent] == ["boss@example.com", "+639171234567"]
-    assert len(fake_db.rows) == 4
+    assert sms_retired.status == NotificationStatus.SKIPPED
+    assert sms_retired.error_message == svc.SMS_RETIRED
+    assert [to for to, _ in backend.sent] == ["boss@example.com"]
+    assert len(fake_db.rows) == 3
 
 
 def test_empty_allowlist_sends_to_anyone(fake_db, backend):
@@ -125,15 +121,18 @@ def test_sign_in_links_are_not_stored_in_the_log(fake_db, backend):
     assert log.message_body == svc.BODY_NOT_STORED
 
 
-def test_sms_body_is_sanitized_before_sending(fake_db, backend):
+def test_sms_channel_is_skipped_as_retired(fake_db, backend):
     with _make_app().app_context():
         log = svc.send_notification(
-            channel=NotificationChannel.SMS, recipient="09171234567", event="TEST", subject="", body="Ready \U0001F389 " + "x" * 300
+            channel=NotificationChannel.SMS,
+            recipient="09171234567",
+            event="TEST",
+            subject="",
+            body="Ready",
         )
-    sent_text = backend.sent[0][1][0]
-    assert "\U0001F389" not in sent_text
-    assert len(sent_text) <= 160
-    assert log.message_body == sent_text
+    assert backend.sent == []
+    assert log.status == NotificationStatus.SKIPPED
+    assert log.error_message == svc.SMS_RETIRED
 
 
 # --- Against the test database: the user's action survives a failing provider ---
@@ -148,7 +147,6 @@ class FailingBackend(Backend):
 def failing_enabled(app, monkeypatch):
     app.config.update(NOTIFICATIONS_ENABLED=True, NOTIFY_ALLOWLIST="")
     monkeypatch.setattr(svc, "get_email_backend", lambda cfg: FailingBackend())
-    monkeypatch.setattr(svc, "get_sms_backend", lambda cfg: FailingBackend())
 
 
 def _user(email, role, mobile, password="Secret123!"):
@@ -189,7 +187,9 @@ def test_invite_succeeds_when_the_email_provider_fails(app, client, failing_enab
     )
 
     assert resp.status_code == 201, resp.get_json()
+    body = resp.get_json()
     assert User.query.filter_by(email="new.worker@test.local").one().status == UserStatus.INVITED
+    assert body.get("setupUrl") and "/set-password?token=" in body["setupUrl"]
     log = NotificationLog.query.filter_by(event="INVITATION").one()
     assert log.status == NotificationStatus.FAILED
     assert log.recipient == "new.worker@test.local"
@@ -228,7 +228,7 @@ def test_admin_test_endpoint_returns_the_log_row(app, client, monkeypatch):
     assert blocked.get_json()["status"] == "SKIPPED"
     assert blocked.get_json()["errorMessage"] == svc.NOT_ALLOWLISTED
 
-    bad = client.post("/api/v1/admin/notifications/test", headers=headers, json={"channel": "fax", "to": "x"})
+    bad = client.post("/api/v1/admin/notifications/test", headers=headers, json={"channel": "sms", "to": "09171234567"})
     assert bad.status_code == 400
     assert NotificationLog.query.filter_by(event="TEST").count() == 3
 

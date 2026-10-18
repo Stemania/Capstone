@@ -13,7 +13,6 @@ from app.models.user_security import InvitationChannel
 from app.models.worker_profile import WorkerProfile
 from app.services.invitation_service import create_invited_user
 from app.services.email_backends import ConsoleEmailBackend
-from app.services.sms_backends import ConsoleSmsBackend
 
 
 class LocalTxnConfig(Config):
@@ -22,7 +21,6 @@ class LocalTxnConfig(Config):
     DEBUG = False
     NOTIFICATIONS_ENABLED = False
     EMAIL_BACKEND = "console"
-    SMS_BACKEND = "console"
     RATELIMIT_ENABLED = False
     RATELIMIT_STORAGE_URI = "memory://"
 
@@ -127,9 +125,8 @@ def test_invitation_delivery_logs_channel_without_secret(app, db_txn, caplog, ca
 
 
 @pytest.mark.parametrize("enabled", [False, True], ids=["notifications-off", "console-backend"])
-@pytest.mark.parametrize("channel", [InvitationChannel.EMAIL, InvitationChannel.SMS])
 def test_production_logs_never_contain_invite_or_reset_secrets(
-    db_txn, app, caplog, capsys, monkeypatch, enabled, channel
+    db_txn, app, caplog, capsys, monkeypatch, enabled
 ):
     import logging
 
@@ -151,7 +148,7 @@ def test_production_logs_never_contain_invite_or_reset_secrets(
             mobile_number="+639170000111",
             full_name="Leak Check",
             role=UserRole.PRODUCTION_WORKER,
-            channel=channel,
+            channel=InvitationChannel.EMAIL,
             created_by_id=admin.id,
         )
         member = User(
@@ -165,8 +162,8 @@ def test_production_logs_never_contain_invite_or_reset_secrets(
         )
         db.session.add(member)
         db.session.flush()
-        identifier = "leak_reset@test.local" if channel == InvitationChannel.EMAIL else "09170000112"
-        prs.request_password_reset(identifier)
+        prs.request_password_reset("leak_reset@test.local")
+        prs.request_password_reset("09170000112")
 
     output = caplog.text + capsys.readouterr().out
     assert invite_secret and invite_secret not in output
@@ -174,14 +171,6 @@ def test_production_logs_never_contain_invite_or_reset_secrets(
     assert "set-password?token" not in output
     assert "reset-password?token" not in output
     assert "[hidden outside development]" in output
-
-
-def test_console_sms_redacts_outside_development(app, db_txn, capsys):
-    secret = "sms-code-999888"
-    ConsoleSmsBackend().send("+639171111111", f"BMSC invite code: {secret}. Done.")
-    out = capsys.readouterr().out
-    assert secret not in out
-    assert "body=[hidden outside development]" in out
 
 
 @pytest.fixture

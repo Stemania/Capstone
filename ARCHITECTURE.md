@@ -80,10 +80,6 @@ Hook into `operation_service.complete_operation()` to emit events when operation
 
 Hook into `tool_event_service.scan_tool()` and future material models. Tool custody is already derived from event history — the same pattern applies to consumable inventory.
 
-### SMS Notifications
-
-Add a lightweight event dispatcher stub in `services/notifications/` triggered on job status changes (`ASSIGNED`, `IN_PROGRESS`, `COMPLETED`). Wire to an SMS provider when ready.
-
 ### Automated Scheduling
 
 Replace `worker_suggestion_service.suggest_workers()` with a scheduling algorithm. The current skill-matching suggestion preserves the "system proposes, human decides" workflow and can evolve to require Admin approval before assignment.

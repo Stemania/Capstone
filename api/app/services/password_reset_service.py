@@ -1,4 +1,4 @@
-"""Forgot-password request and reset completion."""
+"""Forgot-password request and reset completion (email only)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from flask import current_app
 from flask_jwt_extended import create_access_token, create_refresh_token
 
 from app.extensions import bcrypt, db
@@ -20,14 +19,14 @@ from app.services.invitation_service import hash_invite_secret
 from app.services.notification_service import send_notification
 from app.utils.errors import AppError
 from app.utils.passwords import validate_password
-from app.utils.phone import looks_like_email, looks_like_mobile
 
 logger = logging.getLogger(__name__)
 
 RESET_TTL = timedelta(hours=1)
 
 GENERIC_REQUEST_MESSAGE = (
-    "If an account exists for that email or mobile, you will receive reset instructions shortly."
+    "If an account with that email or mobile has an email address on file, "
+    "you will receive reset instructions shortly."
 )
 
 
@@ -46,49 +45,26 @@ def _invalidate_open_resets(user_id: str) -> None:
         reset.revoked_at = now
 
 
-def _channel_for_identifier(identifier: str, user: User) -> InvitationChannel:
-    raw = (identifier or "").strip()
-    if looks_like_mobile(raw):
-        return InvitationChannel.SMS
-    if looks_like_email(raw):
-        return InvitationChannel.EMAIL
-    if user.email and raw.lower() == user.email:
-        return InvitationChannel.EMAIL
-    return InvitationChannel.SMS
-
-
 def _deliver_reset(user: User, reset: PasswordResetToken, raw_secret: str) -> None:
     """Runs after the reset token is committed; delivery problems are logged, never raised."""
     try:
-        frontend = (current_app.config.get("FRONTEND_URL") or "http://localhost:5173").rstrip("/")
-        if reset.channel == InvitationChannel.EMAIL:
-            link = f"{frontend}/reset-password?token={raw_secret}"
-            body = (
-                f"Hello {user.full_name},\n\n"
-                f"We received a request to reset your Brothers Machine Shop password.\n"
-                f"Use this link (expires in 1 hour):\n\n"
-                f"{link}\n\n"
-                f"If you did not request this, ignore this message. Your password will not change.\n"
-            )
-            channel, recipient = NotificationChannel.EMAIL, user.email
-        else:
-            body = (
-                f"BMSC password reset code: {raw_secret}. "
-                f"Enter it with your email/mobile at {frontend}/reset-password. Expires in 1h."
-            )
-            channel, recipient = NotificationChannel.SMS, user.mobile_number
+        from app.services.email_templates import absolute_frontend_url, password_reset_email
+
+        link = absolute_frontend_url(f"/reset-password?token={raw_secret}")
+        content = password_reset_email(user.full_name or "", link)
         log = send_notification(
-            channel=channel,
-            recipient=recipient,
+            channel=NotificationChannel.EMAIL,
+            recipient=user.email,
             event=NotificationEvent.PASSWORD_RESET,
-            subject="Reset your Brothers Machine Shop password",
-            body=body,
+            subject=content.subject,
+            body=content.text,
+            html_body=content.html,
             store_body=False,
         )
         logger.info(
             "Password reset delivery user_id=%s to=%s channel=%s status=%s",
             user.id,
-            recipient,
+            user.email,
             reset.channel.value,
             log.status.value if log else "NOT_LOGGED",
         )
@@ -102,24 +78,14 @@ def request_password_reset(identifier: str) -> dict:
         user
         and user.status == UserStatus.ACTIVE
         and user.password_hash
+        and user.email
     ):
-        channel = _channel_for_identifier(identifier, user)
-        if channel == InvitationChannel.SMS and not user.mobile_number:
-            channel = InvitationChannel.EMAIL
-        if channel == InvitationChannel.EMAIL and not user.email:
-            return {"message": GENERIC_REQUEST_MESSAGE}
-
         _invalidate_open_resets(user.id)
-
-        if channel == InvitationChannel.SMS:
-            raw_secret = f"{secrets.randbelow(1_000_000):06d}"
-        else:
-            raw_secret = secrets.token_urlsafe(32)
-
+        raw_secret = secrets.token_urlsafe(32)
         reset = PasswordResetToken(
             user_id=user.id,
             token_hash=hash_invite_secret(raw_secret),
-            channel=channel,
+            channel=InvitationChannel.EMAIL,
             expires_at=_utcnow() + RESET_TTL,
         )
         db.session.add(reset)
@@ -127,7 +93,7 @@ def request_password_reset(identifier: str) -> dict:
             "PASSWORD_RESET_REQUESTED",
             "PasswordResetToken",
             None,
-            after={"userId": user.id, "channel": channel.value},
+            after={"userId": user.id, "channel": InvitationChannel.EMAIL.value},
         )
         db.session.commit()
         _deliver_reset(user, reset, raw_secret)
@@ -166,6 +132,7 @@ def _require_open_reset(
     user = User.query.get(reset.user_id)
     if not user or user.status != UserStatus.ACTIVE or not user.password_hash:
         raise AppError("Invalid or expired reset link", "RESET_INVALID", 400)
+    # Legacy SMS resets still require identifier match; email-link resets are optional.
     if reset.channel == InvitationChannel.SMS:
         if not identifier or not _user_matches_identifier(user, identifier):
             raise AppError("Invalid or expired reset link", "RESET_INVALID", 400)

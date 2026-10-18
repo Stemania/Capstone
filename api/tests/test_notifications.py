@@ -1,4 +1,4 @@
-"""Client job-status notifications (mocked backends / session)."""
+"""Client job-status notifications (email only, mocked backends / session)."""
 
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
@@ -16,7 +16,6 @@ from app.models.notification import (
 from app.services.notification_service import notify_job_milestone
 from app.services.notification_templates import (
     job_update_email,
-    job_update_sms,
     job_update_subject,
     render_message,
 )
@@ -39,7 +38,7 @@ def _client(**kwargs):
         email="a@example.com",
         mobile_number="+639171234567",
         notify_by_email=True,
-        notify_by_sms=True,
+        notify_by_sms=False,
     )
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -104,7 +103,6 @@ def _patch_notify(monkeypatch, sends, *, fail=False, existing=None, delivers=Tru
     monkeypatch.setattr(svc, "db", SimpleNamespace(session=session))
     backend = RecordingBackend(sends, fail=fail, delivers=delivers)
     monkeypatch.setattr(svc, "get_email_backend", lambda cfg: backend)
-    monkeypatch.setattr(svc, "get_sms_backend", lambda cfg: backend)
 
     def set_job(job):
         monkeypatch.setattr(svc, "JobOrder", SimpleNamespace(query=FakeJobQuery(job)))
@@ -132,13 +130,10 @@ def test_received_templates_match_the_agreed_wording():
     assert job_update_email(m, "JO-2026-ABCD", "Conveyor roller").endswith("Brothers Machine Shop")
 
 
-def test_templates_have_no_links_and_sms_fits_160():
+def test_templates_have_no_links():
     long_title = "Very long description of a fabricated conveyor roller assembly with keyways"
     for m in NotificationMilestone:
-        sms = job_update_sms(m, "JO-2026-ABCD", long_title, date(2026, 10, 28))
-        assert sms.startswith("BMSC: ")
-        assert len(sms) <= 160
-        assert "http" not in (sms + job_update_email(m, "JO-2026-ABCD", long_title)).lower()
+        assert "http" not in job_update_email(m, "JO-2026-ABCD", long_title).lower()
 
 
 def test_for_delivery_message_reads_ready_for_delivery():
@@ -159,17 +154,16 @@ def test_each_milestone_fires_once_per_job(monkeypatch, flask_app):
         for m in NotificationMilestone:
             for _ in range(3):
                 notify_job_milestone(job.id, m)
-                for ch in NotificationChannel:
-                    existing.add((job.id, m, ch))
+                existing.add((job.id, m, NotificationChannel.EMAIL))
 
-    assert len(sends) == 8
-    assert len(logs_store) == 8
+    assert len(sends) == 4
+    assert len(logs_store) == 4
     assert all(log.status == NotificationStatus.SENT for log in logs_store)
     assert all(log.provider_reference == "ref-1" for log in logs_store)
     assert {log.event for log in logs_store} == {m.value for m in NotificationMilestone}
 
 
-def test_email_goes_to_client_email_and_sms_to_normalized_mobile(monkeypatch, flask_app):
+def test_email_goes_to_normalized_client_email(monkeypatch, flask_app):
     sends = []
     set_job, _, _ = _patch_notify(monkeypatch, sends)
     job = _job(_client(email=" A@Example.com ", mobile_number="0917 123 4567"))
@@ -178,12 +172,11 @@ def test_email_goes_to_client_email_and_sms_to_normalized_mobile(monkeypatch, fl
         set_job(job)
         notify_job_milestone(job.id, NotificationMilestone.JOB_RECEIVED)
 
-    email, sms = sends
+    assert len(sends) == 1
+    email = sends[0]
     assert email["to"] == "a@example.com"
     assert email["parts"][0] == "Job JO-2026-ABCD received - Brothers Machine Shop"
     assert "Target date: Oct 28, 2026." in email["parts"][1]
-    assert sms["to"] == "+639171234567"
-    assert sms["parts"][0].startswith("BMSC: Your job JO-2026-ABCD")
 
 
 def test_no_contact_produces_skipped(monkeypatch, flask_app):
@@ -196,24 +189,38 @@ def test_no_contact_produces_skipped(monkeypatch, flask_app):
         logs = notify_job_milestone(job.id, NotificationMilestone.JOB_RECEIVED)
 
     assert sends == []
-    assert len(logs) == 2
-    assert all(log.status == NotificationStatus.SKIPPED for log in logs)
-    assert all("no valid" in (log.error_message or "").lower() for log in logs)
+    assert len(logs) == 1
+    assert logs[0].status == NotificationStatus.SKIPPED
+    assert "no valid" in (logs[0].error_message or "").lower()
 
 
 def test_opted_out_produces_skipped(monkeypatch, flask_app):
     sends = []
     set_job, _, _ = _patch_notify(monkeypatch, sends)
-    job = _job(_client(notify_by_email=False, notify_by_sms=False))
+    job = _job(_client(notify_by_email=False, notify_by_sms=True))
 
     with flask_app.app_context():
         set_job(job)
         logs = notify_job_milestone(job.id, NotificationMilestone.JOB_RECEIVED)
 
     assert sends == []
-    assert len(logs) == 2
-    assert all(log.status == NotificationStatus.SKIPPED for log in logs)
-    assert all("opted out" in (log.error_message or "").lower() for log in logs)
+    assert len(logs) == 1
+    assert logs[0].status == NotificationStatus.SKIPPED
+    assert "opted out" in (logs[0].error_message or "").lower()
+
+
+def test_sms_opt_in_alone_does_not_send(monkeypatch, flask_app):
+    sends = []
+    set_job, _, _ = _patch_notify(monkeypatch, sends)
+    job = _job(_client(notify_by_email=False, notify_by_sms=True, email="a@example.com"))
+
+    with flask_app.app_context():
+        set_job(job)
+        logs = notify_job_milestone(job.id, NotificationMilestone.JOB_STARTED)
+
+    assert sends == []
+    assert len(logs) == 1
+    assert logs[0].status == NotificationStatus.SKIPPED
 
 
 def test_failed_send_does_not_roll_back_trigger(monkeypatch, flask_app):
@@ -229,9 +236,9 @@ def test_failed_send_does_not_roll_back_trigger(monkeypatch, flask_app):
 
     assert job.status == "DELIVERED"
     assert job.delivered_at is not None
-    assert len(logs) == 2
-    assert all(log.status == NotificationStatus.FAILED for log in logs)
-    assert all("provider down" in (log.error_message or "") for log in logs)
+    assert len(logs) == 1
+    assert logs[0].status == NotificationStatus.FAILED
+    assert "provider down" in (logs[0].error_message or "")
 
 
 def test_console_backend_records_skipped_not_sent(monkeypatch, flask_app):
@@ -243,7 +250,7 @@ def test_console_backend_records_skipped_not_sent(monkeypatch, flask_app):
         set_job(job)
         logs = notify_job_milestone(job.id, NotificationMilestone.JOB_STARTED)
 
-    assert len(logs) == 2
-    assert all(log.status == NotificationStatus.SKIPPED for log in logs)
-    assert all("is console" in log.error_message for log in logs)
-    assert all(log.sent_at is None for log in logs)
+    assert len(logs) == 1
+    assert logs[0].status == NotificationStatus.SKIPPED
+    assert "is console" in logs[0].error_message
+    assert logs[0].sent_at is None

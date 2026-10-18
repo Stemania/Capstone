@@ -17,11 +17,10 @@ import type { Client } from '../../types';
 import { useNavigate } from 'react-router-dom';
 import ClientFormModal from './ClientFormModal';
 
-type NotifyFilter = 'email' | 'sms' | 'off';
+type NotifyFilter = 'email' | 'off';
 
 function notifyLabel(r: Client) {
-  const parts = [r.notifyByEmail ? 'Email' : null, r.notifyBySms ? 'SMS' : null].filter(Boolean);
-  return parts.join(' · ') || 'Off';
+  return r.notifyByEmail ? 'Email' : 'Off';
 }
 
 export default function ClientsPage() {
@@ -64,10 +63,9 @@ export default function ClientsPage() {
         return false;
       }
       if (notifyFilter.length) {
-        const off = !c.notifyByEmail && !c.notifyBySms;
+        const off = !c.notifyByEmail;
         const match = notifyFilter.some((f) => {
           if (f === 'email') return !!c.notifyByEmail;
-          if (f === 'sms') return !!c.notifyBySms;
           return off;
         });
         if (!match) return false;
@@ -149,7 +147,7 @@ export default function ClientsPage() {
       key: 'notify',
       width: 140,
       render: (_: unknown, r: Client) => (
-        r.notifyByEmail || r.notifyBySms ? (
+        r.notifyByEmail ? (
           <StatusPill color="blue" compact>{notifyLabel(r)}</StatusPill>
         ) : (
           <span style={{ fontSize: 12, color: '#94a3b8' }}>Off</span>
@@ -214,8 +212,7 @@ export default function ClientsPage() {
             value={notifyFilter}
             onChange={setNotifyFilter}
             options={[
-              { value: 'email', label: 'Email' },
-              { value: 'sms', label: 'SMS' },
+              { value: 'email', label: 'Email on' },
               { value: 'off', label: 'Off' },
             ]}
           />

@@ -37,8 +37,8 @@ export default function ForgotPasswordPage() {
         <div className="login-card__body">
           <h1 className="login-card__title">Forgot password</h1>
           <p className="login-card__lead">
-            Enter the email or mobile number on your account. We will send reset instructions if
-            the account exists.
+            Enter the email or mobile number on your account. If the account has an email address,
+            we will send a reset link there.
           </p>
 
           {error && <Alert type="error" title={error} showIcon style={{ marginBottom: 16 }} />}
@@ -47,8 +47,8 @@ export default function ForgotPasswordPage() {
             <Alert
               type="success"
               showIcon
-              title="Check your inbox or phone"
-              description="If an account exists for that email or mobile, you will receive reset instructions shortly."
+              title="Check your email"
+              description="If an account with that email or mobile has an email address on file, you will receive reset instructions shortly."
               style={{ marginBottom: 16 }}
             />
           ) : (
