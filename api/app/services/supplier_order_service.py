@@ -385,12 +385,14 @@ def update_draft_line(order: SupplierOrder, line: MaterialPurchase, data: dict):
             item = mp_service.require_active_catalog_item(data.get("materialCatalogId"))
             line.material_catalog_id = item.id
             line.material_name = item.name
-        elif "materialName" in data and line.material_catalog_id is None:
-            # Older line with no catalog entry: its typed name is still editable.
-            name = (data.get("materialName") or "").strip()
-            if not name:
-                raise AppError("materialName is required", "VALIDATION_ERROR", 400)
-            line.material_name = name
+        elif "materialName" in data:
+            # Legacy drafts may lack a catalog id; changing the material name
+            # requires picking from the catalog (no free typing).
+            raise AppError(
+                "Pick a material from the catalog.",
+                "VALIDATION_ERROR",
+                400,
+            )
         if "unit" in data:
             unit = (data.get("unit") or "pcs").strip() or "pcs"
             if unit != line.unit:

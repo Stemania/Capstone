@@ -482,64 +482,113 @@ def lead_time_for(info):
     return float(DEFAULT_LEAD_TIME_DAYS), "DEFAULT"
 
 
-def _scan_usage_by_day(tool_id: str, start: date, end: date, schedule):
-    """{shop date: units scanned} for non-undone SCAN events on working days."""
+def _scan_usage_by_day_batch(tool_ids, start: date, end: date, schedule):
+    """{tool_id: {shop date: units scanned}} for non-undone SCAN events — one query."""
     from app.models.tool_event import ToolEvent, ToolEventType
 
+    out: dict[str, dict] = {tid: defaultdict(float) for tid in tool_ids}
+    if not tool_ids or start > end:
+        return out
     start_utc = shop_local_to_utc(start, time(0, 0))
     end_utc = shop_local_to_utc(end + timedelta(days=1), time(0, 0))
     events = (
         ToolEvent.query.filter(
-            ToolEvent.tool_id == tool_id,
+            ToolEvent.tool_id.in_(list(tool_ids)),
             ToolEvent.type == ToolEventType.SCAN,
             ToolEvent.undone_at.is_(None),
             ToolEvent.created_at >= start_utc,
             ToolEvent.created_at < end_utc,
         ).all()
     )
-    by_day = defaultdict(float)
+    exceptions = load_calendar_exceptions(start, end)
     for ev in events:
-        local = ev.created_at.astimezone(SHOP_TZ).date() if ev.created_at.tzinfo else ev.created_at.date()
-        if effective_windows_for_date(local, schedule, load_calendar_exceptions(local, local)):
-            by_day[local] += float(ev.quantity or 1)
-    return by_day
+        local = (
+            ev.created_at.astimezone(SHOP_TZ).date()
+            if ev.created_at.tzinfo
+            else ev.created_at.date()
+        )
+        if effective_windows_for_date(local, schedule, exceptions):
+            out[ev.tool_id][local] += float(ev.quantity or 1)
+    return out
 
 
-def _first_scan_date(tool_id: str):
+def _scan_usage_by_day(tool_id: str, start: date, end: date, schedule):
+    """{shop date: units scanned} for one tool (thin wrapper over the batch query)."""
+    return _scan_usage_by_day_batch([tool_id], start, end, schedule).get(tool_id, {})
+
+
+def _first_scan_dates_batch(tool_ids):
+    """{tool_id: first scan shop-date} for every id that has at least one scan."""
+    from sqlalchemy import func
+
     from app.models.tool_event import ToolEvent, ToolEventType
 
-    ev = (
-        ToolEvent.query.filter(
-            ToolEvent.tool_id == tool_id,
+    if not tool_ids:
+        return {}
+    rows = (
+        ToolEvent.query.with_entities(
+            ToolEvent.tool_id, func.min(ToolEvent.created_at)
+        )
+        .filter(
+            ToolEvent.tool_id.in_(list(tool_ids)),
             ToolEvent.type == ToolEventType.SCAN,
             ToolEvent.undone_at.is_(None),
         )
-        .order_by(ToolEvent.created_at.asc())
-        .first()
+        .group_by(ToolEvent.tool_id)
+        .all()
     )
-    if not ev or not ev.created_at:
-        return None
-    return ev.created_at.astimezone(SHOP_TZ).date() if ev.created_at.tzinfo else ev.created_at.date()
+    out = {}
+    for tool_id, created in rows:
+        if not created:
+            continue
+        out[tool_id] = (
+            created.astimezone(SHOP_TZ).date() if created.tzinfo else created.date()
+        )
+    return out
+
+
+def _first_scan_date(tool_id: str):
+    return _first_scan_dates_batch([tool_id]).get(tool_id)
+
+
+def _unit_costs_batch(tools):
+    """Latest received PO unit price per tool, else tools.unit_cost — one query."""
+    from app.models.material_purchase import MaterialPurchase
+
+    tool_ids = [t.id for t in tools if t.id]
+    latest: dict[str, float] = {}
+    if tool_ids:
+        lines = (
+            MaterialPurchase.query.filter(
+                MaterialPurchase.tool_id.in_(tool_ids),
+                MaterialPurchase.date_received.isnot(None),
+                MaterialPurchase.cancelled_at.is_(None),
+            )
+            .order_by(
+                MaterialPurchase.tool_id,
+                MaterialPurchase.date_received.desc(),
+            )
+            .all()
+        )
+        for line in lines:
+            if line.tool_id in latest:
+                continue
+            if line.unit_cost is not None:
+                latest[line.tool_id] = float(line.unit_cost)
+    out = {}
+    for tool in tools:
+        if tool.id in latest:
+            out[tool.id] = latest[tool.id]
+        elif tool.unit_cost is not None:
+            out[tool.id] = float(tool.unit_cost)
+        else:
+            out[tool.id] = 0.0
+    return out
 
 
 def _unit_cost_for_abc(tool, lead_info_row):
     """Latest received PO unit price, else tools.unit_cost."""
-    from app.models.material_purchase import MaterialPurchase
-
-    line = (
-        MaterialPurchase.query.filter(
-            MaterialPurchase.tool_id == tool.id,
-            MaterialPurchase.date_received.isnot(None),
-            MaterialPurchase.cancelled_at.is_(None),
-        )
-        .order_by(MaterialPurchase.date_received.desc())
-        .first()
-    )
-    if line and line.unit_cost is not None:
-        return float(line.unit_cost)
-    if tool.unit_cost is not None:
-        return float(tool.unit_cost)
-    return 0.0
+    return _unit_costs_batch([tool]).get(tool.id, 0.0)
 
 
 def _days_until_rop(on_hand, adu, rop, today, schedule):
@@ -589,17 +638,37 @@ def _assign_abc(items):
             r["abcClass"] = "C"
 
 
-def consumable_run_out(today: date | None = None):
-    """Scan-based ADU, ROP, run-out, and ABC for every consumable."""
+def stock_snapshot_for_tools(tools, today: date | None = None) -> dict[str, dict]:
+    """Same status / label / ROP as ``consumable_run_out``, batched for ``tools``.
+
+    One scan-history query and one PO lead-time pass for the whole set (no N+1).
+    Returns ``{tool_id: {status, label, reorderPoint, ...}}``.
+    """
     today = today or shop_now().date()
+    tools = [t for t in tools if t is not None]
+    if not tools:
+        return {}
+
     schedule = default_shop_schedule_by_dow()
     lead_info = _restock_lead_times(schedule)
     soon_days = _reorder_soon_days()
-    items = []
+    tool_ids = [t.id for t in tools if t.id]
+    first_scans = _first_scan_dates_batch(tool_ids)
+    unit_costs = _unit_costs_batch(tools)
 
-    for tool in (
-        Tool.query.filter_by(category=ToolCategory.CONSUMABLE).order_by(Tool.name).all()
-    ):
+    # Widest window any tool might need: ADU lookback + ABC 90d lookback.
+    earliest = min(first_scans.values()) if first_scans else today
+    span_start = min(earliest, today - timedelta(days=ABC_LOOKBACK_DAYS + 5))
+    # Pad for walking back working days when building the ADU window.
+    scan_start = span_start - timedelta(days=ADU_WINDOW_MAX * 3 + 21)
+    scans_by_tool = _scan_usage_by_day_batch(tool_ids, scan_start, today, schedule)
+
+    # Precompute working-day calendars used by every tool (shared exceptions).
+    adu_span = ADU_WINDOW_MAX * 3 + 14
+    exceptions = load_calendar_exceptions(today - timedelta(days=adu_span), today)
+
+    out: dict[str, dict] = {}
+    for tool in tools:
         on_hand = float(Decimal(str(tool.quantity_on_hand or 0)))
         info = lead_info.get(tool.id) or {
             "measured_wd": [],
@@ -610,33 +679,28 @@ def consumable_run_out(today: date | None = None):
         }
         avg_lead, max_lead, lead_source = lead_times_working(info, today, schedule)
 
-        first_scan = _first_scan_date(tool.id)
+        first_scan = first_scans.get(tool.id)
         scan_days = 0
         daily_totals = []
         adu = None
         max_du = 0.0
         label = LABEL_NO_DATA
+        tool_scans = scans_by_tool.get(tool.id) or {}
 
         if first_scan:
-            # N = min(30, working days since scanning started for that item)
             since_start = shop_working_days_between(first_scan, today, schedule)
             n = min(ADU_WINDOW_MAX, max(since_start, 0))
             if n > 0:
                 working_back = []
                 d = today
-                span = n * 3 + 14
-                exceptions = load_calendar_exceptions(today - timedelta(days=span), today)
-                while len(working_back) < n and (today - d).days < span:
+                while len(working_back) < n and (today - d).days < adu_span:
                     if effective_windows_for_date(d, schedule, exceptions):
                         working_back.append(d)
                     d -= timedelta(days=1)
                 working_back.reverse()
                 scan_days = len(working_back)
                 if working_back:
-                    by_day = _scan_usage_by_day(
-                        tool.id, working_back[0], working_back[-1], schedule
-                    )
-                    daily_totals = [by_day.get(day, 0.0) for day in working_back]
+                    daily_totals = [tool_scans.get(day, 0.0) for day in working_back]
                     total_scans = sum(daily_totals)
                     adu = total_scans / scan_days if scan_days else None
                     max_du = max(daily_totals) if daily_totals else 0.0
@@ -687,49 +751,71 @@ def consumable_run_out(today: date | None = None):
             else stock_status(on_hand, adu, rop, days_to_rop, soon_days)
         )
 
-        # ABC usage value: scans × unit cost over 90 calendar days → working-day scans
         abc_start = today - timedelta(days=ABC_LOOKBACK_DAYS)
-        scans_90 = sum(_scan_usage_by_day(tool.id, abc_start, today, schedule).values())
-        unit_cost = _unit_cost_for_abc(tool, info)
-
-        items.append(
-            {
-                "toolId": tool.id,
-                "name": tool.name,
-                "code": tool.code,
-                "sizeSpec": tool.size_spec,
-                "unit": tool.unit,
-                "legacyUnit": tool.legacy_unit,
-                "unitNeedsReview": bool(tool.unit_needs_review),
-                "quantityOnHand": _round(on_hand, 2),
-                "minimumStock": _round(tool.minimum_stock, 2),
-                "adu": _round(adu, 4),
-                "maxDailyUsage": _round(max_du, 4) if adu is not None else None,
-                "scanWorkingDays": scan_days,
-                "label": label,
-                "leadTimeWorkingDaysAvg": _round(avg_lead, 1),
-                "leadTimeWorkingDaysMax": _round(max_lead, 1),
-                "leadTimeSource": lead_source,
-                "safetyStock": _round(safety, 2) if safety is not None else None,
-                "reorderPoint": _round(rop, 2) if rop is not None else None,
-                "reorderLevel": _round(rop, 2) if rop is not None else None,
-                "daysLeft": _round(days_left, 1),
-                "runOutDate": out_on.isoformat() if out_on else None,
-                "orderByDate": order_by.isoformat() if order_by else None,
-                "daysToReorderLevel": _round(days_to_rop, 1),
-                "suggestedOrderQty": suggested,
-                "status": status,
-                "usageValue90d": _round(scans_90 * unit_cost, 2),
-                "unitCost": _round(unit_cost, 4) if unit_cost else None,
-                "abcClass": None,
-                # Compat for older UI keys
-                "dailyUsage": _round(adu, 4),
-                "estimatedOnHand": _round(on_hand, 2),
-                "likelyOut": on_hand <= 0 and (adu or 0) > 0,
-                "enoughData": label == LABEL_COMPUTED,
-                "lowStock": status in (STOCK_REORDER, STOCK_REORDER_SOON),
-            }
+        scans_90 = sum(
+            qty for day, qty in tool_scans.items() if abc_start <= day <= today
         )
+        unit_cost = unit_costs.get(tool.id, 0.0)
+
+        out[tool.id] = {
+            "toolId": tool.id,
+            "name": tool.name,
+            "code": tool.code,
+            "sizeSpec": tool.size_spec,
+            "unit": tool.unit,
+            "legacyUnit": tool.legacy_unit,
+            "unitNeedsReview": bool(tool.unit_needs_review),
+            "quantityOnHand": _round(on_hand, 2),
+            "minimumStock": _round(tool.minimum_stock, 2),
+            "adu": _round(adu, 4),
+            "maxDailyUsage": _round(max_du, 4) if adu is not None else None,
+            "scanWorkingDays": scan_days,
+            "label": label,
+            "leadTimeWorkingDaysAvg": _round(avg_lead, 1),
+            "leadTimeWorkingDaysMax": _round(max_lead, 1),
+            "leadTimeSource": lead_source,
+            "safetyStock": _round(safety, 2) if safety is not None else None,
+            "reorderPoint": _round(rop, 2) if rop is not None else None,
+            "reorderLevel": _round(rop, 2) if rop is not None else None,
+            "daysLeft": _round(days_left, 1),
+            "runOutDate": out_on.isoformat() if out_on else None,
+            "orderByDate": order_by.isoformat() if order_by else None,
+            "daysToReorderLevel": _round(days_to_rop, 1),
+            "suggestedOrderQty": suggested,
+            "status": status,
+            "usageValue90d": _round(scans_90 * unit_cost, 2),
+            "unitCost": _round(unit_cost, 4) if unit_cost else None,
+            "abcClass": None,
+            "dailyUsage": _round(adu, 4),
+            "estimatedOnHand": _round(on_hand, 2),
+            "likelyOut": on_hand <= 0 and (adu or 0) > 0,
+            "enoughData": label == LABEL_COMPUTED,
+            "lowStock": status in (STOCK_REORDER, STOCK_REORDER_SOON),
+        }
+    return out
+
+
+def list_stock_fields(tool) -> dict:
+    """Compact forecast fields attached to GET /tools list rows."""
+    snap = stock_snapshot_for_tools([tool]).get(tool.id) or {}
+    return {
+        "status": snap.get("status"),
+        "label": snap.get("label"),
+        "reorderPoint": snap.get("reorderPoint"),
+        "reorderLevel": snap.get("reorderLevel"),
+        "lowStock": snap.get("lowStock", False),
+    }
+
+
+def consumable_run_out(today: date | None = None):
+    """Scan-based ADU, ROP, run-out, and ABC for every consumable."""
+    today = today or shop_now().date()
+    soon_days = _reorder_soon_days()
+    tools = (
+        Tool.query.filter_by(category=ToolCategory.CONSUMABLE).order_by(Tool.name).all()
+    )
+    snaps = stock_snapshot_for_tools(tools, today=today)
+    items = [snaps[t.id] for t in tools if t.id in snaps]
 
     _assign_abc(items)
 

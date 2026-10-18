@@ -216,47 +216,76 @@ export function StockBar({
   );
 }
 
+export type ConsumableListStatus =
+  | 'OK'
+  | 'REORDER_SOON'
+  | 'REORDER_NOW'
+  | 'NO_DATA'
+  | 'NOT_STOCKED';
+
 export function StockStatusPill({
   status,
+  label,
 }: {
-  status: 'OK' | 'REORDER_SOON' | 'REORDER_NOW' | 'NOT_STOCKED';
+  status: ConsumableListStatus | string | null | undefined;
+  /** Forecast label: Computed / Estimated / No data yet. */
+  label?: string | null;
 }): ReactNode {
+  let body: ReactNode;
   if (status === 'REORDER_NOW') {
-    return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#b91c1c', fontWeight: 600, fontSize: 12 }}>
+    body = (
+      <>
         <AlertOctagon size={14} aria-hidden /> Reorder now
-      </span>
+      </>
     );
-  }
-  if (status === 'REORDER_SOON') {
-    return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#b45309', fontWeight: 600, fontSize: 12 }}>
+  } else if (status === 'REORDER_SOON') {
+    body = (
+      <>
         <AlertTriangle size={14} aria-hidden /> Reorder soon
-      </span>
+      </>
+    );
+  } else if (status === 'NOT_STOCKED' || status === 'NO_DATA') {
+    body = (
+      <>
+        <Clock size={14} aria-hidden /> {status === 'NOT_STOCKED' ? 'Not stocked yet' : 'No data yet'}
+      </>
+    );
+  } else {
+    body = (
+      <>
+        <CheckCircle2 size={14} aria-hidden /> OK
+      </>
     );
   }
-  if (status === 'NOT_STOCKED') {
-    return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#64748b', fontWeight: 600, fontSize: 12 }}>
-        <Clock size={14} aria-hidden /> Not stocked yet
-      </span>
-    );
-  }
+  const color =
+    status === 'REORDER_NOW'
+      ? '#b91c1c'
+      : status === 'REORDER_SOON'
+        ? '#b45309'
+        : status === 'NOT_STOCKED' || status === 'NO_DATA'
+          ? '#64748b'
+          : '#15803d';
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#15803d', fontWeight: 600, fontSize: 12 }}>
-      <CheckCircle2 size={14} aria-hidden /> OK
+    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, color, fontWeight: 600, fontSize: 12 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{body}</span>
+      {label ? <span style={{ fontWeight: 500, opacity: 0.8 }}>{label}</span> : null}
     </span>
   );
 }
 
-/** Heuristic when list rows only expose lowStock + minimumStock. */
-export function consumableStockStatus(
-  onHand: number,
-  minimumStock: number | null | undefined,
-  lowStock: boolean
-): 'OK' | 'REORDER_SOON' | 'REORDER_NOW' {
-  if (lowStock || (minimumStock != null && onHand <= minimumStock)) return 'REORDER_NOW';
-  if (minimumStock != null && minimumStock > 0 && onHand <= minimumStock * 1.5) return 'REORDER_SOON';
+/** Prefer API forecast status; fall back only when the field is missing. */
+export function consumableListStatus(
+  tool: {
+    status?: string | null;
+    lowStock?: boolean;
+    quantityOnHand?: number;
+    minimumStock?: number | null;
+  }
+): ConsumableListStatus {
+  if (tool.status === 'REORDER_NOW' || tool.status === 'REORDER_SOON' || tool.status === 'OK' || tool.status === 'NO_DATA') {
+    return tool.status;
+  }
+  if (tool.lowStock) return 'REORDER_NOW';
   return 'OK';
 }
 

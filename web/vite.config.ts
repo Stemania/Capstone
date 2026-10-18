@@ -18,9 +18,9 @@ export default defineConfig({
         'apple-touch-icon.png',
       ],
       manifest: {
-        name: 'Brothers Machine Shop – Production Scheduling',
-        short_name: 'BMSC Production',
-        description: 'Production scheduling, worker progress, and tool tracking',
+        name: 'Brothers Machine Shop Production Scheduling',
+        short_name: 'BMSC Scheduling',
+        description: 'Brothers Machine Shop Production Scheduling',
         theme_color: '#0f172a',
         background_color: '#0f172a',
         display: 'standalone',

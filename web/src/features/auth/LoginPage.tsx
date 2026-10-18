@@ -95,7 +95,7 @@ export default function LoginPage() {
       <div className="login-card">
         <div className="login-card__header">
           <img className="login-card__logo" src="/logo.png" alt="Brothers Machine Shop logo" />
-          <div className="login-card__brand">Brothers Machine Shop</div>
+          <div className="login-card__brand">Brothers Machine Shop Production Scheduling</div>
           <div className="login-card__subtitle">Production Scheduling System</div>
         </div>
 

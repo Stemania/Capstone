@@ -194,41 +194,45 @@ def _norm_name(name):
     return s
 
 
-def _size_tokens(size):
+def _canonical_size(size):
+    """Exact size identity after mm/inch normalization.
+
+    Diameter families (only these aliases are equivalent):
+      4" / 4 in / 100 mm / 107 mm / 115 mm  → dia:115
+      7" / 180 mm                            → dia:180
+      12" / 300 mm                           → dia:300
+      14" / 355 mm                           → dia:355
+    Grit and bare letter sizes (A/B) compare on their own key. No substring
+    matching — a 14" disc must not collide with a 4"/115 mm disc.
+    """
     if not size:
-        return set()
+        return None
     s = _norm(size)
-    tokens = {s}
-    # Map detected inch/mm families. Match whole inch numbers so "14\"" does
-    # not contain a false "4\"" hit.
+    grit = re.search(r"grit\s*(\d+)", s)
+    if grit:
+        return ("grit", grit.group(1))
+    if re.fullmatch(r"[ab]", s):
+        return ("letter", s)
+    # Check longer inch sizes before shorter so "14" is not read as "4".
     families = [
+        (r'(?<!\d)14\s*"|(?<!\d)14\s*in(?:ch)?\b|355\s*mm', ("dia", 355)),
+        (r'(?<!\d)12\s*"|(?<!\d)12\s*in(?:ch)?\b|300\s*mm', ("dia", 300)),
+        (r'(?<!\d)7\s*"|(?<!\d)7\s*in(?:ch)?\b|180\s*mm', ("dia", 180)),
         (
             r'(?<!\d)4\s*"|(?<!\d)4\s*in(?:ch)?\b|107\s*mm|115\s*mm|100\s*mm',
-            {'4"', "4 in", "4 inch", "100 mm", "100mm", "107 mm", "107mm", "115 mm", "115mm"},
-        ),
-        (
-            r'(?<!\d)7\s*"|(?<!\d)7\s*in(?:ch)?\b|180\s*mm',
-            {'7"', "7 in", "180 mm", "180mm"},
-        ),
-        (
-            r'(?<!\d)12\s*"|(?<!\d)12\s*in(?:ch)?\b|300\s*mm',
-            {'12"', "12 in", "300 mm", "300mm"},
-        ),
-        (
-            r'(?<!\d)14\s*"|(?<!\d)14\s*in(?:ch)?\b|355\s*mm',
-            {'14"', "14 in", "355 mm", "355mm"},
+            ("dia", 115),
         ),
     ]
-    for pattern, alts in families:
+    for pattern, key in families:
         if re.search(pattern, s):
-            tokens |= alts
-    m = re.search(r"(\d+(?:\.\d)?)\s*mm", s)
-    if m:
-        tokens.add(f"{m.group(1)}mm")
-        tokens.add(f"{m.group(1)} mm")
-    if s in ("a", "b"):
-        tokens.add(s)
-    return tokens
+            return key
+    mm = re.search(r"(\d+(?:\.\d+)?)\s*mm", s)
+    if mm:
+        return ("mm", float(mm.group(1)))
+    inch = re.search(r'(?<!\d)(\d+)\s*"', s)
+    if inch:
+        return ("inch", int(inch.group(1)))
+    return ("raw", s)
 
 
 def _names_match(a, b):
@@ -240,14 +244,7 @@ def _sizes_match(a, b):
         return True
     if not a or not b:
         return False
-    ta, tb = _size_tokens(a), _size_tokens(b)
-    if ta & tb:
-        ga = re.search(r"grit\s*(\d+)", _norm(a))
-        gb = re.search(r"grit\s*(\d+)", _norm(b))
-        if ga or gb:
-            return bool(ga and gb and ga.group(1) == gb.group(1))
-        return True
-    return _norm(a) == _norm(b)
+    return _canonical_size(a) == _canonical_size(b)
 
 
 def _parse_grades(raw):

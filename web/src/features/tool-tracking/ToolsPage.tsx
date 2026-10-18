@@ -34,7 +34,7 @@ import {
   InventorySummaryCards,
   StockBar,
   StockStatusPill,
-  consumableStockStatus,
+  consumableListStatus,
   type InventorySummaryCard,
 } from './inventoryLook';
 
@@ -109,42 +109,53 @@ export default function ToolsPage() {
       ) {
         return false;
       }
-      const status = consumableStockStatus(t.quantityOnHand, t.minimumStock, t.lowStock);
+      const status = consumableListStatus(t);
       if (summaryKey === 'reorder_now' && status !== 'REORDER_NOW') return false;
       if (summaryKey === 'reorder_soon' && status !== 'REORDER_SOON') return false;
       if (summaryKey === 'ok' && status !== 'OK') return false;
       if (summaryKey === 'in_stock' && !(t.quantityOnHand > 0)) return false;
       if (stockFilter.length) {
-        const ok = !t.lowStock;
-        const match = stockFilter.some((f) => (f === 'low' ? t.lowStock : ok));
+        const match = stockFilter.some((f) =>
+          f === 'low' ? status === 'REORDER_NOW' || status === 'REORDER_SOON' : status === 'OK'
+        );
         if (!match) return false;
       }
       return true;
     });
   }, [tools, query, stockFilter, summaryKey]);
 
-  const lowCount = tools.filter((t) => t.lowStock).length;
+  const lowCount = tools.filter((t) => {
+    const s = consumableListStatus(t);
+    return s === 'REORDER_NOW' || s === 'REORDER_SOON';
+  }).length;
   const consumableCards: InventorySummaryCard[] = useMemo(() => {
     let soon = 0;
     let now = 0;
     let ok = 0;
     let inStock = 0;
+    let computed = 0;
+    let estimated = 0;
+    let noData = 0;
     for (const t of tools) {
       if (t.quantityOnHand > 0) inStock += 1;
-      const s = consumableStockStatus(t.quantityOnHand, t.minimumStock, t.lowStock);
+      const s = consumableListStatus(t);
       if (s === 'REORDER_NOW') now += 1;
       else if (s === 'REORDER_SOON') soon += 1;
-      else ok += 1;
+      else if (s === 'OK') ok += 1;
+      if (t.label === 'Computed') computed += 1;
+      else if (t.label === 'Estimated') estimated += 1;
+      else noData += 1;
     }
+    const caption = `${computed} Computed · ${estimated} Estimated · ${noData} No data yet`;
     return [
-      { key: 'in_stock', label: 'Items in stock', value: inStock, icon: Package, tone: 'slate' },
+      { key: 'in_stock', label: 'Items in stock', value: inStock, icon: Package, tone: 'slate', caption },
       {
         key: 'reorder_now',
         label: 'Reorder now',
         value: now,
         icon: Package,
         tone: 'red',
-        caption: 'Based on reorder level',
+        caption: 'On hand ≤ reorder point',
       },
       {
         key: 'reorder_soon',
@@ -152,9 +163,9 @@ export default function ToolsPage() {
         value: soon,
         icon: Package,
         tone: 'amber',
-        caption: 'Near reorder level',
+        caption: 'Reaches ROP within lead window',
       },
-      { key: 'ok', label: 'OK', value: ok, icon: Package, tone: 'green', caption: 'Above reorder level' },
+      { key: 'ok', label: 'OK', value: ok, icon: Package, tone: 'green', caption: 'Above reorder point' },
     ];
   }, [tools]);
 
@@ -296,27 +307,34 @@ export default function ToolsPage() {
       sorter: (a, b) => (a.quantityOnHand ?? 0) - (b.quantityOnHand ?? 0),
       render: (_: unknown, r) => (
         <div>
-          <span style={{ fontWeight: r.lowStock ? 700 : 500, color: r.lowStock ? '#b45309' : '#475569' }}>
+          <span
+            style={{
+              fontWeight: consumableListStatus(r) === 'REORDER_NOW' ? 700 : 500,
+              color: consumableListStatus(r) === 'REORDER_NOW' ? '#b45309' : '#475569',
+            }}
+          >
             {r.quantityOnHand} {r.unit}
           </span>
-          <StockBar onHand={r.quantityOnHand} reorderLevel={r.minimumStock} />
+          <StockBar
+            onHand={r.quantityOnHand}
+            reorderLevel={r.reorderPoint ?? r.reorderLevel ?? r.minimumStock}
+          />
         </div>
       ),
     },
     {
-      title: 'Reorder level',
-      dataIndex: 'minimumStock',
+      title: 'Reorder point',
+      key: 'rop',
       width: 120,
-      render: (v: number | null, r) => (v == null ? '—' : `${v} ${r.unit}`),
+      render: (_: unknown, r) =>
+        r.reorderPoint != null ? `${r.reorderPoint} ${r.unit}` : '—',
     },
     {
       title: 'Status',
       key: 'status',
-      width: 130,
+      width: 140,
       render: (_: unknown, r) => (
-        <StockStatusPill
-          status={consumableStockStatus(r.quantityOnHand, r.minimumStock, r.lowStock)}
-        />
+        <StockStatusPill status={consumableListStatus(r)} label={r.label} />
       ),
     },
     ...(canEdit

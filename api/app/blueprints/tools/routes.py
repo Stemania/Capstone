@@ -37,9 +37,21 @@ def list_tools():
         )
     tools = q.all()
     worker_id = get_current_user_id()
-    return jsonify(
-        [t.to_dict(include_custody=True, worker_id=worker_id) for t in tools]
-    )
+    rows = [t.to_dict(include_custody=True, worker_id=worker_id) for t in tools]
+    # Consumables list: same status / label / ROP as the forecast (batched, not N+1).
+    if category and str(category).upper() == "CONSUMABLE" and tools:
+        from app.services import forecast_service as fs
+
+        snaps = fs.stock_snapshot_for_tools(tools)
+        for row, tool in zip(rows, tools):
+            snap = snaps.get(tool.id) or {}
+            row["status"] = snap.get("status")
+            row["label"] = snap.get("label")
+            row["reorderPoint"] = snap.get("reorderPoint")
+            row["reorderLevel"] = snap.get("reorderLevel")
+            if "lowStock" in snap:
+                row["lowStock"] = snap["lowStock"]
+    return jsonify(rows)
 
 
 @tools_bp.route("", methods=["POST"])

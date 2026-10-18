@@ -1,4 +1,4 @@
-# Brothers Machine Shop — Production Scheduling Platform
+# Brothers Machine Shop Production Scheduling
 
 Web-based production scheduling with efficiency analytics foundation, job order management, worker progress tracking, and QR tool tracking.
 

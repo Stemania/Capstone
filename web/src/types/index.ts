@@ -1078,6 +1078,12 @@ export interface Tool {
   /** The shop's own word for it, e.g. "Liha" for sandpaper. */
   shopTerm?: string | null;
   lowStock: boolean;
+  /** Same as consumable forecast: OK | REORDER_SOON | REORDER_NOW | NO_DATA. */
+  status?: ConsumableStockStatus | string | null;
+  /** Computed / Estimated / No data yet — same as forecast. */
+  label?: ConsumableForecastLabel | string | null;
+  reorderPoint?: number | null;
+  reorderLevel?: number | null;
   createdAt?: string;
   myOutstanding?: number | null;
   holders?: ToolHolder[];
