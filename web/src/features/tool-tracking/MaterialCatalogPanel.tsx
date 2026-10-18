@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button, Col, Form, Input, Modal, Row, Select, Segmented, Switch, Tag, message } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { EditOutlined, PlusOutlined, SearchOutlined, BookOutlined } from '@ant-design/icons';
+import { BookOpen, Clock, Package, Layers } from 'lucide-react';
 import {
   CONSUMABLE_UNITS,
   MATERIAL_UNITS,
@@ -17,6 +18,12 @@ import { invalidateMaterialCatalog } from '../../hooks/useMaterialCatalog';
 import StatusPill from '../../components/StatusPill';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
 import { ADD_CATALOG_ITEM_LABEL } from './inventoryTabs';
+import {
+  CategoryTile,
+  InventorySummaryCards,
+  StockStatusPill,
+  type InventorySummaryCard,
+} from './inventoryLook';
 
 function sectionLabel(text: string) {
   return <div className="app-form-section">{text}</div>;
@@ -36,6 +43,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
+  const [summaryKey, setSummaryKey] = useState<string | null>(null);
   const kindWatch = Form.useWatch('kind', form) as CatalogKind | undefined;
 
   const fetchRows = async () => {
@@ -61,9 +69,26 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
     return rows.filter((r) => {
       if (typeFilter === 'MATERIAL' && r.kind !== 'MATERIAL') return false;
       if (typeFilter === 'CONSUMABLE' && r.kind !== 'CONSUMABLE') return false;
+      if (summaryKey === 'materials' && r.kind !== 'MATERIAL') return false;
+      if (summaryKey === 'consumables' && r.kind !== 'CONSUMABLE') return false;
+      if (summaryKey === 'not_stocked' && !(r.kind === 'CONSUMABLE' && r.notStockedYet)) return false;
+      if (summaryKey === 'not_offered' && r.active) return false;
       return catalogMatches(r, query);
     });
-  }, [rows, query, typeFilter]);
+  }, [rows, query, typeFilter, summaryKey]);
+
+  const catalogCards: InventorySummaryCard[] = useMemo(() => {
+    const materials = rows.filter((r) => r.kind === 'MATERIAL').length;
+    const consumables = rows.filter((r) => r.kind === 'CONSUMABLE').length;
+    const notStocked = rows.filter((r) => r.kind === 'CONSUMABLE' && r.notStockedYet).length;
+    const notOffered = rows.filter((r) => !r.active).length;
+    return [
+      { key: 'materials', label: 'Materials', value: materials, icon: Layers, tone: 'blue' },
+      { key: 'consumables', label: 'Consumables', value: consumables, icon: Package, tone: 'slate' },
+      { key: 'not_stocked', label: 'Not stocked yet', value: notStocked, icon: Clock, tone: 'amber' },
+      { key: 'not_offered', label: 'Not offered', value: notOffered, icon: BookOpen, tone: 'red' },
+    ];
+  }, [rows]);
 
   const openCreate = () => {
     setEditing(null);
@@ -143,16 +168,19 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
       key: 'name',
       sorter: (a, b) => a.name.localeCompare(b.name),
       render: (_: unknown, r) => (
-        <div>
-          <div style={{ fontWeight: 600, color: '#0f172a' }}>{r.name}</div>
-          <div style={{ fontSize: 12, color: '#64748b' }}>
-            {r.shopTerm ? <>Shop term: “{r.shopTerm}”</> : null}
-            {r.kind === 'CONSUMABLE' && r.code ? (
-              <>
-                {r.shopTerm ? ' · ' : null}
-                Code: {r.code}
-              </>
-            ) : null}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <CategoryTile category={r.category || r.name} />
+          <div>
+            <div style={{ fontWeight: 600, color: '#0f172a' }}>{r.name}</div>
+            <div style={{ fontSize: 12, color: '#64748b' }}>
+              {r.shopTerm ? <>Shop term: “{r.shopTerm}”</> : null}
+              {r.kind === 'CONSUMABLE' && r.code ? (
+                <>
+                  {r.shopTerm ? ' · ' : null}
+                  Code: {r.code}
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
       ),
@@ -206,9 +234,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
             </StatusPill>
           )}
           {r.kind === 'CONSUMABLE' && r.notStockedYet ? (
-            <StatusPill color="amber" compact>
-              Not stocked yet
-            </StatusPill>
+            <StockStatusPill status="NOT_STOCKED" />
           ) : null}
         </div>
       ),
@@ -232,6 +258,16 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
 
   return (
     <div className="std-list-page">
+      <InventorySummaryCards
+        cards={catalogCards}
+        activeKey={summaryKey}
+        onSelect={(key) => {
+          setSummaryKey(key);
+          if (key === 'materials') setTypeFilter('MATERIAL');
+          else if (key === 'consumables' || key === 'not_stocked') setTypeFilter('CONSUMABLE');
+          else if (key === null) setTypeFilter('all');
+        }}
+      />
       <div className="std-list-toolbar">
         <div className="std-list-filters">
           <Input

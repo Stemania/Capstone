@@ -102,6 +102,23 @@ def list_purchases(
     else:
         items = [r for r in rows if not status_s or r.status == status_s]
     total_spend = sum((r.line_total for r in rows), Decimal("0"))
+    from datetime import date
+
+    from app.models.job_order import JobOrder, MaterialStatus
+    from app.services.schedule_calendar import shop_now
+
+    today = shop_now().date()
+    month_start = date(today.year, today.month, 1)
+    received_this_month = sum(
+        1
+        for r in rows
+        if r.date_received is not None and r.date_received >= month_start
+    )
+    review_after_cancel = sum(1 for r in rows if r.review_after_job_cancel)
+    jobs_waiting = JobOrder.query.filter(
+        JobOrder.material_status == MaterialStatus.TO_ORDER,
+        JobOrder.cancelled_at.is_(None),
+    ).count()
     return {
         "items": [r.to_dict() for r in items],
         "summary": {
@@ -109,6 +126,9 @@ def list_purchases(
             "overdueCount": sum(1 for r in rows if r.days_overdue() > 0),
             "totalSpend": float(total_spend),
             "awaitingDeliveryCount": buckets["ORDERED"]["count"],
+            "receivedThisMonthCount": received_this_month,
+            "jobsWaitingOnMaterialsCount": jobs_waiting,
+            "reviewAfterJobCancelCount": review_after_cancel,
             "onOrder": _bucket_out(buckets["ORDERED"]),
             "onHand": _bucket_out(buckets["RECEIVED"]),
             "consumed": _bucket_out(buckets["CONSUMED"]),

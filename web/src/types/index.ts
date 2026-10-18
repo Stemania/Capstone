@@ -395,6 +395,9 @@ export interface MaterialPurchaseList {
     awaitingDeliveryCount: number;
     /** Placed lines past their current expected date and not received. */
     overdueCount?: number;
+    receivedThisMonthCount?: number;
+    jobsWaitingOnMaterialsCount?: number;
+    reviewAfterJobCancelCount?: number;
     onOrder: MaterialStockBucket;
     onHand: MaterialStockBucket;
     consumed: MaterialStockBucket;

@@ -23,6 +23,13 @@ import ToolEventsPage from './ToolEventsPage';
 import { useAuth } from '../../hooks/useAuth';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
+import { Package, Wrench } from 'lucide-react';
+import {
+  CategoryTile,
+  InventorySummaryCards,
+  showSeedBadge,
+  type InventorySummaryCard,
+} from './inventoryLook';
 
 function sectionLabel(text: string) {
   return <div className="app-form-section">{text}</div>;
@@ -70,6 +77,7 @@ export default function ToolsAssetsPanel() {
   ]);
   const [usage, setUsage] = useState<InventoryUsageByWorker | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
+  const [summaryKey, setSummaryKey] = useState<string | null>(null);
 
   const fetchTypes = useCallback(async () => {
     setLoading(true);
@@ -108,14 +116,34 @@ export default function ToolsAssetsPanel() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return types;
-    return types.filter(
-      (t) =>
-        t.name.toLowerCase().includes(q) ||
-        t.code.toLowerCase().includes(q) ||
-        (t.description || '').toLowerCase().includes(q)
-    );
-  }, [types, query]);
+    return types.filter((t) => {
+      if (summaryKey === 'borrowed' && !(t.outCount > 0)) return false;
+      if (summaryKey === 'available' && !(t.availableCount > 0)) return false;
+      if (
+        q &&
+        !(
+          t.name.toLowerCase().includes(q) ||
+          t.code.toLowerCase().includes(q) ||
+          (t.description || '').toLowerCase().includes(q)
+        )
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [types, query, summaryKey]);
+
+  const toolCards: InventorySummaryCard[] = useMemo(() => {
+    const totalUnits = types.reduce((n, t) => n + (t.totalUnits || 0), 0);
+    const available = types.reduce((n, t) => n + (t.availableCount || 0), 0);
+    const borrowed = types.reduce((n, t) => n + (t.outCount || 0), 0);
+    return [
+      { key: 'types', label: 'Tool types', value: types.length, icon: Wrench, tone: 'slate' },
+      { key: 'units', label: 'Total units', value: totalUnits, icon: Package, tone: 'blue' },
+      { key: 'available', label: 'Available', value: available, icon: Package, tone: 'green' },
+      { key: 'borrowed', label: 'Borrowed out', value: borrowed, icon: Package, tone: 'amber' },
+    ];
+  }, [types]);
 
   const loadUnits = async (typeId: string) => {
     try {
@@ -210,16 +238,19 @@ export default function ToolsAssetsPanel() {
       title: 'Type',
       key: 'name',
       render: (_: unknown, r) => (
-        <div>
-          <div style={{ fontWeight: 600, color: '#0f172a' }}>
-            {r.name}
-            {r.isSeed ? (
-              <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
-                seed
-              </Typography.Text>
-            ) : null}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <CategoryTile category="tool" />
+          <div>
+            <div style={{ fontWeight: 600, color: '#0f172a' }}>
+              {r.name}
+              {r.isSeed && showSeedBadge() ? (
+                <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
+                  seed
+                </Typography.Text>
+              ) : null}
+            </div>
+            <div style={{ fontSize: 12, color: '#64748b' }}>{r.code}</div>
           </div>
-          <div style={{ fontSize: 12, color: '#64748b' }}>{r.code}</div>
         </div>
       ),
     },
@@ -351,6 +382,7 @@ export default function ToolsAssetsPanel() {
 
   return (
     <div>
+      <InventorySummaryCards cards={toolCards} activeKey={summaryKey} onSelect={setSummaryKey} />
       <div className="std-list-toolbar">
         <div className="std-list-filters">
           <Input
@@ -372,11 +404,11 @@ export default function ToolsAssetsPanel() {
           />
         </div>
         <div className="std-list-actions">
-          {types.some((t) => t.isSeed) && (
+          {showSeedBadge() && types.some((t) => t.isSeed) && (
             <InfoTip
               title="Seed placeholder tools"
               label="About seed tools"
-              content="Types marked seed are temporary until the client provides the real asset list."
+              content="Types marked seed are temporary until the client provides the real asset list. Hidden in production builds."
             />
           )}
           {isPhone ? (

@@ -1,10 +1,11 @@
 import { formatShop, shopToday } from '../../utils/shopTime';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, DatePicker, Input, Modal, Select, Tooltip, message } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { DownloadOutlined, LinkOutlined } from '@ant-design/icons';
 import { type Dayjs } from 'dayjs';
 import { Link, useNavigate } from 'react-router-dom';
+import { Flag, Package, ShoppingCart, Truck } from 'lucide-react';
 import { inventoryApi } from '../../api/tools.api';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { suppliersApi } from '../../api/suppliers.api';
@@ -22,6 +23,12 @@ import type {
 import { exportCsv } from '../../utils/csvExport';
 import { useAuth } from '../../hooks/useAuth';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
+import {
+  CategoryTile,
+  InventorySummaryCards,
+  type InventorySummaryCard,
+} from './inventoryLook';
+import { formatPoMaterialLabel } from '../../components/MaterialInputs';
 
 function money(v: number | null | undefined) {
   if (v == null) return '—';
@@ -67,6 +74,7 @@ export default function RawMaterialsPanel() {
   const [supplierId, setSupplierId] = useState<string | undefined>();
   const [material, setMaterial] = useState('');
   const [status, setStatus] = useState<MaterialPurchaseStatus | 'OVERDUE' | undefined>();
+  const [summaryKey, setSummaryKey] = useState<string | null>(null);
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
@@ -132,24 +140,62 @@ export default function RawMaterialsPanel() {
     });
   };
 
+  const rawCards: InventorySummaryCard[] = useMemo(
+    () => [
+      {
+        key: 'awaiting',
+        label: 'Awaiting delivery',
+        value: summary.awaitingDeliveryCount || 0,
+        icon: Truck,
+        tone: 'amber',
+      },
+      {
+        key: 'received_month',
+        label: 'Received this month',
+        value: summary.receivedThisMonthCount || 0,
+        icon: Package,
+        tone: 'green',
+      },
+      {
+        key: 'jobs_waiting',
+        label: 'Jobs waiting on materials',
+        value: summary.jobsWaitingOnMaterialsCount || 0,
+        icon: ShoppingCart,
+        tone: 'blue',
+      },
+      {
+        key: 'review',
+        label: 'Flagged for review after cancel',
+        value: summary.reviewAfterJobCancelCount || 0,
+        icon: Flag,
+        tone: 'red',
+      },
+    ],
+    [summary]
+  );
+
+  const visibleRows = useMemo(() => {
+    if (summaryKey === 'awaiting') return rows.filter((r) => !r.dateReceived && r.status !== 'CANCELLED');
+    if (summaryKey === 'review') return rows.filter((r) => r.reviewAfterJobCancel);
+    return rows;
+  }, [rows, summaryKey]);
+
   const columns: TableColumnsType<MaterialPurchase> = [
     {
       title: 'Material',
       dataIndex: 'materialName',
-      width: 220,
+      width: 260,
       fixed: 'left',
       ellipsis: true,
       sorter: (a, b) => a.materialName.localeCompare(b.materialName),
-      render: (n: string) => (
-        <span style={{ fontWeight: 600, color: '#0f172a' }}>{n}</span>
+      render: (_: string, r) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <CategoryTile category={r.materialName} />
+          <span style={{ fontWeight: 600, color: '#0f172a' }}>
+            {formatPoMaterialLabel(r.materialName, r.gradeOrSpec, r.sizeSpec)}
+          </span>
+        </div>
       ),
-    },
-    {
-      title: 'Grade / spec',
-      dataIndex: 'gradeOrSpec',
-      width: 130,
-      ellipsis: true,
-      render: (v: string | null) => v || '—',
     },
     {
       title: 'Qty',
@@ -273,6 +319,15 @@ export default function RawMaterialsPanel() {
 
   return (
     <div>
+      <InventorySummaryCards
+        cards={rawCards}
+        activeKey={summaryKey}
+        onSelect={(key) => {
+          setSummaryKey(key);
+          if (key === 'awaiting') setStatus('ORDERED');
+          else if (key === null) setStatus(undefined);
+        }}
+      />
       <Alert
         type="info"
         showIcon
@@ -374,7 +429,7 @@ export default function RawMaterialsPanel() {
         className="std-list-table raw-materials-table"
         rowKey="id"
         loading={loading}
-        dataSource={rows}
+        dataSource={visibleRows}
         columns={columns}
         pagination={{ pageSize: 25, showSizeChanger: true }}
         scroll={{ x: 1510 }}

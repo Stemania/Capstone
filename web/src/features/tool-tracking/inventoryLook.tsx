@@ -1,0 +1,290 @@
+import type { LucideIcon } from 'lucide-react';
+import {
+  AlertOctagon,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Droplets,
+  Flame,
+  HardHat,
+  Package,
+  Scissors,
+  Sparkles,
+} from 'lucide-react';
+import type { ReactNode } from 'react';
+
+export type InventoryCardTone = 'slate' | 'green' | 'amber' | 'red' | 'blue';
+
+export interface InventorySummaryCard {
+  key: string;
+  label: string;
+  value: number;
+  icon: LucideIcon;
+  tone?: InventoryCardTone;
+  caption?: string;
+}
+
+const TONE: Record<InventoryCardTone, { bg: string; fg: string; tile: string }> = {
+  slate: { bg: '#f8fafc', fg: '#0f172a', tile: '#e2e8f0' },
+  green: { bg: '#f0fdf4', fg: '#166534', tile: '#bbf7d0' },
+  amber: { bg: '#fffbeb', fg: '#b45309', tile: '#fde68a' },
+  red: { bg: '#fef2f2', fg: '#b91c1c', tile: '#fecaca' },
+  blue: { bg: '#eff6ff', fg: '#1d4ed8', tile: '#bfdbfe' },
+};
+
+/** Category → small rounded icon tile (materials + consumable families). */
+export function categoryIcon(category: string | null | undefined): {
+  Icon: LucideIcon;
+  tile: string;
+  fg: string;
+} {
+  const c = (category || '').toLowerCase();
+  if (c.includes('steel') || c.includes('iron') || c.includes('cast')) {
+    return { Icon: Flame, tile: '#e2e8f0', fg: '#334155' };
+  }
+  if (c.includes('aluminium') || c.includes('aluminum')) {
+    return { Icon: Sparkles, tile: '#e0f2fe', fg: '#0369a1' };
+  }
+  if (c.includes('non-ferrous') || c.includes('brass') || c.includes('bronze') || c.includes('copper')) {
+    return { Icon: Sparkles, tile: '#fef3c7', fg: '#a16207' };
+  }
+  if (c.includes('plastic')) {
+    return { Icon: Package, tile: '#f3e8ff', fg: '#7e22ce' };
+  }
+  if (c.includes('abras') || c.includes('sand') || c.includes('disc') || c.includes('flap')) {
+    return { Icon: Scissors, tile: '#ffe4e6', fg: '#be123c' };
+  }
+  if (c.includes('weld')) {
+    return { Icon: Flame, tile: '#ffedd5', fg: '#c2410c' };
+  }
+  if (c.includes('cut') || c.includes('drill') || c.includes('mill') || c.includes('tap') || c.includes('insert')) {
+    return { Icon: Scissors, tile: '#e0e7ff', fg: '#4338ca' };
+  }
+  if (c.includes('fluid') || c.includes('oil') || c.includes('grease') || c.includes('coolant')) {
+    return { Icon: Droplets, tile: '#cffafe', fg: '#0e7490' };
+  }
+  if (c.includes('ppe') || c.includes('glove') || c.includes('safety')) {
+    return { Icon: HardHat, tile: '#dcfce7', fg: '#15803d' };
+  }
+  return { Icon: Package, tile: '#f1f5f9', fg: '#475569' };
+}
+
+export function CategoryTile({
+  category,
+  size = 28,
+}: {
+  category?: string | null;
+  size?: number;
+}) {
+  const { Icon, tile, fg } = categoryIcon(category);
+  return (
+    <span
+      aria-hidden
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: size,
+        height: size,
+        borderRadius: 8,
+        background: tile,
+        color: fg,
+        flexShrink: 0,
+      }}
+    >
+      <Icon size={Math.round(size * 0.55)} strokeWidth={2} aria-hidden />
+    </span>
+  );
+}
+
+export function InventorySummaryCards({
+  cards,
+  activeKey,
+  onSelect,
+}: {
+  cards: InventorySummaryCard[];
+  activeKey?: string | null;
+  onSelect: (key: string | null) => void;
+}) {
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+        gap: 10,
+        marginBottom: 14,
+      }}
+      className="inventory-summary-cards"
+    >
+      <style>{`
+        @media (max-width: 900px) {
+          .inventory-summary-cards { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+        }
+        @media (max-width: 480px) {
+          .inventory-summary-cards { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
+      {cards.map((card) => {
+        const tone = TONE[card.tone || 'slate'];
+        const pressed = activeKey === card.key;
+        const Icon = card.icon;
+        return (
+          <button
+            key={card.key}
+            type="button"
+            aria-pressed={pressed}
+            onClick={() => onSelect(pressed ? null : card.key)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              textAlign: 'left',
+              padding: '12px 14px',
+              borderRadius: 12,
+              border: pressed ? `2px solid ${tone.fg}` : '1px solid #e2e8f0',
+              background: tone.bg,
+              color: tone.fg,
+              cursor: 'pointer',
+              minHeight: 72,
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                background: tone.tile,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <Icon size={20} strokeWidth={2} aria-hidden />
+            </span>
+            <span style={{ minWidth: 0 }}>
+              <span style={{ display: 'block', fontSize: 22, fontWeight: 800, lineHeight: 1.1 }}>
+                {card.value}
+              </span>
+              <span style={{ display: 'block', fontSize: 12, fontWeight: 600, opacity: 0.9 }}>
+                {card.label}
+              </span>
+              {card.caption ? (
+                <span style={{ display: 'block', fontSize: 11, opacity: 0.7, marginTop: 2 }}>
+                  {card.caption}
+                </span>
+              ) : null}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function StockBar({
+  onHand,
+  reorderLevel,
+}: {
+  onHand: number;
+  reorderLevel: number | null | undefined;
+}) {
+  if (reorderLevel == null || reorderLevel <= 0) return null;
+  const pct = Math.min(100, Math.max(0, (onHand / Math.max(reorderLevel * 2, 1)) * 100));
+  const low = onHand <= reorderLevel;
+  return (
+    <div
+      aria-hidden
+      style={{
+        marginTop: 4,
+        height: 4,
+        borderRadius: 999,
+        background: '#e2e8f0',
+        overflow: 'hidden',
+        maxWidth: 96,
+      }}
+    >
+      <div
+        style={{
+          width: `${pct}%`,
+          height: '100%',
+          background: low ? '#dc2626' : '#16a34a',
+        }}
+      />
+    </div>
+  );
+}
+
+export function StockStatusPill({
+  status,
+}: {
+  status: 'OK' | 'REORDER_SOON' | 'REORDER_NOW' | 'NOT_STOCKED';
+}): ReactNode {
+  if (status === 'REORDER_NOW') {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#b91c1c', fontWeight: 600, fontSize: 12 }}>
+        <AlertOctagon size={14} aria-hidden /> Reorder now
+      </span>
+    );
+  }
+  if (status === 'REORDER_SOON') {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#b45309', fontWeight: 600, fontSize: 12 }}>
+        <AlertTriangle size={14} aria-hidden /> Reorder soon
+      </span>
+    );
+  }
+  if (status === 'NOT_STOCKED') {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#64748b', fontWeight: 600, fontSize: 12 }}>
+        <Clock size={14} aria-hidden /> Not stocked yet
+      </span>
+    );
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#15803d', fontWeight: 600, fontSize: 12 }}>
+      <CheckCircle2 size={14} aria-hidden /> OK
+    </span>
+  );
+}
+
+/** Heuristic when list rows only expose lowStock + minimumStock. */
+export function consumableStockStatus(
+  onHand: number,
+  minimumStock: number | null | undefined,
+  lowStock: boolean
+): 'OK' | 'REORDER_SOON' | 'REORDER_NOW' {
+  if (lowStock || (minimumStock != null && onHand <= minimumStock)) return 'REORDER_NOW';
+  if (minimumStock != null && minimumStock > 0 && onHand <= minimumStock * 1.5) return 'REORDER_SOON';
+  return 'OK';
+}
+
+/** Seed badge is a temporary placeholder until the real asset list arrives. */
+export function showSeedBadge(): boolean {
+  return !import.meta.env.PROD;
+}
+
+export function InventoryEmptyState({
+  icon: Icon,
+  title,
+  action,
+}: {
+  icon: LucideIcon;
+  title: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        padding: '36px 16px',
+        textAlign: 'center',
+        color: '#64748b',
+      }}
+    >
+      <Icon size={36} strokeWidth={1.5} aria-hidden style={{ marginBottom: 10, opacity: 0.7 }} />
+      <div style={{ fontSize: 14, marginBottom: action ? 12 : 0 }}>{title}</div>
+      {action}
+    </div>
+  );
+}

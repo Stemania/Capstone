@@ -11,9 +11,10 @@ import {
   EditOutlined,
   AuditOutlined,
 } from '@ant-design/icons';
+import { BookOpen, Layers, Package, PackageOpen, Wrench } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { type Dayjs } from 'dayjs';
 import { toolsApi } from '../../api/tools.api';
-import StatusPill from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
 import type { Tool } from '../../types';
 import { getErrorMessage } from '../../api/client';
@@ -27,6 +28,15 @@ import RawMaterialsPanel from './RawMaterialsPanel';
 import MaterialCatalogPanel from './MaterialCatalogPanel';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
 import { INVENTORY_TAB_OPTIONS } from './inventoryTabs';
+import {
+  CategoryTile,
+  InventoryEmptyState,
+  InventorySummaryCards,
+  StockBar,
+  StockStatusPill,
+  consumableStockStatus,
+  type InventorySummaryCard,
+} from './inventoryLook';
 
 type PageTab = 'tools' | 'consumables' | 'raw-materials' | 'catalog';
 type StockFilter = 'low' | 'ok';
@@ -49,6 +59,7 @@ export default function ToolsPage() {
   const [countsOpen, setCountsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [stockFilter, setStockFilter] = useState<StockFilter[]>([]);
+  const [summaryKey, setSummaryKey] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [editForm] = Form.useForm();
@@ -98,6 +109,11 @@ export default function ToolsPage() {
       ) {
         return false;
       }
+      const status = consumableStockStatus(t.quantityOnHand, t.minimumStock, t.lowStock);
+      if (summaryKey === 'reorder_now' && status !== 'REORDER_NOW') return false;
+      if (summaryKey === 'reorder_soon' && status !== 'REORDER_SOON') return false;
+      if (summaryKey === 'ok' && status !== 'OK') return false;
+      if (summaryKey === 'in_stock' && !(t.quantityOnHand > 0)) return false;
       if (stockFilter.length) {
         const ok = !t.lowStock;
         const match = stockFilter.some((f) => (f === 'low' ? t.lowStock : ok));
@@ -105,9 +121,66 @@ export default function ToolsPage() {
       }
       return true;
     });
-  }, [tools, query, stockFilter]);
+  }, [tools, query, stockFilter, summaryKey]);
 
   const lowCount = tools.filter((t) => t.lowStock).length;
+  const consumableCards: InventorySummaryCard[] = useMemo(() => {
+    let soon = 0;
+    let now = 0;
+    let ok = 0;
+    let inStock = 0;
+    for (const t of tools) {
+      if (t.quantityOnHand > 0) inStock += 1;
+      const s = consumableStockStatus(t.quantityOnHand, t.minimumStock, t.lowStock);
+      if (s === 'REORDER_NOW') now += 1;
+      else if (s === 'REORDER_SOON') soon += 1;
+      else ok += 1;
+    }
+    return [
+      { key: 'in_stock', label: 'Items in stock', value: inStock, icon: Package, tone: 'slate' },
+      {
+        key: 'reorder_now',
+        label: 'Reorder now',
+        value: now,
+        icon: Package,
+        tone: 'red',
+        caption: 'Based on reorder level',
+      },
+      {
+        key: 'reorder_soon',
+        label: 'Reorder soon',
+        value: soon,
+        icon: Package,
+        tone: 'amber',
+        caption: 'Near reorder level',
+      },
+      { key: 'ok', label: 'OK', value: ok, icon: Package, tone: 'green', caption: 'Above reorder level' },
+    ];
+  }, [tools]);
+
+  const tabOptions = useMemo(
+    () =>
+      INVENTORY_TAB_OPTIONS.map((t) => {
+        const Icon =
+          t.value === 'tools'
+            ? Wrench
+            : t.value === 'consumables'
+              ? Package
+              : t.value === 'raw-materials'
+                ? Layers
+                : BookOpen;
+        return {
+          value: t.value,
+          label: (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon size={14} strokeWidth={2} aria-hidden />
+              {t.label}
+            </span>
+          ),
+        };
+      }),
+    []
+  );
 
   const onEdit = async (values: {
     name: string;
@@ -196,14 +269,17 @@ export default function ToolsPage() {
       key: 'name',
       sorter: (a, b) => a.name.localeCompare(b.name),
       render: (_: unknown, r) => (
-        <div>
-          <div style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>
-            {r.name}
-            {r.shopTerm ? (
-              <span style={{ fontWeight: 500, color: '#64748b' }}> “{r.shopTerm}”</span>
-            ) : null}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <CategoryTile category={r.name} />
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>
+              {r.name}
+              {r.shopTerm ? (
+                <span style={{ fontWeight: 500, color: '#64748b' }}> “{r.shopTerm}”</span>
+              ) : null}
+            </div>
+            <div style={{ fontSize: 12, color: '#64748b' }}>{r.code}</div>
           </div>
-          <div style={{ fontSize: 12, color: '#64748b' }}>{r.code}</div>
         </div>
       ),
     },
@@ -216,12 +292,15 @@ export default function ToolsPage() {
     {
       title: 'In stock',
       key: 'stock',
-      width: 110,
+      width: 120,
       sorter: (a, b) => (a.quantityOnHand ?? 0) - (b.quantityOnHand ?? 0),
       render: (_: unknown, r) => (
-        <span style={{ fontWeight: r.lowStock ? 700 : 500, color: r.lowStock ? '#b45309' : '#475569' }}>
-          {r.quantityOnHand} {r.unit}
-        </span>
+        <div>
+          <span style={{ fontWeight: r.lowStock ? 700 : 500, color: r.lowStock ? '#b45309' : '#475569' }}>
+            {r.quantityOnHand} {r.unit}
+          </span>
+          <StockBar onHand={r.quantityOnHand} reorderLevel={r.minimumStock} />
+        </div>
       ),
     },
     {
@@ -233,13 +312,12 @@ export default function ToolsPage() {
     {
       title: 'Status',
       key: 'status',
-      width: 110,
-      render: (_: unknown, r) =>
-        r.lowStock ? (
-          <StatusPill color="amber" compact>Low stock</StatusPill>
-        ) : (
-          <StatusPill color="green" compact>OK</StatusPill>
-        ),
+      width: 130,
+      render: (_: unknown, r) => (
+        <StockStatusPill
+          status={consumableStockStatus(r.quantityOnHand, r.minimumStock, r.lowStock)}
+        />
+      ),
     },
     ...(canEdit
       ? [
@@ -282,7 +360,7 @@ export default function ToolsPage() {
           style={{ marginBottom: 16 }}
           value={tab}
           onChange={(v) => setTab(v as PageTab)}
-          options={[...INVENTORY_TAB_OPTIONS]}
+          options={tabOptions}
         />
       </div>
 
@@ -295,6 +373,11 @@ export default function ToolsPage() {
       {tab === 'consumables' && (
         <>
           <div className="std-list-page">
+            <InventorySummaryCards
+              cards={consumableCards}
+              activeKey={summaryKey}
+              onSelect={setSummaryKey}
+            />
             <div className="std-list-toolbar">
               <div className="std-list-filters">
                 <Input
@@ -404,7 +487,22 @@ export default function ToolsPage() {
                 dataSource={filtered}
                 loading={loading}
                 rowClassName={(r) => (r.lowStock ? 'inventory-low-stock' : '')}
-                locale={{ emptyText: stockEmpty }}
+                locale={{
+                  emptyText:
+                    tools.length === 0 ? (
+                      <InventoryEmptyState
+                        icon={PackageOpen}
+                        title="Consumables appear here after their first supplier order is received."
+                        action={
+                          <Link to="/suppliers">
+                            <Button type="link">Go to Suppliers and Orders</Button>
+                          </Link>
+                        }
+                      />
+                    ) : (
+                      stockEmpty
+                    ),
+                }}
                 scroll={{ x: 820 }}
                 pagination={{ pageSize: 20, showSizeChanger: true }}
                 rowSelection={
