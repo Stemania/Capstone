@@ -128,13 +128,15 @@ def generate_qr_png(payload: str):
 
 
 def scan_tool(code, worker_id, intent=None, quantity=None):
-    """Borrow/return a specific ToolUnit by asset code QR."""
+    """Borrow/return a specific ToolUnit by asset code QR.
+
+    Prefer ``consumable_scan_service.unified_scan`` for the worker one-button flow.
+    """
     unit = ToolUnit.query.filter_by(asset_code=code.strip()).first()
     if not unit:
-        # Consumable codes are not scannable
         if Tool.query.filter_by(code=code.strip()).first():
             raise AppError(
-                "Consumables are not tracked per use — Office counts them on stocktake",
+                "Use the inventory scan endpoint for consumables",
                 "VALIDATION_ERROR",
                 400,
             )
@@ -236,7 +238,45 @@ def adjust_stock(tool_id, worker_id, quantity_delta, reason):
         worker_id=worker_id,
         type=ToolEventType.ADJUST,
         quantity=abs(delta),
+        stock_delta=delta,
         reason=reason,
+    )
+    db.session.add(event)
+    db.session.commit()
+    return event
+
+
+def correct_stock(tool_id, worker_id, actual_count, reason):
+    """Office stock correction: set on-hand to an actual count with a required reason."""
+    tool = Tool.query.get(tool_id)
+    if not tool:
+        raise AppError("Item not found", "NOT_FOUND", 404)
+    if tool.category != ToolCategory.CONSUMABLE:
+        raise AppError("Only consumables use stock correction", "VALIDATION_ERROR", 400)
+    reason_s = (reason or "").strip()
+    if not reason_s:
+        raise AppError("reason is required for stock correction", "VALIDATION_ERROR", 400)
+    try:
+        counted = Decimal(str(actual_count))
+    except Exception as exc:
+        raise AppError("actualCount must be a number", "VALIDATION_ERROR", 400) from exc
+    if counted < 0:
+        raise AppError("actualCount cannot be negative", "VALIDATION_ERROR", 400)
+
+    before = _dec(tool.quantity_on_hand)
+    delta = counted - before
+    if delta == 0:
+        raise AppError("Count matches on hand; nothing to correct", "VALIDATION_ERROR", 400)
+
+    tool.quantity_on_hand = counted
+    event = ToolEvent(
+        tool_id=tool.id,
+        tool_unit_id=None,
+        worker_id=worker_id,
+        type=ToolEventType.CORRECTION,
+        quantity=abs(delta),
+        stock_delta=delta,
+        reason=reason_s,
     )
     db.session.add(event)
     db.session.commit()
@@ -276,6 +316,7 @@ def receive_stock(tool_id, worker_id, quantity, supplier, received_on=None, note
         worker_id=worker_id,
         type=ToolEventType.RECEIVE,
         quantity=qty,
+        stock_delta=qty,
         reason=note_s,
         supplier=supplier_s,
         received_on=on_date,
@@ -283,6 +324,27 @@ def receive_stock(tool_id, worker_id, quantity, supplier, received_on=None, note
     db.session.add(event)
     db.session.commit()
     return event
+
+
+MOVEMENT_TYPES = (
+    ToolEventType.RECEIVE,
+    ToolEventType.SCAN,
+    ToolEventType.UNDO,
+    ToolEventType.CORRECTION,
+    ToolEventType.ADJUST,
+)
+
+
+def list_stock_movements(tool_id=None, page=1, per_page=50):
+    """Consumable movement log for Office Staff."""
+    q = ToolEvent.query.filter(
+        ToolEvent.tool_id.isnot(None),
+        ToolEvent.type.in_(MOVEMENT_TYPES),
+    )
+    if tool_id:
+        q = q.filter_by(tool_id=tool_id)
+    q = q.order_by(ToolEvent.created_at.desc())
+    return q.paginate(page=page, per_page=min(per_page, 100), error_out=False)
 
 
 def receive_tool_units(type_id, worker_id, quantity, supplier, received_on=None, note=None):

@@ -57,61 +57,55 @@ def _working_days(d_from: date, d_to: date) -> int:
 
 
 def purchase_suggestions(lookback_days=30):
-    """Low-stock consumables only (tools are individual units, not qty reorder)."""
-    from app.services import stocktake_service as st_svc
+    """Consumables at or below computed reorder level (scan-based ROP)."""
+    from app.services import forecast_service as fc
 
     today = shop_now().date()
     period_from = today - timedelta(days=max(1, int(lookback_days)) - 1)
     period_to = today
     wd = _working_days(period_from, period_to)
+    forecast = fc.consumable_run_out(today)
 
     items = []
-    for tool in (
-        Tool.query.filter_by(category=ToolCategory.CONSUMABLE).order_by(Tool.name).all()
-    ):
-        if tool.minimum_stock is None:
+    for row in forecast["items"]:
+        if row["status"] not in (fc.STOCK_REORDER, fc.STOCK_REORDER_SOON):
             continue
-        on_hand = Decimal(str(tool.quantity_on_hand or 0))
-        minimum = Decimal(str(tool.minimum_stock))
-        if on_hand > minimum:
+        if row.get("suggestedOrderQty", 0) <= 0 and row["status"] != fc.STOCK_REORDER:
             continue
-
-        consumed, pair_wd = st_svc.consumable_consumption_in_period(
-            tool.id, period_from, period_to
-        )
-        rate_days = pair_wd or wd
-        per_day = (consumed / rate_days) if rate_days else None
-        target = minimum * 2
-        suggested = max(minimum - on_hand, target - on_hand, Decimal("0"))
         items.append(
             {
-                "toolId": tool.id,
-                "name": tool.name,
-                "code": tool.code,
-                "category": tool.category.value,
-                "sizeSpec": tool.size_spec,
-                "shopTerm": tool.shop_term,
-                "unit": tool.unit,
-                "quantityOnHand": _num(on_hand),
-                "minimumStock": _num(minimum),
-                "suggestedOrderQuantity": _num(suggested),
-                "recentConsumptionQuantity": _num(consumed),
-                "consumptionPerWorkingDay": _num(per_day, 4),
-                "lookbackWorkingDays": wd,
-                "consumptionSource": "STOCKTAKE",
+                "toolId": row["toolId"],
+                "name": row["name"],
+                "code": row["code"],
+                "category": "CONSUMABLE",
+                "sizeSpec": row.get("sizeSpec"),
+                "shopTerm": None,
+                "unit": row.get("unit"),
+                "quantityOnHand": row.get("quantityOnHand"),
+                "minimumStock": row.get("reorderLevel"),
+                "reorderLevel": row.get("reorderLevel"),
+                "suggestedOrderQuantity": row.get("suggestedOrderQty"),
+                "recentConsumptionQuantity": None,
+                "consumptionPerWorkingDay": row.get("adu"),
+                "lookbackWorkingDays": row.get("scanWorkingDays") or wd,
+                "consumptionSource": "SCAN",
+                "status": row.get("status"),
+                "label": row.get("label"),
+                "abcClass": row.get("abcClass"),
             }
         )
-    items.sort(key=lambda r: (r["quantityOnHand"] or 0) / max(r["minimumStock"] or 1, 1e-9))
+    items.sort(key=lambda r: (0 if r.get("status") == "REORDER_NOW" else 1, r["name"] or ""))
     return {
         "label": "purchaseSuggestions",
         "description": (
-            "Low-stock consumable suggestions from stocktakes. "
-            "Not an automatic purchase order."
+            "Consumables at reorder level (scan-based). Not an automatic purchase order."
         ),
         "period": {"from": period_from.isoformat(), "to": period_to.isoformat()},
         "workingDaysInSample": wd,
         "itemCount": len(items),
         "items": items,
+        "howComputed": forecast.get("description"),
+        "formulas": forecast.get("formulas"),
     }
 
 

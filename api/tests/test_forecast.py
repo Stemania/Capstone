@@ -8,7 +8,6 @@ from types import SimpleNamespace
 import pytest
 
 from app.extensions import bcrypt, db
-from app.models.stocktake import Stocktake, StocktakeLine
 from app.models.tool import Tool, ToolCategory
 from app.models.tool_event import ToolEvent, ToolEventType
 from app.models.user import User, UserRole, UserStatus
@@ -140,112 +139,112 @@ def counter(app):
     return user
 
 
-def _count(user, on, quantities):
-    st = Stocktake(
-        counted_on=on,
-        counted_by_id=user.id,
-        created_at=datetime.combine(on, time(4, 0), tzinfo=timezone.utc),
-    )
-    db.session.add(st)
-    db.session.flush()
-    for tool, (prev, curr) in quantities.items():
-        db.session.add(
-            StocktakeLine(
-                stocktake_id=st.id,
-                tool_id=tool.id,
-                previous_quantity=Decimal(prev),
-                counted_quantity=Decimal(curr),
+def _add_scans(tool, worker, on_dates, qty_each=1):
+    """One SCAN event per shop date (qty_each units), non-undone."""
+    for on in on_dates:
+        for _ in range(qty_each):
+            db.session.add(
+                ToolEvent(
+                    tool_id=tool.id,
+                    worker_id=worker.id,
+                    type=ToolEventType.SCAN,
+                    quantity=Decimal("1"),
+                    stock_delta=Decimal("-1"),
+                    created_at=datetime.combine(on, time(8, 0), tzinfo=timezone.utc),
+                )
             )
-        )
-        tool.quantity_on_hand = Decimal(curr)
     db.session.commit()
 
 
-def test_consumable_run_out_uses_last_three_periods(counter):
-    tracked = Tool(name="FC Insert", code="FC-INS", category=ToolCategory.CONSUMABLE, unit="pcs")
-    single = Tool(name="FC Grease", code="FC-GRS", category=ToolCategory.CONSUMABLE, unit="kg")
-    never = Tool(name="FC Rag", code="FC-RAG", category=ToolCategory.CONSUMABLE, unit="pcs")
-    db.session.add_all([tracked, single, never])
+def test_consumable_run_out_scan_based_adu_and_labels(counter):
+    """≥14 working days of scans → Computed; no history → No data yet."""
+    tracked = Tool(
+        name="FC Insert",
+        code="FC-INS",
+        category=ToolCategory.CONSUMABLE,
+        unit="pcs",
+        quantity_on_hand=Decimal("10"),
+    )
+    never = Tool(
+        name="FC Rag",
+        code="FC-RAG",
+        category=ToolCategory.CONSUMABLE,
+        unit="pcs",
+        quantity_on_hand=Decimal("5"),
+    )
+    db.session.add_all([tracked, never])
     db.session.commit()
 
-    # Monday counts, 6 shop working days apart. Used 60, 12, 18, 6 ->
-    # daily 10, 2, 3, 1; last three average 2.
-    counts = [100, 40, 28, 10, 4]
-    mondays = [date(2031, 3, 3), date(2031, 3, 10), date(2031, 3, 17), date(2031, 3, 24), date(2031, 3, 31)]
-    prev = 0
-    for i, (on, qty) in enumerate(zip(mondays, counts)):
-        lines = {tracked: (prev, qty)}
-        if i == 0:
-            lines[single] = (0, 7)
-        _count(counter, on, lines)
-        prev = qty
+    # 18 weekdays of 2 scans/day starting Mon 2031-03-03 → ADU = 2
+    days = []
+    d = date(2031, 3, 3)
+    while len(days) < 18:
+        if d.weekday() < 6:  # Mon–Sat shop
+            days.append(d)
+        d += __import__("datetime").timedelta(days=1)
+    _add_scans(tracked, counter, days, qty_each=2)
+    tracked.quantity_on_hand = Decimal("10")
+    db.session.commit()
 
-    out = fs.consumable_run_out(today=date(2031, 4, 1))
+    today = days[-1]
+    out = fs.consumable_run_out(today=today)
     rows = {r["code"]: r for r in out["items"]}
 
     ins = rows["FC-INS"]
+    assert ins["label"] == "Computed"
     assert ins["enoughData"] is True
-    assert ins["periodsUsed"] == 3
-    assert ins["dailyUsage"] == pytest.approx(2.0)
-    assert ins["quantityOnHand"] == pytest.approx(4.0)
-    assert ins["lastCountedOn"] == "2031-03-31"
-    # Today Tue 1 Apr: 4 counted - 2/day x 1 shop day = 2 left -> 1 day -> Wed 2 Apr
-    assert ins["shopDaysSinceCount"] == 1
-    assert ins["estimatedOnHand"] == pytest.approx(2.0)
-    assert ins["daysLeft"] == pytest.approx(1.0)
-    assert ins["runOutDate"] == "2031-04-02"
-    assert ins["likelyOut"] is False
+    assert ins["adu"] == pytest.approx(2.0)
+    assert ins["quantityOnHand"] == pytest.approx(10.0)
+    assert ins["daysLeft"] == pytest.approx(5.0)
+    assert out.get("formulas")
+    assert "safety" in out["description"].lower()
 
-    for code in ("FC-GRS", "FC-RAG"):
-        assert rows[code]["enoughData"] is False
-        assert rows[code]["notEnoughDataNote"] == "Not enough data"
-        assert rows[code]["runOutDate"] is None
+    rag = rows["FC-RAG"]
+    assert rag["label"] == "No data yet"
+    assert rag["status"] == "NO_DATA"
+    assert rag["runOutDate"] is None
 
 
-def test_delivery_after_last_count_pushes_run_out_later(counter):
-    tool = Tool(name="FC Disc", code="FC-DSC", category=ToolCategory.CONSUMABLE, unit="pcs")
+def test_safety_stock_scan_and_receive_raises_on_hand(counter):
+    tool = Tool(
+        name="FC Disc",
+        code="FC-DSC",
+        category=ToolCategory.CONSUMABLE,
+        unit="pcs",
+        quantity_on_hand=Decimal("20"),
+    )
     db.session.add(tool)
     db.session.commit()
 
-    # Mondays, 6 shop days apart, 12 used each time -> 2 a day
-    prev = 0
-    for on, qty in zip(
-        [date(2031, 5, 5), date(2031, 5, 12), date(2031, 5, 19), date(2031, 5, 26)],
-        [60, 48, 36, 24],
-    ):
-        _count(counter, on, {tool: (prev, qty)})
-        prev = qty
+    days = []
+    d = date(2031, 5, 5)
+    while len(days) < 15:
+        if d.weekday() < 6:
+            days.append(d)
+        d += __import__("datetime").timedelta(days=1)
+    _add_scans(tool, counter, days, qty_each=2)
+    tool.quantity_on_hand = Decimal("20")
+    db.session.commit()
+    today = days[-1]
 
-    def row(today):
+    def row(on_hand=None):
+        if on_hand is not None:
+            tool.quantity_on_hand = Decimal(str(on_hand))
+            db.session.commit()
         out = fs.consumable_run_out(today=today)
         return next(r for r in out["items"] if r["code"] == "FC-DSC")
 
-    # Wed 28 May: 24 - 2 x 2 shop days = 20 -> 10 shop days -> Mon 9 Jun
-    before = row(date(2031, 5, 28))
-    assert before["estimatedOnHand"] == pytest.approx(20.0)
-    assert before["runOutDate"] == "2031-06-09"
+    before = row(on_hand=20)
+    assert before["adu"] == pytest.approx(2.0)
+    assert before["label"] == "Computed"
+    run_out_before = before["runOutDate"]
+    assert run_out_before
 
-    db.session.add(
-        ToolEvent(
-            tool_id=tool.id,
-            worker_id=counter.id,
-            type=ToolEventType.RECEIVE,
-            quantity=Decimal("10"),
-            received_on=date(2031, 5, 27),
-        )
-    )
-    db.session.commit()
-
-    # +10 delivered -> 30 -> 15 shop days -> Sat 14 Jun
-    after = row(date(2031, 5, 28))
-    assert after["deliveriesSinceCount"] == pytest.approx(10.0)
-    assert after["estimatedOnHand"] == pytest.approx(30.0)
+    after = row(on_hand=30)
+    assert after["quantityOnHand"] == pytest.approx(30.0)
     assert after["daysLeft"] == pytest.approx(15.0)
-    assert after["runOutDate"] == "2031-06-14"
-    assert after["runOutDate"] > before["runOutDate"]
+    assert after["runOutDate"] > run_out_before
 
-    # Weeks later the estimate is below zero -> likely out, no date
-    late = row(date(2031, 7, 15))
-    assert late["likelyOut"] is True
-    assert late["estimatedOnHand"] == 0
-    assert late["runOutDate"] is None
+    # max(0, 4×10 − 2×5) = 30
+    assert fs.safety_stock_scan(adu=2, max_du=4, avg_lead_wd=5, max_lead_wd=10) == pytest.approx(30.0)
+    assert fs.safety_stock_scan(adu=2, max_du=2, avg_lead_wd=5, max_lead_wd=5) == pytest.approx(0.0)

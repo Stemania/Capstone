@@ -102,8 +102,8 @@ def _inventory_catalog():
         ("Tungsten carbide tip", "INV-TONGA-STD", C, None, "pcs", 40, 12),
         ("Center drill", "INV-CENTER-A", C, "A", "pcs", 20, 6),
         ("Center drill", "INV-CENTER-B", C, "B", "pcs", 16, 5),
-        ("Cutting oil", "INV-OIL-CUT", C, None, "litre", 20, 5),
-        ("Lubricant", "INV-LUBE-GEN", C, None, "litre", 12, 4),
+        ("Cutting oil", "INV-OIL-CUT", C, None, "bottle", 20, 5),
+        ("Lubricant", "INV-LUBE-GEN", C, None, "can", 12, 4),
         ("Rugs", "INV-RUG-SHOP", C, None, "pcs", 80, 20),
         ("Grinding stone", "INV-GRIND-ST", C, None, "pcs", 10, 3),
         ("Flap disc", "INV-FLAP-115", C, "115mm", "pcs", 36, 12),
@@ -147,10 +147,22 @@ def _ensure_inventory_catalog():
     }
     has_legacy = Tool.query.filter(Tool.code.in_(legacy_codes)).first() is not None
     empty = Tool.query.count() == 0
+    # Countable-container remaps (old unit kept as legacy_unit for Office review).
+    unit_remap = {
+        "INV-OIL-CUT": ("bottle", "litre"),
+        "INV-LUBE-GEN": ("can", "litre"),
+        "INV-SANDPAPER": ("pack", "sheet"),
+    }
     if not has_legacy and not empty:
         # Reclassify any leftover returnables to consumable (idempotent)
         for t in Tool.query.filter_by(category=ToolCategory.RETURNABLE_TOOL).all():
             t.category = ToolCategory.CONSUMABLE
+        for code, (new_unit, old_unit) in unit_remap.items():
+            t = Tool.query.filter_by(code=code).first()
+            if t and t.unit == old_unit:
+                t.legacy_unit = old_unit
+                t.unit = new_unit
+                t.unit_needs_review = True
         return Tool.query.filter_by(category=ToolCategory.CONSUMABLE).all()
 
     ToolEvent.query.filter(ToolEvent.tool_id.isnot(None)).delete(synchronize_session=False)

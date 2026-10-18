@@ -11,7 +11,7 @@ from app.utils.errors import AppError
 tools_bp = Blueprint("tools", __name__)
 
 
-# --- Consumables (stocktake catalog) ---
+# --- Consumables (scan / correction catalog) ---
 
 
 @tools_bp.route("", methods=["GET"])
@@ -70,18 +70,32 @@ def my_tool_history():
 @jwt_required()
 @require_roles(UserRole.PRODUCTION_WORKER)
 def scan_tool():
+    """One button: tool unit → borrow/return; consumable code → −1 unit."""
+    from app.services import consumable_scan_service as scan_svc
+
     data = request.get_json() or {}
     code = data.get("code")
     if not code:
-        raise AppError("Asset code is required", "VALIDATION_ERROR", 400)
+        raise AppError("Scan code is required", "VALIDATION_ERROR", 400)
 
-    event = te_service.scan_tool(
+    result = scan_svc.unified_scan(
         code,
         get_current_user_id(),
-        data.get("intent"),
-        data.get("quantity"),
+        intent=data.get("intent"),
+        client_action_id=data.get("clientActionId") or data.get("client_action_id"),
+        confirm_repeat=bool(data.get("confirmRepeat") or data.get("confirm_repeat")),
     )
-    return jsonify(event.to_dict()), 201
+    status = 200 if result.get("needsConfirm") else 201
+    return jsonify(result), status
+
+
+@tools_bp.route("/scans/<event_id>/undo", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.PRODUCTION_WORKER)
+def undo_scan(event_id):
+    from app.services import consumable_scan_service as scan_svc
+
+    return jsonify(scan_svc.undo_consumable_scan(event_id, get_current_user_id()))
 
 
 @tools_bp.route("/events", methods=["GET"])
@@ -93,6 +107,24 @@ def list_events():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("perPage", 50, type=int)
     pagination = te_service.list_tool_events(tool_id, page, per_page, category=category)
+    return jsonify(
+        {
+            "items": [e.to_dict() for e in pagination.items],
+            "total": pagination.total,
+            "page": pagination.page,
+            "pages": pagination.pages,
+        }
+    )
+
+
+@tools_bp.route("/movements", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+def list_movements():
+    tool_id = request.args.get("toolId")
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("perPage", 50, type=int)
+    pagination = te_service.list_stock_movements(tool_id, page, per_page)
     return jsonify(
         {
             "items": [e.to_dict() for e in pagination.items],
@@ -232,11 +264,26 @@ def get_tool_qr(tool_id):
 @jwt_required()
 @require_roles(UserRole.OFFICE_STAFF)
 def adjust_stock(tool_id):
+    """Legacy signed delta; prefer /correct for actual-count corrections."""
     data = request.get_json() or {}
     event = te_service.adjust_stock(
         tool_id,
         get_current_user_id(),
         data.get("quantity"),
+        data.get("reason"),
+    )
+    return jsonify(event.to_dict()), 201
+
+
+@tools_bp.route("/<tool_id>/correct", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.OFFICE_STAFF)
+def correct_stock(tool_id):
+    data = request.get_json() or {}
+    event = te_service.correct_stock(
+        tool_id,
+        get_current_user_id(),
+        data.get("actualCount") if "actualCount" in data else data.get("actual_count"),
         data.get("reason"),
     )
     return jsonify(event.to_dict()), 201

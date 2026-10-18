@@ -611,13 +611,18 @@ def _receive_consumable(p: MaterialPurchase, when: date, actor_id: str):
     from app.models.tool_event import ToolEvent, ToolEventType
 
     tool = p.tool
-    tool.quantity_on_hand = Decimal(str(tool.quantity_on_hand or 0)) + Decimal(str(p.quantity))
+    qty = Decimal(str(p.quantity))
+    tool.quantity_on_hand = Decimal(str(tool.quantity_on_hand or 0)) + qty
+    # Prefer latest received PO unit price for ABC; tools.unit_cost is fallback only.
+    if p.unit_cost is not None:
+        tool.unit_cost = p.unit_cost
     db.session.add(
         ToolEvent(
             tool_id=tool.id,
             worker_id=actor_id,
             type=ToolEventType.RECEIVE,
-            quantity=p.quantity,
+            quantity=qty,
+            stock_delta=qty,
             reason=p.supplier_order.po_number if p.supplier_order else None,
             supplier=p.supplier.name if p.supplier else None,
             received_on=when,

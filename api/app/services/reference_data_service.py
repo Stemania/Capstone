@@ -89,7 +89,7 @@ CONSUMABLES = [
         "shop_term": "Tungatip",
         "aliases": ["Tonga tip", "Tungatip"],
     },
-    {"name": "Sandpaper", "code": "INV-SANDPAPER", "unit": "sheet", "shop_term": "Liha", "aliases": ["Liha"]},
+    {"name": "Sandpaper", "code": "INV-SANDPAPER", "unit": "pack", "shop_term": "Liha", "aliases": ["Liha"]},
     {"name": "Grinding stone", "code": "INV-GRIND-STONE", "unit": "pcs", "shop_term": None, "aliases": []},
 ]
 
