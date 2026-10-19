@@ -1,7 +1,6 @@
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required
 
-from app.extensions import limiter
 from app.middleware.rbac import get_current_user_id
 from app.models.machine import MachineUnit
 from app.models.user import User, UserRole
@@ -10,6 +9,7 @@ from app.services.auth_service import (
     change_own_password,
     get_user_by_id,
 )
+from app.services.db_rate_limit import db_limit
 from app.services.device_pin_service import (
     device_pin_status,
     list_user_devices,
@@ -75,8 +75,9 @@ def _limit_reset_confirm():
 
 
 @auth_bp.route("/login", methods=["POST"])
-@limiter.limit(
+@db_limit(
     _limit_login,
+    prefix="auth.login",
     error_message="Too many login attempts. Please wait a minute and try again.",
 )
 def login():
@@ -128,8 +129,9 @@ def me():
 
 
 @auth_bp.route("/invitation/validate", methods=["POST"])
-@limiter.limit(
+@db_limit(
     _limit_invite_validate,
+    prefix="auth.invite_validate",
     error_message="Too many invitation checks. Please wait a minute and try again.",
 )
 def invitation_validate():
@@ -141,8 +143,9 @@ def invitation_validate():
 
 
 @auth_bp.route("/invitation/accept", methods=["POST"])
-@limiter.limit(
+@db_limit(
     _limit_invite_accept,
+    prefix="auth.invite_accept",
     error_message="Too many invitation attempts. Please wait a minute and try again.",
 )
 def invitation_accept():
@@ -172,8 +175,9 @@ def change_password():
 
 
 @auth_bp.route("/password-reset/request", methods=["POST"])
-@limiter.limit(
+@db_limit(
     _limit_reset_request,
+    prefix="auth.reset_request",
     error_message="Too many reset requests. Please wait a minute and try again.",
 )
 def password_reset_request():
@@ -196,8 +200,9 @@ def password_reset_request():
 
 
 @auth_bp.route("/password-reset/validate", methods=["POST"])
-@limiter.limit(
+@db_limit(
     _limit_reset_validate,
+    prefix="auth.reset_validate",
     error_message="Too many reset checks. Please wait a minute and try again.",
 )
 def password_reset_validate():
@@ -209,8 +214,9 @@ def password_reset_validate():
 
 
 @auth_bp.route("/password-reset/confirm", methods=["POST"])
-@limiter.limit(
+@db_limit(
     _limit_reset_confirm,
+    prefix="auth.reset_confirm",
     error_message="Too many reset attempts. Please wait a minute and try again.",
 )
 def password_reset_confirm():
@@ -226,8 +232,9 @@ def password_reset_confirm():
 
 
 @auth_bp.route("/pin/unlock", methods=["POST"])
-@limiter.limit(
+@db_limit(
     _limit_pin_unlock,
+    prefix="auth.pin_unlock",
     error_message="Too many PIN attempts. Please wait a minute and try again.",
 )
 def pin_unlock():
@@ -254,7 +261,7 @@ def pin_set():
 @jwt_required()
 def pin_remove():
     user = get_user_by_id(get_current_user_id())
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     remove_device_pin(user, data.get("deviceId") or "")
     return jsonify({"message": "PIN removed"})
 
@@ -262,9 +269,8 @@ def pin_remove():
 @auth_bp.route("/pin/status", methods=["GET"])
 @jwt_required()
 def pin_status():
-    user = get_user_by_id(get_current_user_id())
     device_id = request.args.get("deviceId") or ""
-    return jsonify(device_pin_status(user.id, device_id))
+    return jsonify(device_pin_status(get_current_user_id(), device_id))
 
 
 @auth_bp.route("/devices", methods=["GET"])
@@ -283,7 +289,11 @@ def devices_sign_out_others():
         data = request.get_json(silent=True) or {}
         device_id = data.get("deviceId")
         row = next(
-            (d for d in list_user_devices(user.id) if d.device_id == device_id and not d.revoked_at),
+            (
+                d
+                for d in list_user_devices(user.id)
+                if d.device_id == device_id and not d.revoked_at
+            ),
             None,
         )
         current = row.id if row else None

@@ -4,8 +4,8 @@ services:
     runtime: python
     rootDir: api
     buildCommand: pip install -r requirements.txt && flask db upgrade
-    # One worker so the in-memory sign-in rate limit is counted in one place;
-    # threads keep requests concurrent.
+    # Workers=1 today. Auth login/PIN/reset limits are DB-backed (shared across
+    # workers), so this can be raised later without weakening those limits.
     startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120
     envVars:
       # The exact version the test suite passes with (api/.venv).

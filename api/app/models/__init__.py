@@ -1,5 +1,6 @@
 from app.models.attendance import AttendanceRecord
 from app.models.audit_log import AuditLog
+from app.models.rate_limit import RateLimitCounter
 from app.models.client import Client
 from app.models.job_order import (
     JobOrder,
@@ -63,6 +64,7 @@ __all__ = [
     "PasswordResetToken",
     "UserDevice",
     "InvitationChannel",
+    "RateLimitCounter",
     "WorkerProfile",
     "WorkerSkill",
     "WorkerSchedule",
