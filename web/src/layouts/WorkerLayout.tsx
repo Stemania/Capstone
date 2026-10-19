@@ -27,6 +27,7 @@ import { offlineCache } from '../offline/offlineCache';
 import { PersonAvatar } from '../components/PersonAvatar';
 import { MyOperationsProvider } from '../features/my-assignments/useMyOperations';
 import WorkerBell from '../features/worker/WorkerBell';
+import './topBar.css';
 import '../features/worker/worker.css';
 
 export interface WorkerPalette {

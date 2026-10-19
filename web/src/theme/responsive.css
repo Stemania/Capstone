@@ -1,6 +1,6 @@
 /*
  * Tablet (≤1024) layout + phone (≤768) Admin/Office tap targets.
- * officeTouchTheme (≤768) sets Ant controlHeight; this file covers the rest.
+ * officeCompactTheme (<1024, nested in AppLayout) sets Ant control sizes; this file covers the rest.
  * Production Worker sizes come from workerTheme + worker.css — do not shrink them here.
  */
 
@@ -102,29 +102,30 @@
   }
 }
 
-/* ======================= Phone Admin/Office tap targets (40px) ======================= */
+/* ======================= Phone Admin/Office tap targets (36px controls, 32px chips) ======================= */
 @media (max-width: 768px) {
   .app-shell .ant-segmented .ant-segmented-item-label,
   .app-shell .ant-segmented.ant-segmented-sm .ant-segmented-item-label,
   .app-shell .ant-segmented.ant-segmented-lg .ant-segmented-item-label {
-    min-height: 40px;
-    line-height: 40px;
-    padding: 0 14px;
+    min-height: 32px;
+    line-height: 32px;
+    padding: 0 12px;
+    font-size: var(--fs-sm);
   }
 
   .app-shell .ant-tabs .ant-tabs-tab {
-    min-height: 40px;
+    min-height: 32px;
   }
 
   .app-shell .ant-checkbox-wrapper,
   .app-shell .ant-radio-wrapper {
-    min-height: 40px;
+    min-height: 36px;
     align-items: center;
   }
 
   .app-shell .ant-radio-button-wrapper {
-    height: 40px;
-    line-height: 38px;
+    height: 36px;
+    line-height: 34px;
   }
 
   .app-shell .ant-switch,
@@ -149,15 +150,15 @@
   }
 
   .app-shell .ant-modal-close {
-    width: 40px !important;
-    height: 40px !important;
-    top: 8px !important;
-    inset-inline-end: 8px !important;
+    width: 36px !important;
+    height: 36px !important;
+    top: 10px !important;
+    inset-inline-end: 10px !important;
   }
 
   .app-shell .ui-rowmenu.ant-btn {
-    min-width: 40px;
-    min-height: 40px;
+    min-width: 36px;
+    min-height: 36px;
   }
 
   .app-topbar__icon-btn {
@@ -181,11 +182,11 @@
 
   .app-shell .ant-btn.ant-btn-icon-only,
   .app-shell .ant-input-number {
-    min-width: 40px;
+    min-width: 36px;
   }
 
   .app-shell .ant-checkbox-wrapper:not(:has(> span + span)) {
-    min-width: 40px;
+    min-width: 36px;
     justify-content: center;
   }
 
@@ -236,62 +237,62 @@
 
   .app-shell .jo-op__icon-btn.ant-btn,
   .app-shell .jo-sched__refresh.ant-btn {
-    width: 40px;
-    min-width: 40px;
-    height: 40px;
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
   }
 
   .app-shell .jo-op__more-btn.ant-btn,
   .app-shell .jo-steps__node {
-    min-height: 40px;
+    min-height: 36px;
   }
 
   .app-shell .sched-m__nav {
-    grid-template-columns: 40px minmax(0, 1fr) 40px 40px;
+    grid-template-columns: 36px minmax(0, 1fr) 36px 36px;
   }
 
   .app-shell .jo-m__nav {
-    grid-template-columns: minmax(0, 1fr) 40px 40px 40px;
+    grid-template-columns: minmax(0, 1fr) 36px 36px 36px;
   }
 
   .app-shell .sched-m__icon {
-    width: 40px;
-    height: 40px;
-    min-width: 40px;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
   }
 
   .app-shell .sched-m__filter.ant-badge {
-    width: 40px;
+    width: 36px;
   }
 
   .app-shell .jo-m__search.ant-input-affix-wrapper {
-    min-height: 40px;
+    min-height: 36px;
   }
 
   .app-shell .sched-m__date {
-    min-height: 40px;
+    min-height: 36px;
   }
 
   .app-shell .sched-m__pill {
-    min-height: 40px;
+    min-height: 32px;
   }
 
   .app-shell .jo-m__bulk .ant-btn {
-    height: 40px;
+    height: 36px;
   }
 
   .app-shell .mtype__head {
-    min-height: 52px;
+    min-height: 48px;
   }
 
   .app-shell .mtypes__chip {
-    height: 40px;
+    height: 32px;
   }
 
   .app-shell .mcard__menu {
-    width: 40px !important;
-    height: 40px !important;
-    margin: -8px -10px 0 0;
+    width: 36px !important;
+    height: 36px !important;
+    margin: -8px -8px 0 0;
   }
 
   /* Compact list toolbars: search + filter share a row; actions stay compact. */
@@ -720,5 +721,280 @@
   .ant-pagination .ant-pagination-total-text {
     flex-basis: 100%;
     text-align: center;
+  }
+}
+
+/* ============ Office mobile shell (<1024): one compact size system ============ */
+/* Controls 36px (officeCompactTheme), chips/tabs 32px, 8px gaps, 12px card padding. */
+@media (max-width: 1023.98px) {
+  .app-shell--m {
+    --page-pad: 16px;
+    --card-pad: 12px;
+    --m-ctl: 36px;
+    --m-chip: 32px;
+    --m-gap: 8px;
+  }
+
+  .app-shell--m .ui-page {
+    gap: 12px;
+  }
+
+  .app-shell--m .ui-page-header {
+    align-items: center;
+    gap: var(--m-gap) 12px;
+  }
+
+  .app-shell--m .ui-page-header__main {
+    flex-basis: 220px;
+  }
+
+  .app-shell--m .ui-page-header__title {
+    font-size: 18px;
+    line-height: 1.25;
+  }
+
+  .app-shell--m .ui-page-header__subtitle {
+    font-size: var(--fs-xs);
+  }
+
+  .app-shell--m .ui-page-header__actions {
+    gap: var(--m-gap);
+  }
+
+  .app-shell--m .ui-card__head {
+    padding: 8px var(--card-pad);
+    min-height: 44px;
+  }
+
+  .app-shell--m .ui-card__title {
+    font-size: var(--fs-base);
+  }
+
+  .app-shell--m .ant-segmented .ant-segmented-group {
+    gap: 6px;
+  }
+
+  .app-shell--m .ant-segmented .ant-segmented-item-label {
+    min-height: var(--m-chip);
+    line-height: var(--m-chip);
+    padding: 0 12px;
+    font-size: var(--fs-sm);
+  }
+
+  .app-shell--m .ant-tabs .ant-tabs-tab {
+    min-height: var(--m-chip);
+    padding: 0 12px !important;
+  }
+
+  .app-shell--m .ant-tabs .ant-tabs-tab + .ant-tabs-tab {
+    margin-left: 6px !important;
+  }
+
+  .app-shell--m .ui-tabbar__count {
+    min-width: 18px;
+    height: 17px;
+    padding: 0 5px;
+  }
+
+  .app-shell--m .ui-filterbar-wrap,
+  .app-shell--m .ui-cardlist-wrap {
+    gap: var(--m-gap);
+  }
+
+  .app-shell--m .ui-filterbar,
+  .app-shell--m .ui-filterbar__left,
+  .app-shell--m .ui-filterbar__actions,
+  .app-shell--m .ui-cardlist__toolbar {
+    gap: var(--m-gap);
+  }
+
+  .app-shell--m .ui-stat-grid {
+    gap: var(--m-gap);
+  }
+
+  .app-shell--m .ui-stat {
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .app-shell--m .ui-stat__icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    font-size: 15px;
+  }
+
+  .app-shell--m .ui-stat__label {
+    font-size: var(--fs-xs);
+  }
+
+  .app-shell--m .ui-stat__value {
+    font-size: 18px;
+  }
+
+  .app-shell--m .ui-stat__hint {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 767px) {
+  .app-shell--m {
+    --page-pad: 12px;
+  }
+
+  /* FilterBar on phones: one row in a card, filters in a bottom sheet. */
+  .ui-mbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 8px;
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: 10px;
+  }
+
+  .ui-card .ui-mbar {
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .ui-mbar .ui-filterbar__search.ant-input-affix-wrapper {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+  }
+
+  .ui-mbar__spacer {
+    flex: 1 1 auto;
+  }
+
+  .ui-mbar .ui-filterbar__actions.ui-mbar__actions {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .ui-mbar .ui-mbar__actions > .ant-btn,
+  .ui-mbar .ui-mbar__actions .ant-btn {
+    flex: 0 0 auto;
+    height: 36px;
+    border-radius: 8px;
+  }
+
+  /* Icon + label buttons become 36px icon squares; the label stays for screen readers. */
+  .ui-mbar .ui-mbar__actions .ant-btn:has(> .ant-btn-icon) {
+    width: 36px;
+    min-width: 36px;
+    padding: 0;
+    gap: 0;
+  }
+
+  .ui-mbar .ui-mbar__actions .ant-btn:has(> .ant-btn-icon) > span:not(.ant-btn-icon) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .ui-mbar .ui-mbar__actions .ant-btn-default:not(.ant-btn-primary),
+  .ui-mbar .ui-mbar__actions .ant-btn-color-default.ant-btn-variant-outlined {
+    background: var(--c-surface-sunken);
+    border-color: transparent;
+  }
+
+  .ui-mbar__actions .ui-infotip {
+    width: 28px;
+    height: 36px;
+  }
+
+  .ui-mbar__sheet {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .ui-mbar__sheet > .ant-select,
+  .ui-mbar__sheet > .ant-picker,
+  .ui-mbar__sheet > .ant-input-affix-wrapper,
+  .ui-mbar__sheet > .ant-segmented,
+  .ui-mbar__sheet .ui-filterbar__select.ant-select {
+    width: 100% !important;
+    flex: none;
+  }
+
+  .ui-mbar__sheet > .ant-checkbox-wrapper {
+    min-height: 40px;
+  }
+
+  /* Stat tiles that filter the list: one compact strip, number over label. */
+  .ui-stat-grid:has(> .ui-stat--button) {
+    display: grid;
+    grid-auto-flow: column;
+    grid-template-columns: none !important;
+    grid-auto-columns: minmax(72px, 1fr);
+    gap: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: 10px;
+  }
+
+  .ui-stat-grid:has(> .ui-stat--button)::-webkit-scrollbar {
+    display: none;
+  }
+
+  .ui-stat-grid:has(> .ui-stat--button) > .ui-stat {
+    grid-column: auto !important;
+    justify-content: center;
+    padding: 8px 6px;
+    border: 0;
+    border-right: 1px solid var(--c-surface-sunken);
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+    text-align: center;
+  }
+
+  .ui-stat-grid:has(> .ui-stat--button) > .ui-stat:last-child {
+    border-right: 0;
+  }
+
+  .ui-stat-grid:has(> .ui-stat--button) .ui-stat__text {
+    flex-direction: column-reverse;
+    align-items: center;
+  }
+
+  .ui-stat-grid:has(> .ui-stat--button) .ui-stat__value {
+    font-size: 17px;
+    font-weight: 800;
+  }
+
+  .ui-stat-grid:has(> .ui-stat--button) .ui-stat__label {
+    margin-top: 1px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--c-text-muted);
+    white-space: nowrap;
+  }
+
+  .ui-stat-grid:has(> .ui-stat--button) .ui-stat__icon,
+  .ui-stat-grid:has(> .ui-stat--button) .ui-stat__hint {
+    display: none;
+  }
+
+  .ui-stat-grid:has(> .ui-stat--button) > .ui-stat.is-active {
+    box-shadow: inset 0 -2px 0 var(--c-primary);
+  }
+
+  .ui-stat-grid:has(> .ui-stat--button) > .ui-stat.is-active .ui-stat__value,
+  .ui-stat-grid:has(> .ui-stat--button) > .ui-stat.is-active .ui-stat__label {
+    color: var(--c-primary);
   }
 }

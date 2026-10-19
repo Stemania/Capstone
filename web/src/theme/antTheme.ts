@@ -165,6 +165,34 @@ export const officeTouchTheme: ThemeConfig = {
   },
 };
 
+/**
+ * Office shell below 1024px, nested inside officeTheme / officeTouchTheme.
+ * One 36px control height; small controls stay ≥30px with spacing around them.
+ */
+export const officeCompactTheme: ThemeConfig = {
+  token: {
+    controlHeight: 36,
+    controlHeightSM: 30,
+    controlHeightLG: 40,
+    fontSizeIcon: 13,
+  },
+  components: {
+    Button: {
+      paddingInline: 12,
+      paddingInlineSM: 8,
+      contentFontSize: font.size.base,
+      contentFontSizeSM: font.size.sm,
+      onlyIconSize: 16,
+      onlyIconSizeSM: 14,
+    },
+    Input: { paddingInline: 10 },
+    Select: { optionHeight: 36 },
+    Menu: { ...components.Menu, itemHeight: 44 },
+    Pagination: { itemSize: 32, itemSizeSM: 28 },
+    DatePicker: { cellHeight: 34, cellWidth: 38, withoutTimeCellHeight: 44 },
+  },
+};
+
 /** Production worker phone screens: same colours, shop-floor tap targets. */
 export const workerTheme: ThemeConfig = {
   token: {

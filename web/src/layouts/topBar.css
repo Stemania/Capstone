@@ -1,0 +1,97 @@
+/*
+ * Navy app bar shared by the Production Worker app (always) and the
+ * Admin / Office shell below 1024px.
+ */
+.w-top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--c-navy);
+  color: #fff;
+  padding: calc(env(safe-area-inset-top, 0px) + 6px) 8px 8px 16px;
+}
+
+.w-top--with-back {
+  padding-left: 4px;
+}
+
+.w-top__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+}
+
+.w-top__titles {
+  flex: 1;
+  min-width: 0;
+  padding-right: 4px;
+}
+
+.w-top__title {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.w-top__sub {
+  font-size: 12px;
+  opacity: 0.72;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.w-iconbtn {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.w-iconbtn:active {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.w-iconbtn .ant-badge {
+  color: inherit;
+}
+
+.w-iconbtn .ant-badge .ant-badge-count {
+  box-shadow: 0 0 0 1.5px var(--c-navy);
+}
+
+.w-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #334155;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+}
+
+.w-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

@@ -1,4 +1,4 @@
-import { Grid, Layout, Menu, Button, Drawer, Popover, Tooltip } from 'antd';
+import { ConfigProvider, Grid, Layout, Menu, Button, Drawer, Popover, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   LogoutOutlined,
@@ -21,6 +21,7 @@ import {
   DownOutlined,
   DashboardOutlined,
   BankOutlined,
+  LeftOutlined,
 } from '@ant-design/icons';
 import { useState, type ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -33,8 +34,11 @@ import NotificationBell from '../components/NotificationBell';
 import { PersonAvatar } from '../components/PersonAvatar';
 import { Breadcrumbs, type Crumb } from '../components/ui/PageHeader';
 import { layout } from '../theme/tokens';
+import { officeCompactTheme } from '../theme/antTheme';
+import { MOBILE_SHELL_QUERY, useMediaQuery } from '../hooks/useViewport';
 import { formatShop, shopNow } from '../utils/shopTime';
 import { PageHeaderActionsProvider, usePageHeaderActionsSlot } from './pageHeaderActions';
+import './topBar.css';
 import './appShell.css';
 
 const { Header, Sider, Content } = Layout;
@@ -190,6 +194,7 @@ function AppLayoutShell() {
   const screens = Grid.useBreakpoint();
   const isPhone = !screens.md;
   const isCompact = !screens.lg;
+  const mobileShell = useMediaQuery(MOBILE_SHELL_QUERY);
   const { user, logout, isAdmin, isOfficeStaff } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -325,6 +330,26 @@ function AppLayoutShell() {
     </Popover>
   ) : null;
 
+  const accountButton = user?.fullName ? (
+    <Popover
+      trigger="click"
+      placement="bottomRight"
+      open={accountOpen}
+      onOpenChange={setAccountOpen}
+      arrow={false}
+      content={accountPanel}
+      styles={{ container: { padding: 12, borderRadius: 12 } }}
+    >
+      <button type="button" className="w-iconbtn" aria-label="Account">
+        <span className="w-avatar">
+          <PersonAvatar userId={user.id} fullName={user.fullName} photoVersion={user.photoVersion} size={30} />
+        </span>
+      </button>
+    </Popover>
+  ) : null;
+
+  const backTo = [...(meta.crumbs || [])].reverse().find((c) => c.to);
+
   const phoneTabs = [
     { key: '/job-orders', label: 'Jobs', icon: <FileTextOutlined />, match: '/job-orders' },
     { key: '/schedule', label: 'Schedule', icon: <CalendarOutlined />, match: '/schedule' },
@@ -333,8 +358,9 @@ function AppLayoutShell() {
   const moreActive = !phoneTabs.some((t) => location.pathname.startsWith(t.match));
 
   return (
+    <ConfigProvider theme={mobileShell ? officeCompactTheme : undefined}>
     <Layout
-      className={`app-shell${isPhone ? ' app-shell--phone' : ''}${isCompact ? ' app-shell--compact' : ''}`}
+      className={`app-shell${isPhone ? ' app-shell--phone' : ''}${isCompact ? ' app-shell--compact' : ''}${mobileShell ? ' app-shell--m' : ''}`}
       style={{ height: '100%', overflow: 'hidden' }}
     >
       {!isCompact && (
@@ -372,6 +398,42 @@ function AppLayoutShell() {
       </Drawer>
 
       <Layout className="app-main">
+        {mobileShell ? (
+          <header className={`w-top app-mtop${backTo ? ' w-top--with-back' : ''}`}>
+            <div className="w-top__row">
+              {!isPhone && (
+                <button
+                  type="button"
+                  className="w-iconbtn"
+                  onClick={() => {
+                    if (isCompact) setMobileOpen(true);
+                    else setCollapsed(!collapsed);
+                  }}
+                  aria-label={isCompact ? 'Open menu' : collapsed ? 'Expand menu' : 'Collapse menu'}
+                >
+                  <MenuOutlined />
+                </button>
+              )}
+              {backTo && (
+                <button type="button" className="w-iconbtn" onClick={() => navigate(backTo.to!)} aria-label={`Back to ${backTo.label}`}>
+                  <LeftOutlined style={{ fontSize: 18 }} />
+                </button>
+              )}
+              <div className="w-top__titles">
+                <h1 className="w-top__title">{meta.title || 'BMSC'}</h1>
+                {section === '/dashboard' && meta.subtitle ? <div className="w-top__sub">{meta.subtitle}</div> : null}
+              </div>
+              {pageHeaderActions ? <div className="app-mtop__actions">{pageHeaderActions}</div> : null}
+              {showBell && <NotificationBell className="w-iconbtn" />}
+              {isPhone && !onSchedule && (
+                <button type="button" className="w-iconbtn" onClick={() => goSection('/schedule')} aria-label="Schedule">
+                  <CalendarOutlined />
+                </button>
+              )}
+              {accountButton}
+            </div>
+          </header>
+        ) : (
         <Header className="app-topbar">
           <div className="app-topbar__left">
             {!isPhone && (
@@ -413,6 +475,7 @@ function AppLayoutShell() {
             {accountChip}
           </div>
         </Header>
+        )}
         <div className="app-shell__scroll">
           <Content className="app-shell__content">
             <RouteErrorBoundary resetKey={location.pathname}>
@@ -451,6 +514,7 @@ function AppLayoutShell() {
         )}
       </Layout>
     </Layout>
+    </ConfigProvider>
   );
 }
 

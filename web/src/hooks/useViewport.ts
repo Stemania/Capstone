@@ -7,6 +7,8 @@ export const TABLET_QUERY = '(min-width: 768px) and (max-width: 1024px)';
 export const TOUCH_QUERY = '(max-width: 768px)';
 /** Below Ant `lg`: the sidebar becomes a drawer and wide tables become cards. */
 export const NARROW_QUERY = '(max-width: 991px)';
+/** Admin / Office mobile shell (navy bar, compact controls): phones and tablets. */
+export const MOBILE_SHELL_QUERY = '(max-width: 1023.98px)';
 
 const subscribers = new Map<string, (onChange: () => void) => () => void>();
 
