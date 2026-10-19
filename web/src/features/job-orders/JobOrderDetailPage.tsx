@@ -28,6 +28,7 @@ import {
   ReloadOutlined,
   StopOutlined,
   InboxOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -772,9 +773,24 @@ function JobOrderDetailView() {
             </Button>
           )}
           {!isDraft && (isAdmin || canOfficeWrite) && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 12,
+                fontWeight: 600,
+                color: '#64748b',
+                background: '#f1f5f9',
+                border: '1px solid #e2e8f0',
+                borderRadius: 6,
+                padding: '3px 8px',
+                lineHeight: 1.3,
+              }}
+            >
+              <LockOutlined style={{ fontSize: 12 }} />
               Locked after release
-            </Text>
+            </span>
           )}
           <Button
             icon={<PrinterOutlined />}

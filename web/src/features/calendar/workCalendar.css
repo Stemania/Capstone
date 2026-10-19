@@ -5,12 +5,19 @@
 }
 
 .work-calendar-page .work-calendar__toolbar {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   gap: 8px 12px;
 }
 
 .work-calendar-page .work-calendar__nav {
-  gap: 6px;
+  gap: 8px;
+  align-items: center;
+}
+
+.work-calendar-page .work-calendar__nav .period-nav__trigger {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 .work-calendar-page .work-calendar__month-picker.ant-picker {
@@ -22,7 +29,7 @@
 }
 
 .work-calendar-page .work-calendar__month-picker .ant-picker-input > input {
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 800;
   color: var(--c-text);
   text-align: center;
@@ -46,7 +53,14 @@
 .work-calendar-page .work-calendar__cell {
   padding: 6px 7px;
   border-radius: 8px;
-  gap: 3px;
+  gap: 4px;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.work-calendar-page .work-calendar__cell--interactive:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: #94a3b8;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
 }
 
 .work-calendar-page .work-calendar__cell--off {
@@ -61,7 +75,8 @@
 }
 
 .work-calendar-page .work-calendar__cell--today {
-  box-shadow: inset 0 0 0 2px var(--c-primary);
+  background: color-mix(in srgb, var(--c-primary) 10%, #fff);
+  box-shadow: inset 0 0 0 1.5px var(--c-primary);
 }
 
 .work-calendar-page .work-calendar__cell--today .work-calendar__day-num {
@@ -70,6 +85,23 @@
   min-width: 26px;
   height: 26px;
   font-weight: 800;
+}
+
+.work-calendar-page .work-calendar__today-pill {
+  align-self: flex-start;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--c-primary);
+  color: #fff;
+  line-height: 1.4;
+}
+
+.work-calendar-page .work-calendar__cell--overtime {
+  border-left: 3px solid #2563eb;
 }
 
 .work-calendar-page .work-calendar__event {
@@ -81,6 +113,35 @@
   padding: 1px 6px;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.04);
+}
+
+.work-calendar-page .work-calendar__chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-calendar-page .work-calendar__chip--ot {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.work-calendar-page .work-calendar__chip--special {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
+.work-calendar-page .work-calendar__chip--holiday {
+  background: #fecaca;
+  color: #b91c1c;
 }
 
 .work-calendar-page .work-calendar__cell--overtime .work-calendar__event {
@@ -108,7 +169,88 @@
   display: none;
 }
 
+.work-calendar-page .work-calendar__aside {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
 .work-calendar-page .work-calendar__aside-title {
+  font-size: 14px;
+  font-weight: 800;
+  margin-bottom: 0;
+  color: var(--c-text);
+}
+
+.work-calendar-page .work-calendar__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.work-calendar-page .work-calendar__stat {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.work-calendar-page .work-calendar__stat-n {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.work-calendar-page .work-calendar__stat-l {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+}
+
+.work-calendar-page .work-calendar__aside-empty {
+  font-size: 13px;
+  color: var(--c-text-muted);
+  line-height: 1.45;
+}
+
+.work-calendar-page .work-calendar__aside-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.work-calendar-page .work-calendar__aside-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.work-calendar-page .work-calendar__aside-item:hover {
+  border-color: #cbd5e1;
+}
+
+.work-calendar-page .work-calendar__aside-date {
   font-size: 12px;
-  margin-bottom: 8px;
+  font-weight: 700;
+  color: var(--c-text);
+}
+
+.work-calendar-page .work-calendar__aside-what {
+  font-size: 12px;
+  color: var(--c-text-muted);
 }

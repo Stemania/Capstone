@@ -31,26 +31,35 @@ export default function ForgotPasswordPage() {
       <div className="login-card">
         <div className="login-card__header">
           <img className="login-card__logo" src="/logo.png" alt="Brothers Machine Shop logo" />
-          <div className="login-card__brand">Brothers Machine Shop</div>
+          <div className="login-card__brand">
+            Brothers Machine Shop and
+            <br />
+            Services Corporation
+          </div>
           <div className="login-card__subtitle">Production Scheduling System</div>
         </div>
         <div className="login-card__body">
-          <h1 className="login-card__title">Forgot password</h1>
-          <p className="login-card__lead">
-            Enter the email or mobile number on your account. If the account has an email address,
-            we will send a reset link there.
-          </p>
+          {!submitted && (
+            <>
+              <h1 className="login-card__title">Forgot password</h1>
+              <p className="login-card__lead">
+                Enter the email or mobile on your account. We send a reset link when an email is on file.
+              </p>
+            </>
+          )}
 
-          {error && <Alert type="error" title={error} showIcon style={{ marginBottom: 16 }} />}
+          {error && <Alert className="login-alert" type="error" title={error} showIcon />}
 
           {submitted ? (
-            <Alert
-              type="success"
-              showIcon
-              title="Check your email"
-              description="If an account with that email or mobile has an email address on file, you will receive reset instructions shortly."
-              style={{ marginBottom: 16 }}
-            />
+            <div className="login-card__success">
+              <Alert
+                className="login-alert"
+                type="success"
+                showIcon
+                title="Reset link sent"
+                description="If that account has an email on file, check your inbox for instructions."
+              />
+            </div>
           ) : (
             <Form form={form} layout="vertical" onFinish={onFinish} autoComplete="off">
               <Form.Item

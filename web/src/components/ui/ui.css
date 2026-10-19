@@ -402,6 +402,52 @@ a.ui-id:hover {
   border-radius: var(--r-lg);
 }
 
+/* Flush tables still get side padding on first/last cells. */
+.so-detail-page .ui-card__body,
+.jo-detail-page .ui-card__body,
+.client-page .ui-card__body,
+.analytics-page .ui-card__body {
+  padding: var(--card-pad);
+}
+
+.so-detail-page .ui-card__body--flush,
+.jo-detail-page .ui-card__body--flush {
+  padding: 0;
+}
+
+.so-detail-page .ui-card__body--flush .ant-table-thead > tr > th:first-child,
+.so-detail-page .ui-card__body--flush .ant-table-tbody > tr > td:first-child,
+.jo-detail-page .ui-card__body--flush .ant-table-thead > tr > th:first-child,
+.jo-detail-page .ui-card__body--flush .ant-table-tbody > tr > td:first-child,
+.std-list-table .ant-table-thead > tr > th:first-child,
+.std-list-table .ant-table-tbody > tr > td:first-child,
+.jo-list-table .ant-table-thead > tr > th:first-child,
+.jo-list-table .ant-table-tbody > tr > td:first-child {
+  padding-left: 16px !important;
+}
+
+.so-detail-page .ui-card__body--flush .ant-table-thead > tr > th:last-child,
+.so-detail-page .ui-card__body--flush .ant-table-tbody > tr > td:last-child,
+.jo-detail-page .ui-card__body--flush .ant-table-thead > tr > th:last-child,
+.jo-detail-page .ui-card__body--flush .ant-table-tbody > tr > td:last-child,
+.std-list-table .ant-table-thead > tr > th:last-child,
+.std-list-table .ant-table-tbody > tr > td:last-child,
+.jo-list-table .ant-table-thead > tr > th:last-child,
+.jo-list-table .ant-table-tbody > tr > td:last-child {
+  padding-right: 16px !important;
+}
+
+.tabular-nums,
+.ant-table-cell.tabular-nums,
+td.ant-table-cell-row-hover.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+.so-detail__head.ui-card {
+  padding: var(--card-pad) !important;
+}
+
 .ui-table .ant-table-thead > tr > th {
   font-size: var(--fs-xs) !important;
   font-weight: 600 !important;

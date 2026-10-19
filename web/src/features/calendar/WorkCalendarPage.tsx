@@ -408,6 +408,48 @@ export default function WorkCalendarPage() {
     .filter((x) => dayjs(x.date).isSame(anchor, 'month'))
     .sort((a, b) => a.date.localeCompare(b.date));
 
+  const monthStats = useMemo(() => {
+    const daysInMonth = anchor.daysInMonth();
+    let working = 0;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const day = anchor.date(d);
+      const key = day.format('YYYY-MM-DD');
+      const exc = byDate.get(key);
+      if (exc?.type === 'HOLIDAY_NO_WORK') continue;
+      if (exc?.type === 'SPECIAL_WORKING_DAY') {
+        working += 1;
+        continue;
+      }
+      if (isNormalWorkingDay(day)) working += 1;
+    }
+    const holidays = monthExceptions.filter((x) => x.type === 'HOLIDAY_NO_WORK').length;
+    const special = monthExceptions.filter((x) => x.type === 'SPECIAL_WORKING_DAY').length;
+    const overtimeHours = monthExceptions
+      .filter((x) => x.type === 'OVERTIME')
+      .reduce((sum, x) => {
+        if (!x.startTime || !x.endTime) return sum;
+        const [sh, sm] = x.startTime.split(':').map(Number);
+        const [eh, em] = x.endTime.split(':').map(Number);
+        const mins = eh * 60 + em - (sh * 60 + sm);
+        return sum + Math.max(0, mins) / 60;
+      }, 0);
+    return {
+      working,
+      holidays,
+      special,
+      overtimeHours: Math.round(overtimeHours * 10) / 10,
+    };
+  }, [anchor, byDate, monthExceptions]);
+
+  function otHoursLabel(exc: WorkCalendarException): string {
+    if (!exc.startTime || !exc.endTime) return 'OT';
+    const [sh, sm] = exc.startTime.split(':').map(Number);
+    const [eh, em] = exc.endTime.split(':').map(Number);
+    const hrs = Math.max(0, eh * 60 + em - (sh * 60 + sm)) / 60;
+    const rounded = Math.round(hrs * 10) / 10;
+    return `OT +${rounded % 1 === 0 ? rounded.toFixed(0) : rounded}h`;
+  }
+
   return (
     <div className="work-calendar-page ui-page">
       <div
@@ -493,10 +535,22 @@ export default function WorkCalendarPage() {
                     title={exc ? exceptionBadge(exc) : undefined}
                   >
                     <span className="work-calendar__day-num">{day.date()}</span>
-                    {exc ? (
-                      <span className="work-calendar__event">
-                        <span className="work-calendar__event-title">{excTitle(exc)}</span>
-                        <span className="work-calendar__event-detail">{excDetail(exc)}</span>
+                    {inMonth && key === todayKey ? (
+                      <span className="work-calendar__today-pill">Today</span>
+                    ) : null}
+                    {exc?.type === 'OVERTIME' ? (
+                      <span className="work-calendar__chip work-calendar__chip--ot">
+                        {otHoursLabel(exc)}
+                      </span>
+                    ) : null}
+                    {exc?.type === 'SPECIAL_WORKING_DAY' ? (
+                      <span className="work-calendar__chip work-calendar__chip--special">
+                        Special
+                      </span>
+                    ) : null}
+                    {exc?.type === 'HOLIDAY_NO_WORK' ? (
+                      <span className="work-calendar__chip work-calendar__chip--holiday">
+                        {exc.note?.trim() || 'Holiday'}
                       </span>
                     ) : null}
                   </button>
@@ -507,9 +561,27 @@ export default function WorkCalendarPage() {
 
           <aside className="work-calendar__aside" aria-label="This month">
             <div className="work-calendar__aside-title">This month</div>
+            <div className="work-calendar__stats">
+              <div className="work-calendar__stat">
+                <div className="work-calendar__stat-n">{monthStats.working}</div>
+                <div className="work-calendar__stat-l">Working days</div>
+              </div>
+              <div className="work-calendar__stat">
+                <div className="work-calendar__stat-n">{monthStats.holidays}</div>
+                <div className="work-calendar__stat-l">Holidays</div>
+              </div>
+              <div className="work-calendar__stat">
+                <div className="work-calendar__stat-n">{monthStats.overtimeHours}</div>
+                <div className="work-calendar__stat-l">Overtime hours</div>
+              </div>
+              <div className="work-calendar__stat">
+                <div className="work-calendar__stat-n">{monthStats.special}</div>
+                <div className="work-calendar__stat-l">Special days</div>
+              </div>
+            </div>
             {monthExceptions.length === 0 ? (
               <div className="work-calendar__aside-empty">
-                Normal hours all month. No overtime, special days, or holidays.
+                Normal hours all month. No overtime, special days, or holidays marked.
               </div>
             ) : (
               <ul className="work-calendar__aside-list">
@@ -524,7 +596,11 @@ export default function WorkCalendarPage() {
                         {formatShop(x.date, 'ddd, MMM D')}
                       </span>
                       <span className="work-calendar__aside-what">
-                        {excTitle(x)} · {excDetail(x)}
+                        {x.type === 'HOLIDAY_NO_WORK'
+                          ? x.note?.trim() || 'Holiday'
+                          : x.type === 'OVERTIME'
+                            ? otHoursLabel(x)
+                            : `${excTitle(x)} · ${excDetail(x)}`}
                       </span>
                     </button>
                   </li>

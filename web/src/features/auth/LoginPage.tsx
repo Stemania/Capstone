@@ -95,7 +95,11 @@ export default function LoginPage() {
       <div className="login-card">
         <div className="login-card__header">
           <img className="login-card__logo" src="/logo.png" alt="Brothers Machine Shop logo" />
-          <div className="login-card__brand">Brothers Machine Shop Production Scheduling</div>
+          <div className="login-card__brand">
+            Brothers Machine Shop and
+            <br />
+            Services Corporation
+          </div>
           <div className="login-card__subtitle">Production Scheduling System</div>
         </div>
 
@@ -109,42 +113,39 @@ export default function LoginPage() {
 
           {!online && (
             <Alert
+              className="login-alert"
               type="warning"
               showIcon
-              style={{ marginBottom: 16 }}
               title="Needs a connection"
-              description="Signing in needs a connection. Actions waiting on this phone are kept and sent after you sign in."
+              description={
+                waitingActions > 0
+                  ? `${waitingActions} waiting action${waitingActions === 1 ? '' : 's'} will send after you sign in.`
+                  : 'Sign-in needs the network.'
+              }
             />
           )}
           {online &&
             (endReason === 'signed-out' || endReason === 'expired' || endReason === 'idle') &&
             !error && (
             <Alert
+              className="login-alert"
               type={endReason === 'signed-out' ? 'warning' : 'info'}
               showIcon
-              style={{ marginBottom: 16 }}
               title={
                 endReason === 'signed-out'
                   ? 'This device was signed out'
                   : endReason === 'idle'
-                    ? 'You were signed out after 30 minutes of inactivity.'
-                    : 'Please sign in again'
+                    ? 'Signed out after 30 minutes idle'
+                    : 'Session expired — sign in again'
               }
-              description={[
-                endReason === 'signed-out'
-                  ? 'It was signed out from Account security, or the password was changed.'
-                  : endReason === 'idle'
-                    ? ''
-                    : 'Your session ended.',
+              description={
                 waitingActions > 0
-                  ? `${waitingActions} saved action${waitingActions === 1 ? '' : 's'} on this phone will be sent after you sign in.`
-                  : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
+                  ? `${waitingActions} waiting action${waitingActions === 1 ? '' : 's'} will send after you sign in.`
+                  : undefined
+              }
             />
           )}
-          {error && <Alert type="error" title={error} style={{ marginBottom: 16 }} showIcon />}
+          {error && <Alert className="login-alert" type="error" title={error} showIcon />}
 
           {pinMode ? (
             <PinKeypad

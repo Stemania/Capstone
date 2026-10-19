@@ -17,14 +17,12 @@ import {
   FieldTimeOutlined,
   ShopOutlined,
   ClockCircleOutlined,
-  UnorderedListOutlined,
   SafetyCertificateOutlined,
   DownOutlined,
   DashboardOutlined,
   BankOutlined,
 } from '@ant-design/icons';
-import { useEffect, useState, type ReactNode } from 'react';
-import { operationsApi } from '../api/operations.api';
+import { useState, type ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { confirmLogout } from '../utils/confirmLogout';
@@ -196,24 +194,6 @@ export default function AppLayout() {
   const location = useLocation();
   const { resolveSectionNav, clearSectionCache } = useNavMemory();
   const showBell = isAdmin || isOfficeStaff;
-  const [hasAssignments, setHasAssignments] = useState(false);
-
-  useEffect(() => {
-    if (!isAdmin) {
-      setHasAssignments(false);
-      return;
-    }
-    let alive = true;
-    operationsApi
-      .mine()
-      .then(({ data }) => {
-        if (alive) setHasAssignments(data.length > 0);
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, [isAdmin, location.pathname]);
 
   const goSection = (sectionKey: string) => {
     const { to } = resolveSectionNav(sectionKey);
@@ -221,13 +201,9 @@ export default function AppLayout() {
     setMobileOpen(false);
   };
 
-  const showAssignments = isAdmin && (hasAssignments || location.pathname.startsWith('/my-assignments'));
   const groups = (isAdmin || isOfficeStaff ? NAV : [])
     .map((g) => {
       const items = g.items.filter((it) => isAdmin || !it.adminOnly);
-      if (g.label === 'Overview' && showAssignments) {
-        items.push({ key: '/my-assignments', icon: <UnorderedListOutlined />, label: 'My assignments' });
-      }
       return { ...g, items };
     })
     .filter((g) => g.items.length > 0);

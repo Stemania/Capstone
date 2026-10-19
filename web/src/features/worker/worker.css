@@ -870,9 +870,10 @@
 /* ---------------- Schedule ---------------- */
 .w-week {
   display: grid;
-  grid-template-columns: 32px repeat(7, minmax(0, 1fr)) 32px;
+  grid-template-columns: 32px repeat(7, 44px) 32px;
+  justify-content: space-between;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
 }
 
 .w-week__arrow {
@@ -890,59 +891,70 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
-  padding: 3px 0 4px;
-  border: 0;
-  border-radius: 10px;
-  background: none;
+  justify-content: center;
+  gap: 2px;
+  width: 44px;
+  min-width: 44px;
+  height: 56px;
+  padding: 6px 4px;
+  border: 1.5px solid transparent;
+  border-radius: 12px;
+  background: var(--c-surface-2, #f8fafc);
   color: var(--c-text);
   cursor: pointer;
-  min-width: 0;
+  box-sizing: border-box;
 }
 
 .w-week__dow {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--c-text-muted);
   text-transform: uppercase;
+  line-height: 1;
 }
 
 .w-week__num {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
   font-size: 16px;
   font-weight: 800;
   line-height: 1;
 }
 
 .w-week__dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: transparent;
+  display: none;
 }
 
-.w-week__day.has-work .w-week__dot {
-  background: var(--c-primary);
+.w-week__day.has-work .w-week__num {
+  /* work marker is selection / border — keep number clear */
 }
 
+.w-week__day.is-off {
+  color: var(--c-text-disabled);
+  background: #f1f5f9;
+}
+
+.w-week__day.is-off .w-week__dow,
 .w-week__day.is-off .w-week__num {
   color: var(--c-text-disabled);
 }
 
-.w-week__day.is-today .w-week__num {
+.w-week__day.is-today:not(.is-selected) {
+  border-color: var(--c-primary);
+  background: #fff;
+}
+
+.w-week__day.is-today:not(.is-selected) .w-week__dow,
+.w-week__day.is-today:not(.is-selected) .w-week__num {
   color: var(--c-primary);
 }
 
-.w-week__day.is-selected .w-week__dow {
-  color: var(--c-text);
+.w-week__day.is-selected {
+  background: var(--c-primary);
+  border-color: var(--c-primary);
+  color: #fff;
 }
 
+.w-week__day.is-selected .w-week__dow,
 .w-week__day.is-selected .w-week__num {
-  background: var(--c-navy);
   color: #fff;
 }
 

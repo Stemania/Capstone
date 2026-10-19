@@ -80,6 +80,13 @@ function AssignmentsShell() {
   );
 }
 
+/** Admin list lives on Job Orders → Assigned; workers keep the mobile page. */
+function AdminAssignmentsRedirect() {
+  const { isAdmin } = useAuth();
+  if (isAdmin) return <Navigate to="/job-orders?tab=assigned" replace />;
+  return <MyAssignmentsPage />;
+}
+
 function RouteSuspense({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PageSkeleton variant="cards" />}>{children}</Suspense>;
 }
@@ -354,7 +361,7 @@ export default function AppRoutes() {
                         path="/my-assignments"
                         element={
                           <RouteSuspense>
-                            <MyAssignmentsPage />
+                            <AdminAssignmentsRedirect />
                           </RouteSuspense>
                         }
                       />

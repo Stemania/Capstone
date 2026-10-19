@@ -114,7 +114,11 @@ export default function SetPasswordPage() {
       <div className="login-card">
         <div className="login-card__header">
           <img className="login-card__logo" src="/logo.png" alt="Brothers Machine Shop logo" />
-          <div className="login-card__brand">Brothers Machine Shop</div>
+          <div className="login-card__brand">
+            Brothers Machine Shop and
+            <br />
+            Services Corporation
+          </div>
           <div className="login-card__subtitle">Set your password</div>
         </div>
         <div className="login-card__body">
@@ -132,7 +136,7 @@ export default function SetPasswordPage() {
             </div>
           )}
 
-          {error && <Alert type="error" title={error} showIcon style={{ marginBottom: 16 }} />}
+          {error && <Alert className="login-alert" type="error" title={error} showIcon />}
 
           {showCodeForm && (
             <Form form={form} layout="vertical" onFinish={onValidateCode} autoComplete="off">

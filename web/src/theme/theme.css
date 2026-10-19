@@ -53,7 +53,7 @@
   --sidebar-w-collapsed: 72px;
   --topbar-h: 52px;
   --page-pad: 20px;
-  --card-pad: 12px;
+  --card-pad: 24px;
 
   --ease: 150ms cubic-bezier(0.2, 0, 0, 1);
 }
@@ -61,6 +61,7 @@
 @media (max-width: 768px) {
   :root {
     --page-pad: 16px;
+    --card-pad: 16px;
   }
 }
 

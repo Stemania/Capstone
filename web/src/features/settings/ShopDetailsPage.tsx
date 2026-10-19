@@ -195,10 +195,10 @@ export default function ShopDetailsPage() {
                   <Form.Item name="mobileNumbers" label="Mobile numbers">
                     <Input maxLength={200} placeholder="0926… / 0915…" />
                   </Form.Item>
+                  <Form.Item name="email" label="Email" rules={[{ type: 'email' }]}>
+                    <Input maxLength={255} />
+                  </Form.Item>
                 </div>
-                <Form.Item name="email" label="Email" rules={[{ type: 'email' }]}>
-                  <Input maxLength={255} />
-                </Form.Item>
               </div>
 
               <div className="shop-details-page__block">
@@ -206,20 +206,23 @@ export default function ShopDetailsPage() {
                   title="Approvers"
                   hint="Signature lines on printed purchase orders and job orders."
                 />
-                <div className="shop-details-page__approver-row">
-                  <Form.Item name="poApproverName" label="Purchase order approver">
-                    <Input maxLength={255} />
+                <div className="shop-details-page__approver-grid">
+                  <div className="shop-details-page__approver-head">Signs</div>
+                  <div className="shop-details-page__approver-head">Name</div>
+                  <div className="shop-details-page__approver-head">Title</div>
+                  <div className="shop-details-page__approver-sign">Purchase orders</div>
+                  <Form.Item name="poApproverName" label={null}>
+                    <Input maxLength={255} placeholder="Name" aria-label="Purchase order approver name" />
                   </Form.Item>
-                  <Form.Item name="poApproverTitle" label="Title">
-                    <Input maxLength={255} />
+                  <Form.Item name="poApproverTitle" label={null}>
+                    <Input maxLength={255} placeholder="Title" aria-label="Purchase order approver title" />
                   </Form.Item>
-                </div>
-                <div className="shop-details-page__approver-row">
-                  <Form.Item name="joApproverName" label="Job order approver">
-                    <Input maxLength={255} />
+                  <div className="shop-details-page__approver-sign">Job orders</div>
+                  <Form.Item name="joApproverName" label={null}>
+                    <Input maxLength={255} placeholder="Name" aria-label="Job order approver name" />
                   </Form.Item>
-                  <Form.Item name="joApproverTitle" label="Title">
-                    <Input maxLength={255} />
+                  <Form.Item name="joApproverTitle" label={null}>
+                    <Input maxLength={255} placeholder="Title" aria-label="Job order approver title" />
                   </Form.Item>
                 </div>
               </div>
