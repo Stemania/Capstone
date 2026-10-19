@@ -410,15 +410,29 @@
   }
 
   .app-shell .std-list-actions .ant-btn:has(> .ant-btn-icon),
-  .app-shell .jo-list-actions .ant-btn:has(> .ant-btn-icon) {
+  .app-shell .jo-list-actions .ant-btn:has(> .ant-btn-icon),
+  .app-shell .so-list-top > .ant-btn:has(> .ant-btn-icon) {
+    flex-shrink: 0;
     width: 36px;
     min-width: 36px;
     padding: 0;
     gap: 0;
   }
 
+  .app-shell .so-list-top {
+    flex-wrap: nowrap !important;
+    gap: 8px !important;
+    margin-bottom: 12px !important;
+  }
+
+  .app-shell .so-list-top > :first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
   .app-shell .std-list-actions .ant-btn:has(> .ant-btn-icon) > span:not(.ant-btn-icon),
-  .app-shell .jo-list-actions .ant-btn:has(> .ant-btn-icon) > span:not(.ant-btn-icon) {
+  .app-shell .jo-list-actions .ant-btn:has(> .ant-btn-icon) > span:not(.ant-btn-icon),
+  .app-shell .so-list-top > .ant-btn:has(> .ant-btn-icon) > span:not(.ant-btn-icon) {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -989,6 +1003,131 @@
     overflow: visible;
   }
 
+  .app-shell--m .ui-cardlist {
+    gap: var(--m-gap);
+  }
+
+  .app-shell--m .app-shell__content .ant-alert:not(.ant-alert-with-description) {
+    gap: 8px;
+    padding: 8px 10px 8px 12px;
+    font-size: 13px;
+    line-height: 1.35;
+    border-radius: 10px;
+  }
+
+  .app-shell--m .app-shell__content .ant-alert:not(.ant-alert-with-description) .ant-alert-action .ant-btn {
+    height: 30px;
+    padding-inline: 10px;
+    font-size: 12.5px;
+  }
+
+  .app-shell--m .ui-cardlist--grid {
+    gap: 10px;
+  }
+
+  .app-shell--m .ui-cardlist__select.ant-select {
+    height: 30px;
+    font-size: 12.5px;
+  }
+
+  .app-shell--m .ui-cardlist__toolbar .ant-select-outlined:not(.ant-select-focused) {
+    background: transparent;
+    border-color: transparent;
+  }
+
+  .app-shell--m .ui-rowcard {
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+  }
+
+  .app-shell--m .ui-rowcard__head {
+    align-items: center;
+    gap: 10px;
+  }
+
+  .app-shell--m .ui-rowcard__title {
+    font-size: 14px;
+    font-weight: 650;
+    line-height: 1.3;
+  }
+
+  .app-shell--m .ui-rowcard__subtitle {
+    align-items: center;
+    margin-top: 1px;
+    font-size: 12.5px;
+    line-height: 1.35;
+  }
+
+  .app-shell--m .ui-rowcard__subtitle > span + span:last-child {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .app-shell--m .ui-rowcard__subtitle > span + span:last-child > * {
+    display: inline;
+  }
+
+  .app-shell--m .ui-rowcard__subtitle .ant-tag,
+  .app-shell--m .ui-rowcard__subtitle .status-pill {
+    margin-inline-end: 0;
+  }
+
+  .app-shell--m .ui-rowcard__badge {
+    padding-top: 0;
+  }
+
+  .app-shell--m .ui-rowcard__actions {
+    margin: -6px -6px -6px 0;
+  }
+
+  .app-shell--m .ui-rowcard__actions .ant-btn:not(.ant-btn-icon-only):not(.ant-btn-variant-text) {
+    height: 30px;
+    padding-inline: 10px;
+    gap: 6px;
+    font-size: 12.5px;
+  }
+
+  .app-shell--m .ui-rowcard__actions:has(.ant-btn:not(.ant-btn-icon-only):not(.ant-btn-variant-text)) {
+    margin: 0;
+  }
+
+  .app-shell--m .ui-rowcard__field:only-child {
+    grid-column: 1 / -1;
+  }
+
+  .app-shell--m .ui-rowcard__fields {
+    gap: 6px 12px;
+    padding-top: 7px;
+    border-top-color: #eef1f5;
+  }
+
+  .app-shell--m .ui-rowcard__field dt {
+    margin-bottom: 1px;
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--c-text-muted);
+  }
+
+  .app-shell--m .ui-rowcard__field dd {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.35;
+  }
+
+  .app-shell--m .ui-rowcard__more {
+    margin: -2px -6px -4px;
+  }
+
+  .app-shell--m .ui-rowcard__more .ant-btn {
+    height: 30px;
+    font-size: 12.5px;
+  }
+
   .app-shell--m .ui-stat {
     gap: 10px;
     padding: 10px 12px;
@@ -1272,5 +1411,109 @@
   .ui-stat-grid:is(:has(> .ui-stat--button), :not(:has(.ui-stat__hint))) > .ui-stat.is-active .ui-stat__value,
   .ui-stat-grid:is(:has(> .ui-stat--button), :not(:has(.ui-stat__hint))) > .ui-stat.is-active .ui-stat__label {
     color: var(--c-primary);
+  }
+
+  /* Phone row cards share the ui-rowcard frame. */
+  .app-shell--m .admin-cards {
+    gap: var(--m-gap);
+  }
+
+  .app-shell--m .admin-card {
+    padding: 10px 12px;
+    border-color: var(--c-border);
+    border-radius: 10px;
+  }
+
+  .jo-mrow {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .jo-mrow__top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 24px;
+  }
+
+  .jo-mrow__no {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--c-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .jo-mrow__status {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-right: -6px;
+  }
+
+  .jo-mrow__title {
+    font-size: 14.5px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--c-text);
+    overflow-wrap: anywhere;
+  }
+
+  .jo-mrow__meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .jo-mrow__client {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 12.5px;
+    color: var(--c-text-muted);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .jo-mrow__meta > span:last-child {
+    flex-shrink: 0;
+    font-size: 11.5px !important;
+    padding: 2px 7px !important;
+  }
+
+  .jo-mrow__progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .jo-mrow__bar {
+    flex: 1 1 auto;
+    height: 4px;
+    overflow: hidden;
+    background: var(--c-surface-sunken);
+    border-radius: 999px;
+  }
+
+  .jo-mrow__bar > span {
+    display: block;
+    height: 100%;
+    background: var(--c-primary);
+    border-radius: inherit;
+  }
+
+  .jo-mrow__ops,
+  .jo-mrow__stage {
+    flex-shrink: 0;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--c-text-muted);
+    font-variant-numeric: tabular-nums;
   }
 }

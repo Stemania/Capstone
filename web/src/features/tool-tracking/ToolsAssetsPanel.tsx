@@ -267,6 +267,23 @@ export default function ToolsAssetsPanel() {
       render: (v: number) =>
         v > 0 ? <span style={{ fontWeight: 700, color: '#b45309' }}>{v}</span> : v,
     },
+    ...(isPhone
+      ? [
+          {
+            title: 'Stock',
+            key: 'stock',
+            render: (_: unknown, r: ToolType) => {
+              if (!r.totalUnits) return <StatusPill color="gray" compact>No units</StatusPill>;
+              if (!r.availableCount) return <StatusPill color="red" compact>None free</StatusPill>;
+              return (
+                <StatusPill color={r.outCount > 0 ? 'amber' : 'green'} compact>
+                  {r.availableCount}/{r.totalUnits} free
+                </StatusPill>
+              );
+            },
+          },
+        ]
+      : []),
     {
       title: '',
       key: 'actions',
@@ -487,6 +504,7 @@ export default function ToolsAssetsPanel() {
       </div>
 
       <ResponsiveTable
+        card={{ badge: 'stock', hide: ['totalUnits', 'availableCount', 'outCount'] }}
         className="std-list-table"
         size="small"
         rowKey="id"

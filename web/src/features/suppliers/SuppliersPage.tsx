@@ -15,10 +15,13 @@ import type { TableColumnsType } from 'antd';
 import { PlusOutlined, EditOutlined, ShopOutlined } from '@ant-design/icons';
 import { suppliersApi } from '../../api/suppliers.api';
 import { getErrorMessage } from '../../api/client';
-import type { Supplier } from '../../types';
-import StatusPill from '../../components/StatusPill';
+import type { Supplier, SupplierReliability } from '../../types';
+import StatusPill, { type PillColor } from '../../components/StatusPill';
 import { DataTable, EmptyState, EllipsisText, FilterBar, TwoLineCell } from '../../components/ui';
 import { useAuth } from '../../hooks/useAuth';
+import { PHONE_QUERY, useMediaQuery } from '../../hooks/useViewport';
+
+const GRADE_COLOR: Record<string, PillColor> = { A: 'green', B: 'blue', C: 'amber', D: 'red' };
 
 function sectionLabel(text: string) {
   return <div className="app-form-section">{text}</div>;
@@ -49,6 +52,16 @@ export default function SuppliersPage() {
   useEffect(() => {
     void fetchRows();
   }, []);
+
+  const phone = useMediaQuery(PHONE_QUERY);
+  const [reliability, setReliability] = useState<Record<string, SupplierReliability>>({});
+  useEffect(() => {
+    if (!phone) return;
+    suppliersApi
+      .reliability()
+      .then(({ data }) => setReliability(Object.fromEntries(data.map((r) => [r.supplierId, r]))))
+      .catch(() => undefined);
+  }, [phone]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -138,6 +151,25 @@ export default function SuppliersPage() {
       width: 110,
       render: (v: number | null) => (v == null ? '—' : `${v} day${v === 1 ? '' : 's'}`),
     },
+    ...(phone
+      ? [
+          {
+            title: 'Score',
+            key: 'score',
+            render: (_: unknown, r: Supplier) => {
+              const s = reliability[r.id];
+              if (s?.score == null || !s.grade) {
+                return s?.dueDeliveries ? <span style={{ fontSize: 12, color: '#94a3b8' }}>Too few deliveries</span> : '—';
+              }
+              return (
+                <StatusPill color={GRADE_COLOR[s.grade] ?? 'gray'} compact>
+                  {s.grade} · {Math.round(s.score)}
+                </StatusPill>
+              );
+            },
+          },
+        ]
+      : []),
     {
       title: 'Status',
       dataIndex: 'active',
@@ -181,7 +213,7 @@ export default function SuppliersPage() {
       />
 
       <DataTable<Supplier>
-        card={{ badge: 'active' }}
+        card={{ subtitle: ['phone'], badge: 'active' }}
         rowKey="id"
         loading={loading}
         dataSource={filtered}

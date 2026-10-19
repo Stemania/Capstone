@@ -519,7 +519,7 @@ export default function UsersPage() {
       )}
 
       <ResponsiveTable
-        card={{ subtitle: ['email'], badge: 'status' }}
+        card={{ subtitle: ['role', 'email'], badge: 'status' }}
         cardsBelow="narrow"
         className="std-list-table"
         rowKey="id"

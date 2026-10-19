@@ -1045,7 +1045,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
               return (
                 <div
                   key={job.id}
-                  className="admin-card"
+                  className="admin-card jo-mrow"
                   style={selected ? { borderColor: '#2563eb', background: '#eff6ff' } : undefined}
                   onClick={() => {
                     if (selectMode) {
@@ -1059,39 +1059,32 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
                   role="button"
                   tabIndex={0}
                 >
-                  <div className="admin-card__top">
-                    <div>
-                      <div className="admin-card__kicker">
-                        {job.jobNumber || job.id.slice(0, 8).toUpperCase()}
-                      </div>
-                      <div className="admin-card__title">{job.title}</div>
-                      <div className="admin-card__meta">
-                        {job.clientName || 'No client'}
-                        {' · '}
-                        Due {formatShop(job.dueDate, 'MMM D')}
-                        {job.opsTotal ? ` · ${job.opsCompleted || 0}/${job.opsTotal} ops` : ''}
-                      </div>
-                    </div>
-                    <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div className="jo-mrow__top">
+                    <span className="jo-mrow__no">{job.jobNumber || job.id.slice(0, 8).toUpperCase()}</span>
+                    <div className="jo-mrow__status" onClick={(e) => e.stopPropagation()}>
                       <JobStatusBadge job={job} />
-                      {listTab === 'drafts' && job.draftStage ? (
-                        <span style={{ fontSize: 11, color: '#64748b' }}>{job.draftStage}</span>
-                      ) : null}
                       <Dropdown menu={{ items: jobActionItems(job) }} trigger={['click']} placement="bottomRight">
                         <Button type="text" size="small" icon={<MoreOutlined style={{ fontSize: 18 }} />} aria-label="More actions" />
                       </Dropdown>
                     </div>
                   </div>
-                  <div className="admin-card__row">
-                    <span style={{ fontSize: 12, color: '#64748b' }}>
-                      {(() => {
-                        const d = job.updatedAt || job.createdAt;
-                        return d && dayjs(d).isValid()
-                          ? `Modified ${formatShop(d, 'MMM D, YYYY')}`
-                          : '—';
-                      })()}
-                    </span>
+                  <div className="jo-mrow__title">{job.title}</div>
+                  <div className="jo-mrow__meta">
+                    <span className="jo-mrow__client">{job.clientName || 'No client'}</span>
+                    <DuePill job={job} />
                   </div>
+                  {listTab === 'drafts' ? (
+                    job.draftStage ? <div className="jo-mrow__stage">{job.draftStage}</div> : null
+                  ) : job.opsTotal ? (
+                    <div className="jo-mrow__progress">
+                      <div className="jo-mrow__bar">
+                        <span style={{ width: `${Math.round(((job.opsCompleted || 0) / job.opsTotal) * 100)}%` }} />
+                      </div>
+                      <span className="jo-mrow__ops">
+                        {job.opsCompleted || 0}/{job.opsTotal} ops
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               );
             })}

@@ -475,7 +475,7 @@ export default function AttendancePage() {
             </StatGrid>
           </div>
           <DataTable<AttendanceRow>
-            card={{ badge: 'status', full: ['note'] }}
+            card={{ subtitle: ['shift'], badge: 'status', full: ['note'] }}
             cardsBelow="narrow"
             rowKey="workerId"
             loading={loading}
@@ -499,7 +499,7 @@ export default function AttendancePage() {
             </StatGrid>
           </div>
           <DataTable<AttendanceRow>
-            card={{ badge: 'status', full: ['note'] }}
+            card={{ subtitle: ['shift'], badge: 'status', full: ['note'] }}
             cardsBelow="narrow"
             rowKey="date"
             loading={historyLoading}

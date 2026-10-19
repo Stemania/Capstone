@@ -122,6 +122,7 @@ export default function SupplierOrdersPage() {
   return (
     <div>
       <div
+        className="so-list-top"
         style={{
           display: 'flex',
           flexWrap: 'wrap',
@@ -148,7 +149,7 @@ export default function SupplierOrdersPage() {
       </div>
 
       <ResponsiveTable
-        card={{ subtitle: ['supplierName'], badge: 'status' }}
+        card={{ subtitle: ['supplierName'], badge: 'status', hide: ['dateIssued', 'preparedByName'] }}
         cardsBelow="narrow"
         className="std-list-table"
         rowKey="id"
