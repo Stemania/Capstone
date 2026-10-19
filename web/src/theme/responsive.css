@@ -295,29 +295,52 @@
     margin: -8px -8px 0 0;
   }
 
-  /* Compact list toolbars: search + filter share a row; actions stay compact. */
+  /* List toolbars: one card row — search, a filter, then icon actions (like FilterBar on phones). */
   .app-shell .std-list-toolbar,
   .app-shell .jo-list-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+    padding: 8px;
+    margin-bottom: 12px;
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: 10px;
+  }
+
+  .app-shell .ui-card .std-list-toolbar {
+    padding: 0;
+    border: 0;
+    background: transparent;
   }
 
   .app-shell .std-list-filters,
   .app-shell .jo-list-filters {
     display: flex;
+    flex: 1 1 auto;
     flex-wrap: nowrap;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    min-width: 0;
     overflow-x: auto;
+    scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
   }
 
-  .app-shell .std-list-search,
-  .app-shell .jo-list-search {
+  .app-shell .std-list-filters::-webkit-scrollbar,
+  .app-shell .jo-list-filters::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-shell .std-list-search.ant-input-affix-wrapper,
+  .app-shell .jo-list-search.ant-input-affix-wrapper {
     flex: 1 1 auto;
-    min-width: 0;
+    min-width: 128px;
     width: auto;
+    background: var(--c-surface-sunken);
+    border-color: transparent;
+    border-radius: 8px;
   }
 
   .app-shell .std-list-filter,
@@ -325,27 +348,93 @@
   .app-shell .std-list-filter--sm,
   .app-shell .jo-list-filter--sm {
     flex: 0 0 auto;
-    width: 132px;
-    min-width: 120px;
+    width: 112px;
+    min-width: 96px;
+  }
+
+  /* Two or more selects: search + actions on row one, the selects share row two. */
+  .app-shell .std-list-toolbar:has(.std-list-filters > .ant-select ~ .ant-select) {
+    flex-wrap: wrap;
+  }
+
+  .app-shell .std-list-toolbar:has(.std-list-filters > .ant-select ~ .ant-select) > .std-list-filters {
+    display: contents;
+  }
+
+  .app-shell .std-list-toolbar:has(.std-list-filters > .ant-select ~ .ant-select) .std-list-actions {
+    order: 1;
+  }
+
+  .app-shell .std-list-toolbar:has(.std-list-filters > .ant-select ~ .ant-select) .std-list-search {
+    flex: 1 1 0;
+  }
+
+  .app-shell .std-list-toolbar:has(.std-list-filters > .ant-select ~ .ant-select)::after {
+    content: '';
+    order: 2;
+    flex-basis: 100%;
+    height: 0;
+  }
+
+  .app-shell .std-list-toolbar:has(.std-list-filters > .ant-select ~ .ant-select) .std-list-filters > .ant-select,
+  .app-shell .std-list-toolbar:has(.std-list-filters > .ant-select ~ .ant-select) .std-list-filters > .ant-picker {
+    order: 3;
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+  }
+
+  .app-shell .std-list-toolbar .ant-select-outlined:not(.ant-select-focused),
+  .app-shell .jo-list-toolbar .ant-select-outlined:not(.ant-select-focused),
+  .app-shell .std-list-toolbar .ant-picker-outlined:not(.ant-picker-focused) {
+    background: var(--c-surface-sunken);
+    border-color: transparent;
+    border-radius: 8px;
   }
 
   .app-shell .std-list-actions,
   .app-shell .jo-list-actions {
     display: flex;
-    flex-wrap: wrap;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
     align-items: center;
-    gap: 8px;
-    width: 100%;
+    gap: 6px;
+    width: auto;
   }
 
   .app-shell .std-list-actions .ant-btn,
   .app-shell .jo-list-actions .ant-btn {
     flex: 0 0 auto;
+    height: 36px;
+    border-radius: 8px;
   }
 
-  .app-shell .std-list-actions .ant-btn-primary,
-  .app-shell .jo-list-actions .ant-btn-primary {
-    margin-left: auto;
+  .app-shell .std-list-actions .ant-btn:has(> .ant-btn-icon),
+  .app-shell .jo-list-actions .ant-btn:has(> .ant-btn-icon) {
+    width: 36px;
+    min-width: 36px;
+    padding: 0;
+    gap: 0;
+  }
+
+  .app-shell .std-list-actions .ant-btn:has(> .ant-btn-icon) > span:not(.ant-btn-icon),
+  .app-shell .jo-list-actions .ant-btn:has(> .ant-btn-icon) > span:not(.ant-btn-icon) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .app-shell .std-list-actions .ant-btn-color-default.ant-btn-variant-outlined,
+  .app-shell .jo-list-actions .ant-btn-color-default.ant-btn-variant-outlined {
+    background: var(--c-surface-sunken);
+    border-color: transparent;
+  }
+
+  .app-shell .std-list-actions .ui-infotip {
+    width: 24px;
   }
 
   .app-shell .ui-filterbar__search.ant-input-affix-wrapper {
@@ -422,6 +511,27 @@
     display: none;
   }
 
+  .work-calendar__cell {
+    min-height: 44px;
+  }
+
+  .work-calendar__chip {
+    width: 6px;
+    height: 6px;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    font-size: 0;
+    line-height: 0;
+    overflow: hidden;
+    background: currentColor;
+  }
+
+  .work-calendar__today-pill {
+    display: none;
+  }
+
   .work-calendar__cell--overtime .work-calendar__event {
     color: #2563eb;
   }
@@ -451,6 +561,17 @@
   .worker-setup-grid--list .worker-setup-list {
     min-height: 0;
     max-height: none;
+    padding: 8px;
+  }
+
+  .worker-setup-grid--list .worker-setup-list__items {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .app-shell--m .worker-setup-list .ant-input-affix-wrapper-outlined:not(.ant-input-affix-wrapper-focused) {
+    background: var(--c-surface-sunken);
+    border-color: transparent;
   }
 
   .worker-setup-list__item {
@@ -701,8 +822,24 @@
     min-width: 0;
   }
 
+  .att-toolbar {
+    flex-wrap: nowrap;
+  }
+
   .att-toolbar > .ant-btn:last-child:not(.ant-btn-icon-only) {
-    flex: 1 1 100%;
+    flex: 0 0 36px;
+    width: 36px;
+    padding: 0;
+    gap: 0;
+  }
+
+  .att-toolbar > .ant-btn:last-child:not(.ant-btn-icon-only) > span:not(.ant-btn-icon) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .att-toolbar--history > .ant-select,
@@ -812,6 +949,46 @@
     gap: var(--m-gap);
   }
 
+  .inventory-summary-cards--compact {
+    margin-bottom: 12px;
+  }
+
+  .app-shell--m .admin-h-scroll {
+    scrollbar-width: none;
+  }
+
+  .app-shell--m .admin-h-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-shell--m .admin-h-scroll > .ant-segmented {
+    margin-bottom: 12px !important;
+  }
+
+  .app-shell--m .ui-cardlist__toolbar {
+    justify-content: flex-end;
+  }
+
+  .app-shell--m .ui-cardlist__toolbar > .ant-checkbox-wrapper {
+    margin-right: auto;
+  }
+
+  .app-shell--m .ui-cardlist__select.ant-select {
+    flex: 0 1 152px;
+    min-width: 112px;
+  }
+
+  /* Card lists drop the desktop table frame: each row is its own card. */
+  .app-shell--m .ui-cardlist-wrap.std-list-table,
+  .app-shell--m .ui-cardlist-wrap.jo-list-table,
+  .app-shell--m .ui-cardlist-wrap.ui-table {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: visible;
+  }
+
   .app-shell--m .ui-stat {
     gap: 10px;
     padding: 10px 12px;
@@ -837,6 +1014,87 @@
   }
 }
 
+/* Tablets: list toolbars stay on one row — search grows, filters fixed, actions keep labels. */
+@media (min-width: 768px) and (max-width: 1023.98px) {
+  .app-shell--m .std-list-toolbar,
+  .app-shell--m .jo-list-toolbar {
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .app-shell--m .std-list-filters,
+  .app-shell--m .jo-list-filters {
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+
+  .app-shell--m .std-list-search,
+  .app-shell--m .jo-list-search {
+    flex: 1 1 180px;
+    width: auto;
+    min-width: 150px;
+  }
+
+  .app-shell--m .std-list-filter,
+  .app-shell--m .jo-list-filter,
+  .app-shell--m .std-list-filter--sm,
+  .app-shell--m .jo-list-filter--sm {
+    flex: 0 1 140px;
+    width: 140px;
+    min-width: 110px;
+  }
+
+  .app-shell--m .std-list-actions,
+  .app-shell--m .jo-list-actions {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  .app-shell--m .ui-filterbar {
+    flex-wrap: nowrap;
+  }
+
+  .app-shell--m .ui-filterbar__left {
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+
+  .app-shell--m .ui-filterbar__search.ant-input-affix-wrapper {
+    flex: 1 1 200px;
+    width: auto;
+    min-width: 150px;
+  }
+
+  .app-shell--m .ui-filterbar__select.ant-select {
+    flex: 0 1 160px;
+    width: 160px;
+    min-width: 120px;
+  }
+
+  .app-shell--m .ui-filterbar__actions {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+  }
+
+  .app-shell--m .mtypes {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .app-shell--m .mtypes::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-shell--m .mtypes__chip {
+    flex-shrink: 0;
+  }
+}
+
 @media (max-width: 767px) {
   .app-shell--m {
     --page-pad: 12px;
@@ -852,6 +1110,24 @@
     background: var(--c-surface);
     border: 1px solid var(--c-border);
     border-radius: 10px;
+  }
+
+  .app-shell .jo-m__add {
+    background: var(--c-primary) !important;
+  }
+
+  .app-shell .sched-m__stats:not(:has(> :nth-child(4))) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ui-filterbar-wrap--phone {
+    margin-bottom: 12px;
+  }
+
+  .ui-page > .ui-filterbar-wrap--phone,
+  .ui-card .ui-filterbar-wrap--phone,
+  .ui-filterbar-wrap--phone:last-child {
+    margin-bottom: 0;
   }
 
   .ui-card .ui-mbar {
@@ -933,7 +1209,7 @@
   }
 
   /* Stat tiles that filter the list: one compact strip, number over label. */
-  .ui-stat-grid:has(> .ui-stat--button) {
+  .ui-stat-grid:is(:has(> .ui-stat--button), :not(:has(.ui-stat__hint))) {
     display: grid;
     grid-auto-flow: column;
     grid-template-columns: none !important;
@@ -946,11 +1222,11 @@
     border-radius: 10px;
   }
 
-  .ui-stat-grid:has(> .ui-stat--button)::-webkit-scrollbar {
+  .ui-stat-grid:is(:has(> .ui-stat--button), :not(:has(.ui-stat__hint)))::-webkit-scrollbar {
     display: none;
   }
 
-  .ui-stat-grid:has(> .ui-stat--button) > .ui-stat {
+  .ui-stat-grid:is(:has(> .ui-stat--button), :not(:has(.ui-stat__hint))) > .ui-stat {
     grid-column: auto !important;
     justify-content: center;
     padding: 8px 6px;
@@ -962,21 +1238,21 @@
     text-align: center;
   }
 
-  .ui-stat-grid:has(> .ui-stat--button) > .ui-stat:last-child {
+  .ui-stat-grid:is(:has(> .ui-stat--button), :not(:has(.ui-stat__hint))) > .ui-stat:last-child {
     border-right: 0;
   }
 
-  .ui-stat-grid:has(> .ui-stat--button) .ui-stat__text {
+  .ui-stat-grid:is(:has(> .ui-stat--button), :not(:has(.ui-stat__hint))) .ui-stat__text {
     flex-direction: column-reverse;
     align-items: center;
   }
 
-  .ui-stat-grid:has(> .ui-stat--button) .ui-stat__value {
+  .ui-stat-grid:is(:has(> .ui-stat--button), :not(:has(.ui-stat__hint))) .ui-stat__value {
     font-size: 17px;
     font-weight: 800;
   }
 
-  .ui-stat-grid:has(> .ui-stat--button) .ui-stat__label {
+  .ui-stat-grid:is(:has(> .ui-stat--button), :not(:has(.ui-stat__hint))) .ui-stat__label {
     margin-top: 1px;
     font-size: 11px;
     font-weight: 600;
@@ -984,17 +1260,17 @@
     white-space: nowrap;
   }
 
-  .ui-stat-grid:has(> .ui-stat--button) .ui-stat__icon,
-  .ui-stat-grid:has(> .ui-stat--button) .ui-stat__hint {
+  .ui-stat-grid:is(:has(> .ui-stat--button), :not(:has(.ui-stat__hint))) .ui-stat__icon,
+  .ui-stat-grid:is(:has(> .ui-stat--button), :not(:has(.ui-stat__hint))) .ui-stat__hint {
     display: none;
   }
 
-  .ui-stat-grid:has(> .ui-stat--button) > .ui-stat.is-active {
+  .ui-stat-grid:is(:has(> .ui-stat--button), :not(:has(.ui-stat__hint))) > .ui-stat.is-active {
     box-shadow: inset 0 -2px 0 var(--c-primary);
   }
 
-  .ui-stat-grid:has(> .ui-stat--button) > .ui-stat.is-active .ui-stat__value,
-  .ui-stat-grid:has(> .ui-stat--button) > .ui-stat.is-active .ui-stat__label {
+  .ui-stat-grid:is(:has(> .ui-stat--button), :not(:has(.ui-stat__hint))) > .ui-stat.is-active .ui-stat__value,
+  .ui-stat-grid:is(:has(> .ui-stat--button), :not(:has(.ui-stat__hint))) > .ui-stat.is-active .ui-stat__label {
     color: var(--c-primary);
   }
 }

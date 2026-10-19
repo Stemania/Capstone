@@ -254,3 +254,73 @@
   font-size: 12px;
   color: var(--c-text-muted);
 }
+
+/* Phones: day cells show the number and a colour dot; month stats share one strip. */
+@media (max-width: 767px) {
+  .work-calendar-page .work-calendar__shell {
+    padding: 10px;
+  }
+
+  .work-calendar-page .work-calendar__nav .period-nav__trigger,
+  .work-calendar-page .work-calendar__month-picker .ant-picker-input > input {
+    font-size: 17px;
+  }
+
+  .work-calendar-page .work-calendar__grid {
+    gap: 3px;
+  }
+
+  .work-calendar-page .work-calendar__cell {
+    align-items: center;
+    padding: 5px 2px;
+    gap: 3px;
+  }
+
+  .work-calendar-page .work-calendar__cell--overtime {
+    border-left-width: 1px;
+  }
+
+  .work-calendar-page .work-calendar__cell--today .work-calendar__day-num {
+    min-width: 24px;
+    height: 24px;
+  }
+
+  .work-calendar-page .work-calendar__chip {
+    width: 6px;
+    height: 6px;
+    padding: 0;
+    font-size: 0;
+    line-height: 0;
+    background: currentColor;
+  }
+
+  .work-calendar-page .work-calendar__stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: 10px;
+  }
+
+  .work-calendar-page .work-calendar__stat {
+    padding: 8px 4px;
+    text-align: center;
+    background: transparent;
+    border: 0;
+    border-right: 1px solid var(--c-surface-sunken);
+    border-radius: 0;
+  }
+
+  .work-calendar-page .work-calendar__stat:last-child {
+    border-right: 0;
+  }
+
+  .work-calendar-page .work-calendar__stat-n {
+    font-size: 17px;
+  }
+
+  .work-calendar-page .work-calendar__stat-l {
+    font-size: 10.5px;
+    line-height: 1.25;
+  }
+}

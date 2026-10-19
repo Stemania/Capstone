@@ -12,6 +12,8 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import StatCard, { StatGrid } from '../../components/ui/StatCard';
+import { MOBILE_SHELL_QUERY, useMediaQuery } from '../../hooks/useViewport';
 
 export type InventoryCardTone = 'slate' | 'green' | 'amber' | 'red' | 'blue';
 
@@ -106,6 +108,32 @@ export function InventorySummaryCards({
   activeKey?: string | null;
   onSelect: (key: string | null) => void;
 }) {
+  const compact = useMediaQuery(MOBILE_SHELL_QUERY);
+  if (compact) {
+    return (
+      <div className="inventory-summary-cards--compact">
+        <StatGrid min={150}>
+          {cards.map((card) => {
+            const pressed = activeKey === card.key;
+            const Icon = card.icon;
+            return (
+              <StatCard
+                key={card.key}
+                icon={<Icon size={16} strokeWidth={2} aria-hidden />}
+                tone={card.tone || 'slate'}
+                valueTone={card.tone && card.tone !== 'slate' && card.value > 0 ? card.tone : undefined}
+                label={card.label}
+                value={card.value}
+                hint={card.caption}
+                active={pressed}
+                onClick={() => onSelect(pressed ? null : card.key)}
+              />
+            );
+          })}
+        </StatGrid>
+      </div>
+    );
+  }
   return (
     <div
       style={{
