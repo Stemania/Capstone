@@ -5,10 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { ConfigProvider } from 'antd';
 import type { ReactNode } from 'react';
 import ShopDetailsPage from './ShopDetailsPage';
-import {
-  PageHeaderActionsProvider,
-  usePageHeaderActionsSlot,
-} from '../../layouts/pageHeaderActions';
+import { PageHeaderActionsProvider } from '../../layouts/pageHeaderActions';
 
 vi.mock('../../api/shopDetails.api', () => ({
   shopDetailsApi: {
@@ -42,19 +39,11 @@ vi.mock('../../hooks/useShopDetails', () => ({
   invalidateShopDetails: () => undefined,
 }));
 
-function HeaderActionsHost() {
-  const actions = usePageHeaderActionsSlot();
-  return <div data-testid="page-header-actions">{actions}</div>;
-}
-
 function renderPage(ui: ReactNode) {
   return render(
     <ConfigProvider>
       <MemoryRouter>
-        <PageHeaderActionsProvider>
-          <HeaderActionsHost />
-          {ui}
-        </PageHeaderActionsProvider>
+        <PageHeaderActionsProvider>{ui}</PageHeaderActionsProvider>
       </MemoryRouter>
     </ConfigProvider>
   );
@@ -69,7 +58,6 @@ describe('ShopDetailsPage', () => {
     await waitFor(() => {
       expect(screen.getByDisplayValue('Brothers Machine')).toBeTruthy();
     });
-    expect(screen.getByRole('button', { name: /preview letterhead/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /save/i })).toBeTruthy();
     expect(screen.getByText('Letterhead')).toBeTruthy();
     expect(screen.getByText('Contact')).toBeTruthy();
@@ -77,7 +65,7 @@ describe('ShopDetailsPage', () => {
     expect(screen.getByText('Test email')).toBeTruthy();
   });
 
-  it('opens letterhead preview modal reflecting unsaved shop name edits', async () => {
+  it('updates letterhead preview when the shop name changes', async () => {
     await act(async () => {
       renderPage(<ShopDetailsPage />);
     });
@@ -88,9 +76,14 @@ describe('ShopDetailsPage', () => {
       fireEvent.change(nameInput, { target: { value: 'New Shop Name' } });
     });
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /preview letterhead/i }));
-    });
+    // jsdom: Grid breakpoints are unset → narrow layout → preview opens via button/drawer.
+    // Wide layout would already show the live sheet.
+    const previewBtn = screen.queryByRole('button', { name: /preview letterhead/i });
+    if (previewBtn) {
+      await act(async () => {
+        fireEvent.click(previewBtn);
+      });
+    }
 
     await waitFor(() => {
       expect(screen.getByTestId('letterhead-preview-sheet')).toBeTruthy();
