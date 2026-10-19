@@ -720,6 +720,11 @@ function JobOrderDetailView() {
               <NeedsReplanTag job={job} compact={false} />
               <MaterialWaitTag wait={job} compact={false} />
               <MaterialDelayTag job={job} compact={false} />
+              {!isWorker && !isDraft && (isAdmin || canOfficeWrite) ? (
+                <span className="jo-head__lock-pill" title="Locked after release">
+                  <LockOutlined /> Locked
+                </span>
+              ) : null}
             </div>
             <h2 className="jo-head__title">{job.title}</h2>
             <div className="jo-head__facts">
@@ -774,6 +779,7 @@ function JobOrderDetailView() {
           )}
           {!isDraft && (isAdmin || canOfficeWrite) && (
             <span
+              className="jo-head__lock"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -995,9 +1001,9 @@ function JobOrderDetailView() {
         />
       ) : null}
 
-      <Row gutter={[16, 16]} align="top" style={{ marginBottom: 24 }}>
+      <Row gutter={[16, 16]} align="top" className="jo-detail-grid" style={{ marginBottom: 24 }}>
         <Col xs={24} lg={16}>
-          <div id="supplier-orders" style={{ ...cardStyle(), marginBottom: 16, scrollMarginTop: 80 }}>
+          <div id="supplier-orders" className="jo-dcard" style={{ ...cardStyle(), marginBottom: 16, scrollMarginTop: 80 }}>
             <div
               style={{
                 display: 'flex',
@@ -1040,7 +1046,7 @@ function JobOrderDetailView() {
             <EarlierPlannedMaterials materials={earlierPlanned} />
           </div>
 
-          <div style={cardStyle({ marginBottom: 16 })}>
+          <div className="jo-dcard" style={cardStyle({ marginBottom: 16 })}>
             <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 12 }}>
               Operations
             </div>
@@ -1085,9 +1091,10 @@ function JobOrderDetailView() {
                   );
 
                   return (
-                    <div key={op.id} style={{ display: 'flex', gap: 16, position: 'relative' }}>
+                    <div key={op.id} className="jo-op-row" style={{ display: 'flex', gap: 16, position: 'relative' }}>
                       {!isLast && (
                         <div
+                          className="jo-op-line"
                           style={{
                             position: 'absolute',
                             left: 15,
@@ -1099,6 +1106,7 @@ function JobOrderDetailView() {
                         />
                       )}
                       <div
+                        className="jo-op-dot"
                         style={{
                           width: 32,
                           height: 32,
@@ -1119,6 +1127,7 @@ function JobOrderDetailView() {
                       </div>
 
                       <div
+                        className="jo-op-body"
                         style={{
                           flex: 1,
                           minWidth: 0,
@@ -1163,6 +1172,7 @@ function JobOrderDetailView() {
                           />
                         ) : (
                         <div
+                          className="jo-op-facts"
                           style={{
                             display: 'grid',
                             gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
@@ -1354,7 +1364,7 @@ function JobOrderDetailView() {
 
         <Col xs={24} lg={8}>
           {job.projectedCompletion || job.predictedCompletion ? <FinishCard job={job} /> : null}
-          <div style={cardStyle({ marginBottom: 16 })}>
+          <div className="jo-dcard" style={cardStyle({ marginBottom: 16 })}>
             <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 12 }}>
               Details
             </div>
@@ -1391,7 +1401,7 @@ function JobOrderDetailView() {
           </div>
 
           {jobStarted ? (
-            <div style={cardStyle({ marginBottom: 16 })}>
+            <div className="jo-dcard" style={cardStyle({ marginBottom: 16 })}>
               <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 12 }}>
                 Time taken
               </div>
@@ -1407,7 +1417,7 @@ function JobOrderDetailView() {
           ) : null}
 
           {canManage ? (
-            <div style={cardStyle({ marginBottom: 16 })}>
+            <div className="jo-dcard" style={cardStyle({ marginBottom: 16 })}>
               <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 4 }}>
                 Activity
               </div>
@@ -1770,7 +1780,7 @@ function FinishCard({ job }: { job: JobOrder }) {
   const late = job.scheduleFlag === 'AMBER' || job.scheduleFlag === 'RED';
   const lateStyle: CSSProperties = { color: '#7A1528' };
   return (
-    <div style={cardStyle({ marginBottom: 16 })}>
+    <div className="jo-dcard" style={cardStyle({ marginBottom: 16 })}>
       <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 12 }}>Finish</div>
       <div style={DETAIL_GRID}>
         <div style={{ color: MUTED }}>Scheduled finish</div>
