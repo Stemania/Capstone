@@ -91,6 +91,7 @@ export interface Client {
   email?: string | null;
   mobileNumber?: string | null;
   notifyByEmail?: boolean;
+  /** @deprecated SMS channel retired — kept optional for prototype/legacy only. */
   notifyBySms?: boolean;
   createdAt?: string;
 }
@@ -992,7 +993,8 @@ export type NotificationMilestone =
   | 'JOB_COMPLETED'
   | 'JOB_DELIVERED';
 
-export type NotificationChannel = 'EMAIL' | 'SMS';
+/** Historical rows may still be SMS; new sends are email only. */
+export type NotificationChannel = 'EMAIL' | 'SMS' | string;
 
 export type NotificationStatus = 'PENDING' | 'SENT' | 'NOT_SENT' | 'FAILED' | 'SKIPPED';
 
@@ -1275,30 +1277,12 @@ export interface InventoryUsageConsumables {
     lowStock: boolean;
     consumptionQuantity: number | null;
     consumptionPerWorkingDay: number | null;
-    stocktakeWorkingDays: number;
+    measuredWorkingDays?: number | null;
   }[];
 }
 
-export interface StocktakeFormItem {
-  toolId: string;
-  name: string;
-  code: string;
-  unit: string;
-  sizeSpec: string | null;
-  quantityOnHand: number | null;
-  minimumStock: number | null;
-  lowStock: boolean;
-  lastCountedOn: string | null;
-  lastCountedQuantity: number | null;
-}
-
-export interface StocktakeForm {
-  previousStocktakeOn: string | null;
-  previousCountedByName: string | null;
-  items: StocktakeFormItem[];
-}
-
-export interface StocktakeSummary {
+/** @deprecated Stocktake HTTP API removed; types kept for prototype/legacy compile only. */
+export interface StocktakeDetail {
   id: string;
   countedOn: string;
   countedById: string;
@@ -1306,23 +1290,18 @@ export interface StocktakeSummary {
   notes: string | null;
   createdAt: string;
   lineCount: number;
-}
-
-export interface StocktakeLine {
-  id: string;
-  stocktakeId: string;
-  toolId: string;
-  toolName: string | null;
-  toolCode: string | null;
-  unit: string | null;
-  sizeSpec: string | null;
-  previousQuantity: number | null;
-  countedQuantity: number | null;
-  delta: number | null;
-}
-
-export interface StocktakeDetail extends StocktakeSummary {
-  lines: StocktakeLine[];
+  lines: {
+    id: string;
+    stocktakeId: string;
+    toolId: string;
+    toolName: string | null;
+    toolCode: string | null;
+    unit: string | null;
+    sizeSpec: string | null;
+    previousQuantity: number | null;
+    countedQuantity: number | null;
+    delta: number | null;
+  }[];
 }
 
 export interface LoginResponse {

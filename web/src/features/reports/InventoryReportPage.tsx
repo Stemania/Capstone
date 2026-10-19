@@ -1,15 +1,19 @@
-import { shopToday } from '../../utils/shopTime';
+import { shopNow, shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
 import { Button, DatePicker, Table, message } from 'antd';
 import { DownloadOutlined } from '@ant-design/icons';
 import { downloadCsv, rowsToCsv } from '../../utils/csvExport';
+import { analyticsApi } from '../../api/analytics.api';
 import { inventoryApi, toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
+import { useShopDetails } from '../../hooks/useShopDetails';
 import type {
-  InventoryPurchaseSuggestions,
-  InventoryUsageByItem,
+  ConsumableRunOut,
   InventoryUsageByWorker,
+  MaterialPurchase,
+  MaterialPurchaseList,
   Tool,
+  ToolType,
 } from '../../types';
 import {
   defaultAnalyticsRange,
@@ -17,16 +21,20 @@ import {
   rangeToParams,
   type AnalyticsRange,
 } from '../analytics/analyticsPeriod';
-import { ReportSection, ReportStamp, ReportToolbar, displayOrDash } from './ReportChrome';
+import { ReportSection, ReportToolbar, displayOrDash } from './ReportChrome';
+import { PrintDocument } from './PrintTemplate';
 import { PageSkeleton } from '../../components/ui';
+import './reportsPrint.css';
 
 export default function InventoryReportPage() {
+  const shop = useShopDetails();
   const [range, setRange] = useState<AnalyticsRange>(defaultAnalyticsRange);
   const params = rangeToParams(range);
   const [tools, setTools] = useState<Tool[]>([]);
-  const [usageItem, setUsageItem] = useState<InventoryUsageByItem | null>(null);
+  const [types, setTypes] = useState<ToolType[]>([]);
+  const [runOut, setRunOut] = useState<ConsumableRunOut | null>(null);
   const [usageWorker, setUsageWorker] = useState<InventoryUsageByWorker | null>(null);
-  const [suggestions, setSuggestions] = useState<InventoryPurchaseSuggestions | null>(null);
+  const [purchases, setPurchases] = useState<MaterialPurchaseList | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -34,17 +42,19 @@ export default function InventoryReportPage() {
     (async () => {
       setLoading(true);
       try {
-        const [t, byItem, byWorker, sug] = await Promise.all([
+        const [t, typ, ro, byWorker, mp] = await Promise.all([
           toolsApi.list(),
-          inventoryApi.usageByItem(params),
+          toolsApi.listTypes({ includeUnits: true }),
+          analyticsApi.consumableRunOut(),
           inventoryApi.usageByWorker(params),
-          inventoryApi.purchaseSuggestions(),
+          inventoryApi.materialPurchases({ ...params, status: 'ORDERED' }),
         ]);
         if (!cancelled) {
           setTools(t.data);
-          setUsageItem(byItem.data);
+          setTypes(typ.data);
+          setRunOut(ro.data);
           setUsageWorker(byWorker.data);
-          setSuggestions(sug.data);
+          setPurchases(mp.data);
         }
       } catch (err) {
         if (!cancelled) message.error(getErrorMessage(err));
@@ -57,134 +67,176 @@ export default function InventoryReportPage() {
     };
   }, [params.from, params.to]);
 
-  const stockRows = useMemo(
-    () =>
-      [...tools].sort((a, b) => {
-        if (a.lowStock !== b.lowStock) return a.lowStock ? -1 : 1;
-        return a.name.localeCompare(b.name);
-      }),
-    [tools]
+  const generatedAt = shopNow().format('YYYY-MM-DD HH:mm');
+  const consumables = runOut?.items || [];
+  const outstanding = usageWorker?.outstandingUnreturned || [];
+  const awaiting: MaterialPurchase[] = (purchases?.items || []).filter(
+    (p) => !p.dateReceived && !p.cancelledAt
   );
 
-  const outstanding = usageWorker?.outstandingUnreturned || [];
-  const suggestionRows = suggestions?.items || [];
+  const toolAvailability = useMemo(() => {
+    return types
+      .map((t) => {
+        const units = t.units || [];
+        const available =
+          t.availableCount ?? units.filter((u) => u.status === 'AVAILABLE').length;
+        const out = t.outCount ?? units.filter((u) => u.status === 'OUT').length;
+        const total = t.totalUnits ?? units.length;
+        return { typeName: t.name, available, out, total };
+      })
+      .filter((r) => r.total > 0)
+      .sort((a, b) => a.typeName.localeCompare(b.typeName));
+  }, [types]);
 
   const exportReport = () => {
     const sections = [
-      `Inventory Status Report,Period ${params.from} to ${params.to}`,
-      'Current stock',
-      rowsToCsv(stockRows, [
-        { key: 'name', header: 'Item', value: (r) => r.name },
-        { key: 'code', header: 'Code', value: (r) => r.code },
-        {
-          key: 'category',
-          header: 'Category',
-          value: (r) => (r.category === 'CONSUMABLE' ? 'Consumable' : 'Returnable'),
-        },
-        { key: 'unit', header: 'Unit', value: (r) => r.unit },
-        { key: 'onHand', header: 'In stock', value: (r) => r.quantityOnHand },
-        { key: 'min', header: 'Reorder level', value: (r) => r.minimumStock },
-        { key: 'low', header: 'Low stock', value: (r) => (r.lowStock ? 'Yes' : 'No') },
-      ]),
-      'Outstanding borrowed tools by worker',
-      rowsToCsv(outstanding, [
-        { key: 'worker', header: 'Worker', value: (r) => r.workerName },
-        { key: 'qty', header: 'Total qty', value: (r) => r.totalOutstandingQuantity },
-        {
-          key: 'items',
-          header: 'Items',
-          value: (r) =>
-            (r.items || []).map((i) => `${i.toolName} (${i.quantity ?? '—'})`).join('; '),
-        },
-      ]),
-      'Returnable tools borrowed over period',
-      rowsToCsv(usageItem?.items || [], [
-        { key: 'name', header: 'Tool', value: (r) => r.name },
-        { key: 'code', header: 'Code', value: (r) => r.code },
-        { key: 'borrowed', header: 'Borrowed', value: (r) => r.borrowQuantity },
-        { key: 'perDay', header: 'Per working day', value: (r) => r.consumptionPerWorkingDay },
-      ]),
-      'Scan-based purchase suggestions',
-      rowsToCsv(suggestionRows, [
+      `Inventory report,Period ${params.from} to ${params.to}`,
+      'Consumables',
+      rowsToCsv(consumables, [
         { key: 'name', header: 'Item', value: (r) => r.name },
         { key: 'code', header: 'Code', value: (r) => r.code },
         { key: 'onHand', header: 'On hand', value: (r) => r.quantityOnHand },
         { key: 'rop', header: 'Reorder level', value: (r) => r.reorderLevel ?? r.minimumStock },
-        { key: 'sug', header: 'Suggested qty', value: (r) => r.suggestedOrderQuantity },
-        { key: 'adu', header: 'ADU', value: (r) => r.consumptionPerWorkingDay },
         { key: 'status', header: 'Status', value: (r) => r.status ?? '' },
+        { key: 'days', header: 'Days left', value: (r) => r.daysLeft },
         { key: 'abc', header: 'ABC', value: (r) => r.abcClass ?? '' },
-        { key: 'label', header: 'Label', value: (r) => r.label ?? '' },
+      ]),
+      'Tools out / available',
+      rowsToCsv(toolAvailability, [
+        { key: 'type', header: 'Tool type', value: (r) => r.typeName },
+        { key: 'avail', header: 'Available', value: (r) => r.available },
+        { key: 'out', header: 'Out', value: (r) => r.out },
+        { key: 'total', header: 'Total units', value: (r) => r.total },
+      ]),
+      'Materials awaiting delivery',
+      rowsToCsv(awaiting, [
+        { key: 'name', header: 'Material', value: (r) => r.materialName },
+        { key: 'qty', header: 'Qty', value: (r) => r.quantity },
+        { key: 'supplier', header: 'Supplier', value: (r) => r.supplierName ?? '' },
+        {
+          key: 'expected',
+          header: 'Expected',
+          value: (r) => r.currentExpectedDate ?? r.expectedDeliveryDate ?? '',
+        },
       ]),
     ];
-    downloadCsv(`inventory-status-${params.from}-to-${params.to}`, sections.join('\r\n\r\n'));
+    downloadCsv(`inventory-report-${params.from}-to-${params.to}`, sections.join('\r\n\r\n'));
   };
 
   return (
-    <div className="report-page">
-      <ReportToolbar
-        title="Inventory Status Report"
-        periodFrom={params.from}
-        periodTo={params.to}
-        extra={
-          <>
-            <Button icon={<DownloadOutlined />} onClick={exportReport} disabled={loading}>
-              Export CSV
-            </Button>
-            <DatePicker.RangePicker
-              value={range}
-              allowClear={false}
-              format="YYYY-MM-DD"
-              onChange={(vals) => {
-                if (vals?.[0] && vals?.[1]) {
-                  setRange([vals[0].startOf('day'), vals[1].endOf('day')]);
-                }
-              }}
-              disabledDate={(d) => d.isAfter(shopToday(), 'day')}
-            />
-          </>
-        }
-      />
-      <ReportStamp periodFrom={params.from} periodTo={params.to} />
+    <PrintDocument
+      shop={shop}
+      pageSize="a4"
+      wide
+      toolbar={
+        <ReportToolbar
+          title="Inventory report"
+          periodFrom={params.from}
+          periodTo={params.to}
+          extra={
+            <>
+              <Button icon={<DownloadOutlined />} onClick={exportReport} disabled={loading}>
+                Export CSV
+              </Button>
+              <DatePicker.RangePicker
+                value={range}
+                allowClear={false}
+                format="YYYY-MM-DD"
+                onChange={(vals) => {
+                  if (vals?.[0] && vals?.[1]) {
+                    setRange([vals[0].startOf('day'), vals[1].endOf('day')]);
+                  }
+                }}
+                disabledDate={(d) => d.isAfter(shopToday(), 'day')}
+              />
+            </>
+          }
+        />
+      }
+    >
+      <div className="shop-print-doc-head">
+        <div className="shop-print-doc-title">Inventory report</div>
+        <div className="shop-print-doc-ref">
+          Period {params.from} → {params.to} · Generated {generatedAt}
+        </div>
+      </div>
 
-      {loading && !tools.length ? (
+      {loading && !tools.length && !consumables.length ? (
         <PageSkeleton variant="block" />
       ) : (
         <>
-          <ReportSection title="Current stock" note="Low-stock rows are highlighted.">
+          <ReportSection
+            title="Consumables"
+            note={runOut?.description || 'On hand, reorder level, status, days left, and ABC class (same as Analytics → Inventory).'}
+          >
             <Table
               size="small"
               pagination={false}
-              rowKey="id"
-              dataSource={stockRows}
-              rowClassName={(r) => (r.lowStock ? 'report-row-low-stock' : '')}
-              locale={{ emptyText: 'No inventory items to show yet' }}
+              rowKey="toolId"
+              dataSource={consumables}
+              rowClassName={(r) => (r.lowStock || r.status === 'REORDER_NOW' ? 'report-row-low-stock' : '')}
+              locale={{ emptyText: 'No consumables to show yet' }}
               columns={[
                 { title: 'Item', dataIndex: 'name' },
-                { title: 'Code', dataIndex: 'code', width: 100 },
+                { title: 'Code', dataIndex: 'code', width: 90 },
                 {
-                  title: 'Category',
-                  dataIndex: 'category',
-                  width: 140,
-                  render: (v: string) => (v === 'CONSUMABLE' ? 'Consumable' : 'Returnable'),
-                },
-                { title: 'Unit', dataIndex: 'unit', width: 72 },
-                {
-                  title: 'In stock',
+                  title: 'On hand',
                   dataIndex: 'quantityOnHand',
-                  width: 88,
+                  width: 90,
                   align: 'right',
-                  render: (v: number | null | undefined) =>
-                    v == null || Number.isNaN(v) ? '—' : v,
+                  render: (v: number | null, r) =>
+                    v == null ? '—' : `${formatNum(v, 2)} ${r.unit}`,
                 },
                 {
                   title: 'Reorder level',
-                  dataIndex: 'minimumStock',
+                  key: 'rop',
                   width: 110,
                   align: 'right',
-                  render: (v: number | null | undefined) =>
-                    v == null || Number.isNaN(v) ? '—' : v,
+                  render: (_: unknown, r) => {
+                    const v = r.reorderLevel ?? r.minimumStock;
+                    return v == null ? '—' : formatNum(v, 2);
+                  },
                 },
+                {
+                  title: 'Status',
+                  dataIndex: 'status',
+                  width: 120,
+                  render: (v: string | undefined) => v || '—',
+                },
+                {
+                  title: 'Days left',
+                  dataIndex: 'daysLeft',
+                  width: 90,
+                  align: 'right',
+                  render: (v: number | null) => (v == null ? '—' : formatNum(v, 0)),
+                },
+                {
+                  title: 'ABC',
+                  dataIndex: 'abcClass',
+                  width: 64,
+                  render: (v: string | null | undefined) => v || '—',
+                },
+              ]}
+            />
+          </ReportSection>
+
+          <ReportSection title="Tools out / available">
+            <Table
+              size="small"
+              pagination={false}
+              rowKey="typeName"
+              dataSource={toolAvailability}
+              locale={{ emptyText: 'No tool units on file' }}
+              columns={[
+                { title: 'Tool type', dataIndex: 'typeName' },
+                {
+                  title: 'Available',
+                  dataIndex: 'available',
+                  width: 100,
+                  align: 'right',
+                },
+                { title: 'Out', dataIndex: 'out', width: 80, align: 'right' },
+                { title: 'Total units', dataIndex: 'total', width: 100, align: 'right' },
               ]}
             />
           </ReportSection>
@@ -211,10 +263,7 @@ export default function InventoryReportPage() {
                   render: (_: unknown, r) =>
                     r.items?.length
                       ? r.items
-                          .map(
-                            (i) =>
-                              `${i.toolName} (${i.quantity == null ? '—' : i.quantity})`
-                          )
+                          .map((i) => `${i.toolName} (${i.quantity == null ? '—' : i.quantity})`)
                           .join('; ')
                       : '—',
                 },
@@ -222,106 +271,46 @@ export default function InventoryReportPage() {
             />
           </ReportSection>
 
-          <ReportSection title="Returnable tools borrowed over period">
+          <ReportSection title="Materials awaiting delivery">
             <Table
               size="small"
               pagination={false}
-              rowKey="toolId"
-              dataSource={usageItem?.items || []}
-              locale={{ emptyText: 'No borrow activity in this period yet' }}
+              rowKey="id"
+              dataSource={awaiting}
+              locale={{ emptyText: 'No materials awaiting delivery' }}
               columns={[
-                { title: 'Tool', dataIndex: 'name' },
-                { title: 'Code', dataIndex: 'code', width: 100 },
+                { title: 'Material', dataIndex: 'materialName' },
                 {
-                  title: 'Borrowed',
-                  dataIndex: 'borrowQuantity',
-                  width: 110,
-                  align: 'right',
-                  render: (v: number | null) => (v == null ? '—' : formatNum(v, 2)),
-                },
-                {
-                  title: 'Per working day',
-                  dataIndex: 'consumptionPerWorkingDay',
-                  width: 120,
-                  align: 'right',
-                  render: (v: number | null) => (v == null ? '—' : formatNum(v, 2)),
-                },
-              ]}
-            />
-          </ReportSection>
-
-          <ReportSection
-            title="Scan-based purchase suggestions"
-            note={
-              suggestions?.description ||
-              suggestions?.howComputed ||
-              'Consumables at or near reorder level from worker scan usage (ADU). Not an automatic purchase order.'
-            }
-          >
-            <Table
-              size="small"
-              pagination={false}
-              rowKey="toolId"
-              dataSource={suggestionRows}
-              locale={{ emptyText: 'No scan-based reorder suggestions right now' }}
-              columns={[
-                { title: 'Item', dataIndex: 'name' },
-                { title: 'Code', dataIndex: 'code', width: 100 },
-                {
-                  title: 'On hand',
-                  dataIndex: 'quantityOnHand',
+                  title: 'Qty',
+                  dataIndex: 'quantity',
                   width: 90,
                   align: 'right',
                   render: (v: number | null, r) =>
-                    v == null ? '—' : `${formatNum(v, 2)} ${r.unit}`,
+                    v == null ? '—' : `${formatNum(v, 2)} ${r.unit || ''}`.trim(),
                 },
                 {
-                  title: 'Reorder level',
-                  key: 'rop',
-                  width: 110,
-                  align: 'right',
-                  render: (_: unknown, r) => {
-                    const v = r.reorderLevel ?? r.minimumStock;
-                    return v == null ? '—' : formatNum(v, 2);
-                  },
+                  title: 'Supplier',
+                  dataIndex: 'supplierName',
+                  render: (v) => displayOrDash(v),
                 },
                 {
-                  title: 'Suggested qty',
-                  dataIndex: 'suggestedOrderQuantity',
-                  width: 110,
-                  align: 'right',
-                  render: (v: number | null) => (v == null ? '—' : formatNum(v, 0)),
-                },
-                {
-                  title: 'ADU',
-                  dataIndex: 'consumptionPerWorkingDay',
-                  width: 90,
-                  align: 'right',
-                  render: (v: number | null) => (v == null ? '—' : formatNum(v, 3)),
-                },
-                {
-                  title: 'Status',
-                  dataIndex: 'status',
+                  title: 'Expected',
+                  key: 'expected',
                   width: 120,
-                  render: (v: string | undefined) => v || '—',
+                  render: (_: unknown, r: MaterialPurchase) =>
+                    displayOrDash(r.currentExpectedDate ?? r.expectedDeliveryDate),
                 },
                 {
-                  title: 'ABC',
-                  dataIndex: 'abcClass',
-                  width: 64,
-                  render: (v: string | null | undefined) => v || '—',
-                },
-                {
-                  title: 'Label',
-                  dataIndex: 'label',
-                  width: 110,
-                  render: (v: string | null | undefined) => v || '—',
+                  title: 'Job',
+                  dataIndex: 'jobNumber',
+                  width: 120,
+                  render: (v) => displayOrDash(v),
                 },
               ]}
             />
           </ReportSection>
         </>
       )}
-    </div>
+    </PrintDocument>
   );
 }

@@ -35,6 +35,6 @@ class Client(db.Model):
             "email": self.email,
             "mobileNumber": self.mobile_number,
             "notifyByEmail": bool(self.notify_by_email),
-            "notifyBySms": bool(self.notify_by_sms),
+            # SMS channel retired — column kept; not exposed in API responses.
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }

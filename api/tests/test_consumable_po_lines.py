@@ -184,16 +184,16 @@ def test_reliability_counts_consumable_deliveries(client, shop):
     assert row["enoughData"] is True
 
 
-def test_admin_cannot_add_or_receive_consumable_lines(client, shop):
+def test_admin_can_add_and_receive_consumable_lines(client, shop):
+    """Admin has the same Office write access for consumable PO lines."""
     res = _add_lines(client, shop, [_consumable_line(shop)], supplier=shop["hardware"], user=shop["admin"])
-    assert res.status_code == 403
-
-    order = _add_lines(client, shop, [_consumable_line(shop)], supplier=shop["hardware"]).get_json()
-    _issue(client, shop, order["id"])
+    assert res.status_code in (200, 201), res.get_json()
+    order = res.get_json()
+    _issue(client, shop, order["id"], user=shop["admin"])
     res = _receive(client, shop, order["id"], user=shop["admin"])
-    assert res.status_code == 403
+    assert res.status_code in (200, 201), res.get_json()
     db.session.expire_all()
-    assert Decimal(str(db.session.get(Tool, shop["disc"].id).quantity_on_hand)) == Decimal("3")
+    assert Decimal(str(db.session.get(Tool, shop["disc"].id).quantity_on_hand)) == Decimal("23")
 
     view = client.get(f"/api/v1/supplier-orders/{order['id']}", headers=_headers(shop["admin"]))
     assert view.status_code == 200

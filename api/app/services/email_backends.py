@@ -45,6 +45,14 @@ def is_development_environment(config=None) -> bool:
     return env in ("development", "dev")
 
 
+def sanitize_header_value(value: str | None) -> str:
+    """Strip CR/LF (and other control chars) so user text cannot inject headers."""
+    if value is None:
+        return ""
+    text = str(value)
+    return "".join(ch for ch in text if ch not in "\r\n\x00").strip()
+
+
 def build_message(
     from_addr: str,
     to: str,
@@ -57,16 +65,18 @@ def build_message(
     """multipart/alternative with Date, Message-ID, Reply-To, UTF-8 parts."""
     addr = extract_email_address(from_addr) or from_addr
     domain = addr.split("@", 1)[-1] if "@" in (addr or "") else "localhost"
-    from_header = format_from_header(from_addr, SHOP_DISPLAY_NAME)
+    from_header = sanitize_header_value(format_from_header(from_addr, SHOP_DISPLAY_NAME))
+    to_header = sanitize_header_value(to)
+    subject_header = sanitize_header_value(subject)
 
     msg = EmailMessage()
     msg["From"] = from_header
-    msg["To"] = to
-    msg["Subject"] = subject
+    msg["To"] = to_header
+    msg["Subject"] = subject_header
     msg["Date"] = formatdate(localtime=True)
     msg["Message-ID"] = make_msgid(domain=domain)
     msg["MIME-Version"] = "1.0"
-    reply = (reply_to or "").strip() or from_header
+    reply = sanitize_header_value(reply_to) or from_header
     msg["Reply-To"] = reply
 
     msg.set_content(text or "", charset="utf-8")
@@ -91,9 +101,17 @@ class ConsoleEmailBackend(EmailBackend):
     delivers = False
 
     def send(self, to, subject, text, html_body=None):
-        shown = text if is_development_environment() else "[hidden outside development]"
-        logger.info("[CONSOLE email] to=%s subject=%s body=%s", to, subject, shown)
-        print(f"[CONSOLE email] to={to} subject={subject} body={shown}")
+        from app.utils.log_mask import mask_email, mask_sensitive
+
+        safe_to = mask_email(to)
+        safe_subject = mask_sensitive(subject)
+        if is_development_environment():
+            shown = text or ""
+            logger.info("[CONSOLE email] to=%s subject=%s body=%s", safe_to, safe_subject, shown)
+            print(f"[CONSOLE email] to={safe_to} subject={safe_subject} body={shown}")
+        else:
+            # Production: never print bodies (links/tokens).
+            logger.info("[CONSOLE email] to=%s subject=%s body=[hidden outside development]", safe_to, safe_subject)
         return None
 
 

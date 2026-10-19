@@ -280,7 +280,7 @@ def usage_consumables(from_s=None, to_s=None):
                 "lowStock": tool.low_stock,
                 "consumptionQuantity": _num(consumed),
                 "consumptionPerWorkingDay": _num(per_day, 4) if per_day is not None else None,
-                "stocktakeWorkingDays": pair_wd,
+                "measuredWorkingDays": pair_wd,
             }
         )
     rows.sort(key=lambda r: -(r["consumptionQuantity"] or 0))
@@ -288,7 +288,7 @@ def usage_consumables(from_s=None, to_s=None):
         "period": {"from": period_from.isoformat(), "to": period_to.isoformat()},
         "workingDaysInPeriod": wd,
         "note": (
-            "Consumable usage is measured between stocktakes, not per person. "
+            "Consumable usage is measured from count history and deliveries, not per person. "
             "Consumption = previous count + deliveries − current count."
         ),
         "items": rows,

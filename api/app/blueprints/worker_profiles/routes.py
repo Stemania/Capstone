@@ -152,6 +152,7 @@ operation_types_bp = Blueprint("operation_types", __name__)
 
 @operation_types_bp.route("", methods=["GET"])
 @jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF, UserRole.PRODUCTION_WORKER)
 def list_operation_types():
     active_only = request.args.get("active", "true").lower() != "false"
     rows = wp_service.list_operation_types(active_only=active_only)

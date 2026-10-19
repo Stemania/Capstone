@@ -175,7 +175,7 @@ export default function AppRoutes() {
                         </RouteSuspense>
                       }
                     />
-                    <Route element={<ProtectedRoute roles={['OFFICE_STAFF']} />}>
+                    <Route element={<ProtectedRoute roles={['ADMIN', 'OFFICE_STAFF']} />}>
                       <Route
                         path="/job-orders/new"
                         element={

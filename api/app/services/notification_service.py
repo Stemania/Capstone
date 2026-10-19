@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 TURNED_OFF = "Notifications are turned off (NOTIFICATIONS_ENABLED is false)"
 NOT_ALLOWLISTED = "Recipient is not on NOTIFY_ALLOWLIST"
 OPTED_OUT = "Client opted out of email updates"
+EMAIL_UPDATES_OFF = "Email updates are off for this client"
 BODY_NOT_STORED = "[not stored: contains a sign-in link or code]"
 SMS_RETIRED = "SMS notifications are no longer available; use email"
 
@@ -123,11 +124,13 @@ def send_notification(
         logger.exception("Notification send failed event=%s channel=%s", event, channel.value)
         status, error, reference = NotificationStatus.FAILED, str(exc)[:2000] or type(exc).__name__, None
 
+    from app.utils.log_mask import mask_email
+
     logger.info(
         "Notification event=%s channel=%s to=%s status=%s",
         event,
         channel.value,
-        to or recipient or "(none)",
+        mask_email(to or recipient) or "(none)",
         status.value,
     )
     log = NotificationLog(
@@ -258,7 +261,11 @@ def list_notification_logs(job_order_id=None, client_id=None, status=None, limit
 
 
 def resend_notification(log_id: str) -> NotificationLog:
-    """Manual resend of a FAILED or NOT_SENT job update. Creates a new attempt row."""
+    """Manual resend of a FAILED or NOT_SENT job update. Creates a new attempt row.
+
+    Always uses the client's *current* email and consent. Logs the attempt even
+    when email updates are off, then returns a clear error for the UI.
+    """
     original = NotificationLog.query.get(log_id)
     if not original:
         raise AppError("Notification not found", "NOT_FOUND", 404)
@@ -277,15 +284,34 @@ def resend_notification(log_id: str) -> NotificationLog:
             400,
         )
 
-    log = _send_job_update(
-        job,
-        client,
-        original.milestone,
-        opted_in=bool(client.notify_by_email),
-        recipient=client.email,
-    )
+    opted_in = bool(client.notify_by_email)
+    # Always use the client's current email. When consent is off, still log a
+    # skipped attempt with the FR-047 message, then surface it to the UI.
+    if opted_in:
+        log = _send_job_update(
+            job,
+            client,
+            original.milestone,
+            opted_in=True,
+            recipient=client.email,
+        )
+    else:
+        log = send_notification(
+            channel=NotificationChannel.EMAIL,
+            recipient=client.email,
+            event=original.milestone.value,
+            subject="",
+            body="",
+            job_order_id=job.id,
+            client_id=client.id,
+            milestone=original.milestone,
+            skip_reason=EMAIL_UPDATES_OFF,
+            store_body=False,
+        )
     if log is None:
         raise AppError("Could not record the notification", "NOTIFICATION_LOG_FAILED", 500)
+    if not opted_in:
+        raise AppError(EMAIL_UPDATES_OFF, "EMAIL_UPDATES_OFF", 400)
     return log
 
 

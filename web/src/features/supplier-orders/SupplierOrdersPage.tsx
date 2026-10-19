@@ -28,7 +28,7 @@ const FILTERS: { label: string; value: Filter }[] = [
 
 export default function SupplierOrdersPage() {
   const navigate = useNavigate();
-  const { isOfficeStaff } = useAuth();
+  const { canOfficeWrite } = useAuth();
   const [rows, setRows] = useState<SupplierOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('ALL');
@@ -140,7 +140,7 @@ export default function SupplierOrdersPage() {
             countTone: f.value === 'OVERDUE' && counts?.OVERDUE ? 'red' : undefined,
           }))}
         />
-        {isOfficeStaff && (
+        {canOfficeWrite && (
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setNewOpen(true)}>
             New supplier order
           </Button>

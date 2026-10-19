@@ -76,13 +76,17 @@ def test_console_provider_redacts_body_outside_development(app, db_txn, capsys, 
         f"BMSC invite code: {secret}."
     )
     assert app.config["ENV"] == "production"
-    ConsoleEmailBackend().send("worker@test.local", "Invite", body)
+    with caplog.at_level("INFO"):
+        ConsoleEmailBackend().send("worker@test.local", "Invite", body)
 
+    # Production: never print bodies to stdout; log line hides body and masks email.
     captured = capsys.readouterr().out
     assert secret not in captured
-    assert "body=[hidden outside development]" in captured
-    assert "worker@test.local" in captured
+    assert body not in captured
     assert secret not in caplog.text
+    assert "body=[hidden outside development]" in caplog.text
+    assert "worker@test.local" not in caplog.text
+    assert "w***@test.local" in caplog.text
 
 
 def test_console_provider_shows_body_in_development(capsys):

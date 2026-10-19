@@ -149,8 +149,6 @@ const PAUSE_REASONS: { value: OperationPauseReason; label: string }[] = [
 
 const NOTIF_CHANNEL_LABEL: Record<string, string> = {
   EMAIL: 'Email',
-  SMS: 'SMS',
-  CONSOLE: 'Console',
 };
 
 const TIME_EVENT_LABEL: Record<string, string> = {
@@ -269,8 +267,8 @@ function JobOrderDetailView() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, isAdmin, isOfficeStaff, isWorker } = useAuth();
-  const canManage = isAdmin || isOfficeStaff;
+  const { user, isAdmin, canOfficeWrite, isWorker } = useAuth();
+  const canManage = isAdmin || canOfficeWrite;
 
   const [job, setJob] = useState<JobOrder | null>(null);
   const [loading, setLoading] = useState(true);
@@ -640,7 +638,7 @@ function JobOrderDetailView() {
     : rowsFromSummary(job.materialLines || []);
   const earlierPlanned = job.rawMaterials || [];
   const canCorrectInvoice =
-    isOfficeStaff && Boolean(job.salesInvoice) && job.status !== 'DELIVERED' && !job.deliveredAt;
+    canOfficeWrite && Boolean(job.salesInvoice) && job.status !== 'DELIVERED' && !job.deliveredAt;
   const isNotStarted = (op: Operation) =>
     op.status !== 'IN_PROGRESS' && op.status !== 'COMPLETED' && !op.actualStart;
   const canReschedule =
@@ -765,7 +763,7 @@ function JobOrderDetailView() {
               }}
             />
           )}
-          {isOfficeStaff && isDraft && (
+          {canOfficeWrite && isDraft && (
             <Button
               icon={<EditOutlined />}
               onClick={() => navigate(`/job-orders/${job.id}/edit`)}
@@ -773,7 +771,7 @@ function JobOrderDetailView() {
               Edit details
             </Button>
           )}
-          {!isDraft && (isAdmin || isOfficeStaff) && (
+          {!isDraft && (isAdmin || canOfficeWrite) && (
             <Text type="secondary" style={{ fontSize: 12 }}>
               Locked after release
             </Text>
@@ -789,7 +787,7 @@ function JobOrderDetailView() {
               Sales invoice {job.salesInvoice.invoiceNumber}
             </Button>
           )}
-          {isOfficeStaff && job.status === 'COMPLETED' && !job.salesInvoice && (
+          {canOfficeWrite && job.status === 'COMPLETED' && !job.salesInvoice && (
             <Button type="primary" icon={<FileTextOutlined />} onClick={openRecordInvoice}>
               Record sales invoice
             </Button>
@@ -950,7 +948,7 @@ function JobOrderDetailView() {
             placedLines.length === 0 ? (
               (purchases.some((p) => p.status === 'DRAFT')
                 ? 'This job\u2019s materials are on a draft supplier order that has not been issued yet. '
-                : isOfficeStaff
+                : canOfficeWrite
                   ? 'Nothing has been ordered for this job. Use Order materials below. '
                   : 'Nothing has been ordered for this job. Office Staff order it from the Materials section. ') +
               (isAdmin
@@ -995,7 +993,7 @@ function JobOrderDetailView() {
               }}
             >
               <div style={{ fontWeight: 800, fontSize: 14, color: NAVY }}>Materials</div>
-              {isOfficeStaff && job.materialStatus !== 'NOT_REQUIRED' ? (
+              {canOfficeWrite && job.materialStatus !== 'NOT_REQUIRED' ? (
                 <Button type="primary" onClick={() => setPurchaseOpen(true)}>
                   Order materials
                 </Button>
@@ -1013,7 +1011,7 @@ function JobOrderDetailView() {
               <JobMaterialsTable
                 lines={materialRows}
                 renderLineAction={(row) =>
-                  isOfficeStaff &&
+                  canOfficeWrite &&
                   row.supplierOrderId &&
                   row.status === 'ORDERED' ? (
                     <Tooltip title="Deliveries arrive complete: receive the whole order on its page.">

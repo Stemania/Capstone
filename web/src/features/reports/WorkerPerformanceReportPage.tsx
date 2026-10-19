@@ -1,11 +1,17 @@
-import { shopToday } from '../../utils/shopTime';
+import { shopNow, shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
 import { DatePicker, Table, message } from 'antd';
 import { analyticsApi } from '../../api/analytics.api';
 import { workersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
+import { useShopDetails } from '../../hooks/useShopDetails';
 import { ANALYTICS_DEFAULT_MIN_OPS } from '../../constants/shopLetterhead';
-import type { AnalyticsByWorker, AnalyticsWorkerRow, User, WorkerSkill } from '../../types';
+import type {
+  AnalyticsByWorker,
+  AnalyticsDelays,
+  AnalyticsWorkerRow,
+  User,
+} from '../../types';
 import {
   defaultAnalyticsRange,
   formatInt,
@@ -15,19 +21,26 @@ import {
   rangeToParams,
   type AnalyticsRange,
 } from '../analytics/analyticsPeriod';
-import { ReportSection, ReportStamp, ReportToolbar } from './ReportChrome';
+import { ReportSection, ReportToolbar } from './ReportChrome';
+import { PrintDocument } from './PrintTemplate';
 import { PageSkeleton } from '../../components/ui';
+import './reportsPrint.css';
 
-function skillLabel(s: WorkerSkill) {
-  const name = s.machineTypeName || s.machineTypeCode || s.machineTypeId;
-  const primary = s.isPrimary ? ' (primary)' : '';
-  return `${name} skill ${s.proficiency}${primary}`;
-}
+const PAUSE_LABEL: Record<string, string> = {
+  END_OF_SHIFT: 'End of shift',
+  BREAK: 'Break',
+  MACHINE_DOWN: 'Machine down',
+  WAITING_MATERIAL: 'Waiting for material',
+  WAITING_PRIOR_OPERATION: 'Waiting on prior operation',
+  OTHER: 'Other',
+};
 
 export default function WorkerPerformanceReportPage() {
+  const shop = useShopDetails();
   const [range, setRange] = useState<AnalyticsRange>(defaultAnalyticsRange);
   const params = rangeToParams(range);
   const [byWorker, setByWorker] = useState<AnalyticsByWorker | null>(null);
+  const [delays, setDelays] = useState<AnalyticsDelays | null>(null);
   const [workers, setWorkers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -36,13 +49,15 @@ export default function WorkerPerformanceReportPage() {
     (async () => {
       setLoading(true);
       try {
-        const [perf, list] = await Promise.all([
+        const [perf, list, d] = await Promise.all([
           analyticsApi.byWorker({ ...params, minOps: 1 }),
           workersApi.list(),
+          analyticsApi.delays(params),
         ]);
         if (!cancelled) {
           setByWorker(perf.data);
           setWorkers(list.data);
+          setDelays(d.data);
         }
       } catch (err) {
         if (!cancelled) message.error(getErrorMessage(err));
@@ -56,10 +71,11 @@ export default function WorkerPerformanceReportPage() {
   }, [params.from, params.to]);
 
   const minOps = ANALYTICS_DEFAULT_MIN_OPS;
+  const generatedAt = shopNow().format('YYYY-MM-DD HH:mm');
 
   const rows = useMemo(() => {
     const byId = new Map((byWorker?.workers || []).map((w) => [w.workerId, w]));
-    const merged: (AnalyticsWorkerRow & { skills: WorkerSkill[]; belowMin: boolean })[] = [];
+    const merged: (AnalyticsWorkerRow & { belowMin: boolean })[] = [];
 
     for (const u of workers) {
       const perf = byId.get(u.id);
@@ -75,7 +91,6 @@ export default function WorkerPerformanceReportPage() {
         laborEfficiencyPct: belowMin ? null : perf?.laborEfficiencyPct ?? null,
         onEstimateRatePct: belowMin ? null : perf?.onEstimateRatePct ?? null,
         reworkWorkedHours: perf?.reworkWorkedHours ?? null,
-        skills: u.skills || [],
         belowMin,
       });
       byId.delete(u.id);
@@ -85,108 +100,145 @@ export default function WorkerPerformanceReportPage() {
       merged.push({
         ...leftover,
         averageVariancePct: belowMin ? null : leftover.averageVariancePct,
+        laborEfficiencyPct: belowMin ? null : leftover.laborEfficiencyPct,
         onEstimateRatePct: belowMin ? null : leftover.onEstimateRatePct,
-        skills: [],
         belowMin,
       });
     }
     return merged.sort((a, b) => a.workerName.localeCompare(b.workerName));
   }, [byWorker, workers, minOps]);
 
-  const excluded = byWorker?.excludedOperationCount ?? 0;
+  const pauseRows = delays?.pauseReasons || [];
 
   return (
-    <div className="report-page">
-      <ReportToolbar
-        title="Worker Performance Report"
-        periodFrom={params.from}
-        periodTo={params.to}
-        extra={
-          <DatePicker.RangePicker
-            value={range}
-            allowClear={false}
-            format="YYYY-MM-DD"
-            onChange={(vals) => {
-              if (vals?.[0] && vals?.[1]) {
-                setRange([vals[0].startOf('day'), vals[1].endOf('day')]);
-              }
-            }}
-            disabledDate={(d) => d.isAfter(shopToday(), 'day')}
-          />
-        }
-      />
-      <ReportStamp periodFrom={params.from} periodTo={params.to} />
+    <PrintDocument
+      shop={shop}
+      pageSize="a4"
+      wide
+      toolbar={
+        <ReportToolbar
+          title="Worker performance report"
+          periodFrom={params.from}
+          periodTo={params.to}
+          extra={
+            <DatePicker.RangePicker
+              value={range}
+              allowClear={false}
+              format="YYYY-MM-DD"
+              onChange={(vals) => {
+                if (vals?.[0] && vals?.[1]) {
+                  setRange([vals[0].startOf('day'), vals[1].endOf('day')]);
+                }
+              }}
+              disabledDate={(d) => d.isAfter(shopToday(), 'day')}
+            />
+          }
+        />
+      }
+    >
+      <div className="shop-print-doc-head">
+        <div className="shop-print-doc-title">Worker performance report</div>
+        <div className="shop-print-doc-ref">
+          Period {params.from} → {params.to} · Generated {generatedAt}
+        </div>
+      </div>
 
       {loading && !byWorker ? (
         <PageSkeleton variant="block" />
       ) : (
-        <ReportSection
-          title="By worker"
-          note={`${excluded} finished operation${excluded === 1 ? '' : 's'} without a target hours value ${
-            excluded === 1 ? 'is' : 'are'
-          } left out of difference-from-target numbers; averages need at least ${minOps} finished operations. Below that: counts shown, averages blank (—). Redo is shown as hours worked.`}
-        >
-          <Table
-            size="small"
-            pagination={false}
-            rowKey="workerId"
-            dataSource={rows}
-            locale={{ emptyText: 'No workers to show for this period yet' }}
-            columns={[
-              { title: 'Worker', dataIndex: 'workerName', width: 160 },
-              {
-                title: 'Finished operations',
-                dataIndex: 'operationCount',
-                width: 110,
-                align: 'right',
-                render: (v: number) => formatInt(v),
-              },
-              {
-                title: 'Target hours',
-                dataIndex: 'totalEstimatedHours',
-                width: 100,
-                align: 'right',
-                render: (v: number | null) => formatNum(v),
-              },
-              {
-                title: 'Hours worked',
-                dataIndex: 'totalActualWorkedHours',
-                width: 100,
-                align: 'right',
-                render: (v: number | null) => formatNum(v),
-              },
-              {
-                title: 'Difference from target',
-                dataIndex: 'averageVariancePct',
-                width: 150,
-                align: 'right',
-                render: (v: number | null) => formatPctVsTarget(v),
-              },
-              {
-                title: 'Finished close to target',
-                dataIndex: 'onEstimateRatePct',
-                width: 150,
-                align: 'right',
-                render: (v: number | null) => formatPct(v),
-              },
-              {
-                title: 'Redo hours',
-                dataIndex: 'reworkWorkedHours',
-                width: 100,
-                align: 'right',
-                render: (v: number | null) => formatNum(v),
-              },
-              {
-                title: 'Machines they can run',
-                key: 'skills',
-                ellipsis: true,
-                render: (_: unknown, r: { skills: WorkerSkill[] }) =>
-                  r.skills?.length ? r.skills.map(skillLabel).join('; ') : '—',
-              },
-            ]}
-          />
-        </ReportSection>
+        <>
+          <ReportSection
+            title="By worker"
+            note={`Averages need at least ${minOps} finished operations. Efficiency % = target ÷ actual × 100. On-time % = share finished close to target.`}
+          >
+            <Table
+              size="small"
+              pagination={false}
+              rowKey="workerId"
+              dataSource={rows}
+              locale={{ emptyText: 'No workers to show for this period yet' }}
+              columns={[
+                { title: 'Worker', dataIndex: 'workerName', width: 160 },
+                {
+                  title: 'Ops completed',
+                  dataIndex: 'operationCount',
+                  width: 110,
+                  align: 'right',
+                  render: (v: number) => formatInt(v),
+                },
+                {
+                  title: 'Target hours',
+                  dataIndex: 'totalEstimatedHours',
+                  width: 100,
+                  align: 'right',
+                  render: (v: number | null) => formatNum(v),
+                },
+                {
+                  title: 'Actual hours',
+                  dataIndex: 'totalActualWorkedHours',
+                  width: 100,
+                  align: 'right',
+                  render: (v: number | null) => formatNum(v),
+                },
+                {
+                  title: 'Efficiency %',
+                  dataIndex: 'laborEfficiencyPct',
+                  width: 110,
+                  align: 'right',
+                  render: (v: number | null) => formatPct(v),
+                },
+                {
+                  title: 'On-time %',
+                  dataIndex: 'onEstimateRatePct',
+                  width: 100,
+                  align: 'right',
+                  render: (v: number | null) => formatPct(v),
+                },
+                {
+                  title: 'Vs target',
+                  dataIndex: 'averageVariancePct',
+                  width: 110,
+                  align: 'right',
+                  render: (v: number | null) => formatPctVsTarget(v),
+                },
+              ]}
+            />
+          </ReportSection>
+
+          <ReportSection
+            title="Pause hours by reason"
+            note="Shop-wide pause hours for the same period (same figures as Analytics → Delays)."
+          >
+            <Table
+              size="small"
+              pagination={false}
+              rowKey="reason"
+              dataSource={pauseRows}
+              locale={{ emptyText: 'No pause hours in this period' }}
+              columns={[
+                {
+                  title: 'Reason',
+                  dataIndex: 'reason',
+                  render: (v: string) => PAUSE_LABEL[v] || v,
+                },
+                {
+                  title: 'Occurrences',
+                  dataIndex: 'occurrenceCount',
+                  width: 120,
+                  align: 'right',
+                },
+                {
+                  title: 'Hours',
+                  dataIndex: 'totalPausedHours',
+                  width: 100,
+                  align: 'right',
+                  render: (v: number | null) => formatNum(v),
+                },
+              ]}
+            />
+          </ReportSection>
+        </>
       )}
-    </div>
+    </PrintDocument>
   );
 }

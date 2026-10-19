@@ -5,9 +5,6 @@ import type {
   InventoryUsageByWorker,
   InventoryUsageConsumables,
   MaterialPurchaseList,
-  StocktakeDetail,
-  StocktakeForm,
-  StocktakeSummary,
   Tool,
   ToolEvent,
   ToolCategory,
@@ -152,16 +149,4 @@ export const inventoryApi = {
     status?: 'ORDERED' | 'RECEIVED' | string;
   }) =>
     apiClient.get<MaterialPurchaseList>('/inventory/material-purchases', { params }),
-  stocktakeForm: () => apiClient.get<StocktakeForm>('/inventory/stocktakes/form'),
-  listStocktakes: (params?: { page?: number; perPage?: number }) =>
-    apiClient.get<{ items: StocktakeSummary[]; total: number; page: number; pages: number }>(
-      '/inventory/stocktakes',
-      { params }
-    ),
-  getStocktake: (id: string) => apiClient.get<StocktakeDetail>(`/inventory/stocktakes/${id}`),
-  submitStocktake: (data: {
-    countedOn?: string;
-    notes?: string;
-    lines: { toolId: string; countedQuantity: number }[];
-  }) => apiClient.post<StocktakeDetail>('/inventory/stocktakes', data),
 };

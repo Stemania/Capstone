@@ -247,11 +247,11 @@ def test_entered_amount_overrides_the_job_amount(client, shop):
     assert res.get_json()["amount"] == 12345.5
 
 
-def test_admin_cannot_record_an_invoice(client, shop):
+def test_admin_can_record_an_invoice(client, shop):
     job = _completed_job(shop)
     res = _record(client, shop, job, user=shop["admin"])
-    assert res.status_code == 403
-    assert SalesInvoice.query.count() == 0
+    assert res.status_code == 201, res.get_json()
+    assert SalesInvoice.query.count() == 1
 
 
 @pytest.mark.parametrize(
@@ -382,11 +382,11 @@ def test_correction_with_no_change_is_refused(client, shop):
     assert res.status_code == 400
 
 
-def test_admin_cannot_correct_an_invoice(client, shop):
+def test_admin_can_correct_an_invoice(client, shop):
     job = _completed_job(shop)
     assert _record(client, shop, job).status_code == 201
     res = _correct(client, shop, job, user=shop["admin"], amount=1, reason="x")
-    assert res.status_code == 403
+    assert res.status_code == 200, res.get_json()
 
 
 def test_invoice_is_locked_after_delivery(client, shop):

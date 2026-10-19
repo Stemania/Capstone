@@ -28,7 +28,6 @@ export const clientsApi = {
     email?: string;
     mobileNumber?: string;
     notifyByEmail?: boolean;
-    notifyBySms?: boolean;
   }) => apiClient.post<Client>('/clients', data),
   update: (
     id: string,
@@ -38,7 +37,6 @@ export const clientsApi = {
       email?: string;
       mobileNumber?: string;
       notifyByEmail?: boolean;
-      notifyBySms?: boolean;
     }
   ) => apiClient.patch<Client>(`/clients/${id}`, data),
 };

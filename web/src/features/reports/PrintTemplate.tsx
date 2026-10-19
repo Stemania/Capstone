@@ -61,16 +61,19 @@ export function PrintDocument({
   shop,
   toolbar,
   wide,
+  pageSize = 'letter',
   children,
 }: {
   shop: ShopDetails;
   toolbar: ReactNode;
   /** Narrower side margins for wide tables. */
   wide?: boolean;
+  /** Analytics reports print A4 portrait; shop forms stay Letter. */
+  pageSize?: 'letter' | 'a4';
   children: ReactNode;
 }) {
   return (
-    <div className="shop-print-page">
+    <div className={`shop-print-page${pageSize === 'a4' ? ' shop-print-page--a4' : ''}`}>
       <div className="no-print shop-print-toolbar">{toolbar}</div>
       <div className="shop-print-sheet">
         <PrintHeader shop={shop} />

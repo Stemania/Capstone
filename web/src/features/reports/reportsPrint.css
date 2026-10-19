@@ -1,0 +1,17 @@
+/* A4 portrait for analytics printable reports (shop letterhead frame). */
+@page report-a4 {
+  size: A4 portrait;
+  margin: 12mm 14mm;
+}
+
+.shop-print-page--a4 {
+  page: report-a4;
+}
+
+.shop-print-page--a4 .report-section {
+  break-inside: avoid;
+}
+
+.shop-print-page--a4 .report-kpi-grid {
+  break-inside: avoid;
+}

@@ -58,7 +58,7 @@ const EMPTY_BUCKET: MaterialStockBucket = { count: 0, value: 0, quantityByUnit: 
 
 export default function RawMaterialsPanel() {
   const navigate = useNavigate();
-  const { isOfficeStaff: canEdit } = useAuth();
+  const { canOfficeWrite: canEdit } = useAuth();
   const [rows, setRows] = useState<MaterialPurchase[]>([]);
   const [summary, setSummary] = useState<MaterialPurchaseList['summary']>({
     purchaseCount: 0,

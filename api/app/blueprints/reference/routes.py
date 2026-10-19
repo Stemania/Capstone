@@ -76,20 +76,21 @@ def list_materials():
 
 @material_catalog_bp.route("", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def create_material():
     return jsonify(catalog.create_item(request.get_json() or {}).to_dict()), 201
 
 
 @material_catalog_bp.route("/<item_id>", methods=["PATCH"])
 @jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def update_material(item_id):
     return jsonify(catalog.update_item(item_id, request.get_json() or {}).to_dict())
 
 
 @shop_details_bp.route("", methods=["GET"])
 @jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF, UserRole.PRODUCTION_WORKER)
 def get_shop_details():
     return jsonify(shop.get_shop_details())
 

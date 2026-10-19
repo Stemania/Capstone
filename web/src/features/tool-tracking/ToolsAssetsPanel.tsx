@@ -52,7 +52,7 @@ function statusPill(status: ToolUnitStatus) {
 }
 
 export default function ToolsAssetsPanel() {
-  const { isOfficeStaff: canEdit } = useAuth();
+  const { canOfficeWrite: canEdit } = useAuth();
   const isPhone = useIsPhone();
   const [types, setTypes] = useState<ToolType[]>([]);
   const [loading, setLoading] = useState(true);

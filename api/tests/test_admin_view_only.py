@@ -1,7 +1,6 @@
-"""Admin is view-only on Clients, Suppliers, Supplier Orders and Inventory.
+"""Admin has full Office write access (paper: Administrator holds full system access).
 
-The Admin can open every screen (lists, details, exports, printouts, QR codes)
-but every change is refused on the server; Office Staff keep full access.
+Production Worker still cannot change Office resources.
 """
 
 from datetime import timedelta
@@ -9,10 +8,8 @@ from decimal import Decimal
 
 import pytest
 
-from tests.catalog_helpers import ensure_material
 from app.extensions import db
 from app.models.client import Client
-from app.models.material_purchase import MaterialPurchase
 from app.models.supplier import Supplier
 from app.models.tool import Tool, ToolCategory
 from app.models.tool_type import ToolType, ToolUnit
@@ -20,33 +17,17 @@ from tests.test_material_delay import _draft_order, _headers, _issue, _job, _loc
 
 X = "00000000-0000-0000-0000-000000000000"
 
-ADMIN_REFUSED = [
+ADMIN_ALLOWED = [
     ("POST", "/api/v1/clients"),
     ("PATCH", f"/api/v1/clients/{X}"),
     ("POST", "/api/v1/suppliers"),
     ("PATCH", f"/api/v1/suppliers/{X}"),
-    ("POST", "/api/v1/supplier-orders/draft-lines"),
-    ("PATCH", f"/api/v1/supplier-orders/{X}"),
-    ("PATCH", f"/api/v1/supplier-orders/{X}/expected-delivery"),
-    ("POST", f"/api/v1/supplier-orders/{X}/issue"),
-    ("POST", f"/api/v1/supplier-orders/{X}/cancel"),
-    ("POST", f"/api/v1/supplier-orders/{X}/receive"),
-    ("POST", f"/api/v1/supplier-orders/{X}/print"),
-    ("PATCH", f"/api/v1/supplier-orders/{X}/lines/{X}"),
-    ("DELETE", f"/api/v1/supplier-orders/{X}/lines/{X}"),
-    ("POST", "/api/v1/inventory/stocktakes"),
     ("POST", "/api/v1/tools"),
     ("PATCH", f"/api/v1/tools/{X}"),
     ("POST", f"/api/v1/tools/{X}/adjust"),
     ("POST", f"/api/v1/tools/{X}/receive"),
     ("POST", "/api/v1/tools/types"),
     ("PATCH", f"/api/v1/tools/types/{X}"),
-    ("POST", f"/api/v1/tools/types/{X}/units"),
-    ("POST", f"/api/v1/tools/types/{X}/receive"),
-    ("PATCH", f"/api/v1/tools/units/{X}"),
-    ("POST", f"/api/v1/job-orders/{X}/material-purchases"),
-    ("PATCH", f"/api/v1/job-orders/{X}/material-purchases/{X}"),
-    ("DELETE", f"/api/v1/job-orders/{X}/material-purchases/{X}"),
 ]
 
 
@@ -67,173 +48,94 @@ def _inventory(shop):
     return consumable, tool_type, unit
 
 
-@pytest.mark.parametrize("method,url", ADMIN_REFUSED)
-def test_admin_is_refused_on_every_change(client, shop, method, url):
-    res = client.open(url, method=method, json={}, headers=_headers(shop["admin"]))
-    assert res.status_code == 403, (method, url, res.get_json())
+def test_admin_can_create_and_update_clients_and_suppliers(client, shop):
+    h = _headers(shop["admin"])
+    res = client.post("/api/v1/clients", json={"name": "Admin Client"}, headers=h)
+    assert res.status_code == 201, res.get_json()
+    cid = res.get_json()["id"]
+    assert (
+        client.patch(f"/api/v1/clients/{cid}", json={"name": "Renamed by Admin"}, headers=h).status_code
+        == 200
+    )
+
+    res = client.post(
+        "/api/v1/suppliers", json={"name": "Admin Steel", "typicalLeadTimeDays": 2}, headers=h
+    )
+    assert res.status_code == 201, res.get_json()
+    sid = res.get_json()["id"]
+    assert client.patch(f"/api/v1/suppliers/{sid}", json={"phone": "0917"}, headers=h).status_code == 200
 
 
-def test_admin_refusal_changes_nothing(client, shop):
+def test_admin_can_adjust_inventory_and_tool_types(client, shop):
     consumable, tool_type, unit = _inventory(shop)
     h = _headers(shop["admin"])
-
-    assert client.post("/api/v1/clients", json={"name": "Nope"}, headers=h).status_code == 403
     assert (
-        client.patch(f"/api/v1/clients/{shop['client'].id}", json={"name": "Renamed"}, headers=h).status_code
-        == 403
+        client.post(
+            f"/api/v1/tools/{consumable.id}/adjust",
+            json={"quantity": -2, "reason": "Damaged"},
+            headers=h,
+        ).status_code
+        in (200, 201)
     )
+    assert (
+        client.post(
+            f"/api/v1/tools/{consumable.id}/receive",
+            json={"quantity": 5, "supplier": "Hardware"},
+            headers=h,
+        ).status_code
+        in (200, 201)
+    )
+    res = client.post("/api/v1/tools/types", json={"name": "Admin Caliper"}, headers=h)
+    assert res.status_code == 201, res.get_json()
+    assert client.patch(f"/api/v1/tools/units/{unit.id}", json={"status": "UNDER_REPAIR"}, headers=h).status_code == 200
+
+
+def test_admin_can_run_supplier_orders(client, shop):
+    tomorrow = shop["today"] + timedelta(days=1)
+    job, _ = _job(shop, _local(tomorrow, 9))
+    h = _headers(shop["admin"])
+    order = _draft_order(client, shop, job, shop["slow"])
+    assert client.patch(f"/api/v1/supplier-orders/{order['id']}", json={"notes": "Rush"}, headers=h).status_code == 200
+    assert client.post(f"/api/v1/supplier-orders/{order['id']}/issue", json={}, headers=h).status_code in (
+        200,
+        201,
+    )
+
+
+def test_admin_can_create_job_orders(client, shop):
+    h = _headers(shop["admin"])
+    res = client.post(
+        "/api/v1/job-orders",
+        json={
+            "clientId": shop["client"].id,
+            "title": "Admin-encoded job",
+            "dueDate": (shop["today"] + timedelta(days=14)).isoformat(),
+        },
+        headers=h,
+    )
+    assert res.status_code == 201, res.get_json()
+
+
+def test_worker_still_refused_office_writes(client, shop):
+    h = _headers(shop["worker"])
+    assert client.post("/api/v1/clients", json={"name": "Nope"}, headers=h).status_code == 403
     assert (
         client.post("/api/v1/suppliers", json={"name": "Nope", "typicalLeadTimeDays": 1}, headers=h).status_code
         == 403
     )
-    assert (
-        client.post(f"/api/v1/tools/{consumable.id}/adjust", json={"quantity": -5, "reason": "x"}, headers=h).status_code
-        == 403
-    )
-    assert (
-        client.patch(f"/api/v1/tools/units/{unit.id}", json={"status": "RETIRED"}, headers=h).status_code
-        == 403
-    )
-
-    db.session.expire_all()
-    assert Client.query.count() == 1
-    assert db.session.get(Client, shop["client"].id).name == "Delay Client"
-    assert Supplier.query.count() == 2
-    assert db.session.get(Tool, consumable.id).quantity_on_hand == Decimal("10")
-    assert db.session.get(ToolUnit, unit.id).status.value == "AVAILABLE"
-
-
-def test_admin_can_view_every_screen(client, shop):
-    consumable, tool_type, unit = _inventory(shop)
-    tomorrow = shop["today"] + timedelta(days=1)
-    job, _ = _job(shop, _local(tomorrow, 9))
-    order = _draft_order(client, shop, job, shop["slow"])
-    _issue(client, shop, order["id"], shop["today"])
-    h = _headers(shop["admin"])
-
-    urls = [
-        "/api/v1/clients",
-        f"/api/v1/clients/{shop['client'].id}",
-        "/api/v1/suppliers",
-        f"/api/v1/suppliers/{shop['slow'].id}",
-        "/api/v1/supplier-orders",
-        "/api/v1/supplier-orders/outstanding",
-        f"/api/v1/supplier-orders/{order['id']}",
-        f"/api/v1/supplier-orders/{order['id']}/print",
-        "/api/v1/tools",
-        f"/api/v1/tools/{consumable.id}",
-        f"/api/v1/tools/{consumable.id}/qr",
-        "/api/v1/tools/events",
-        "/api/v1/tools/types",
-        f"/api/v1/tools/types/{tool_type.id}",
-        f"/api/v1/tools/units/{unit.id}/qr",
-        "/api/v1/inventory/stocktakes/form",
-        "/api/v1/inventory/stocktakes",
-        "/api/v1/inventory/material-purchases",
-        "/api/v1/inventory/purchase-suggestions",
-        f"/api/v1/job-orders/{job.id}/material-purchases",
-    ]
-    for url in urls:
-        res = client.get(url, headers=h)
-        assert res.status_code == 200, (url, res.status_code)
+    assert client.post("/api/v1/tools", json={"name": "Nope", "unit": "pcs"}, headers=h).status_code == 403
 
 
 def test_office_staff_can_still_change_everything(client, shop):
     consumable, tool_type, unit = _inventory(shop)
     h = _headers(shop["office"])
-
     res = client.post("/api/v1/clients", json={"name": "New Client"}, headers=h)
     assert res.status_code == 201, res.get_json()
-    res = client.patch(f"/api/v1/clients/{res.get_json()['id']}", json={"name": "Renamed"}, headers=h)
-    assert res.status_code == 200, res.get_json()
-
-    res = client.post("/api/v1/suppliers", json={"name": "New Steel", "typicalLeadTimeDays": 2}, headers=h)
-    assert res.status_code == 201, res.get_json()
-    res = client.patch(f"/api/v1/suppliers/{res.get_json()['id']}", json={"phone": "0917"}, headers=h)
-    assert res.status_code == 200, res.get_json()
-
-    res = client.post("/api/v1/tools", json={"name": "Grinding wheel", "unit": "pcs"}, headers=h)
-    assert res.status_code == 201, res.get_json()
     assert client.patch(f"/api/v1/tools/{consumable.id}", json={"minimumStock": 3}, headers=h).status_code == 200
-    assert (
-        client.post(f"/api/v1/tools/{consumable.id}/adjust", json={"quantity": -2, "reason": "Damaged"}, headers=h).status_code
-        in (200, 201)
-    )
-    assert (
-        client.post(f"/api/v1/tools/{consumable.id}/receive", json={"quantity": 5, "supplier": "Hardware"}, headers=h).status_code
-        in (200, 201)
-    )
-
-    res = client.post("/api/v1/tools/types", json={"name": "Caliper"}, headers=h)
-    assert res.status_code == 201, res.get_json()
-    new_type = res.get_json()["id"]
-    assert client.patch(f"/api/v1/tools/types/{new_type}", json={"description": "Digital"}, headers=h).status_code == 200
-    assert client.post(f"/api/v1/tools/types/{new_type}/units", json={}, headers=h).status_code == 201
-    assert (
-        client.post(f"/api/v1/tools/types/{tool_type.id}/receive", json={"quantity": 1, "supplier": "Tools Inc"}, headers=h).status_code
-        in (200, 201)
-    )
-    assert client.patch(f"/api/v1/tools/units/{unit.id}", json={"status": "UNDER_REPAIR"}, headers=h).status_code == 200
-
-    db.session.expire_all()
-    on_hand = db.session.get(Tool, consumable.id).quantity_on_hand
-    res = client.post(
-        "/api/v1/inventory/stocktakes",
-        json={"lines": [{"toolId": consumable.id, "countedQuantity": float(on_hand) - 1}]},
-        headers=h,
-    )
-    assert res.status_code == 201, res.get_json()
 
 
-def test_office_staff_can_still_run_supplier_orders_and_job_materials(client, shop):
-    tomorrow = shop["today"] + timedelta(days=1)
-    job, _ = _job(shop, _local(tomorrow, 9))
+def test_stocktake_endpoints_removed(client, shop):
     h = _headers(shop["office"])
-
-    order = _draft_order(client, shop, job, shop["slow"])
-    line_id = order["lines"][0]["id"]
-    assert client.patch(f"/api/v1/supplier-orders/{order['id']}", json={"notes": "Rush"}, headers=h).status_code == 200
-    res = client.patch(
-        f"/api/v1/supplier-orders/{order['id']}/lines/{line_id}",
-        json={"quantity": 2, "unitCost": 120},
-        headers=h,
-    )
-    assert res.status_code == 200, res.get_json()
-    _issue(client, shop, order["id"], shop["today"])
-    res = client.post(f"/api/v1/supplier-orders/{order['id']}/print", headers=h)
-    assert res.status_code == 200, res.get_json()
-    res = client.post(
-        f"/api/v1/supplier-orders/{order['id']}/receive",
-        json={"receivedDate": shop["today"].isoformat()},
-        headers=h,
-    )
-    assert res.status_code == 200, res.get_json()
-
-    other = _draft_order(client, shop, job, shop["quick"])
-    assert client.post(f"/api/v1/supplier-orders/{other['id']}/cancel", headers=h).status_code == 200
-
-    res = client.post(
-        f"/api/v1/job-orders/{job.id}/material-purchases",
-        json={"supplierId": shop["quick"].id, "materialCatalogId": ensure_material("Plate"), "materialName": "Plate", "quantity": 4, "unitCost": 5},
-        headers=h,
-    )
-    assert res.status_code == 201, res.get_json()
-
-    legacy = MaterialPurchase(
-        job_order_id=job.id,
-        material_name="Washers",
-        quantity=Decimal("4"),
-        unit="pcs",
-        unit_cost=Decimal("2"),
-        supplier_id=shop["quick"].id,
-        date_ordered=shop["today"],
-    )
-    db.session.add(legacy)
-    db.session.commit()
-    purchase_id = legacy.id
-    res = client.patch(
-        f"/api/v1/job-orders/{job.id}/material-purchases/{purchase_id}", json={"quantity": 6}, headers=h
-    )
-    assert res.status_code == 200, res.get_json()
-    res = client.delete(f"/api/v1/job-orders/{job.id}/material-purchases/{purchase_id}", headers=h)
-    assert res.status_code in (200, 204), res.get_json()
+    assert client.get("/api/v1/inventory/stocktakes", headers=h).status_code == 404
+    assert client.get("/api/v1/inventory/stocktakes/form", headers=h).status_code == 404
+    assert client.post("/api/v1/inventory/stocktakes", json={"lines": []}, headers=h).status_code == 404

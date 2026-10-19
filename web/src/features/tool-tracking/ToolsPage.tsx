@@ -20,7 +20,6 @@ import type { Tool } from '../../types';
 import { getErrorMessage } from '../../api/client';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import { exportCsv } from '../../utils/csvExport';
-import StocktakePanel from './StocktakePanel';
 import { useAuth } from '../../hooks/useAuth';
 import ToolEventsPage from './ToolEventsPage';
 import ToolsAssetsPanel from './ToolsAssetsPanel';
@@ -47,9 +46,9 @@ function sectionLabel(text: string) {
 }
 
 export default function ToolsPage() {
-  const { isOfficeStaff, isAdmin } = useAuth();
-  const canEdit = isOfficeStaff;
-  const canEditCatalog = isOfficeStaff || isAdmin;
+  const { canOfficeWrite, isAdmin } = useAuth();
+  const canEdit = canOfficeWrite;
+  const canEditCatalog = canOfficeWrite || isAdmin;
   const [tab, setTab] = useState<PageTab>('tools');
   const [tools, setTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,7 +56,6 @@ export default function ToolsPage() {
   const [adjustTool, setAdjustTool] = useState<Tool | null>(null);
   const [receiveTool, setReceiveTool] = useState<Tool | null>(null);
   const [eventsOpen, setEventsOpen] = useState(false);
-  const [countsOpen, setCountsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [stockFilter, setStockFilter] = useState<StockFilter[]>([]);
   const [summaryKey, setSummaryKey] = useState<string | null>(null);
@@ -442,12 +440,6 @@ export default function ToolsPage() {
                     menu={{
                       items: [
                         {
-                          key: 'correction',
-                          icon: <AuditOutlined />,
-                          label: 'Stock correction',
-                          onClick: () => setCountsOpen(true),
-                        },
-                        {
                           key: 'events',
                           icon: <HistoryOutlined />,
                           label: 'Event log',
@@ -467,9 +459,6 @@ export default function ToolsPage() {
                   </Dropdown>
                 ) : (
                   <>
-                    <Button icon={<AuditOutlined />} onClick={() => setCountsOpen(true)}>
-                      Stock correction
-                    </Button>
                     <Button icon={<HistoryOutlined />} onClick={() => setEventsOpen(true)}>
                       Event log
                     </Button>
@@ -535,22 +524,6 @@ export default function ToolsPage() {
                 }
               />
           </div>
-
-          <Drawer
-            title="Stock correction & movements"
-            open={countsOpen}
-            onClose={() => setCountsOpen(false)}
-            size={isPhone ? '100%' : 880}
-            destroyOnHidden
-          >
-            <StocktakePanel
-              hideTitle
-              readOnly={!canEdit}
-              onSaved={() => {
-                void fetchTools();
-              }}
-            />
-          </Drawer>
 
           <Drawer
             title="Consumable event log"

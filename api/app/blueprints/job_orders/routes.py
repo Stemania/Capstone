@@ -18,6 +18,7 @@ job_orders_bp = Blueprint("job_orders", __name__)
 
 @job_orders_bp.route("/machines", methods=["GET"])
 @jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF, UserRole.PRODUCTION_WORKER)
 def list_machines():
     from app.constants.machines import get_machine_availability
 
@@ -26,6 +27,7 @@ def list_machines():
 
 @job_orders_bp.route("/machine-units", methods=["GET"])
 @jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF, UserRole.PRODUCTION_WORKER)
 def list_machine_units():
     from app.models.machine import MachineUnit
 
@@ -40,6 +42,7 @@ def list_machine_units():
 
 @job_orders_bp.route("", methods=["GET"])
 @jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF, UserRole.PRODUCTION_WORKER)
 def list_job_orders():
     status = request.args.get("status")
     scope = request.args.get("scope", "production")
@@ -57,7 +60,7 @@ def list_job_orders():
 
 @job_orders_bp.route("", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def create_job_order():
     data = request.get_json() or {}
     required = ["clientId", "title", "dueDate"]
@@ -73,6 +76,7 @@ def create_job_order():
 
 @job_orders_bp.route("/<job_id>", methods=["GET"])
 @jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF, UserRole.PRODUCTION_WORKER)
 def get_job_order(job_id):
     role = get_current_user_role()
     job = jo_service.get_job_order(job_id, get_current_user_id(), role)
@@ -165,7 +169,7 @@ def list_job_breakdowns(job_id):
 
 @job_orders_bp.route("/<job_id>/material-purchases", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def create_material_purchase(job_id):
     from app.services import material_purchase_service as mp_service
 
@@ -179,7 +183,7 @@ def create_material_purchase(job_id):
 
 @job_orders_bp.route("/<job_id>/material-purchases/<purchase_id>", methods=["PATCH"])
 @jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def update_material_purchase(job_id, purchase_id):
     from app.models.material_purchase import MaterialPurchase
     from app.services import material_purchase_service as mp_service
@@ -198,7 +202,7 @@ def update_material_purchase(job_id, purchase_id):
 
 @job_orders_bp.route("/<job_id>/material-purchases/<purchase_id>", methods=["DELETE"])
 @jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def delete_material_purchase(job_id, purchase_id):
     from app.models.material_purchase import MaterialPurchase
     from app.services import material_purchase_service as mp_service
@@ -238,7 +242,7 @@ def get_sales_invoice(job_id):
 
 @job_orders_bp.route("/<job_id>/invoice", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def record_sales_invoice(job_id):
     from app.services import sales_invoice_service as si_service
 
@@ -250,7 +254,7 @@ def record_sales_invoice(job_id):
 
 @job_orders_bp.route("/<job_id>/invoice", methods=["PATCH"])
 @jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def correct_sales_invoice(job_id):
     from app.services import sales_invoice_service as si_service
 
@@ -262,6 +266,7 @@ def correct_sales_invoice(job_id):
 
 @job_orders_bp.route("/<job_id>/operations", methods=["GET"])
 @jwt_required()
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF, UserRole.PRODUCTION_WORKER)
 def list_operations(job_id):
     job = jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
     return jsonify([op.to_dict() for op in job.operations])

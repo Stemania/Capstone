@@ -142,13 +142,14 @@ def test_change_applies_to_every_unreceived_line(client, shop):
     assert arrivals[job_b.id] == new.isoformat()
 
 
-def test_only_office_staff_can_change_it(client, shop):
+def test_worker_cannot_change_expected_delivery(client, shop):
     _, _, issued = _issued_for_job_in(client, shop, 20)
     new = shop["today"] + timedelta(days=5)
-    assert _change(client, shop["admin"], issued["id"], new).status_code == 403
     assert _change(client, shop["worker"], issued["id"], new).status_code == 403
+    # Admin shares Office write access.
+    assert _change(client, shop["admin"], issued["id"], new).status_code == 200
     so = db.session.get(SupplierOrder, issued["id"])
-    assert so.original_expected_delivery_date is None
+    assert so.expected_delivery_date == new
 
 
 def test_note_and_date_are_validated(client, shop):

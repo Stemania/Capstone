@@ -4,7 +4,7 @@ import type { OperationType, User, WorkerSchedule, WorkerSkill, WorkerWorkHistor
 /** Outcome of sending an invitation. Never contains the link or code. */
 export interface InviteDelivery {
   status: 'SENT' | 'FAILED' | 'SKIPPED' | 'NOT_SENT' | 'PENDING';
-  channel: 'EMAIL' | 'SMS' | null;
+  channel: 'EMAIL' | string | null;
   recipient: string | null;
   errorMessage: string | null;
 }

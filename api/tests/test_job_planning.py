@@ -152,11 +152,13 @@ def test_production_cannot_fetch_draft_by_id(client, seeded):
     assert client.get(f"/api/v1/job-orders/{draft.id}", headers=headers).status_code == 403
 
 
-def test_only_office_staff_create_job_orders(client, seeded):
+def test_office_and_admin_create_job_orders(client, seeded):
     body = {"clientId": seeded["client_id"], "title": "New job", "dueDate": "2026-12-01"}
 
     admin = _auth_header(_login(client, "plan_admin@test.local", "Admin123!").get_json()["accessToken"])
-    assert client.post("/api/v1/job-orders", json=body, headers=admin).status_code == 403
+    by_admin = client.post("/api/v1/job-orders", json={**body, "title": "Admin job"}, headers=admin)
+    assert by_admin.status_code == 201
+    assert by_admin.get_json()["status"] == "DRAFT"
 
     office = _auth_header(_login(client, "plan_office@test.local", "Office123!").get_json()["accessToken"])
     created = client.post("/api/v1/job-orders", json=body, headers=office)

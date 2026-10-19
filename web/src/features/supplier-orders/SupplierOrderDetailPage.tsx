@@ -60,7 +60,7 @@ function askDate(title: string, intro: string, okText: string, onOk: (d: string)
 export default function SupplierOrderDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { isOfficeStaff } = useAuth();
+  const { canOfficeWrite } = useAuth();
   const [order, setOrder] = useState<SupplierOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -128,18 +128,18 @@ export default function SupplierOrderDetailPage() {
   const receivable = order.status === 'ISSUED' || order.status === 'PARTIALLY_RECEIVED';
   const lines = order.lines || [];
   const pill = ORDER_STATUS_PILL[order.status];
-  const editableDraft = isDraft && isOfficeStaff;
+  const editableDraft = isDraft && canOfficeWrite;
   const printed = canReceiveOrder(order.printedAt);
-  const receivableByMe = receivable && isOfficeStaff;
+  const receivableByMe = receivable && canOfficeWrite;
   const cancelled = order.status === 'CANCELLED';
-  const printTermsEditable = isOfficeStaff && !cancelled;
+  const printTermsEditable = canOfficeWrite && !cancelled;
 
   const printPo = async () => {
     if (isDraft || cancelled) return;
     setBusy(true);
     try {
       // Office Staff: POST records the print; Admin can still open the view via GET route.
-      if (isOfficeStaff) {
+      if (canOfficeWrite) {
         const { data } = await supplierOrdersApi.markPrinted(order.id);
         setOrder((prev) =>
           prev
@@ -368,7 +368,7 @@ export default function SupplierOrderDetailPage() {
       key: 'act',
       width: 90,
       render: (_: unknown, ln) => {
-        if (!isOfficeStaff || !isDraft) return null;
+        if (!canOfficeWrite || !isDraft) return null;
         return (
           <Space size={0}>
             <Tooltip title="Edit line">
@@ -416,12 +416,12 @@ export default function SupplierOrderDetailPage() {
             ) : null}
             {isDraft ? (
               <Tooltip
-                title={isOfficeStaff ? undefined : 'Only Office Staff can issue a supplier order.'}
+                title={canOfficeWrite ? undefined : 'Only Office Staff can issue a supplier order.'}
               >
                 <Button
                   type="primary"
                   icon={<CheckOutlined />}
-                  disabled={!isOfficeStaff || busy || lines.length === 0 || draftDirty}
+                  disabled={!canOfficeWrite || busy || lines.length === 0 || draftDirty}
                   onClick={issue}
                 >
                   Issue order
@@ -457,7 +457,7 @@ export default function SupplierOrderDetailPage() {
                 Print PO
               </Button>
             </Tooltip>
-            {isOfficeStaff && (order.status === 'DRAFT' || order.status === 'ISSUED') ? (
+            {canOfficeWrite && (order.status === 'DRAFT' || order.status === 'ISSUED') ? (
               <Button danger icon={<StopOutlined />} disabled={busy} onClick={cancelOrder}>
                 Cancel order
               </Button>
@@ -507,7 +507,7 @@ export default function SupplierOrderDetailPage() {
                   {receivable ? (
                     <Tooltip
                       title={
-                        isOfficeStaff
+                        canOfficeWrite
                           ? 'Change expected delivery date'
                           : 'Only Office Staff can change the expected delivery date.'
                       }
@@ -517,7 +517,7 @@ export default function SupplierOrderDetailPage() {
                         type="text"
                         icon={<EditOutlined />}
                         aria-label="Change expected delivery date"
-                        disabled={!isOfficeStaff || busy}
+                        disabled={!canOfficeWrite || busy}
                         onClick={openDateChange}
                       />
                     </Tooltip>

@@ -178,16 +178,13 @@ def test_issuing_assigns_number_and_locks_lines(client, shop):
     line_id = order["lines"][0]["id"]
 
     res = _issue(client, shop, order["id"], user=shop["admin"])
-    assert res.status_code == 403
-
-    res = _issue(client, shop, order["id"])
     assert res.status_code == 200, res.get_json()
     issued = res.get_json()
     assert issued["status"] == "ISSUED"
     assert issued["poNumber"] == "PSL31000001"
     assert issued["dateIssued"] == "2031-03-02"
     assert issued["expectedDeliveryDate"] == "2031-03-07"
-    assert issued["issuedById"] == shop["office"].id
+    assert issued["issuedById"] == shop["admin"].id
     assert all(ln["dateOrdered"] == "2031-03-02" for ln in issued["lines"])
 
     headers = _headers(shop["office"])

@@ -46,10 +46,10 @@ export default function JobOrderFormPage() {
   const [jobStatus, setJobStatus] = useState<JobOrderStatus | null>(null);
   const [materialsTouched, setMaterialsTouched] = useState(false);
   const [loadedValues, setLoadedValues] = useState<Record<string, unknown> | null>(null);
-  const { isAdmin, isOfficeStaff } = useAuth();
+  const { isAdmin, canOfficeWrite } = useAuth();
   const released = jobStatus != null && jobStatus !== 'DRAFT';
   /** Edit job info: Office Staff only, and only before release. */
-  const canEditInfo = isOfficeStaff && (!isEdit || !released);
+  const canEditInfo = canOfficeWrite && (!isEdit || !released);
   const backTo = !id
     ? presetClientId
       ? `/clients/${presetClientId}`
@@ -178,11 +178,11 @@ export default function JobOrderFormPage() {
     );
   }
 
-  if (isEdit && id && (released || !isOfficeStaff)) {
+  if (isEdit && id && (released || !canOfficeWrite)) {
     return <Navigate to={`/job-orders/${id}`} replace />;
   }
 
-  if (!isEdit && !isOfficeStaff) {
+  if (!isEdit && !canOfficeWrite) {
     return <Navigate to={jobOrdersDraftsListPath()} replace />;
   }
 

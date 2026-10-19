@@ -26,6 +26,9 @@ class Config:
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY") or DEV_JWT_SECRET_KEY
     JWT_ACCESS_TOKEN_EXPIRES = 3600  # 1 hour
     JWT_REFRESH_TOKEN_EXPIRES = 604800  # 7 days
+    # Reject "none" and any algorithm other than the one we sign with.
+    JWT_ALGORITHM = "HS256"
+    JWT_DECODE_ALGORITHMS = ["HS256"]
     # development | production — controls console invite secret logging
     ENV = os.getenv("FLASK_ENV", os.getenv("ENV", "production"))
     DEBUG = os.getenv("FLASK_DEBUG", "0").lower() in ("1", "true", "yes")

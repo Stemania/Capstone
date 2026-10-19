@@ -275,7 +275,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
     setSelectedKeys((keys) =>
       keys.includes(jobId) ? keys.filter((k) => k !== jobId) : [...keys, jobId]
     );
-  const { isAdmin, isOfficeStaff } = useAuth();
+  const { isAdmin, canOfficeWrite } = useAuth();
   const isPhone = useIsPhone();
 
   useEffect(() => {
@@ -321,7 +321,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
     } finally {
       setLoading(false);
     }
-    if (isAdmin || isOfficeStaff) {
+    if (isAdmin || canOfficeWrite) {
       if (tab !== 'drafts') {
         jobOrdersApi
           .list({ scope: 'drafts' })
@@ -422,7 +422,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
   const [cancelJob, setCancelJob] = useState<JobOrder | null>(null);
 
   const canCancelJob = (record: JobOrder) =>
-    (isOfficeStaff || isAdmin) &&
+    (canOfficeWrite || isAdmin) &&
     record.status !== 'COMPLETED' &&
     record.status !== 'DELIVERED' &&
     record.status !== 'CANCELLED' &&
@@ -433,7 +433,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
 
     if (isDraft) {
       const items: MenuProps['items'] = [];
-      if (isOfficeStaff || isAdmin) {
+      if (canOfficeWrite || isAdmin) {
         items.push({
           key: 'view',
           icon: <EyeOutlined />,
@@ -448,7 +448,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
             onClick: () => navigate(`/job-orders/${record.id}/plan`),
           });
         }
-        if (isOfficeStaff) {
+        if (canOfficeWrite) {
           items.push({
             key: 'edit',
             icon: <EditOutlined />,
@@ -509,7 +509,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
       });
     }
     if (
-      (isOfficeStaff || isAdmin) &&
+      (canOfficeWrite || isAdmin) &&
       (record.status === 'COMPLETED' ||
         record.status === 'DELIVERED' ||
         record.status === 'CANCELLED')
@@ -727,7 +727,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
   const columns = listTab === 'drafts' ? draftColumns : productionColumns;
 
   const listTabs =
-    !archivedOnly && (isAdmin || isOfficeStaff) ? (
+    !archivedOnly && (isAdmin || canOfficeWrite) ? (
       <div style={{ marginBottom: isPhone ? 10 : 14 }}>
         <TabBar<ListTab>
           block={isPhone}
@@ -767,7 +767,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
                 onChange={(e) => setSearch(e.target.value)}
                 className="jo-m__search"
               />
-              {isOfficeStaff && (
+              {canOfficeWrite && (
                 <button
                   type="button"
                   className="sched-m__icon jo-m__add"
@@ -927,7 +927,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
               Back to job orders
             </Button>
           )}
-          {isOfficeStaff && !archivedOnly && (
+          {canOfficeWrite && !archivedOnly && (
             <Button
               type="primary"
               icon={<PlusOutlined />}

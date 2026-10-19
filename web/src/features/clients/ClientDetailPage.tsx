@@ -134,7 +134,7 @@ function ContactRow({
 export default function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { isAdmin, isOfficeStaff: canEdit } = useAuth();
+  const { isAdmin, canOfficeWrite: canEdit } = useAuth();
   const [data, setData] = useState<ClientDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<JobFilter>('all');

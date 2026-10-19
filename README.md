@@ -115,7 +115,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for module organization and extension p
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for step-by-step instructions to deploy on **Neon + Render + Vercel** (free tier) and install as a mobile PWA.
 
-**Live (this project):** frontend [https://capstone.vercel.app](https://capstone.vercel.app) · API health [https://bmsc-api.onrender.com/api/health](https://bmsc-api.onrender.com/api/health)
+**Live (this project):** frontend [https://capstone.vercel.app](https://capstone.vercel.app) · API health [https://capstone-x1ow.onrender.com/api/health](https://capstone-x1ow.onrender.com/api/health)
 
 ## Features (Current Scope)
 

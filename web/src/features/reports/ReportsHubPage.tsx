@@ -18,22 +18,22 @@ const REPORTS = [
   {
     adminOnly: true,
     to: '/analytics/reports/efficiency',
-    title: 'Production Performance',
+    title: 'Efficiency report',
     blurb:
-      'On-time rate, difference from target, redo share, and breakdowns by worker, operation type, and machine.',
+      'Labor efficiency by operation and machine type, planned vs actual hours, and top delay causes (Pareto).',
     icon: <BarChartOutlined style={{ fontSize: 22 }} />,
   },
   {
     to: '/analytics/reports/inventory',
-    title: 'Inventory Status',
-    blurb: 'Stock levels, reorder alerts, outstanding borrows, and usage over a period.',
+    title: 'Inventory report',
+    blurb: 'Consumables (on hand, reorder, days left, ABC), tools out/available, materials awaiting delivery.',
     icon: <ToolOutlined style={{ fontSize: 22 }} />,
   },
   {
     adminOnly: true,
     to: '/analytics/reports/worker-performance',
-    title: 'Worker Performance',
-    blurb: 'Finished operations, target vs hours worked, difference from target, and machines each worker can run.',
+    title: 'Worker performance report',
+    blurb: 'Per worker: operations completed, target vs actual, efficiency %, on-time %, pause hours by reason.',
     icon: <TeamOutlined style={{ fontSize: 22 }} />,
   },
 ];

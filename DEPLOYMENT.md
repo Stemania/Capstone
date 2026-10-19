@@ -64,8 +64,9 @@ Keep **one** gunicorn worker: the sign-in limit (10 attempts per minute) is coun
 | `FLASK_ENV` | `production` |
 | `TRUSTED_PROXY_COUNT` | `1` (Render's proxy; lets the API see the client's real address) |
 
-6. Deploy. Copy your API URL (this project’s Render service is `bmsc-api`;
-   health check: `https://bmsc-api.onrender.com/api/health`).
+6. Deploy. Copy your API URL (this project’s live API is
+   `https://capstone-x1ow.onrender.com`; health check:
+   `https://capstone-x1ow.onrender.com/api/health`).
 
 7. **Create the first Admin** (one time) — Render Shell, or locally pointing at Neon:
 
@@ -102,7 +103,7 @@ The seed is currently the only thing that creates machine types and operation ty
 
 | Key | Value |
 |-----|-------|
-| `VITE_API_BASE_URL` | `https://bmsc-api.onrender.com/api/v1` |
+| `VITE_API_BASE_URL` | `https://capstone-x1ow.onrender.com/api/v1` |
 
 5. Deploy. This project’s Vercel production domain is `https://capstone.vercel.app`.
 
