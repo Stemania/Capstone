@@ -55,6 +55,7 @@ def create_app(config_object=None):
         app.logger.setLevel(logging.INFO)
     init_request_metrics(app)
 
+    @app.route("/api/health", methods=["GET", "HEAD"])
     @app.route("/api/v1/health", methods=["GET", "HEAD"])
     def health():
         return {"status": "ok"}
@@ -64,7 +65,20 @@ def create_app(config_object=None):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        if app.config.get("ENV") == "production":
+        # JSON API: deny framing and embedding foreign scripts by default.
+        ctype = (response.content_type or "").lower()
+        if "json" in ctype or response.status_code >= 400:
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+            )
+        else:
+            response.headers.setdefault(
+                "Content-Security-Policy", "frame-ancestors 'none'"
+            )
+        from flask import request as _req
+
+        if _req.is_secure or app.config.get("ENV") == "production":
             response.headers.setdefault(
                 "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
             )
