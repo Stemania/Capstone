@@ -67,6 +67,9 @@ DOWNTIME_CATEGORY_LABELS = {
 
 class OperationTimeLog(db.Model):
     __tablename__ = "operation_time_logs"
+    __table_args__ = (
+        db.Index("ix_operation_time_logs_op_event_at", "operation_id", "event_at"),
+    )
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
     operation_id = db.Column(
@@ -78,13 +81,20 @@ class OperationTimeLog(db.Model):
     worker_id = db.Column(
         db.String(36), db.ForeignKey("users.id"), nullable=False, index=True
     )
-    event = db.Column(db.Enum(OperationTimeEvent), nullable=False)
+    event = db.Column(
+        db.Enum(OperationTimeEvent, name="operation_time_event", native_enum=True),
+        nullable=False,
+    )
     event_at = db.Column(db.DateTime(timezone=True), nullable=False)
-    reason = db.Column(db.Enum(OperationPauseReason), nullable=True)
+    reason = db.Column(
+        db.Enum(OperationPauseReason, name="operation_pause_reason", native_enum=True),
+        nullable=True,
+    )
     note = db.Column(db.Text, nullable=True)
     # event_at is when it happened on the phone; received_at is when the server
     # got it (null for records not sent by a worker's device).
     received_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # DB column is nullable (historical); keep model aligned so flask db check is clean.
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
 
     operation = db.relationship(
@@ -109,6 +119,9 @@ class OperationTimeLog(db.Model):
 
 class MachineDowntime(db.Model):
     __tablename__ = "machine_downtimes"
+    __table_args__ = (
+        db.Index("ix_machine_downtimes_unit_open", "machine_unit_id", "ended_at"),
+    )
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
     machine_unit_id = db.Column(

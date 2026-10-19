@@ -60,15 +60,14 @@ class StocktakeLine(db.Model):
     __table_args__ = (
         db.UniqueConstraint("stocktake_id", "tool_id", name="uq_stocktake_line_tool"),
         db.Index("ix_stocktake_line_tool", "tool_id"),
+        db.Index("ix_stocktake_lines_tool_id", "tool_id"),
     )
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
     stocktake_id = db.Column(
         db.String(36), db.ForeignKey("stocktakes.id", ondelete="CASCADE"), nullable=False
     )
-    tool_id = db.Column(
-        db.String(36), db.ForeignKey("tools.id"), nullable=False, index=True
-    )
+    tool_id = db.Column(db.String(36), db.ForeignKey("tools.id"), nullable=False)
     previous_quantity = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0"))
     counted_quantity = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0"))
 

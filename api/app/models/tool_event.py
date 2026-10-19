@@ -33,7 +33,17 @@ class ToolEventType(enum.Enum):
 
 class ToolEvent(db.Model):
     __tablename__ = "tool_events"
-    __table_args__ = (db.Index("ix_tool_event_tool_created", "tool_id", "created_at"),)
+    __table_args__ = (
+        db.Index("ix_tool_event_tool_created", "tool_id", "created_at"),
+        # Partial unique: one offline client action id → one event (migration 052).
+        db.Index(
+            "uq_tool_events_client_action_id",
+            "client_action_id",
+            unique=True,
+            postgresql_where=db.text("client_action_id IS NOT NULL"),
+            sqlite_where=db.text("client_action_id IS NOT NULL"),
+        ),
+    )
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
     # Consumable stock ADJUST / RECEIVE / SCAN / UNDO / CORRECTION (and legacy rows)

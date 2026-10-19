@@ -181,7 +181,10 @@ class JobOrder(db.Model):
     material_received_date = db.Column(db.Date, nullable=True)
     # Preferred supplier for the job (optional); PO/invoice number stays free-text.
     supplier_id = db.Column(
-        db.String(36), db.ForeignKey("suppliers.id"), nullable=True, index=True
+        db.String(36),
+        db.ForeignKey("suppliers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     # Supplier's own order / invoice number.
     supplier_reference = db.Column(db.String(120), nullable=True)

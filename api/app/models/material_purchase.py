@@ -26,7 +26,9 @@ class MaterialPurchase(db.Model):
     __tablename__ = "material_purchases"
     __table_args__ = (
         db.Index("ix_material_purchase_job", "job_order_id"),
+        # Named index from migration 020; plus FK-style name expected by flask db check.
         db.Index("ix_material_purchase_supplier", "supplier_id"),
+        db.Index("ix_material_purchases_supplier_id", "supplier_id"),
         db.Index("ix_material_purchase_ordered", "date_ordered"),
         db.CheckConstraint(
             "(job_order_id IS NULL) <> (tool_id IS NULL)",
@@ -65,7 +67,7 @@ class MaterialPurchase(db.Model):
     unit = db.Column(db.String(32), nullable=False, default="pcs")
     unit_cost = db.Column(db.Numeric(14, 4), nullable=False, default=Decimal("0"))
     supplier_id = db.Column(
-        db.String(36), db.ForeignKey("suppliers.id"), nullable=False, index=True
+        db.String(36), db.ForeignKey("suppliers.id"), nullable=False
     )
     # NULL = recorded without a PO (lines from before supplier orders).
     supplier_order_id = db.Column(

@@ -24,10 +24,15 @@ class ToolUnitStatus(enum.Enum):
 
 class ToolType(db.Model):
     __tablename__ = "tool_types"
+    __table_args__ = (
+        # Matches migration 016 index + Postgres unique constraint name.
+        db.UniqueConstraint("code", name="tool_types_code_key"),
+        db.Index("ix_tool_types_code", "code"),
+    )
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
     name = db.Column(db.String(255), nullable=False, index=True)
-    code = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    code = db.Column(db.String(64), nullable=False)
     description = db.Column(db.String(500), nullable=True)
     # Seed placeholder flag for client-pending real lists
     is_seed = db.Column(db.Boolean, nullable=False, default=False)

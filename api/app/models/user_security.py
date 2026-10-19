@@ -32,7 +32,7 @@ class UserInvitation(db.Model):
     expires_at = db.Column(db.DateTime(timezone=True), nullable=False)
     used_at = db.Column(db.DateTime(timezone=True), nullable=True)
     created_by_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=False)
-    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, nullable=False)
     revoked_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     user = db.relationship("User", foreign_keys=[user_id], backref="invitations")
@@ -77,7 +77,7 @@ class UserDevice(db.Model):
     pin_failed_attempts = db.Column(db.Integer, nullable=False, default=0)
     last_used_at = db.Column(db.DateTime(timezone=True), nullable=True)
     revoked_at = db.Column(db.DateTime(timezone=True), nullable=True)
-    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, nullable=False)
 
     user = db.relationship("User", backref="devices")
 
@@ -112,7 +112,7 @@ class PasswordResetToken(db.Model):
     channel = db.Column(db.Enum(InvitationChannel), nullable=False)
     expires_at = db.Column(db.DateTime(timezone=True), nullable=False)
     used_at = db.Column(db.DateTime(timezone=True), nullable=True)
-    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow, nullable=False)
     revoked_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     user = db.relationship("User", backref="password_reset_tokens")

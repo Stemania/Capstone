@@ -9,10 +9,14 @@ def _uuid():
 
 class WorkerProfile(db.Model):
     __tablename__ = "worker_profiles"
+    __table_args__ = (
+        # Matches migration 001 unique index name (not an unnamed UniqueConstraint).
+        db.Index("ix_worker_profiles_user_id", "user_id", unique=True),
+    )
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid)
     user_id = db.Column(
-        db.String(36), db.ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
+        db.String(36), db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
 
     user = db.relationship("User", back_populates="worker_profile")
