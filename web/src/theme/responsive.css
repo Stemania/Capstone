@@ -921,6 +921,22 @@
     min-height: 44px;
   }
 
+  /* A single link-style extra stays beside the title instead of wrapping under it. */
+  .app-shell--m .ui-card__head:has(> .ui-card__extra > .ant-btn-variant-link:only-child) {
+    flex-wrap: nowrap;
+  }
+
+  .app-shell--m .ui-card__head:has(> .ui-card__extra > .ant-btn-variant-link:only-child) > .ui-card__titles {
+    flex: 1 1 auto;
+  }
+
+  .app-shell--m .ui-card__extra > .ant-btn-variant-link {
+    height: 28px;
+    padding-inline: 4px;
+    margin-inline-end: -4px;
+    font-size: 13px;
+  }
+
   .app-shell--m .ui-card__title {
     font-size: var(--fs-base);
   }
@@ -1662,9 +1678,50 @@
     font-size: 12px;
   }
 
+  .notif-popover.ant-popover {
+    left: 12px !important;
+    right: auto !important;
+  }
+
+  .notif-popover .ant-popover-arrow {
+    display: none;
+  }
+
   .app-shell--m .shop-details-page__footer {
     bottom: -12px;
     padding: 10px 0 20px;
+  }
+
+  /* Machine cards: smaller art and stat strip so more units fit per screen. */
+  .app-shell--m .mcard__name {
+    font-size: 15px;
+  }
+
+  .app-shell--m .mcard__main {
+    gap: 12px;
+  }
+
+  .app-shell--m .mcard__art {
+    width: 80px;
+    height: 60px;
+    flex-basis: 80px;
+  }
+
+  .app-shell--m .mcard__art img {
+    max-width: 74px;
+    max-height: 56px;
+  }
+
+  .app-shell--m .mcard__stat {
+    padding: 7px 12px 8px;
+  }
+
+  .app-shell--m .mcard__stat-label {
+    font-size: 11px;
+  }
+
+  .app-shell--m .mcard__stat-value {
+    font-size: 13.5px;
   }
 
   /* Client detail head: contacts as one grouped list. */

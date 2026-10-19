@@ -138,6 +138,7 @@ export default function NotificationBell({ className }: { className?: string }) 
       }}
       content={content}
       arrow={{ pointAtCenter: true }}
+      classNames={{ root: 'notif-popover' }}
       styles={{ container: { padding: 0, borderRadius: 12, overflow: 'hidden' } }}
     >
       <button
