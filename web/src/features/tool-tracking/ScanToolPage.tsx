@@ -9,7 +9,7 @@ import {
   StopOutlined,
   UndoOutlined,
 } from '@ant-design/icons';
-import { Html5Qrcode } from 'html5-qrcode';
+import type { Html5Qrcode } from 'html5-qrcode';
 import { toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
@@ -263,30 +263,35 @@ export default function ScanToolPage() {
       return;
     }
     setCameraState('starting');
-    const qr = new Html5Qrcode('qr-camera-view');
-    scannerRef.current = qr;
     let cancelled = false;
+    let qr: Html5Qrcode | null = null;
+    let startPromise: Promise<void> = Promise.resolve();
 
-    const startPromise = qr
-      .start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 240, height: 240 } },
-        (decodedText) => onCodeDetected(decodedText),
-        () => {}
-      )
-      .then(() => {
-        if (!cancelled) setCameraState('scanning');
-      })
-      .catch(() => {
-        if (!cancelled) setCameraState('denied');
-      });
+    void import('html5-qrcode').then(({ Html5Qrcode: Html5QrcodeCtor }) => {
+      if (cancelled) return;
+      qr = new Html5QrcodeCtor('qr-camera-view');
+      scannerRef.current = qr;
+      startPromise = qr
+        .start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 240, height: 240 } },
+          (decodedText) => onCodeDetected(decodedText),
+          () => {}
+        )
+        .then(() => {
+          if (!cancelled) setCameraState('scanning');
+        })
+        .catch(() => {
+          if (!cancelled) setCameraState('denied');
+        });
+    });
 
     return () => {
       cancelled = true;
       startPromise.finally(() => {
-        if (qr.isScanning) {
+        if (qr?.isScanning) {
           qr.stop()
-            .then(() => qr.clear())
+            .then(() => qr?.clear())
             .catch(() => {});
         }
       });

@@ -70,4 +70,22 @@ export default defineConfig({
       },
     },
   },
+  preview: {
+    port: 4173,
+    // Same proxy as `server` so a production build preview can hit the local API
+    // when VITE_API_BASE_URL is unset (defaults to `/api/v1`).
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
+    },
+    headers: {
+      'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Content-Security-Policy':
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:5000 http://localhost:5000 https://bmsc-api.onrender.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; manifest-src 'self'; worker-src 'self'; media-src 'self' blob:",
+    },
+  },
 })

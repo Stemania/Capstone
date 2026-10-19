@@ -57,7 +57,7 @@ import type {
   ReworkReasonCategory,
   ScheduleMove,
 } from '../../types';
-import { formatDifferenceFromTarget } from '../analytics/analyticsPeriod';
+import { formatDifferenceFromTarget } from '../analytics/analyticsFormat';
 import { WorkerPageHeader } from '../../layouts/WorkerLayout';
 import { jobOrdersListPath } from './jobOrderListPaths';
 import JobScheduleColorPicker from './JobScheduleColorPicker';
