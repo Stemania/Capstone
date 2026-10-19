@@ -96,7 +96,15 @@ def test_token_refresh_request_and_send_call(http):
     assert msg.get("Message-ID")
     assert msg.get("Reply-To")
     assert msg.get_content_type() == "multipart/alternative"
-    parts = {p.get_content_type(): p.get_payload(decode=True).decode() for p in msg.walk() if not p.is_multipart()}
+    assert any(p.get_content_type() == "multipart/related" for p in msg.walk())
+    parts = {}
+    for p in msg.walk():
+        if p.is_multipart() or (p.get_content_type() or "").startswith("image/"):
+            continue
+        payload = p.get_payload(decode=True)
+        parts[p.get_content_type()] = (
+            payload.decode() if isinstance(payload, (bytes, bytearray)) else payload
+        )
     assert "Line two" in parts["text/plain"]
     assert "<p>Hello</p>" in parts["text/html"]
 
@@ -192,12 +200,15 @@ def test_backend_selection_defaults_to_console():
 
 
 def test_build_message_is_multipart_with_headers():
+    from app.services.email_templates import EMAIL_LOGO_CID
+
     msg = eb.build_message(
         "shop@example.com",
         "to@example.com",
         "Subject line",
         "Plain with https://app.example.com/set-password?token=abc",
-        '<p><a href="https://app.example.com/set-password?token=abc">Set password</a></p>',
+        f'<p><a href="https://app.example.com/set-password?token=abc">Set password</a></p>'
+        f'<img src="cid:{EMAIL_LOGO_CID}" alt="BMSC logo">',
     )
     assert msg.get_content_type() == "multipart/alternative"
     assert msg["From"].startswith("Brothers Machine Shop")
@@ -205,10 +216,20 @@ def test_build_message_is_multipart_with_headers():
     assert msg.get("Date")
     assert msg.get("Message-ID")
     assert msg.get("Reply-To")
-    parts = {
-        p.get_content_type(): p.get_payload(decode=True).decode()
-        for p in msg.walk()
-        if not p.is_multipart()
-    }
+    assert any(p.get_content_type() == "multipart/related" for p in msg.walk())
+    parts = {}
+    image_cids = []
+    for p in msg.walk():
+        if p.is_multipart():
+            continue
+        if p.get_content_type().startswith("image/"):
+            image_cids.append((p.get("Content-ID") or "").strip())
+            continue
+        payload = p.get_payload(decode=True)
+        parts[p.get_content_type()] = (
+            payload.decode() if isinstance(payload, (bytes, bytearray)) else payload
+        )
     assert "https://app.example.com/set-password?token=abc" in parts["text/plain"]
     assert 'href="https://app.example.com/set-password?token=abc"' in parts["text/html"]
+    assert image_cids and EMAIL_LOGO_CID in image_cids[0]
+    assert f"cid:{EMAIL_LOGO_CID}" in parts["text/html"]

@@ -8,6 +8,8 @@ import pytest
 from app.models.notification import NotificationMilestone
 from app.services import email_backends as eb
 from app.services.email_templates import (
+    EMAIL_LOGO_CID,
+    SHOP_HEADER_NAME,
     absolute_frontend_url,
     invitation_email,
     job_update_email_content,
@@ -37,12 +39,31 @@ def _assert_multipart_message(msg, *, link_substr: str | None = None):
     assert msg.get("Message-ID")
     assert msg.get("MIME-Version") == "1.0"
     assert msg.get("Reply-To")
-    parts = {
-        p.get_content_type(): p.get_payload(decode=True).decode()
-        for p in msg.walk()
-        if not p.is_multipart()
-    }
+    related = [
+        p for p in msg.walk() if p.get_content_type() == "multipart/related"
+    ]
+    assert related, "HTML part should be wrapped in multipart/related for the inline logo"
+    parts = {}
+    image_parts = []
+    for p in msg.walk():
+        if p.is_multipart():
+            continue
+        ctype = p.get_content_type()
+        if ctype.startswith("image/"):
+            image_parts.append(p)
+            continue
+        payload = p.get_payload(decode=True)
+        parts[ctype] = payload.decode() if isinstance(payload, (bytes, bytearray)) else payload
     assert "text/plain" in parts and "text/html" in parts
+    assert image_parts, "expected inline logo image part"
+    logo = image_parts[0]
+    cid = (logo.get("Content-ID") or "").strip()
+    assert EMAIL_LOGO_CID in cid
+    assert f"cid:{EMAIL_LOGO_CID}" in parts["text/html"]
+    assert SHOP_HEADER_NAME in parts["text/html"]
+    assert "BMSC logo" in parts["text/html"]
+    assert "cid:" not in parts["text/plain"]
+    assert SHOP_HEADER_NAME not in parts["text/plain"]
     if link_substr:
         assert link_substr in parts["text/plain"]
         assert f'href="{link_substr}"' in parts["text/html"] or f"href='{link_substr}'" in parts["text/html"]
@@ -93,8 +114,11 @@ def test_admin_test_email_multipart(https_app):
         content.text,
         content.html,
     )
-    _assert_multipart_message(msg)
-    assert "Production Scheduling System" in content.html
+    parts = _assert_multipart_message(msg)
+    assert "Production Scheduling System" in parts["text/html"]
+    assert SHOP_HEADER_NAME in parts["text/html"]
+    assert "Brothers Machine Shop" in content.text
+    assert SHOP_HEADER_NAME not in content.text
 
 
 def test_job_update_emails_have_status_badge_no_amounts(https_app):

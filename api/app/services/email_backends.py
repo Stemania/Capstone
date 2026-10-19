@@ -15,14 +15,32 @@ import time
 from abc import ABC, abstractmethod
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
+from pathlib import Path
 
 import requests
 
 from app.services.email_templates import (
+    EMAIL_LOGO_CID,
     SHOP_DISPLAY_NAME,
     extract_email_address,
     format_from_header,
 )
+
+# Bundled shop mark for multipart/related (Gmail shows without remote load).
+_EMAIL_LOGO_PATH = Path(__file__).resolve().parents[1] / "assets" / "email_logo.png"
+_logo_bytes_cache: bytes | None = None
+
+
+def _email_logo_bytes() -> bytes | None:
+    global _logo_bytes_cache
+    if _logo_bytes_cache is not None:
+        return _logo_bytes_cache
+    try:
+        _logo_bytes_cache = _EMAIL_LOGO_PATH.read_bytes()
+    except OSError:
+        logger.warning("Email logo missing at %s; HTML will reference cid without attachment", _EMAIL_LOGO_PATH)
+        return None
+    return _logo_bytes_cache
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +99,19 @@ def build_message(
 
     msg.set_content(text or "", charset="utf-8")
     msg.add_alternative(html_body or text or "", subtype="html", charset="utf-8")
+
+    # Attach logo under the HTML part so MIME is multipart/related (cid: works in Gmail).
+    logo = _email_logo_bytes()
+    if logo:
+        html_part = msg.get_payload()[-1]
+        html_part.add_related(
+            logo,
+            maintype="image",
+            subtype="png",
+            cid=EMAIL_LOGO_CID,
+            filename="bmsc-logo.png",
+            disposition="inline",
+        )
     return msg
 
 

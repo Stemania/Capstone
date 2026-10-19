@@ -52,11 +52,14 @@ describe('ShopDetailsPage', () => {
     await waitFor(() => {
       expect(screen.getByDisplayValue('Brothers Machine')).toBeTruthy();
     });
-    expect(screen.getByLabelText('Letterhead preview')).toBeTruthy();
-    expect(document.querySelector('.shop-print-name')?.textContent).toContain('Brothers Machine');
+    expect(screen.getAllByRole('button', { name: /preview letterhead/i }).length).toBeGreaterThan(0);
+    expect(screen.getByText('Letterhead')).toBeTruthy();
+    expect(screen.getByText('Contact')).toBeTruthy();
+    expect(screen.getByText('Approvers')).toBeTruthy();
+    expect(screen.getByText('Test email')).toBeTruthy();
   });
 
-  it('updates the letterhead preview when the shop name changes', async () => {
+  it('opens letterhead preview modal reflecting unsaved shop name edits', async () => {
     await act(async () => {
       render(
         <ConfigProvider>
@@ -73,7 +76,12 @@ describe('ShopDetailsPage', () => {
       fireEvent.change(nameInput, { target: { value: 'New Shop Name' } });
     });
 
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: /preview letterhead/i })[0]);
+    });
+
     await waitFor(() => {
+      expect(screen.getByTestId('letterhead-preview-sheet')).toBeTruthy();
       expect(document.querySelector('.shop-print-name')?.textContent).toContain('New Shop Name');
     });
   });

@@ -16,7 +16,11 @@ from flask import current_app, has_app_context
 logger = logging.getLogger(__name__)
 
 SHOP_DISPLAY_NAME = "Brothers Machine Shop"
+# Full legal name in the HTML email header (From: stays SHOP_DISPLAY_NAME).
+SHOP_HEADER_NAME = "Brothers Machine Shop and Services Corporation"
 SHOP_SUBTITLE = "Production Scheduling System"
+# Content-ID for the inline logo (multipart/related); HTML uses cid: without brackets.
+EMAIL_LOGO_CID = "bmsc-logo@bmsc"
 
 # Matches the login card header / app primary.
 EMAIL_NAVY = "#0f1c2e"
@@ -227,6 +231,24 @@ def render_branded_email(
         )
 
     footer_html = "<br>".join(_esc(line) for line in footer)
+    # Table header: title left, logo right (CID). Stacks on narrow clients that honor max-width.
+    header_html = (
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">'
+        f"<tr>"
+        f'<td valign="middle" style="padding:0;font-family:Arial,Helvetica,sans-serif;'
+        f'vertical-align:middle">'
+        f'<div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;'
+        f'line-height:1.3;color:#ffffff">{_esc(SHOP_HEADER_NAME)}</div>'
+        f'<div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#cbd5e1;'
+        f'margin-top:4px">{_esc(SHOP_SUBTITLE)}</div>'
+        f"</td>"
+        f'<td valign="middle" align="right" width="64" style="padding:0 0 0 12px;'
+        f'vertical-align:middle;width:64px">'
+        f'<img src="cid:{EMAIL_LOGO_CID}" height="48" width="48" alt="BMSC logo" '
+        f'style="display:block;border:0;outline:none;height:48px;width:auto;max-height:48px">'
+        f"</td>"
+        f"</tr></table>"
+    )
     html_doc = f"""<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -235,10 +257,7 @@ def render_branded_email(
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f1f5f9;padding:24px 12px">
 <tr><td align="center">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:10px;overflow:hidden;border:1px solid {EMAIL_BORDER}">
-<tr><td style="background:{EMAIL_NAVY};padding:20px 24px">
-<div style="font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:700;color:#ffffff">{_esc(SHOP_DISPLAY_NAME)}</div>
-<div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#cbd5e1;margin-top:4px">{_esc(SHOP_SUBTITLE)}</div>
-</td></tr>
+<tr><td style="background:{EMAIL_NAVY};padding:20px 24px">{header_html}</td></tr>
 <tr><td style="padding:28px 24px">{"".join(body_bits)}</td></tr>
 <tr><td style="padding:16px 24px 22px;border-top:1px solid {EMAIL_BORDER};background:#f8fafc">
 <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;color:{EMAIL_MUTED}">{footer_html}</div>

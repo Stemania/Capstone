@@ -14,9 +14,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+import base64
+import shutil
+
 from app import create_app
 from app.models.notification import NotificationMilestone
 from app.services.email_templates import (
+    EMAIL_LOGO_CID,
     absolute_frontend_url,
     invitation_email,
     job_update_email_content,
@@ -25,6 +29,16 @@ from app.services.email_templates import (
 )
 
 OUT = ROOT / ".email_previews"
+LOGO_SRC = ROOT / "app" / "assets" / "email_logo.png"
+
+
+def _html_for_browser(html: str) -> str:
+    """Replace cid: logo with a data URI so previews render in a browser."""
+    if not LOGO_SRC.is_file():
+        return html
+    data = base64.b64encode(LOGO_SRC.read_bytes()).decode("ascii")
+    uri = f"data:image/png;base64,{data}"
+    return html.replace(f"cid:{EMAIL_LOGO_CID}", uri)
 
 
 def main() -> None:
@@ -35,6 +49,8 @@ def main() -> None:
         app.config["FRONTEND_URL"] = "https://app.example.com"
 
     OUT.mkdir(parents=True, exist_ok=True)
+    if LOGO_SRC.is_file():
+        shutil.copy2(LOGO_SRC, OUT / "bmsc-logo.png")
     written = []
 
     with app.app_context():
@@ -68,7 +84,7 @@ def main() -> None:
         for name, content in samples:
             html_path = OUT / f"{name}.html"
             txt_path = OUT / f"{name}.txt"
-            html_path.write_text(content.html, encoding="utf-8")
+            html_path.write_text(_html_for_browser(content.html), encoding="utf-8")
             txt_path.write_text(
                 f"Subject: {content.subject}\n\n{content.text}", encoding="utf-8"
             )

@@ -3,14 +3,13 @@ import {
   Alert,
   Button,
   Card,
-  Col,
   Form,
   Input,
-  Row,
+  Modal,
   Spin,
   message,
 } from 'antd';
-import { SaveOutlined, SendOutlined } from '@ant-design/icons';
+import { EyeOutlined, SaveOutlined, SendOutlined } from '@ant-design/icons';
 import { shopDetailsApi, type ShopDetails } from '../../api/shopDetails.api';
 import { notificationsApi } from '../../api/notifications.api';
 import { getErrorMessage } from '../../api/client';
@@ -37,67 +36,63 @@ const EMPTY: ShopDetails = {
 function Section({ title, hint }: { title: string; hint: string }) {
   return (
     <div className="shop-details-page__section">
-      <div className="shop-details-page__section-title">{title}</div>
+      <h2 className="shop-details-page__section-title">{title}</h2>
       <p className="shop-details-page__section-hint">{hint}</p>
     </div>
   );
 }
 
-function LetterheadPreview({ values }: { values: Partial<ShopDetails> }) {
+function LetterheadPreviewSheet({ values }: { values: Partial<ShopDetails> }) {
   const preview = shopLetterheadPreview(values);
 
   return (
-    <aside className="shop-details-preview" aria-label="Letterhead preview">
-      <div className="shop-details-preview__title">Letterhead preview</div>
-      <div className="shop-details-preview__sheet">
-        <header className="shop-print-header shop-details-preview__header">
-          <div className="shop-print-header__row">
-            <img className="shop-print-logo" src="/logo.png" alt="" />
-            <div className="shop-print-header__text">
-              <div className="shop-print-name">{preview.shopName}</div>
-              {preview.tagline ? (
-                <div className="shop-print-tagline">{preview.tagline}</div>
-              ) : null}
-            </div>
+    <div className="shop-details-preview__sheet" data-testid="letterhead-preview-sheet">
+      <header className="shop-print-header shop-details-preview__header">
+        <div className="shop-print-header__row">
+          <img className="shop-print-logo" src="/logo.png" alt="" />
+          <div className="shop-print-header__text">
+            <div className="shop-print-name">{preview.shopName}</div>
+            {preview.tagline ? (
+              <div className="shop-print-tagline">{preview.tagline}</div>
+            ) : null}
           </div>
-          <div className="shop-print-bar" aria-hidden>
-            {(['gold', 'black', 'gold', 'black'] as const).map((tone, i) => (
-              <span key={i} className={`shop-print-bar__seg shop-print-bar__seg--${tone}`} />
+        </div>
+        <div className="shop-print-bar" aria-hidden>
+          {(['gold', 'black', 'gold', 'black'] as const).map((tone, i) => (
+            <span key={i} className={`shop-print-bar__seg shop-print-bar__seg--${tone}`} />
+          ))}
+        </div>
+      </header>
+      <div className="shop-details-preview__body">
+        {preview.address ? (
+          <div className="shop-details-preview__address">{preview.address}</div>
+        ) : null}
+        {preview.contacts.length ? (
+          <div className="shop-details-preview__contacts">
+            {preview.contacts.map((c, i) => (
+              <span key={c}>
+                {i > 0 ? <span className="shop-print-sep"> - </span> : null}
+                {c}
+              </span>
             ))}
           </div>
-        </header>
-        <div className="shop-details-preview__body">
-          {preview.address ? (
-            <div className="shop-details-preview__address">{preview.address}</div>
-          ) : null}
-          {preview.contacts.length ? (
-            <div className="shop-details-preview__contacts">
-              {preview.contacts.map((c, i) => (
-                <span key={c}>
-                  {i > 0 ? <span className="shop-print-sep"> - </span> : null}
-                  {c}
-                </span>
-              ))}
-            </div>
-          ) : null}
-          <div className="shop-details-preview__sigs">
-            <div className="shop-print-signature">
-              <div className="shop-print-signature__space" />
-              <div className="shop-print-signature__name">{preview.poApproverName}</div>
-              <div className="shop-print-signature__title">{preview.poApproverTitle}</div>
-            </div>
-            <div className="shop-print-signature">
-              <div className="shop-print-signature__space" />
-              <div className="shop-print-signature__name">{preview.joApproverName}</div>
-              <div className="shop-print-signature__title">{preview.joApproverTitle}</div>
-            </div>
+        ) : null}
+        <div className="shop-details-preview__sigs shop-print-signatures">
+          <div className="shop-print-signature">
+            <div>Approved by: (PO)</div>
+            <div className="shop-print-signature__space" />
+            <div className="shop-print-signature__name">{preview.poApproverName}</div>
+            <div>{preview.poApproverTitle}</div>
+          </div>
+          <div className="shop-print-signature">
+            <div>Approved by: (JO)</div>
+            <div className="shop-print-signature__space" />
+            <div className="shop-print-signature__name">{preview.joApproverName}</div>
+            <div>{preview.joApproverTitle}</div>
           </div>
         </div>
       </div>
-      <p className="shop-details-preview__caption">
-        Matches the header printed on purchase orders and job orders.
-      </p>
-    </aside>
+    </div>
   );
 }
 
@@ -109,6 +104,7 @@ export default function ShopDetailsPage() {
   const [error, setError] = useState('');
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [baseline, setBaseline] = useState<ShopDetails | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const watched = Form.useWatch([], form) as Partial<ShopDetails> | undefined;
 
   const dirty = useMemo(() => {
@@ -118,7 +114,6 @@ export default function ShopDetailsPage() {
     );
   }, [baseline, watched]);
 
-  // BrowserRouter cannot use useBlocker (needs a data router).
   useUnsavedChangesWarning(dirty);
 
   useEffect(() => {
@@ -159,8 +154,15 @@ export default function ShopDetailsPage() {
 
   return (
     <div className="shop-details-page">
-      {error && <Alert type="error" showIcon title={error} />}
-      <Card className="shop-details-page__card" style={{ borderRadius: 12 }}>
+      {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />}
+
+      <div className="shop-details-page__toolbar">
+        <Button icon={<EyeOutlined />} onClick={() => setPreviewOpen(true)}>
+          Preview letterhead
+        </Button>
+      </div>
+
+      <Card className="shop-details-page__card" bordered={false}>
         <Form
           form={form}
           layout="vertical"
@@ -168,87 +170,118 @@ export default function ShopDetailsPage() {
           requiredMark="optional"
           className="shop-details-page__form"
         >
-          <div className="shop-details-page__layout">
-            <div className="shop-details-page__fields">
-              <div className="shop-details-page__block">
-                <Section
-                  title="Letterhead"
-                  hint="Shown at the top of printed purchase orders and job orders."
-                />
-                <Form.Item name="shopName" label="Shop name" rules={[{ required: true }]}>
+          <div className="shop-details-page__block">
+            <Section
+              title="Letterhead"
+              hint="Shop identity at the top of every printed document."
+            />
+            <Form.Item
+              name="shopName"
+              label="Shop name"
+              rules={[{ required: true, message: 'Shop name is required' }]}
+              extra="Full legal or trading name as it should appear in print."
+            >
+              <Input maxLength={255} />
+            </Form.Item>
+            <Form.Item name="tagline" label="Tagline" extra="Optional. Shown under the shop name.">
+              <Input.TextArea autoSize={{ minRows: 2, maxRows: 3 }} maxLength={500} />
+            </Form.Item>
+            <Form.Item
+              name="address"
+              label="Address"
+              rules={[{ required: true, message: 'Address is required' }]}
+            >
+              <Input maxLength={500} />
+            </Form.Item>
+          </div>
+
+          <div className="shop-details-page__block">
+            <Section title="Contact" hint="Printed under the letterhead on every shop document." />
+            <div className="shop-details-page__contact-row">
+              <Form.Item name="telephone" label="Telephone">
+                <Input maxLength={100} placeholder="(043) 4303524" />
+              </Form.Item>
+              <Form.Item name="mobileNumbers" label="Mobile numbers">
+                <Input maxLength={200} placeholder="0926… / 0915…" />
+              </Form.Item>
+              <Form.Item name="email" label="Email" rules={[{ type: 'email', message: 'Enter a valid email' }]}>
+                <Input maxLength={255} placeholder="shop@example.com" />
+              </Form.Item>
+            </div>
+          </div>
+
+          <div className="shop-details-page__block">
+            <Section
+              title="Approvers"
+              hint="Names and titles on the signature lines of printed documents."
+            />
+            <div className="shop-details-page__approver-pair">
+              <div className="shop-details-page__approver-label">Purchase orders</div>
+              <div className="shop-details-page__approver-fields">
+                <Form.Item name="poApproverName" label="Name">
                   <Input maxLength={255} />
                 </Form.Item>
-                <Form.Item name="tagline" label="Tagline">
-                  <Input.TextArea autoSize={{ minRows: 2, maxRows: 3 }} maxLength={500} />
+                <Form.Item name="poApproverTitle" label="Title">
+                  <Input maxLength={255} />
                 </Form.Item>
-                <Form.Item name="address" label="Address" rules={[{ required: true }]}>
-                  <Input maxLength={500} />
-                </Form.Item>
-              </div>
-
-              <div className="shop-details-page__block">
-                <Section title="Contact" hint="Printed under the letterhead on every shop document." />
-                <div className="shop-details-page__contact-row">
-                  <Form.Item name="telephone" label="Telephone">
-                    <Input maxLength={100} placeholder="(043) 4303524" />
-                  </Form.Item>
-                  <Form.Item name="mobileNumbers" label="Mobile numbers">
-                    <Input maxLength={200} placeholder="0926… / 0915…" />
-                  </Form.Item>
-                  <Form.Item name="email" label="Email" rules={[{ type: 'email' }]}>
-                    <Input maxLength={255} />
-                  </Form.Item>
-                </div>
-              </div>
-
-              <div className="shop-details-page__block">
-                <Section
-                  title="Approvers"
-                  hint="Signature lines on printed purchase orders and job orders."
-                />
-                <div className="shop-details-page__approver-grid">
-                  <div className="shop-details-page__approver-head">Signs</div>
-                  <div className="shop-details-page__approver-head">Name</div>
-                  <div className="shop-details-page__approver-head">Title</div>
-                  <div className="shop-details-page__approver-sign">Purchase orders</div>
-                  <Form.Item name="poApproverName" label={null}>
-                    <Input maxLength={255} placeholder="Name" aria-label="Purchase order approver name" />
-                  </Form.Item>
-                  <Form.Item name="poApproverTitle" label={null}>
-                    <Input maxLength={255} placeholder="Title" aria-label="Purchase order approver title" />
-                  </Form.Item>
-                  <div className="shop-details-page__approver-sign">Job orders</div>
-                  <Form.Item name="joApproverName" label={null}>
-                    <Input maxLength={255} placeholder="Name" aria-label="Job order approver name" />
-                  </Form.Item>
-                  <Form.Item name="joApproverTitle" label={null}>
-                    <Input maxLength={255} placeholder="Title" aria-label="Job order approver title" />
-                  </Form.Item>
-                </div>
               </div>
             </div>
-
-            <LetterheadPreview values={watched || {}} />
+            <div className="shop-details-page__approver-pair">
+              <div className="shop-details-page__approver-label">Job orders</div>
+              <div className="shop-details-page__approver-fields">
+                <Form.Item name="joApproverName" label="Name">
+                  <Input maxLength={255} />
+                </Form.Item>
+                <Form.Item name="joApproverTitle" label="Title">
+                  <Input maxLength={255} />
+                </Form.Item>
+              </div>
+            </div>
           </div>
 
           <div className="shop-details-page__save m-action-bar">
             <span className="shop-details-page__save-note m-action-bar__note">
               {updatedAt ? `Last saved ${formatShop(updatedAt, 'MMM D, YYYY h:mm A')}` : ''}
             </span>
-            <Button
-              type="primary"
-              htmlType="submit"
-              icon={<SaveOutlined />}
-              loading={saving}
-              disabled={!dirty}
-              style={{ fontWeight: 700, minWidth: 120 }}
-            >
-              Save
-            </Button>
+            <div className="shop-details-page__save-actions">
+              <Button icon={<EyeOutlined />} onClick={() => setPreviewOpen(true)}>
+                Preview letterhead
+              </Button>
+              <Button
+                type="primary"
+                htmlType="submit"
+                icon={<SaveOutlined />}
+                loading={saving}
+                disabled={!dirty}
+              >
+                Save
+              </Button>
+            </div>
           </div>
         </Form>
       </Card>
+
       <TestEmailCard />
+
+      <Modal
+        open={previewOpen}
+        onCancel={() => setPreviewOpen(false)}
+        title="Letterhead preview"
+        footer={
+          <Button type="primary" onClick={() => setPreviewOpen(false)}>
+            Close
+          </Button>
+        }
+        width={560}
+        destroyOnHidden
+        className="shop-details-preview-modal"
+      >
+        <p className="shop-details-preview__caption">
+          Matches the header printed on purchase orders and job orders
+          {dirty ? ' (includes unsaved edits)' : ''}.
+        </p>
+        <LetterheadPreviewSheet values={watched || {}} />
+      </Modal>
     </div>
   );
 }
@@ -273,28 +306,26 @@ function TestEmailCard() {
   };
 
   return (
-    <Card className="shop-details-page__card" style={{ borderRadius: 12 }} title="Test email">
-      <p className="shop-details-page__email-lead">
-        Sends one message through the configured email backend so you can confirm delivery.
-      </p>
-      <Row gutter={12} align="middle">
-        <Col flex="auto">
-          <Input
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            placeholder="you@example.com"
-            onPressEnter={send}
-          />
-        </Col>
-        <Col>
-          <Button type="default" icon={<SendOutlined />} loading={sending} onClick={send}>
-            Send test
-          </Button>
-        </Col>
-      </Row>
+    <Card className="shop-details-page__card shop-details-page__card--test" bordered={false}>
+      <Section
+        title="Test email"
+        hint="Sends one message through the configured email backend so you can confirm delivery."
+      />
+      <div className="shop-details-page__test-row">
+        <Input
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          placeholder="you@example.com"
+          onPressEnter={send}
+          aria-label="Test email recipient"
+        />
+        <Button type="default" icon={<SendOutlined />} loading={sending} onClick={send}>
+          Send test
+        </Button>
+      </div>
       {result ? (
         <Alert
-          style={{ marginTop: 12 }}
+          className="shop-details-page__test-result"
           type={result.status === 'SENT' ? 'success' : 'warning'}
           showIcon
           title={`${result.status}${result.errorMessage ? `: ${result.errorMessage}` : ''}`}
