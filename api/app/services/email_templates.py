@@ -1,6 +1,6 @@
 """Branded multipart email bodies (plain text + HTML) for every outbound email.
 
-Table-based HTML, inline CSS only, max-width 600px. No remote images required.
+Table-based HTML, inline CSS only, max-width 600px. Header logo loads from PUBLIC_APP_URL.
 """
 
 from __future__ import annotations
@@ -19,8 +19,9 @@ SHOP_DISPLAY_NAME = "Brothers Machine Shop"
 # Full legal name in the HTML email header (From: stays SHOP_DISPLAY_NAME).
 SHOP_HEADER_NAME = "Brothers Machine Shop and Services Corporation"
 SHOP_SUBTITLE = "Production Scheduling System"
-# Content-ID for the inline logo (multipart/related); HTML uses cid: without brackets.
-EMAIL_LOGO_CID = "bmsc-logo@bmsc"
+# Public logo on the live frontend (web/public/email-logo.png); not a MIME attachment.
+EMAIL_LOGO_PATH = "/email-logo.png"
+DEFAULT_PUBLIC_APP_URL = "https://capstone-five-beta.vercel.app"
 
 # Matches the login card header / app primary.
 EMAIL_NAVY = "#0f1c2e"
@@ -83,6 +84,22 @@ def frontend_base_url(config=None) -> str:
             "FRONTEND_URL is not https in production; invite/reset links may be blocked or land in spam"
         )
     return raw
+
+
+def public_app_url(config=None) -> str:
+    """Origin that serves static assets (logo) for email HTML. Defaults to production."""
+    if config is None and has_app_context():
+        config = current_app.config
+    config = config or {}
+    raw = (config.get("PUBLIC_APP_URL") or DEFAULT_PUBLIC_APP_URL).strip().rstrip("/")
+    return raw or DEFAULT_PUBLIC_APP_URL
+
+
+def email_logo_url(config=None) -> str:
+    """Absolute URL for the email header logo (remote <img>, not a MIME part)."""
+    base = public_app_url(config)
+    path = EMAIL_LOGO_PATH if EMAIL_LOGO_PATH.startswith("/") else f"/{EMAIL_LOGO_PATH}"
+    return f"{base}{path}"
 
 
 def absolute_frontend_url(path: str, config=None) -> str:
@@ -231,7 +248,8 @@ def render_branded_email(
         )
 
     footer_html = "<br>".join(_esc(line) for line in footer)
-    # Table header: title left, logo right (CID). Stacks on narrow clients that honor max-width.
+    logo_src = _esc(email_logo_url())
+    # Table header: title left, logo right (remote URL from PUBLIC_APP_URL).
     header_html = (
         f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">'
         f"<tr>"
@@ -244,8 +262,8 @@ def render_branded_email(
         f"</td>"
         f'<td valign="middle" align="right" width="64" style="padding:0 0 0 12px;'
         f'vertical-align:middle;width:64px">'
-        f'<img src="cid:{EMAIL_LOGO_CID}" height="48" width="48" alt="BMSC logo" '
-        f'style="display:block;border:0;outline:none;height:48px;width:auto;max-height:48px">'
+        f'<img src="{logo_src}" alt="BMSC logo" width="48" height="48" '
+        f'style="display:block;border:0">'
         f"</td>"
         f"</tr></table>"
     )

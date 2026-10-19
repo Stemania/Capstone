@@ -290,6 +290,27 @@
   flex-shrink: 0;
 }
 
+.app-topbar__page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-right: 4px;
+}
+
+.app-topbar__page-actions-note {
+  font-size: var(--fs-sm, 0.8125rem);
+  color: var(--c-text-muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .app-topbar__page-actions-note {
+    display: none;
+  }
+}
+
 .app-topbar__icon-btn {
   width: 36px;
   height: 36px;

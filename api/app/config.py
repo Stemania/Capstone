@@ -118,6 +118,10 @@ class Config:
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
     SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true")
     FRONTEND_URL = os.getenv("FRONTEND_URL") or "http://localhost:5173"
+    # Public origin for static assets in outbound email HTML (logo <img>).
+    PUBLIC_APP_URL = (
+        os.getenv("PUBLIC_APP_URL") or "https://capstone-five-beta.vercel.app"
+    )
     INVITATION_TOKEN_PEPPER = os.getenv("INVITATION_TOKEN_PEPPER", SECRET_KEY)
 
 

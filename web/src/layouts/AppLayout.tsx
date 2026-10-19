@@ -34,6 +34,7 @@ import { PersonAvatar } from '../components/PersonAvatar';
 import { Breadcrumbs, type Crumb } from '../components/ui/PageHeader';
 import { layout } from '../theme/tokens';
 import { formatShop, shopNow } from '../utils/shopTime';
+import { PageHeaderActionsProvider, usePageHeaderActionsSlot } from './pageHeaderActions';
 import './appShell.css';
 
 const { Header, Sider, Content } = Layout;
@@ -182,7 +183,7 @@ function roleLabel(role?: string) {
   return role || '';
 }
 
-export default function AppLayout() {
+function AppLayoutShell() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -194,6 +195,7 @@ export default function AppLayout() {
   const location = useLocation();
   const { resolveSectionNav, clearSectionCache } = useNavMemory();
   const showBell = isAdmin || isOfficeStaff;
+  const pageHeaderActions = usePageHeaderActionsSlot();
 
   const goSection = (sectionKey: string) => {
     const { to } = resolveSectionNav(sectionKey);
@@ -390,11 +392,16 @@ export default function AppLayout() {
               {meta.crumbs?.length ? <Breadcrumbs items={meta.crumbs} /> : null}
               <div className="app-topbar__title-row">
                 <h1 className="app-topbar__title">{meta.title || 'BMSC'}</h1>
-                {meta.subtitle && !meta.crumbs?.length ? <span className="app-topbar__subtitle">{meta.subtitle}</span> : null}
+                {meta.subtitle && !meta.crumbs?.length && !pageHeaderActions ? (
+                  <span className="app-topbar__subtitle">{meta.subtitle}</span>
+                ) : null}
               </div>
             </div>
           </div>
           <div className="app-topbar__right">
+            {pageHeaderActions ? (
+              <div className="app-topbar__page-actions">{pageHeaderActions}</div>
+            ) : null}
             {showBell && <NotificationBell className="app-topbar__icon-btn" />}
             {isPhone && !onSchedule && (
               <Tooltip title="Schedule">
@@ -444,5 +451,13 @@ export default function AppLayout() {
         )}
       </Layout>
     </Layout>
+  );
+}
+
+export default function AppLayout() {
+  return (
+    <PageHeaderActionsProvider>
+      <AppLayoutShell />
+    </PageHeaderActionsProvider>
   );
 }

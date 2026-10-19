@@ -3,7 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ConfigProvider } from 'antd';
+import type { ReactNode } from 'react';
 import ShopDetailsPage from './ShopDetailsPage';
+import {
+  PageHeaderActionsProvider,
+  usePageHeaderActionsSlot,
+} from '../../layouts/pageHeaderActions';
 
 vi.mock('../../api/shopDetails.api', () => ({
   shopDetailsApi: {
@@ -37,22 +42,35 @@ vi.mock('../../hooks/useShopDetails', () => ({
   invalidateShopDetails: () => undefined,
 }));
 
+function HeaderActionsHost() {
+  const actions = usePageHeaderActionsSlot();
+  return <div data-testid="page-header-actions">{actions}</div>;
+}
+
+function renderPage(ui: ReactNode) {
+  return render(
+    <ConfigProvider>
+      <MemoryRouter>
+        <PageHeaderActionsProvider>
+          <HeaderActionsHost />
+          {ui}
+        </PageHeaderActionsProvider>
+      </MemoryRouter>
+    </ConfigProvider>
+  );
+}
+
 describe('ShopDetailsPage', () => {
   it('renders without throwing (no useBlocker / blank crash)', async () => {
     await act(async () => {
-      render(
-        <ConfigProvider>
-          <MemoryRouter>
-            <ShopDetailsPage />
-          </MemoryRouter>
-        </ConfigProvider>
-      );
+      renderPage(<ShopDetailsPage />);
     });
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('Brothers Machine')).toBeTruthy();
     });
-    expect(screen.getAllByRole('button', { name: /preview letterhead/i }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /preview letterhead/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /save/i })).toBeTruthy();
     expect(screen.getByText('Letterhead')).toBeTruthy();
     expect(screen.getByText('Contact')).toBeTruthy();
     expect(screen.getByText('Approvers')).toBeTruthy();
@@ -61,13 +79,7 @@ describe('ShopDetailsPage', () => {
 
   it('opens letterhead preview modal reflecting unsaved shop name edits', async () => {
     await act(async () => {
-      render(
-        <ConfigProvider>
-          <MemoryRouter>
-            <ShopDetailsPage />
-          </MemoryRouter>
-        </ConfigProvider>
-      );
+      renderPage(<ShopDetailsPage />);
     });
     await waitFor(() => expect(screen.getByDisplayValue('Brothers Machine')).toBeTruthy());
 
@@ -77,7 +89,7 @@ describe('ShopDetailsPage', () => {
     });
 
     await act(async () => {
-      fireEvent.click(screen.getAllByRole('button', { name: /preview letterhead/i })[0]);
+      fireEvent.click(screen.getByRole('button', { name: /preview letterhead/i }));
     });
 
     await waitFor(() => {
