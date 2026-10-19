@@ -55,22 +55,30 @@ KEEP_USER_NAMES = {
     "pao bobila",
 }
 
-# Ensure these exist (name only). BSU is left alone.
-INTERVIEW_CLIENTS = (
-    "Aboitiz",
+# The only clients that remain after cleanup (created name-only if missing).
+REAL_CLIENTS = (
     "CyberAge",
-    "MMV Builders",
-    "Revery Construction",
     "Sanitary Care",
-    "SIDC",
     "Sunjin Philippines Corporation",
     "Tosoh Polyvin Corporation",
 )
+REAL_CLIENT_KEYS = {n.lower() for n in REAL_CLIENTS}
+# Alias kept for older call sites / tests that still import the old name.
+INTERVIEW_CLIENTS = REAL_CLIENTS
 
-# Demo flask-seed clients → interview targets (after INTERVIEW_CLIENTS exist).
+# Named non-real clients → real client (case-insensitive keys).
+CLIENT_MERGE_MAP = {
+    "aboitiz": "CyberAge",
+    "mmv builders": "Sanitary Care",
+    "revery construction": "Sunjin Philippines Corporation",
+    "sidc": "Tosoh Polyvin Corporation",
+}
+DEFAULT_CLIENT_MERGE_TARGET = "CyberAge"
+
+# Demo flask-seed clients → real targets (after REAL_CLIENTS exist).
 PLACEHOLDER_CLIENT_MERGES = {
-    "ABC Manufacturing": "Aboitiz",
-    "Metro Steel Corp": "MMV Builders",
+    "ABC Manufacturing": "CyberAge",
+    "Metro Steel Corp": "Sanitary Care",
     "Pacific Engineering": "Tosoh Polyvin Corporation",
 }
 
@@ -79,7 +87,6 @@ CLIENT_PREFIXES = ("HIST-SEED ", "TC-SEED ")
 TITLE_PREFIXES = ("[HIST-SEED] ", "[TC-SEED] ")
 TEXT_PREFIXES = ("HIST-SEED ", "TC-SEED ")
 NOTIFICATION_CLIENT = "TC-SEED Notification Client (TC-29)"
-BSU_NAME = "BSU"
 
 # When deleting a worker these are removed, not remapped.
 USER_OWNED_DELETE_TABLES = {
@@ -436,11 +443,28 @@ def _client_by_name(name: str):
     return Client.query.filter(db.func.lower(Client.name) == name.lower()).first()
 
 
-def ensure_interview_clients(report: CleanupReport) -> None:
-    """Create missing interview clients (name only). Never touches BSU."""
+def _is_real_client_name(name: str) -> bool:
+    return (name or "").strip().lower() in REAL_CLIENT_KEYS
+
+
+def _real_merge_target_name(name: str) -> str:
+    """Map any client name (after stripping seed prefixes) onto a REAL client."""
+    key = (name or "").strip().lower()
+    if key in REAL_CLIENT_KEYS:
+        for real in REAL_CLIENTS:
+            if real.lower() == key:
+                return real
+    mapped = CLIENT_MERGE_MAP.get(key)
+    if mapped:
+        return mapped
+    return DEFAULT_CLIENT_MERGE_TARGET
+
+
+def ensure_real_clients(report: CleanupReport) -> None:
+    """Create missing real clients (name only)."""
     from app.models.client import Client
 
-    for name in INTERVIEW_CLIENTS:
+    for name in REAL_CLIENTS:
         if _client_by_name(name):
             continue
         db.session.add(
@@ -457,8 +481,12 @@ def ensure_interview_clients(report: CleanupReport) -> None:
     db.session.flush()
 
 
+# Backward-compatible alias.
+ensure_interview_clients = ensure_real_clients
+
+
 def merge_placeholder_clients(report: CleanupReport) -> None:
-    """Merge flask-seed demo clients into interview targets."""
+    """Merge flask-seed demo clients into real targets."""
     for src_name, dest_name in PLACEHOLDER_CLIENT_MERGES.items():
         src = _client_by_name(src_name)
         dest = _client_by_name(dest_name)
@@ -495,71 +523,71 @@ def resolve_kept_users(report: CleanupReport) -> set[str]:
 
 
 def cleanup_clients(report: CleanupReport) -> None:
+    """Merge every non-real client into a REAL_CLIENTS target, then delete."""
     from app.models.client import Client
 
-    # Special: notification client → BSU
+    # Seed notification stub → CyberAge
     note = Client.query.filter(Client.name == NOTIFICATION_CLIENT).first()
-    bsu = Client.query.filter(db.func.lower(Client.name) == BSU_NAME.lower()).first()
-    if note and bsu:
-        _merge_client(note, bsu, report)
-    elif note and not bsu:
+    cyber = _client_by_name(DEFAULT_CLIENT_MERGE_TARGET)
+    if note and cyber and note.id != cyber.id:
+        _merge_client(note, cyber, report)
+    elif note and not cyber:
         report.clients_merged.append(
-            {"from": note.name, "to": "(missing BSU - left alone)", "moved": {}}
+            {
+                "from": note.name,
+                "to": f"(missing {DEFAULT_CLIENT_MERGE_TARGET!r})",
+                "moved": {},
+            }
         )
 
+    # HIST-SEED / TC-SEED prefixed rows → real target for the stripped name.
     seeded = [
         c
         for c in Client.query.order_by(Client.created_at.asc(), Client.name.asc()).all()
         if _strip_client_prefix(c.name)
     ]
-    # Group by stripped name (case-insensitive).
-    groups: dict[str, list] = defaultdict(list)
     for c in seeded:
-        stripped = _strip_client_prefix(c.name)
-        if stripped:
-            groups[stripped.lower()].append((c, stripped))
-
-    for _key, members in groups.items():
-        stripped = members[0][1]
-        # Prefer an already-real client with that name.
-        real = (
-            Client.query.filter(db.func.lower(Client.name) == stripped.lower())
-            .filter(~Client.name.in_([m[0].name for m in members]))
-            .first()
-        )
-        if real is None:
-            # Exact match among non-prefixed existing (may already exist as Sanitary Care).
-            real = (
-                Client.query.filter(db.func.lower(Client.name) == stripped.lower())
-                .filter(~Client.name.like("HIST-SEED %"))
-                .filter(~Client.name.like("TC-SEED %"))
-                .first()
-            )
-
-        if real is not None:
-            for c, _s in members:
-                if c.id == real.id:
-                    continue
-                if db.session.get(Client, c.id) is None:
-                    continue
-                _merge_client(c, real, report)
+        if db.session.get(Client, c.id) is None:
             continue
+        stripped = _strip_client_prefix(c.name) or c.name
+        dest_name = _real_merge_target_name(stripped)
+        dest = _client_by_name(dest_name)
+        if not dest:
+            report.clients_merged.append(
+                {"from": c.name, "to": f"(missing {dest_name!r})", "moved": {}}
+            )
+            continue
+        if c.id == dest.id:
+            continue
+        _clear_fake_contacts(c, report)
+        _merge_client(c, dest, report)
 
-        # Rename first (oldest), merge the rest into it.
-        keep_client, keep_stripped = members[0]
-        if keep_client.name != keep_stripped:
-            old = keep_client.name
-            keep_client.name = keep_stripped
-            _clear_fake_contacts(keep_client, report)
-            report.clients_renamed.append({"from": old, "to": keep_stripped})
-            db.session.flush()
-        else:
-            _clear_fake_contacts(keep_client, report)
+    # Every remaining non-real client (Aboitiz, BSU, SIDC, …) → merge map / CyberAge.
+    leftovers = [
+        c
+        for c in Client.query.order_by(Client.created_at.asc(), Client.name.asc()).all()
+        if not _is_real_client_name(c.name)
+    ]
+    for c in leftovers:
+        if db.session.get(Client, c.id) is None:
+            continue
+        dest_name = _real_merge_target_name(c.name)
+        dest = _client_by_name(dest_name)
+        if not dest:
+            report.clients_merged.append(
+                {"from": c.name, "to": f"(missing {dest_name!r})", "moved": {}}
+            )
+            continue
+        if c.id == dest.id:
+            continue
+        _clear_fake_contacts(c, report)
+        _merge_client(c, dest, report)
 
-        for c, _s in members[1:]:
-            if db.session.get(Client, c.id) is None:
-                continue
-            _merge_client(c, keep_client, report)
+    # Clear fake contacts left on real clients.
+    for name in REAL_CLIENTS:
+        real = _client_by_name(name)
+        if real:
+            _clear_fake_contacts(real, report)
 
 
 # --- Workers -------------------------------------------------------------------

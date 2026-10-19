@@ -188,9 +188,14 @@ def test_received_cancelled_and_draft_orders_cannot_be_changed(client, shop):
 
 def test_issue_without_date_uses_manila_day_at_utc_sunday(client, shop, monkeypatch):
     """Monday 00:30 PHT is still Sunday in UTC — default issue date must be Monday."""
+    from app.services import supplier_order_service as so_service
+
     monday_0030_pht = datetime(2026, 10, 19, 0, 30, tzinfo=SHOP_TZ)
     assert monday_0030_pht.astimezone(timezone.utc).date() == date(2026, 10, 18)
+    # issue_order binds shop_now at import time — patch both the calendar
+    # module and the supplier-order service's copy.
     monkeypatch.setattr(cal, "shop_now", lambda: monday_0030_pht)
+    monkeypatch.setattr(so_service, "shop_now", lambda: monday_0030_pht)
 
     job, _ = _job(shop, _local(shop["today"] + timedelta(days=20), 9))
     order = _draft_order(client, shop, job, shop["quick"])

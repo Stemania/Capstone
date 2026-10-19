@@ -342,6 +342,85 @@ def _register_cli(app):
         if dry_run:
             print("Dry run: nothing was saved.")
 
+    @app.cli.command("export-people")
+    @click.option(
+        "--out",
+        "out_path",
+        default=None,
+        help=r"JSON path (default C:\Users\Janvie\Project\people-export.json, outside the repo).",
+    )
+    def export_people_command(out_path):
+        """Write production workers + real-client contacts to a JSON file.
+        Run on LOCAL. No passwords or photos. Safe; read-only."""
+        from app.services.people_sync_service import (
+            DEFAULT_EXPORT_PATH,
+            export_people,
+            export_summary,
+        )
+
+        path, payload = export_people(out_path or DEFAULT_EXPORT_PATH)
+        print(f"Wrote {path}")
+        for line in export_summary(payload):
+            print(line)
+
+    @app.cli.command("import-people")
+    @click.option(
+        "--file",
+        "file_path",
+        default=None,
+        help=r"JSON from export-people (default C:\Users\Janvie\Project\people-export.json).",
+    )
+    @click.option(
+        "--apply",
+        "apply_changes",
+        is_flag=True,
+        help="Commit the import. Without it, dry run (prints then rolls back).",
+    )
+    def import_people_command(file_path, apply_changes):
+        """Create missing workers and fill empty real-client contacts from a
+        people-export JSON. Existing users are never modified. Dry run by
+        default; --apply confirms the database host first."""
+        from pathlib import Path
+
+        from app.services.people_sync_service import (
+            DEFAULT_EXPORT_PATH,
+            import_people,
+            import_report_lines,
+        )
+        from app.services.seed_cleanup_service import database_label
+
+        path = Path(file_path) if file_path else DEFAULT_EXPORT_PATH
+        if not path.exists():
+            raise click.ClickException(f"File not found: {path}")
+
+        masked, host, _db_name = database_label()
+        print(f"Target database: {masked}")
+        confirm_host = None
+        if apply_changes:
+            typed = click.prompt(
+                f"Type the host name to confirm ({host})",
+                default="",
+                show_default=False,
+            )
+            confirm_host = typed.strip()
+            if confirm_host.lower() != host.lower():
+                raise click.ClickException(
+                    f"Host confirmation failed (expected {host!r}, got {confirm_host!r}). Aborted."
+                )
+        try:
+            report = import_people(
+                path, apply=apply_changes, confirm_host=confirm_host
+            )
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        for line in import_report_lines(report, applied=apply_changes):
+            print(line)
+        print(
+            "Applied."
+            if apply_changes
+            else "Dry run: nothing was saved. Run with --apply to commit."
+        )
+
 
 def utcnow():
     return datetime.now(timezone.utc)

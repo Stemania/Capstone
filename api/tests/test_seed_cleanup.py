@@ -300,13 +300,18 @@ def test_apply_merges_and_moves(world):
     report = cleanup.run(apply=True, confirm_host=cleanup.database_label()[1])
 
     names = {c.name for c in Client.query.all()}
-    assert "Sanitary Care" in names
-    assert "Aboitiz" in names
-    assert "BSU" in names
-    for interview in cleanup.INTERVIEW_CLIENTS:
-        assert any(n.lower() == interview.lower() for n in names), interview
+    assert names == set(cleanup.REAL_CLIENTS)
+    for real in cleanup.REAL_CLIENTS:
+        assert any(n.lower() == real.lower() for n in names), real
+    assert "Aboitiz" not in names
+    assert "BSU" not in names
     assert not any(n.startswith("HIST-SEED ") or n.startswith("TC-SEED ") for n in names)
     assert "TC-SEED Notification Client (TC-29)" not in names
+    # BSU and seed Aboitiz rows merged into CyberAge
+    merged_from = {row["from"]: row for row in report.clients_merged}
+    assert "BSU" in merged_from
+    assert merged_from["BSU"]["to"] == "CyberAge"
+    assert any(row["to"] == "CyberAge" for row in report.clients_merged if "Aboitiz" in row["from"])
 
     assert User.query.filter_by(email="worker1@bmsc.local").count() == 0
     assert User.query.filter_by(email="worker2@bmsc.local").count() == 0
@@ -416,10 +421,9 @@ def test_keep_list_never_deleted_even_with_bmsc_email(world):
     assert not any(m.get("fromEmail") == "worker99@bmsc.local" for m in report.worker_mapping)
 
 
-def test_interview_clients_created_once_idempotent(world):
+def test_real_clients_created_once_idempotent(world):
     host = cleanup.database_label()[1]
-    # Ensure a couple of interview names are absent before the first apply.
-    for name in ("CyberAge", "SIDC", "MMV Builders"):
+    for name in ("CyberAge", "Sunjin Philippines Corporation", "Tosoh Polyvin Corporation"):
         row = Client.query.filter(db.func.lower(Client.name) == name.lower()).first()
         if row:
             db.session.delete(row)
@@ -428,21 +432,25 @@ def test_interview_clients_created_once_idempotent(world):
 
     first = cleanup.run(apply=True, confirm_host=host)
     assert "CyberAge" in first.clients_created
-    assert "SIDC" in first.clients_created
-    assert "MMV Builders" in first.clients_created
+    assert "Sunjin Philippines Corporation" in first.clients_created
+    assert "Tosoh Polyvin Corporation" in first.clients_created
     assert Client.query.filter(db.func.lower(Client.name) == "cyberage").count() == 1
+    assert {c.name for c in Client.query.all()} == set(cleanup.REAL_CLIENTS)
 
     second = cleanup.run(apply=True, confirm_host=host)
     assert second.clients_created == []
     assert Client.query.filter(db.func.lower(Client.name) == "cyberage").count() == 1
 
 
-def test_placeholder_merge_moves_jobs_and_notification_logs(world):
+def test_client_merge_map_and_placeholders(world):
     admin = world["admin"]
     abc = Client(name="ABC Manufacturing", contact="09171234567")
     metro = Client(name="Metro Steel Corp", contact="09181234567")
     pacific = Client(name="Pacific Engineering", contact="09191234567")
-    db.session.add_all([abc, metro, pacific])
+    mmv = Client(name="MMV Builders")
+    revery = Client(name="Revery Construction")
+    sidc = Client(name="SIDC")
+    db.session.add_all([abc, metro, pacific, mmv, revery, sidc])
     db.session.flush()
 
     job = JobOrder(
@@ -476,17 +484,35 @@ def test_placeholder_merge_moves_jobs_and_notification_logs(world):
     assert Client.query.filter_by(name="ABC Manufacturing").count() == 0
     assert Client.query.filter_by(name="Metro Steel Corp").count() == 0
     assert Client.query.filter_by(name="Pacific Engineering").count() == 0
+    assert Client.query.filter_by(name="MMV Builders").count() == 0
+    assert Client.query.filter_by(name="Revery Construction").count() == 0
+    assert Client.query.filter_by(name="SIDC").count() == 0
+    assert {c.name for c in Client.query.all()} == set(cleanup.REAL_CLIENTS)
 
-    aboitiz = Client.query.filter(db.func.lower(Client.name) == "aboitiz").filter(
-        ~Client.name.like("HIST-SEED %"), ~Client.name.like("TC-SEED %")
+    cyber = Client.query.filter(db.func.lower(Client.name) == "cyberage").one()
+    sanitary = Client.query.filter(db.func.lower(Client.name) == "sanitary care").one()
+    sunjin = Client.query.filter(
+        db.func.lower(Client.name) == "sunjin philippines corporation"
     ).one()
+    tosoh = Client.query.filter(
+        db.func.lower(Client.name) == "tosoh polyvin corporation"
+    ).one()
+
     moved_job = db.session.get(JobOrder, job_id)
     moved_log = db.session.get(NotificationLog, log_id)
-    assert moved_job.client_id == aboitiz.id
-    assert moved_log.client_id == aboitiz.id
+    assert moved_job.client_id == cyber.id
+    assert moved_log.client_id == cyber.id
 
     placeholder = {row["from"]: row for row in report.clients_placeholders_merged}
     assert "ABC Manufacturing" in placeholder
-    assert placeholder["ABC Manufacturing"]["to"] == aboitiz.name
+    assert placeholder["ABC Manufacturing"]["to"] == cyber.name
     assert placeholder["ABC Manufacturing"]["moved"].get("job_orders", 0) >= 1
     assert placeholder["ABC Manufacturing"]["moved"].get("notification_logs", 0) >= 1
+    assert placeholder["Metro Steel Corp"]["to"] == sanitary.name
+    assert placeholder["Pacific Engineering"]["to"] == tosoh.name
+
+    merged = {row["from"]: row for row in report.clients_merged}
+    assert merged["MMV Builders"]["to"] == sanitary.name
+    assert merged["Revery Construction"]["to"] == sunjin.name
+    assert merged["SIDC"]["to"] == tosoh.name
+    assert merged["MMV Builders"].get("moved") is not None
