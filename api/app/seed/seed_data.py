@@ -1,5 +1,6 @@
 from datetime import date, time, timedelta
 from decimal import Decimal
+import os
 
 from app.extensions import bcrypt, db
 from app.models import (
@@ -231,6 +232,26 @@ def _ensure_tool_assets():
     return types
 
 
+def _seed_password(env_name: str, *, role_label: str) -> str:
+    """Password for flask seed — from env (preferred) so docs never publish it."""
+    value = (os.getenv(env_name) or "").strip()
+    if value:
+        return value
+    # Development-only fallback so `flask seed` still works locally without docs
+    # advertising the value. Production seed is refused by the CLI.
+    fallbacks = {
+        "SEED_ADMIN_PASSWORD": "Admin123!",
+        "SEED_OFFICE_PASSWORD": "Office123!",
+        "SEED_WORKER_PASSWORD": "Worker123!",
+    }
+    if env_name in fallbacks and (os.getenv("FLASK_ENV") or "").lower() == "development":
+        return fallbacks[env_name]
+    raise RuntimeError(
+        f"Set {env_name} in api/.env before seeding ({role_label}). "
+        "See api/.env.example. Never commit real passwords."
+    )
+
+
 def seed_database():
     _ensure_scoring_weights()
     inventory_tools = _ensure_inventory_catalog()
@@ -257,10 +278,14 @@ def seed_database():
 
     machines, op_types = _load_reference_data()
 
+    admin_pw = _seed_password("SEED_ADMIN_PASSWORD", role_label="Admin")
+    office_pw = _seed_password("SEED_OFFICE_PASSWORD", role_label="Office Staff")
+    worker_pw = _seed_password("SEED_WORKER_PASSWORD", role_label="Production Worker")
+
     admin = User(
         email="admin@bmsc.local",
         mobile_number="+639171000001",
-        password_hash=bcrypt.generate_password_hash("Admin123!").decode("utf-8"),
+        password_hash=bcrypt.generate_password_hash(admin_pw).decode("utf-8"),
         full_name="Admin User",
         role=UserRole.ADMIN,
         status=UserStatus.ACTIVE,
@@ -269,7 +294,7 @@ def seed_database():
     office = User(
         email="office@bmsc.local",
         mobile_number="+639171000002",
-        password_hash=bcrypt.generate_password_hash("Office123!").decode("utf-8"),
+        password_hash=bcrypt.generate_password_hash(office_pw).decode("utf-8"),
         full_name="Office Staff",
         role=UserRole.OFFICE_STAFF,
         status=UserStatus.ACTIVE,
@@ -305,7 +330,7 @@ def seed_database():
         w = User(
             email=email,
             mobile_number=f"+63917{100000 + idx:06d}",
-            password_hash=bcrypt.generate_password_hash("Worker123!").decode("utf-8"),
+            password_hash=bcrypt.generate_password_hash(worker_pw).decode("utf-8"),
             full_name=name,
             role=UserRole.PRODUCTION_WORKER,
             status=UserStatus.ACTIVE,

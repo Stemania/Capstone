@@ -67,9 +67,10 @@ Web app runs at `http://localhost:5173`.
 | Office Staff | office@bmsc.local |
 | Production Worker | worker1@bmsc.local |
 
-Additional workers: worker2@bmsc.local … worker4@bmsc.local. Seed passwords are set in
-`api/app/seed/seed_data.py` for local development only; change them before any shared or
-production use, or create accounts with `flask create-admin` and user invitations.
+Additional workers: worker2@bmsc.local … worker4@bmsc.local. Passwords come from
+`SEED_ADMIN_PASSWORD`, `SEED_OFFICE_PASSWORD`, and `SEED_WORKER_PASSWORD` in `api/.env`
+(see `api/.env.example`). Never commit real passwords; use `flask create-admin` and
+invitations on any shared or production database.
 
 ## Environment Variables
 
@@ -113,6 +114,8 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for module organization and extension p
 ## Deploy Online + PWA
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for step-by-step instructions to deploy on **Neon + Render + Vercel** (free tier) and install as a mobile PWA.
+
+**Live (this project):** frontend [https://capstone.vercel.app](https://capstone.vercel.app) · API health [https://bmsc-api.onrender.com/api/health](https://bmsc-api.onrender.com/api/health)
 
 ## Features (Current Scope)
 

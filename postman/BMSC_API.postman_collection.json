@@ -6,6 +6,7 @@
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:5000/api/v1" },
+    { "key": "seedPassword", "value": "" },
     { "key": "accessToken", "value": "" },
     { "key": "refreshToken", "value": "" }
   ],
@@ -34,7 +35,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"admin@bmsc.local\",\n  \"password\": \"Admin123!\"\n}"
+              "raw": "{\n  \"email\": \"admin@bmsc.local\",\n  \"password\": \"{{seedPassword}}\"\n}"
             },
             "url": "{{baseUrl}}/auth/login"
           }
@@ -78,7 +79,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"newworker@bmsc.local\",\n  \"password\": \"Worker123!\",\n  \"fullName\": \"New Worker\",\n  \"role\": \"PRODUCTION_WORKER\",\n  \"skills\": [\"milling\", \"welding\"]\n}"
+              "raw": "{\n  \"email\": \"newworker@bmsc.local\",\n  \"password\": \"{{seedPassword}}\",\n  \"fullName\": \"New Worker\",\n  \"role\": \"PRODUCTION_WORKER\",\n  \"skills\": [\"milling\", \"welding\"]\n}"
             },
             "url": "{{baseUrl}}/users"
           }

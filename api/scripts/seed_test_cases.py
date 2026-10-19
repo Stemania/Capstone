@@ -608,8 +608,8 @@ def print_summary(ctx):
     )
     print("Remove after testing: scripts\\seed_test_cases.py --wipe (history is left alone).")
     print(
-        "Logins: admin@bmsc.local / Admin123!, office@bmsc.local / Office123!, "
-        "worker1@bmsc.local (Juan Dela Cruz) / Worker123!"
+        "Logins: admin@bmsc.local, office@bmsc.local, worker1@bmsc.local "
+        "(passwords from SEED_*_PASSWORD in api/.env)"
     )
 
 

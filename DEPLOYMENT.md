@@ -64,7 +64,8 @@ Keep **one** gunicorn worker: the sign-in limit (10 attempts per minute) is coun
 | `FLASK_ENV` | `production` |
 | `TRUSTED_PROXY_COUNT` | `1` (Render's proxy; lets the API see the client's real address) |
 
-6. Deploy. Copy your API URL, e.g. `https://bmsc-api.onrender.com`
+6. Deploy. Copy your API URL (this project’s Render service is `bmsc-api`;
+   health check: `https://bmsc-api.onrender.com/api/health`).
 
 7. **Create the first Admin** (one time) — Render Shell, or locally pointing at Neon:
 
@@ -76,7 +77,7 @@ flask create-admin
 
 It asks for email, password (hidden, asked twice), full name and mobile number. Sign in as that Admin and invite everyone else from **Users**.
 
-`flask seed` **refuses to run** when `FLASK_ENV` is `production` (or unset): it creates demo accounts whose passwords are published in this repository. Use it only on a local development database (`FLASK_ENV=development`).
+`flask seed` **refuses to run** when `FLASK_ENV` is `production` (or unset). Use it only on a local development database (`FLASK_ENV=development`) with seed passwords set via `SEED_*_PASSWORD` in `api/.env`.
 
 The seed is currently the only thing that creates machine types and operation types. A brand-new live database therefore has none until they are added; the existing live database already has them.
 
@@ -103,7 +104,7 @@ The seed is currently the only thing that creates machine types and operation ty
 |-----|-------|
 | `VITE_API_BASE_URL` | `https://bmsc-api.onrender.com/api/v1` |
 
-5. Deploy. You get a URL like `https://caps2.vercel.app`
+5. Deploy. This project’s Vercel production domain is `https://capstone.vercel.app`.
 
 6. **Go back to Render** → update `CORS_ORIGINS` to your Vercel URL → redeploy API.
 

@@ -1,8 +1,8 @@
 """Disable the seeded demo accounts on a database you choose, keeping one Admin.
 
 A demo account is any user whose email ends in @bmsc.local, or whose password
-is one of the passwords published in this repository (Admin123!, Office123!,
-Worker123!). Every demo account is disabled and its phone PINs revoked, except
+still uses a known local seed password. Every demo account is disabled and its
+phone PINs revoked, except
 the Admin you keep, whose password is replaced with one you type at a hidden
 prompt. Accounts that are not demo accounts are not touched. All changes are
 made in one transaction.
