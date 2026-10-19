@@ -11,7 +11,7 @@ interface AuthContextType {
   logout: () => void;
   isAdmin: boolean;
   isOfficeStaff: boolean;
-  /** Admin or Office — paper: Administrator holds full system access including Office work. */
+  /** Office Staff write actions only; Admin views Office pages read-only. */
   canOfficeWrite: boolean;
   isWorker: boolean;
 }
@@ -37,7 +37,7 @@ export function TestAuthProvider({
         logout: () => undefined,
         isAdmin: role === 'ADMIN',
         isOfficeStaff: role === 'OFFICE_STAFF',
-        canOfficeWrite: role === 'ADMIN' || role === 'OFFICE_STAFF',
+        canOfficeWrite: role === 'OFFICE_STAFF',
         isWorker: role === 'PRODUCTION_WORKER',
       }}
     >
@@ -101,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         isAdmin: user?.role === 'ADMIN',
         isOfficeStaff: user?.role === 'OFFICE_STAFF',
-        canOfficeWrite: user?.role === 'ADMIN' || user?.role === 'OFFICE_STAFF',
+        canOfficeWrite: user?.role === 'OFFICE_STAFF',
         isWorker: user?.role === 'PRODUCTION_WORKER',
       }}
     >

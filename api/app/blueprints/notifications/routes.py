@@ -37,7 +37,7 @@ def list_notifications():
 
 @notifications_bp.route("/<log_id>/resend", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def resend_notification(log_id):
     log = notif_service.resend_notification(log_id)
     return jsonify(log.to_dict())

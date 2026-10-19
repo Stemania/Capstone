@@ -37,21 +37,21 @@ def list_catalog():
 
 @catalog_bp.route("", methods=["POST"])
 @jwt_required()
-@require_roles(*_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def create_catalog_item():
     return jsonify(unified.create_item(request.get_json() or {})), 201
 
 
 @catalog_bp.route("/materials/<item_id>", methods=["PATCH"])
 @jwt_required()
-@require_roles(*_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def update_catalog_material(item_id):
     return jsonify(unified.update_item("MATERIAL", item_id, request.get_json() or {}))
 
 
 @catalog_bp.route("/consumables/<item_id>", methods=["PATCH"])
 @jwt_required()
-@require_roles(*_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def update_catalog_consumable(item_id):
     return jsonify(unified.update_item("CONSUMABLE", item_id, request.get_json() or {}))
 
@@ -76,14 +76,14 @@ def list_materials():
 
 @material_catalog_bp.route("", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def create_material():
     return jsonify(catalog.create_item(request.get_json() or {}).to_dict()), 201
 
 
 @material_catalog_bp.route("/<item_id>", methods=["PATCH"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def update_material(item_id):
     return jsonify(catalog.update_item(item_id, request.get_json() or {}).to_dict())
 

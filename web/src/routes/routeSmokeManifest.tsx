@@ -45,7 +45,7 @@ export const ROUTE_SMOKES: RouteSmoke[] = [
     roles: ['ADMIN', 'OFFICE_STAFF'],
     Page: () => <JobOrderListPage mode="archived" />,
   },
-  { path: '/job-orders/new', roles: ['ADMIN', 'OFFICE_STAFF'], Page: JobOrderFormPage },
+  { path: '/job-orders/new', roles: ['OFFICE_STAFF'], Page: JobOrderFormPage },
   { path: '/tools', roles: ['ADMIN', 'OFFICE_STAFF'], Page: ToolsPage },
   { path: '/clients', roles: ['ADMIN', 'OFFICE_STAFF'], Page: ClientsPage },
   { path: '/suppliers', roles: ['ADMIN', 'OFFICE_STAFF'], Page: SuppliersAndOrdersPage },

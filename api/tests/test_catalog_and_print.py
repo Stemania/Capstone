@@ -85,34 +85,41 @@ def test_catalog_lists_materials_and_consumables(client, shop):
 
 
 def test_add_catalog_material_and_consumable(client, shop):
-    for who in ("office", "admin"):
-        h = _headers(shop[who])
-        res = client.post(
-            CATALOG,
-            json={
-                "kind": "MATERIAL",
-                "name": f"Bronze rod {who}",
-                "category": "Non-ferrous",
-                "unit": "kg",
-                "grades": ["C93200"],
-            },
-            headers=h,
-        )
-        assert res.status_code == 201, res.get_json()
-        item = res.get_json()
-        assert item["kind"] == "MATERIAL" and item["unit"] == "kg"
-        assert item["gradesOrSizes"] == ["C93200"]
+    h = _headers(shop["office"])
+    res = client.post(
+        CATALOG,
+        json={
+            "kind": "MATERIAL",
+            "name": "Bronze rod office",
+            "category": "Non-ferrous",
+            "unit": "kg",
+            "grades": ["C93200"],
+        },
+        headers=h,
+    )
+    assert res.status_code == 201, res.get_json()
+    item = res.get_json()
+    assert item["kind"] == "MATERIAL" and item["unit"] == "kg"
+    assert item["gradesOrSizes"] == ["C93200"]
 
-        res = client.post(
-            CATALOG,
-            json={"kind": "CONSUMABLE", "name": f"Masking tape {who}", "unit": "roll"},
-            headers=h,
-        )
-        assert res.status_code == 201, res.get_json()
-        item = res.get_json()
-        assert item["kind"] == "CONSUMABLE" and item["notStockedYet"] is True
-        assert item["quantityOnHand"] == 0 and item["active"] is True
-        assert db.session.get(Tool, item["id"]).quantity_on_hand == 0
+    res = client.post(
+        CATALOG,
+        json={"kind": "CONSUMABLE", "name": "Masking tape office", "unit": "roll"},
+        headers=h,
+    )
+    assert res.status_code == 201, res.get_json()
+    item = res.get_json()
+    assert item["kind"] == "CONSUMABLE" and item["notStockedYet"] is True
+    assert item["quantityOnHand"] == 0 and item["active"] is True
+    assert db.session.get(Tool, item["id"]).quantity_on_hand == 0
+
+    # Admin views catalog but cannot add items.
+    denied = client.post(
+        CATALOG,
+        json={"kind": "CONSUMABLE", "name": "Admin tape", "unit": "roll"},
+        headers=_headers(shop["admin"]),
+    )
+    assert denied.status_code == 403
 
 
 def test_catalog_consumable_rejects_stock_and_bad_unit(client, shop):
@@ -153,9 +160,17 @@ def test_catalog_patch_and_legacy_unit_rules(client, shop):
     assert client.patch(f"/api/v1/tools/{legacy.id}", json={"unit": "box"}, headers=h).status_code == 200
 
     res = client.patch(
-        f"{CATALOG}/consumables/{legacy.id}", json={"active": False}, headers=_headers(shop["admin"])
+        f"{CATALOG}/consumables/{legacy.id}", json={"active": False}, headers=h
     )
     assert res.status_code == 200 and res.get_json()["active"] is False
+    assert (
+        client.patch(
+            f"{CATALOG}/consumables/{legacy.id}",
+            json={"active": True},
+            headers=_headers(shop["admin"]),
+        ).status_code
+        == 403
+    )
     res = client.patch(
         f"{CATALOG}/consumables/{legacy.id}", json={"quantityOnHand": 4}, headers=h
     )

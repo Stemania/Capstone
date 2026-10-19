@@ -327,12 +327,7 @@ def test_material_catalog_search_and_roles(app, client):
     assert [i["name"] for i in res.get_json()["items"]] == ["Plastic"]
 
     body = {"name": "Stainless 304", "defaultUnit": "kg", "category": "Steel", "grades": ["304"]}
-    by_admin = client.post(
-        "/api/v1/material-catalog",
-        json={**body, "name": "Stainless 304 Admin"},
-        headers=_headers(admin),
-    )
-    assert by_admin.status_code == 201, by_admin.get_json()
+    assert client.post("/api/v1/material-catalog", json=body, headers=_headers(admin)).status_code == 403
     created = client.post("/api/v1/material-catalog", json=body, headers=_headers(office))
     assert created.status_code == 201
     dup = client.post("/api/v1/material-catalog", json=body, headers=_headers(office))

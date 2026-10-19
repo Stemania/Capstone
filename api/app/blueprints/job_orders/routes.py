@@ -60,7 +60,7 @@ def list_job_orders():
 
 @job_orders_bp.route("", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def create_job_order():
     data = request.get_json() or {}
     required = ["clientId", "title", "dueDate"]
@@ -169,7 +169,7 @@ def list_job_breakdowns(job_id):
 
 @job_orders_bp.route("/<job_id>/material-purchases", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def create_material_purchase(job_id):
     from app.services import material_purchase_service as mp_service
 
@@ -183,7 +183,7 @@ def create_material_purchase(job_id):
 
 @job_orders_bp.route("/<job_id>/material-purchases/<purchase_id>", methods=["PATCH"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def update_material_purchase(job_id, purchase_id):
     from app.models.material_purchase import MaterialPurchase
     from app.services import material_purchase_service as mp_service
@@ -202,7 +202,7 @@ def update_material_purchase(job_id, purchase_id):
 
 @job_orders_bp.route("/<job_id>/material-purchases/<purchase_id>", methods=["DELETE"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def delete_material_purchase(job_id, purchase_id):
     from app.models.material_purchase import MaterialPurchase
     from app.services import material_purchase_service as mp_service
@@ -242,7 +242,7 @@ def get_sales_invoice(job_id):
 
 @job_orders_bp.route("/<job_id>/invoice", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def record_sales_invoice(job_id):
     from app.services import sales_invoice_service as si_service
 
@@ -254,7 +254,7 @@ def record_sales_invoice(job_id):
 
 @job_orders_bp.route("/<job_id>/invoice", methods=["PATCH"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.OFFICE_STAFF)
 def correct_sales_invoice(job_id):
     from app.services import sales_invoice_service as si_service
 

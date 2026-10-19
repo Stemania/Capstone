@@ -1538,7 +1538,8 @@ function JobOrderDetailView() {
                             {(n.status === 'FAILED' || n.status === 'NOT_SENT') && n.errorMessage ? (
                               <div style={{ color: MUTED, fontSize: 12 }}>{n.errorMessage}</div>
                             ) : null}
-                            {n.status === 'FAILED' || n.status === 'NOT_SENT' ? (
+                            {canOfficeWrite &&
+                            (n.status === 'FAILED' || n.status === 'NOT_SENT') ? (
                               <Button
                                 size="small"
                                 style={{ marginTop: 4 }}

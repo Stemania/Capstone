@@ -46,9 +46,9 @@ function sectionLabel(text: string) {
 }
 
 export default function ToolsPage() {
-  const { canOfficeWrite, isAdmin } = useAuth();
+  const { canOfficeWrite } = useAuth();
   const canEdit = canOfficeWrite;
-  const canEditCatalog = canOfficeWrite || isAdmin;
+  const canEditCatalog = canOfficeWrite;
   const [tab, setTab] = useState<PageTab>('tools');
   const [tools, setTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
