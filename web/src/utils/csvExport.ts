@@ -1,8 +1,16 @@
-/** Client-side CSV download from already-loaded rows. */
+/** Client-side CSV download from already-loaded rows (formula-safe). */
+
+/** Prefix cells that Excel would treat as formulas. */
+const FORMULA_PREFIXES = /^=|^[+\-@\t\r]/;
+
+function escapeCsvFormula(value: string): string {
+  if (FORMULA_PREFIXES.test(value)) return `'${value}`;
+  return value;
+}
 
 function escapeCell(value: unknown): string {
   if (value == null) return '';
-  const s = String(value);
+  const s = escapeCsvFormula(String(value));
   if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }

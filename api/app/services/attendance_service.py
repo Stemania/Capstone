@@ -313,18 +313,15 @@ def _local_hm(iso):
 
 
 def rows_to_csv(rows) -> str:
-    """The same rows the attendance screen shows, as CSV."""
-    import csv
-    import io
+    """The same rows the attendance screen shows, as CSV (formula-safe)."""
+    from app.utils.csv_safe import rows_to_csv as _safe_csv
 
-    buf = io.StringIO()
-    writer = csv.writer(buf, lineterminator="\r\n")
-    writer.writerow(CSV_HEADERS)
+    body = []
     for r in rows:
         rec = r["record"] or {}
         present = rec.get("hoursPresent")
         hours = rec.get("hoursWorked")
-        writer.writerow(
+        body.append(
             [
                 r["date"],
                 r["workerName"],
@@ -339,7 +336,7 @@ def rows_to_csv(rows) -> str:
                 rec.get("note") or "",
             ]
         )
-    return buf.getvalue()
+    return _safe_csv(CSV_HEADERS, body)
 
 
 def not_clocked_in_today(worker_ids) -> set:
