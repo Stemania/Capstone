@@ -1,4 +1,4 @@
-import type { FasterUnitSuggestion, MachineUnitInfo } from '../../types';
+import type { FasterPairSuggestion, FasterUnitSuggestion, MachineUnitInfo, ScoringWeights, WorkerSuggestion } from '../../types';
 
 const firstName = (name?: string | null) => (name || '').trim().split(/\s+/)[0] || '';
 
@@ -19,6 +19,48 @@ export function unitPairText(unit: MachineUnitInfo | undefined, leadId?: string 
  * "Lathe #4 (Ben's unit) is free 7 h earlier · job finishes Oct 14 instead of Oct 21".
  * ``fmtDate`` formats an ISO time as a short shop date.
  */
+/** Select value for a worker + optional unit. */
+export function pairKey(workerId?: string | null, unitId?: string | null) {
+  return `${workerId || ''}::${unitId || ''}`;
+}
+
+export function parsePairKey(key?: string | null): { workerId?: string; machineUnitId?: string } {
+  if (!key) return {};
+  const [workerId, machineUnitId] = key.split('::');
+  return {
+    workerId: workerId || undefined,
+    machineUnitId: machineUnitId || undefined,
+  };
+}
+
+/** "Use Emerson + Shaper #2 → finishes Oct 28" */
+export function fasterPairText(f: FasterPairSuggestion, fmtDate: (iso: string) => string): string {
+  const name = f.workerNickname || firstName(f.workerName) || 'Another worker';
+  const who = f.machineUnitLabel ? `${name} + ${f.machineUnitLabel}` : name;
+  return `Use ${who} → finishes ${fmtDate(f.projectedCompletion)}`;
+}
+
+const COMPONENT_LABEL: Record<string, string> = {
+  operator: 'Assigned operator',
+  skill: 'Skill',
+  efficiency: 'Performance',
+  workload: 'Workload',
+};
+
+/** Hover text: each WSM part as points of its weight. */
+export function scoreBreakdown(s: WorkerSuggestion, weights?: ScoringWeights | null): string {
+  const c = s.components;
+  if (!c || !weights) return s.reason || '';
+  const parts = (['operator', 'skill', 'efficiency', 'workload'] as const)
+    .filter((k) => weights[k] != null && c[k] != null)
+    .map((k) => {
+      const of = Math.round((weights[k] as number) * 100);
+      const got = Math.round((c[k] as number) * of);
+      return `${COMPONENT_LABEL[k]} ${got} of ${of}`;
+    });
+  return parts.join(' · ') || s.reason || '';
+}
+
 export function fasterUnitText(f: FasterUnitSuggestion, fmtDate: (iso: string) => string): string {
   const label = f.machineUnitLabel || 'Another unit';
   const owner = f.ownership === 'OTHER' && f.operatorName ? ` (${firstName(f.operatorName)}'s unit)` : '';

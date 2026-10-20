@@ -746,6 +746,21 @@ export interface ProposedOperation {
   requiredHours?: number | null;
   /** Another unit of the same type would finish the job meaningfully earlier; never applied by itself. */
   fasterUnit?: FasterUnitSuggestion | null;
+  /** Another worker + unit would finish the late job meaningfully earlier; never applied by itself. */
+  fasterPair?: FasterPairSuggestion | null;
+}
+
+export interface FasterPairSuggestion {
+  assignedWorkerId: string;
+  workerName?: string | null;
+  workerNickname?: string | null;
+  machineUnitId?: string | null;
+  machineUnitLabel?: string | null;
+  scheduledStart: string;
+  scheduledEnd: string;
+  projectedCompletion: string;
+  currentProjectedCompletion?: string | null;
+  onTime?: boolean;
 }
 
 export interface FasterUnitSuggestion {
@@ -1051,6 +1066,9 @@ export interface WorkerSuggestion {
   isUnitOperator?: boolean;
   /** Set when the operation starts today and the worker is past their start time without a clock-in. */
   attendanceWarning?: string | null;
+  /** Earliest moment this worker (and unit, when set) can take the target hours. */
+  nextFreeStart?: string | null;
+  nextFreeEnd?: string | null;
 }
 
 export type ToolCategory = 'RETURNABLE_TOOL' | 'CONSUMABLE';

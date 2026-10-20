@@ -36,8 +36,9 @@ import { jobOrdersListPath } from './jobOrderListPaths';
 import JobInfoCard from './JobInfoCard';
 import { PersonAvatar, PersonChip } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
-import { pairedUnitId, unitPairText } from './unitPairing';
+import { pairKey, pairedUnitId, parsePairKey, scoreBreakdown, unitPairText } from './unitPairing';
 import type {
+  FasterPairSuggestion,
   JobOrder,
   MachineInfo,
   MachineUnitInfo,
@@ -45,10 +46,12 @@ import type {
   ProposedOperation,
   ScheduleProblem,
   ScheduleProposeResult,
+  ScoringWeights,
   User,
   WorkerSuggestion,
 } from '../../types';
 import { Page, PageSkeleton } from '../../components/ui';
+import './joForm.css';
 
 const { Text } = Typography;
 
@@ -58,8 +61,9 @@ function readableDates(text: string) {
 }
 
 const SCHEDULE_HELP =
-  'Review the times and pick the machine unit for each operation. Changes show in the week view ' +
-  'right away but are not saved until you confirm. Confirming releases the job to the shop floor.';
+  'The worker and machine unit are already chosen. Review and edit start times; the unit is shown ' +
+  'as text with a Change action if you need another. Changes show in the week view right away but ' +
+  'are not saved until you confirm. Confirming releases the job to the shop floor.';
 
 function isPlanningStatus(status: string) {
   return status === 'DRAFT';
@@ -194,13 +198,13 @@ function suggestionLabel(s: WorkerSuggestion, units: MachineUnitInfo[]) {
 }
 
 const RANKING_HELP =
-  'Only people who are free for the whole window, on shift, and not on a holiday are listed. ' +
-  'Machine operations, lead: being the assigned operator of a unit of that machine counts 40 per ' +
-  'cent, machine skill level 30 per cent, past performance 20 per cent and current workload 10 ' +
-  'per cent; each worker is shown with the unit that suits them best, and choosing them selects ' +
-  'that unit. Units with no assigned operator are open to anyone with the skill. Operations ' +
-  'without a machine: past performance 60 per cent and workload 40 per cent. Helpers, after the ' +
-  'lead is chosen: past performance and workload, 50 per cent each.';
+  'Machine operations, lead: each suggestion is a worker and a specific unit. Assigned operator of ' +
+  'that unit counts 40 per cent, machine skill 30 per cent, past performance 20 per cent and ' +
+  'current workload 10 per cent. Hover a suggestion for the breakdown. Next free is the earliest ' +
+  'moment both that worker and unit are free, given released jobs and the work calendar. Units ' +
+  'with no assigned operator are open to anyone with the skill. Operations without a machine: ' +
+  'worker only — past performance 60 per cent and workload 40 per cent. Helpers, after the lead ' +
+  'is chosen: past performance and workload, 50 per cent each.';
 
 function newRowKey() {
   return `op-${Math.random().toString(36).slice(2, 10)}`;
@@ -217,6 +221,7 @@ export default function JobOrderPlanningPage() {
   const [machines, setMachines] = useState<MachineInfo[]>(MACHINE_OPTIONS);
   const [operationTypes, setOperationTypes] = useState<OperationType[]>([]);
   const [rowSuggestions, setRowSuggestions] = useState<Record<number, WorkerSuggestion[]>>({});
+  const [rowWeights, setRowWeights] = useState<Record<number, ScoringWeights>>({});
   const [helperSuggestions, setHelperSuggestions] = useState<Record<string, WorkerSuggestion[]>>({});
   const [allWorkers, setAllWorkers] = useState<User[]>([]);
   const [machineUnits, setMachineUnits] = useState<MachineUnitInfo[]>([]);
@@ -265,7 +270,11 @@ export default function JobOrderPlanningPage() {
 
       if (preserveExisting && row.assignedWorkerId) {
         const worker = workers.find((w) => w.id === row.assignedWorkerId);
-        const suggestion = suggestions.find((s) => s.workerId === row.assignedWorkerId);
+        const suggestion = suggestions.find(
+          (s) =>
+            s.workerId === row.assignedWorkerId &&
+            (!row.machineTypeId || !row.machineUnitId || s.machineUnitId === row.machineUnitId),
+        );
         const stillValid =
           worker &&
           worker.available !== false &&
@@ -274,7 +283,9 @@ export default function JobOrderPlanningPage() {
       }
 
       const best = pickBestWorker(suggestions, workers);
-      if (row.assignedWorkerId === best.workerId) return prev;
+      if (row.assignedWorkerId === best.workerId && (row.machineUnitId || undefined) === best.machineUnitId) {
+        return prev;
+      }
       const next = [...prev];
       next[rowIndex] = {
         ...row,
@@ -390,10 +401,13 @@ export default function JobOrderPlanningPage() {
         machineTypeId: op.machineTypeId,
         operationTypeId: op.operationTypeId,
         operationName: op.operationName,
+        pairs: Boolean(op.machineTypeId),
+        estimatedHours: op.estimatedHours,
       });
       if (suggestionFetchSeq.current[rowIndex] !== seq) return;
       const suggestions = data.suggestions || [];
       setRowSuggestions((prev) => ({ ...prev, [rowIndex]: suggestions }));
+      if (data.weights) setRowWeights((prev) => ({ ...prev, [rowIndex]: data.weights }));
       rowDataRef.current[rowIndex] = {
         workers: rowDataRef.current[rowIndex]?.workers || [],
         suggestions,
@@ -622,6 +636,7 @@ export default function JobOrderPlanningPage() {
     };
     setRowWorkers((prev) => remap(prev));
     setRowSuggestions((prev) => remap(prev));
+    setRowWeights((prev) => remap(prev));
     rowDataRef.current = remap(rowDataRef.current);
   };
 
@@ -883,6 +898,51 @@ export default function JobOrderPlanningPage() {
     }
   };
 
+  const handleUsePair = async (sequenceNo: number, pair: FasterPairSuggestion) => {
+    if (!id || !scheduleOps) return;
+    const nextOps = scheduleOps.map((op) =>
+      op.sequenceNo === sequenceNo
+        ? {
+            ...op,
+            assignedWorkerId: pair.assignedWorkerId,
+            machineUnitId: pair.machineUnitId || null,
+            machineUnitLabel: pair.machineUnitLabel || null,
+            scheduledStart: null,
+            scheduledEnd: null,
+          }
+        : op.sequenceNo > sequenceNo
+          ? { ...op, scheduledStart: null, scheduledEnd: null }
+          : op
+    );
+    setScheduleOps(nextOps);
+    setOperations((prev) =>
+      prev.map((row, i) =>
+        i === sequenceNo - 1
+          ? {
+              ...row,
+              assignedWorkerId: pair.assignedWorkerId,
+              machineUnitId: pair.machineUnitId || undefined,
+            }
+          : row
+      )
+    );
+    setProposing(true);
+    setError('');
+    try {
+      const { data } = await jobOrdersApi.proposeSchedule(id, {
+        operations: scheduleOpsToPayload(nextOps),
+        lockBeforeSequence: sequenceNo,
+        honorMachinePins: true,
+      });
+      applyProposal(data);
+    } catch (err) {
+      setError(getErrorMessage(err));
+      message.error(getErrorMessage(err));
+    } finally {
+      setProposing(false);
+    }
+  };
+
   const handleMachineUnitChange = async (
     sequenceNo: number,
     machineUnitId: string | null,
@@ -1046,13 +1106,64 @@ export default function JobOrderPlanningPage() {
       );
     const setHelpers = (next: string[]) => patchRow(index, { helperIds: next });
     const canAddHelper = !readOnly && Boolean(record.assignedWorkerId) && helpers.length < MAX_HELPERS;
-    const lead = [...qualifiedWorkers, ...allWorkers].find((w) => w.id === record.assignedWorkerId);
-    const pairedUnit =
-      record.machineTypeId && record.machineUnitId
-        ? machineUnits.find((u) => u.id === record.machineUnitId)
+    const suggestions = rowSuggestions[index] || [];
+    const applyPair = (workerId?: string, unitId?: string) => {
+      const resolvedUnit = workerId
+        ? unitId || pairedUnitId(workerId, record.machineTypeId, machineUnits)
         : undefined;
-    const pairUnitText = unitPairText(pairedUnit, record.assignedWorkerId);
-    const pairText = lead && pairUnitText ? `${personLabel(lead.fullName, lead.nickname)} · ${pairUnitText}` : pairUnitText;
+      patchRow(index, {
+        assignedWorkerId: workerId,
+        helperIds: workerId ? helpers.filter((h) => h !== workerId) : [],
+        machineUnitId: resolvedUnit,
+      });
+    };
+    const pairOptions = rowMachineId
+      ? (() => {
+          const seen = new Set<string>();
+          const fromSuggestions = suggestions
+            .filter((s) => s.workerId)
+            .map((s) => {
+              const value = pairKey(s.workerId, s.machineUnitId);
+              seen.add(value);
+              return {
+                value,
+                search: `${personLabel(s.fullName, s.nickname)} ${s.machineUnitLabel || ''}`,
+                label: suggestionLabel(s, machineUnits),
+              };
+            });
+          const extras = qualifiedWorkers
+            .filter((w) => !seen.has(pairKey(w.id, pairedUnitId(w.id, record.machineTypeId, machineUnits))))
+            .map((w) => {
+              const unitId = pairedUnitId(w.id, record.machineTypeId, machineUnits);
+              return {
+                value: pairKey(w.id, unitId),
+                search: personLabel(w.fullName, w.nickname),
+                label: suggestionLabel(
+                  {
+                    workerId: w.id,
+                    fullName: w.fullName,
+                    nickname: w.nickname,
+                    email: w.email,
+                    skills: [],
+                    score: 0,
+                    matchedSkills: [],
+                    machineUnitId: unitId,
+                  },
+                  machineUnits,
+                ),
+              };
+            });
+          return [...fromSuggestions, ...extras];
+        })()
+      : qualifiedWorkers.map((w) => ({
+          value: pairKey(w.id),
+          search: personLabel(w.fullName, w.nickname),
+          label: personLabel(w.fullName, w.nickname),
+          disabled: w.available === false,
+        }));
+    const leadValue = record.assignedWorkerId
+      ? pairKey(record.assignedWorkerId, rowMachineId ? record.machineUnitId : undefined)
+      : undefined;
     return (
       <div className="jo-op__crew">
         <div className="jo-op__crew-line">
@@ -1061,20 +1172,13 @@ export default function JobOrderPlanningPage() {
             showSearch
             optionFilterProp="search"
             style={{ flex: 1, minWidth: 0 }}
-            placeholder={rowMachineId ? 'Lead (qualified)' : 'Lead worker'}
-            value={record.assignedWorkerId}
+            placeholder={rowMachineId ? 'Lead and machine unit' : 'Lead worker'}
+            value={leadValue}
             disabled={readOnly}
-            options={workerOptions(qualifiedWorkers)}
+            options={pairOptions}
             onChange={(v) => {
-              const suggested = (rowSuggestions[index] || []).find((s) => s.workerId === v);
-              const unitId = v
-                ? pairedUnitId(v, record.machineTypeId, machineUnits, suggested?.machineUnitId)
-                : undefined;
-              patchRow(index, {
-                assignedWorkerId: v,
-                helperIds: v ? helpers.filter((h) => h !== v) : [],
-                ...(unitId ? { machineUnitId: unitId } : {}),
-              });
+              const parsed = parsePairKey(v);
+              applyPair(parsed.workerId, parsed.machineUnitId);
             }}
           />
           {canAddHelper ? (
@@ -1089,7 +1193,6 @@ export default function JobOrderPlanningPage() {
             </Tooltip>
           ) : null}
         </div>
-        {pairText ? <div className="jo-op__hint">{pairText}</div> : null}
         {helpers.map((hid, hi) => (
           <div key={`${hid}-${hi}`} className="jo-op__crew-line">
             <Select
@@ -1141,7 +1244,10 @@ export default function JobOrderPlanningPage() {
         suffix="h"
         value={record.estimatedHours ?? undefined}
         disabled={readOnly}
-        onChange={(v) => patchRow(index, { estimatedHours: v })}
+        onChange={(v) => {
+          patchRow(index, { estimatedHours: v });
+          void loadSuggestions(index, { ...record, estimatedHours: v ?? undefined }, { autoAssign: false, preserveExisting: true });
+        }}
       />
     );
 
@@ -1182,7 +1288,7 @@ export default function JobOrderPlanningPage() {
 
   /** Lead suggestions shown in the panel; helper picks only count when there are no leads. */
   const suggestionCount = (index: number, key: string) =>
-    Math.min((rowSuggestions[index] || []).length || (helperSuggestions[key] || []).length, 5);
+    Math.min((rowSuggestions[index] || []).length || (helperSuggestions[key] || []).length, 8);
 
   const renderSuggestions = (index: number) => {
     const row = operations[index];
@@ -1214,45 +1320,54 @@ export default function JobOrderPlanningPage() {
           <InfoTip title="How suggestions are ranked" content={RANKING_HELP} />
         </div>
         <div className="jo-op__picks">
-          {suggestions.slice(0, 5).map((s) => {
+          {suggestions.slice(0, 8).map((s) => {
             const inDropdown = qualifiedWorkers.some((w) => w.id === s.workerId);
-            const isTop = s.workerId === topId;
-            const isAssigned = s.workerId === assignedId;
+            const isTop = s.workerId === topId && s.machineUnitId === suggestions[0]?.machineUnitId;
+            const isAssigned =
+              s.workerId === assignedId &&
+              (!row?.machineTypeId || !row.machineUnitId || s.machineUnitId === row.machineUnitId);
+            const tip = scoreBreakdown(s, rowWeights[index]);
             return (
-              <button
-                type="button"
-                key={s.workerId}
-                disabled={!inDropdown || readOnly}
-                onClick={() => {
-                  if (!inDropdown || readOnly) return;
-                  patchRow(index, {
-                    assignedWorkerId: s.workerId,
-                    ...(s.machineUnitId ? { machineUnitId: s.machineUnitId } : {}),
-                    helperIds: rowHelpers.filter((h) => h !== s.workerId),
-                  });
-                }}
-                className={`jo-op__pick${isAssigned ? ' is-picked' : ''}`}
-              >
-                <span className="jo-op__pick-head">
-                  {(isTop || isAssigned) && <StarFilled style={{ color: '#c9a227', fontSize: 12 }} />}
-                  <PersonAvatar
-                    userId={s.workerId}
-                    fullName={s.fullName}
-                    photoVersion={s.photoVersion}
-                    size={22}
-                  />
-                  <span className="jo-op__pick-name">{suggestionLabel(s, machineUnits)}</span>
-                  <Tag color={isAssigned ? 'gold' : 'default'} style={{ margin: 0, fontSize: 11 }}>
-                    {(s.score * 100).toFixed(0)}%
-                  </Tag>
-                </span>
-                {s.attendanceWarning && (
-                  <Tag color="warning" icon={<WarningOutlined />} style={{ margin: '4px 0 0', fontSize: 11 }}>
-                    {s.attendanceWarning}
-                  </Tag>
-                )}
-                {s.reason && <span className="jo-op__pick-reason">{s.reason}</span>}
-              </button>
+              <Tooltip key={pairKey(s.workerId, s.machineUnitId)} title={tip || undefined}>
+                <button
+                  type="button"
+                  disabled={!inDropdown || readOnly}
+                  onClick={() => {
+                    if (!inDropdown || readOnly) return;
+                    patchRow(index, {
+                      assignedWorkerId: s.workerId,
+                      machineUnitId: s.machineUnitId || undefined,
+                      helperIds: rowHelpers.filter((h) => h !== s.workerId),
+                    });
+                  }}
+                  className={`jo-op__pick${isAssigned ? ' is-picked' : ''}`}
+                >
+                  <span className="jo-op__pick-head">
+                    {(isTop || isAssigned) && <StarFilled style={{ color: '#c9a227', fontSize: 12 }} />}
+                    <PersonAvatar
+                      userId={s.workerId}
+                      fullName={s.fullName}
+                      photoVersion={s.photoVersion}
+                      size={22}
+                    />
+                    <span className="jo-op__pick-name">{suggestionLabel(s, machineUnits)}</span>
+                    <Tag color={isAssigned ? 'gold' : 'default'} style={{ margin: 0, fontSize: 11 }}>
+                      {(s.score * 100).toFixed(0)}%
+                    </Tag>
+                  </span>
+                  {s.nextFreeStart ? (
+                    <span className="jo-op__pick-free">
+                      Next free {formatShop(s.nextFreeStart, 'MMM D, h:mm A')}
+                    </span>
+                  ) : null}
+                  {s.attendanceWarning && (
+                    <Tag color="warning" icon={<WarningOutlined />} style={{ margin: '4px 0 0', fontSize: 11 }}>
+                      {s.attendanceWarning}
+                    </Tag>
+                  )}
+                  {s.reason && <span className="jo-op__pick-reason">{s.reason}</span>}
+                </button>
+              </Tooltip>
             );
           })}
         </div>
@@ -1528,6 +1643,7 @@ export default function JobOrderPlanningPage() {
                 warningsBySeq={warningsBySeq}
                 onChangeOp={handleScheduleOpChange}
                 onMachineUnitChange={readOnly ? undefined : handleMachineUnitChange}
+                onUsePair={readOnly ? undefined : handleUsePair}
                 onRefreshProposal={readOnly ? undefined : handleRefreshProposedSchedule}
                 refreshing={proposing}
                 readOnly={readOnly}

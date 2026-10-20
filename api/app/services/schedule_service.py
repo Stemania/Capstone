@@ -44,6 +44,9 @@ MIN_REMAINING_HOURS = 1.0
 # A faster unit is suggested only when the job would finish at least this much earlier.
 FASTER_UNIT_MIN_GAIN = timedelta(hours=4)
 FASTER_UNIT_MAX = 5
+# Late operations checked for a faster worker + unit, and full re-plans tried for each.
+FASTER_PAIR_OPS = 2
+FASTER_PAIR_TRIES = 4
 
 # Paused this many working hours of its crew (one working day) without a resume: stalled.
 STALL_AFTER_WORKING_HOURS = 8.0
@@ -764,6 +767,61 @@ def _find_earliest_slot(
     return None, None, None, None, max_placeable
 
 
+def next_free_for_pairs(pairs, hours=None, *, exclude_job_id=None, anchor_utc=None):
+    """{(worker id, unit id or None): (start, end)} — the earliest time both the
+    worker and the unit are free for ``hours`` of work, given released jobs,
+    machine downtime and the work calendar. (None, None) when nothing fits in
+    the horizon."""
+    anchor = ensure_utc(anchor_utc or shop_now().astimezone(timezone.utc))
+    end_utc = horizon_end_utc(anchor)
+    worker_busy, machine_busy = _load_external_bookings(exclude_job_id=exclude_job_id)
+    exceptions = load_calendar_exceptions(utc_to_shop(anchor).date(), utc_to_shop(end_utc).date())
+    est, _ = _parse_estimated_hours(hours if hours not in (0, "0") else None)
+    duration = timedelta(hours=float(est))
+    per_worker = {}
+    out = {}
+    for wid, uid in pairs:
+        if wid not in per_worker:
+            per_worker[wid] = _worker_windows_and_busy(
+                [wid], anchor, end_utc, worker_busy, {}, exceptions
+            )
+        working, booked = per_worker[wid]
+        unit_busy = (
+            machine_busy.get(uid, []) + machine_busy.get(str(uid), []) if uid else []
+        )
+        start, end, _placeable = place_unbroken(
+            working, merge_intervals(booked + unit_busy), duration, anchor, end_utc
+        )
+        out[(wid, uid)] = (start, end)
+    return out
+
+
+def _alternative_pairs(op: dict, units_by_type):
+    """(worker id, unit id or None) pairs that could lead ``op`` instead of its
+    current pair: people qualified for its machine (anyone assignable when the
+    machine has no skills recorded, or for work without a machine), each on
+    their own unit or an open one."""
+    from app.services.worker_profile_service import machine_skill_holders, query_assignable_workers
+
+    machine_type_id = op.get("machineTypeId")
+    workers = query_assignable_workers().all()
+    if machine_type_id:
+        holders = machine_skill_holders(machine_type_id)
+        if holders is not None:
+            workers = [w for w in workers if w.id in holders]
+    current = (op.get("assignedWorkerId"), op.get("machineUnitId") or None)
+    pairs = []
+    for w in workers:
+        if not machine_type_id:
+            if w.id != current[0]:
+                pairs.append((w.id, None))
+            continue
+        for unit in units_by_type.get(machine_type_id, []):
+            if (w.id, unit.id) != current and (w.id, str(unit.id)) != current:
+                pairs.append((w.id, unit.id))
+    return pairs
+
+
 def _parse_iso(value) -> datetime | None:
     if not value:
         return None
@@ -911,6 +969,115 @@ def _record_in_job_busy(op_result, op, in_job_worker_busy, in_job_machine_busy):
         in_job_machine_busy.setdefault(str(uid), []).extend(segments)
 
 
+def _due_end_utc(due_date) -> datetime:
+    if isinstance(due_date, str):
+        due_date = date.fromisoformat(due_date[:10])
+    return shop_local_to_utc(due_date + timedelta(days=1), time(0, 0))
+
+
+def _suggest_faster_pairs(
+    normalized,
+    results,
+    projected,
+    due_date,
+    not_before_by_seq,
+    units_by_type,
+    exceptions_by_date,
+    worker_busy,
+    machine_busy,
+    anchor_utc,
+    end_utc,
+    *,
+    alt_kwargs,
+):
+    """For each operation (up to FASTER_PAIR_OPS) that ends after the date
+    required, set ``fasterPair``: the worker + unit that makes the whole job
+    finish earliest, at least FASTER_UNIT_MIN_GAIN sooner. Never applied."""
+    due_end = _due_end_utc(due_date)
+    if projected <= due_end:
+        return
+    by_seq = {r["sequenceNo"]: r for r in results}
+    late = [
+        op
+        for op in normalized
+        if op["sequenceNo"] in not_before_by_seq
+        and by_seq.get(op["sequenceNo"], {}).get("scheduled")
+        and _parse_iso(by_seq[op["sequenceNo"]]["scheduledEnd"]) > due_end
+    ][:FASTER_PAIR_OPS]
+    from app.extensions import db
+    from app.models.user import User
+
+    for op in late:
+        row = by_seq[op["sequenceNo"]]
+        current_end = _parse_iso(row["scheduledEnd"])
+        duration = timedelta(hours=float(op["estimatedHours"]))
+        quick = []
+        for wid, uid in _alternative_pairs(op, units_by_type):
+            helpers = [h for h in (op.get("helperIds") or []) if h != wid]
+            start, end, unit_id, _w, _p = _find_earliest_slot(
+                [wid],
+                op.get("machineTypeId"),
+                duration,
+                not_before_by_seq[op["sequenceNo"]],
+                anchor_utc,
+                end_utc,
+                worker_busy,
+                machine_busy,
+                {},
+                {},
+                exceptions_by_date,
+                units_by_type,
+                preferred_unit_id=uid,
+                preferred_worker_id=wid,
+                helper_ids=helpers,
+            )
+            if start and end and end < current_end:
+                quick.append((end, wid, unit_id, helpers))
+        quick.sort(key=lambda q: (q[0], str(q[1])))
+        best = None
+        for _end, wid, unit_id, helpers in quick[:FASTER_PAIR_TRIES]:
+            swapped = [
+                {**o, "assignedWorkerId": wid, "machineUnitId": unit_id, "helperIds": helpers}
+                if o is op
+                else o
+                for o in normalized
+            ]
+            alt = propose_schedule(
+                swapped,
+                due_date,
+                honor_machine_pins=True,
+                suggest_faster_units=False,
+                _bookings=(worker_busy, machine_busy),
+                **alt_kwargs,
+            )
+            if not all(r.get("scheduled") for r in alt["operations"]):
+                continue
+            finish = _parse_iso(alt["projectedCompletion"])
+            if finish is None or projected - finish < FASTER_UNIT_MIN_GAIN:
+                continue
+            if best is None or finish < best[0]:
+                best = (finish, wid, unit_id, alt)
+        if best is None:
+            continue
+        finish, wid, unit_id, alt = best
+        placed = next(r for r in alt["operations"] if r["sequenceNo"] == op["sequenceNo"])
+        worker = db.session.get(User, wid)
+        unit = _unit_by_id(unit_id, units_by_type)
+        row["fasterPair"] = {
+            "assignedWorkerId": wid,
+            "workerName": worker.full_name if worker else None,
+            "workerNickname": worker.nickname if worker else None,
+            "machineUnitId": unit_id,
+            "machineUnitLabel": unit.label if unit is not None else None,
+            "scheduledStart": placed["scheduledStart"],
+            "scheduledEnd": placed["scheduledEnd"],
+            "projectedCompletion": alt["projectedCompletion"],
+            "currentProjectedCompletion": projected.isoformat(),
+            "onTime": finish <= due_end,
+        }
+        row.pop("fasterUnit", None)
+
+
 def propose_schedule(
     operations,
     due_date,
@@ -940,7 +1107,9 @@ def propose_schedule(
     suggest_faster_units: with pins honoured, an op whose pinned unit makes the
       job finish at least FASTER_UNIT_MIN_GAIN later than another unit of the
       same type (or cannot be placed at all) gets ``fasterUnit``. The pinned
-      unit is never swapped.
+      unit is never swapped. When the job finishes after its date required, an
+      operation that ends late may instead get ``fasterPair``: another worker +
+      unit that finishes the job earlier.
     """
     anchor_utc = ensure_utc(anchor_utc or shop_now().astimezone(timezone.utc))
     end_utc = horizon_end_utc(anchor_utc)
@@ -975,6 +1144,7 @@ def propose_schedule(
     )
     downtimes = None
     results = []
+    not_before_by_seq = {}
     prev_end = anchor_utc
     if material_not_before_utc is not None:
         prev_end = max(prev_end, ensure_utc(material_not_before_utc))
@@ -1055,6 +1225,7 @@ def propose_schedule(
                 current = datetime.fromisoformat(current.replace("Z", "+00:00"))
             not_before = max(not_before, ensure_utc(current))
         preferred_unit = op.get("machineUnitId") if honor_machine_pins else None
+        not_before_by_seq[op["sequenceNo"]] = not_before
 
         start, end, unit_id, _worker, placeable = _find_earliest_slot(
             [assigned_worker],
@@ -1219,6 +1390,30 @@ def propose_schedule(
                     projected.isoformat() if projected and all_placed else None
                 ),
             }
+
+    if suggest_faster_units and due_date and projected is not None:
+        _suggest_faster_pairs(
+            normalized,
+            results,
+            projected,
+            due_date,
+            not_before_by_seq,
+            units_by_type,
+            exceptions_by_date,
+            worker_busy,
+            machine_busy,
+            anchor_utc,
+            end_utc,
+            alt_kwargs={
+                "exclude_job_id": exclude_job_id,
+                "anchor_utc": anchor_utc,
+                "lock_before_sequence": lock_before_sequence,
+                "material_not_before_utc": material_not_before_utc,
+                "material_constraint_reason": material_constraint_reason,
+                "never_earlier": never_earlier,
+                "pin_sequence": pin_sequence,
+            },
+        )
 
     return {
         "proposed": True,

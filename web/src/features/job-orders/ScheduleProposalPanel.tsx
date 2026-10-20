@@ -1,10 +1,17 @@
+import { useState } from 'react';
 import { Button, DatePicker, Select, Tooltip } from 'antd';
 import { ReloadOutlined, WarningFilled } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import StatusPill from '../../components/StatusPill';
 import { SCHEDULE_FLAG_TONE } from '../../theme/statuses';
-import type { MachineUnitInfo, ProposedOperation, ScheduleFlag, ScheduleProblem } from '../../types';
-import { fasterUnitText, unitPairText } from './unitPairing';
+import type {
+  FasterPairSuggestion,
+  MachineUnitInfo,
+  ProposedOperation,
+  ScheduleFlag,
+  ScheduleProblem,
+} from '../../types';
+import { fasterPairText, fasterUnitText, unitPairText } from './unitPairing';
 import {
   SHOP_TZ,
   formatShop,
@@ -32,6 +39,7 @@ type Props = {
     machineUnitId: string | null,
     machineUnitLabel: string | null
   ) => void;
+  onUsePair?: (sequenceNo: number, pair: FasterPairSuggestion) => void;
   /** Re-run earliest-fit proposal (reset manual date/time edits). */
   onRefreshProposal?: () => void;
   refreshing?: boolean;
@@ -121,6 +129,7 @@ export default function ScheduleProposalPanel({
   warningsBySeq = {},
   onChangeOp,
   onMachineUnitChange,
+  onUsePair,
   onRefreshProposal,
   refreshing = false,
   readOnly = false,
@@ -135,6 +144,7 @@ export default function ScheduleProposalPanel({
   const daysLate =
     finishDate && dueDate ? Math.max(0, dayjs(finishDate).diff(dayjs(dueDate), 'day')) : 0;
   const flag = scheduleFlag ? scheduleFlagStyle[scheduleFlag] : null;
+  const [changingSeq, setChangingSeq] = useState<number | null>(null);
 
   return (
     <div className="jo-sched">
@@ -240,7 +250,27 @@ export default function ScheduleProposalPanel({
                       ))}
                     </div>
                   ) : null}
-                  {faster && !readOnly ? (
+                  {op.fasterPair && !readOnly ? (
+                    <div className="jo-sched__faster">
+                      <span>{fasterPairText(op.fasterPair, (iso) => formatShop(iso, 'MMM D'))}</span>
+                      <Button
+                        size="small"
+                        type="primary"
+                        onClick={() => {
+                          if (onUsePair) onUsePair(op.sequenceNo, op.fasterPair!);
+                          else {
+                            onChangeOp(op.sequenceNo, {
+                              assignedWorkerId: op.fasterPair!.assignedWorkerId,
+                              machineUnitId: op.fasterPair!.machineUnitId || null,
+                              machineUnitLabel: op.fasterPair!.machineUnitLabel || null,
+                            });
+                          }
+                        }}
+                      >
+                        Use this pair
+                      </Button>
+                    </div>
+                  ) : faster && !readOnly ? (
                     <div className="jo-sched__faster">
                       <span>{fasterUnitText(faster, (iso) => formatShop(iso, 'MMM D'))}</span>
                       <Button
@@ -260,28 +290,46 @@ export default function ScheduleProposalPanel({
 
               <div className="jo-sched__field" data-label="Machine unit">
                 {needsMachine ? (
-                  <Select
-                    size="small"
-                    style={{ width: '100%' }}
-                    placeholder="Select unit"
-                    allowClear
-                    disabled={readOnly}
-                    value={op.machineUnitId || undefined}
-                    options={unitOptions.map((u) => ({
-                      value: u.id,
-                      label: unitPairText(u, op.assignedWorkerId) || u.label,
-                    }))}
-                    onChange={(unitId) => {
-                      const unit = unitOptions.find((u) => u.id === unitId);
-                      const machineUnitId = unitId || null;
-                      const machineUnitLabel = unit?.label || null;
-                      if (onMachineUnitChange) {
-                        onMachineUnitChange(op.sequenceNo, machineUnitId, machineUnitLabel);
-                      } else {
-                        onChangeOp(op.sequenceNo, { machineUnitId, machineUnitLabel });
-                      }
-                    }}
-                  />
+                  changingSeq === op.sequenceNo && !readOnly ? (
+                    <Select
+                      size="small"
+                      autoFocus
+                      style={{ width: '100%' }}
+                      placeholder="Select unit"
+                      allowClear
+                      value={op.machineUnitId || undefined}
+                      options={unitOptions.map((u) => ({
+                        value: u.id,
+                        label: unitPairText(u, op.assignedWorkerId) || u.label,
+                      }))}
+                      onBlur={() => setChangingSeq(null)}
+                      onChange={(unitId) => {
+                        const unit = unitOptions.find((u) => u.id === unitId);
+                        const machineUnitId = unitId || null;
+                        const machineUnitLabel = unit?.label || null;
+                        setChangingSeq(null);
+                        if (onMachineUnitChange) {
+                          onMachineUnitChange(op.sequenceNo, machineUnitId, machineUnitLabel);
+                        } else {
+                          onChangeOp(op.sequenceNo, { machineUnitId, machineUnitLabel });
+                        }
+                      }}
+                    />
+                  ) : (
+                    <div className="jo-sched__unit">
+                      <span className="jo-sched__unit-label">
+                        {unitPairText(
+                          unitOptions.find((u) => u.id === op.machineUnitId),
+                          op.assignedWorkerId,
+                        ) || op.machineUnitLabel || 'No unit'}
+                      </span>
+                      {!readOnly ? (
+                        <Button type="link" size="small" className="jo-sched__change" onClick={() => setChangingSeq(op.sequenceNo)}>
+                          Change
+                        </Button>
+                      ) : null}
+                    </div>
+                  )
                 ) : (
                   <span className="jo-sched__muted">{op.isOutsourced ? 'Outside shop' : 'No machine'}</span>
                 )}

@@ -164,6 +164,9 @@ export const workersApi = {
       /** Helper suggestions: the chosen lead, left out of the list. */
       leadId?: string;
       excludeWorkerIds?: string[];
+      /** Machine leads as every (worker, unit) pair they could use, with next-free times. */
+      pairs?: boolean;
+      estimatedHours?: number | null;
     }
   ) =>
     apiClient.post<{ suggestions: WorkerSuggestion[]; weights: ScoringWeights; mode?: SuggestionMode }>(

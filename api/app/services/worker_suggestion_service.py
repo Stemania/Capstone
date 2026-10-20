@@ -8,9 +8,10 @@ shift, or on a holiday are left out. Three kinds of suggestion:
     + 0.30 x machine skill level / 5
     + 0.20 x past performance
     + 0.10 x current workload
-  and each worker is shown with their best unit. A unit with an assigned
-  operator is offered to that operator; units with none (or whose operator
-  can't take the work) are open to anyone qualified.
+  and each worker is shown with their best unit (or, in pair mode, once per
+  unit they could use, with when that worker and unit are next free). A unit
+  with an assigned operator is offered to that operator; units with none (or
+  whose operator can't take the work) are open to anyone qualified.
 
   Operation without a machine, lead: 0.60 x past performance + 0.40 x workload.
 
@@ -195,7 +196,19 @@ def _person(worker):
     }
 
 
-def _machine_lead_suggestions(workers, machine, units, perf):
+def _unit_text(machine, unit, is_operator):
+    if unit is None:
+        return f"No free {machine.name} unit"
+    if is_operator:
+        return f"Assigned operator of {unit.label}"
+    if not unit.default_operator_id:
+        return f"{unit.label} has no assigned operator"
+    return f"{unit.label}, whose operator is not free"
+
+
+def _machine_lead_suggestions(workers, machine, units, perf, *, pairs=False):
+    """One row per worker on their best unit, or with ``pairs`` one row per
+    (worker, unit) they could use."""
     holders = machine_skill_holders(machine.id)
     no_skill_yet = holders is None
     if not no_skill_yet:
@@ -219,7 +232,7 @@ def _machine_lead_suggestions(workers, machine, units, perf):
             or u.default_operator_id not in available_ids
         ]
         eff, eff_reason, work, work_reason = perf[w.id]
-        best = None
+        scored = []
         for unit in own_or_open or [None]:
             is_operator = bool(unit and unit.default_operator_id == w.id)
             components = {
@@ -229,30 +242,43 @@ def _machine_lead_suggestions(workers, machine, units, perf):
                 "workload": round(work, 4),
             }
             score = combine_score(MACHINE_LEAD_WEIGHTS, components)
-            if best is None or score > best[0]:
-                best = (score, unit, is_operator, components)
-        score, unit, is_operator, components = best
-        if unit is None:
-            unit_text = f"No free {machine.name} unit"
-        elif is_operator:
-            unit_text = f"Assigned operator of {unit.label}"
-        elif not unit.default_operator_id:
-            unit_text = f"{unit.label} has no assigned operator"
-        else:
-            unit_text = f"{unit.label}, whose operator is not free"
-        row = _person(w)
-        row.update(
-            score=score,
-            components=components,
-            reason=", ".join([unit_text, skill_text, work_reason, eff_reason]),
-            machineUnitId=unit.id if unit else None,
-            machineUnitLabel=unit.label if unit else None,
-            isUnitOperator=is_operator,
-            proficiency=skill.proficiency if skill else None,
-            matchedSkills=[machine.code] if skill else [],
-        )
-        out.append(row)
+            scored.append((score, unit, is_operator, components))
+        if not pairs:
+            best = None
+            for item in scored:
+                if best is None or item[0] > best[0]:
+                    best = item
+            scored = [best]
+        for score, unit, is_operator, components in scored:
+            row = _person(w)
+            row.update(
+                score=score,
+                components=components,
+                reason=", ".join(
+                    [_unit_text(machine, unit, is_operator), skill_text, work_reason, eff_reason]
+                ),
+                machineUnitId=unit.id if unit else None,
+                machineUnitLabel=unit.label if unit else None,
+                isUnitOperator=is_operator,
+                proficiency=skill.proficiency if skill else None,
+                matchedSkills=[machine.code] if skill else [],
+            )
+            out.append(row)
     return out
+
+
+def _attach_next_free(suggestions, hours, exclude_job_id, needs_unit):
+    """nextFreeStart / nextFreeEnd on each row: when that worker (and unit) can
+    next take ``hours`` of work. A machine lead without a unit gets none."""
+    from app.services.schedule_service import next_free_for_pairs
+
+    keys = [(s["workerId"], s.get("machineUnitId")) for s in suggestions]
+    usable = [k for k in keys if k[1] or not needs_unit]
+    free = next_free_for_pairs(usable, hours, exclude_job_id=exclude_job_id) if usable else {}
+    for s, key in zip(suggestions, keys):
+        start, end = free.get(key, (None, None))
+        s["nextFreeStart"] = start.isoformat() if start else None
+        s["nextFreeEnd"] = end.isoformat() if end else None
 
 
 def _weighted_suggestions(workers, weights, perf):
@@ -281,12 +307,17 @@ def suggest_workers(
     operation_name=None,
     lead_id=None,
     exclude_worker_ids=None,
+    pairs=False,
+    estimated_hours=None,
 ):
     """Suggestions for the lead, or for helpers when ``lead_id`` is given.
 
+    ``pairs``: machine leads come as every (worker, unit) pair they could use,
+    and every row carries nextFreeStart/nextFreeEnd for ``estimated_hours``
+    (the default target when unset), outside ``exclude_job_id``.
+
     Returns {"mode", "weights", "suggestions"}; only available people appear.
     """
-    del exclude_job_id
 
     if operations and not operation_name:
         if isinstance(operations, str):
@@ -327,7 +358,7 @@ def suggest_workers(
     machine = MachineType.query.get(target_machine_id) if mode == MODE_MACHINE_LEAD else None
     if machine is not None:
         units = _usable_units(machine.id, scheduled_start, scheduled_end, exclude_operation_id)
-        suggestions = _machine_lead_suggestions(workers, machine, units, perf)
+        suggestions = _machine_lead_suggestions(workers, machine, units, perf, pairs=pairs)
     else:
         suggestions = _weighted_suggestions(workers, weights, perf)
 
@@ -340,5 +371,14 @@ def suggest_workers(
     for s in suggestions:
         s["attendanceWarning"] = NOT_CLOCKED_IN if s["workerId"] in missing else None
 
-    suggestions.sort(key=lambda s: (-s["score"], -(s.get("proficiency") or 0), s["fullName"]))
+    suggestions.sort(
+        key=lambda s: (
+            -s["score"],
+            -(s.get("proficiency") or 0),
+            s["fullName"],
+            s.get("machineUnitLabel") or "",
+        )
+    )
+    if pairs:
+        _attach_next_free(suggestions, estimated_hours, exclude_job_id, machine is not None)
     return {"mode": mode, "weights": dict(weights), "suggestions": suggestions}

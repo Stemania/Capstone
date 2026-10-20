@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MachineUnitInfo } from '../../types';
-import { fasterUnitText, pairedUnitId, unitPairText } from './unitPairing';
+import { fasterPairText, fasterUnitText, pairKey, pairedUnitId, parsePairKey, scoreBreakdown, unitPairText } from './unitPairing';
 
 const day = (iso: string) => iso.slice(5, 10);
 
@@ -64,6 +64,45 @@ describe('faster unit suggestion text', () => {
         day,
       ),
     ).toBe("Lathe #4 (Ben's unit) is free 7 h earlier · job finishes 10-14 instead of 10-21");
+  });
+
+  it('names the faster worker and unit and the earlier finish', () => {
+    expect(
+      fasterPairText(
+        {
+          assignedWorkerId: 'emerson',
+          workerName: 'Emerson Agao',
+          workerNickname: 'Emerson',
+          machineUnitId: 's2',
+          machineUnitLabel: 'Shaper #2',
+          scheduledStart: '2026-10-27T00:00:00Z',
+          scheduledEnd: '2026-10-27T08:00:00Z',
+          projectedCompletion: '2026-10-28T00:00:00Z',
+        },
+        (iso) => (iso.startsWith('2026-10-28') ? 'Oct 28' : iso),
+      ),
+    ).toBe('Use Emerson + Shaper #2 → finishes Oct 28');
+  });
+
+  it('round-trips a worker and unit as a select value', () => {
+    expect(parsePairKey(pairKey('w1', 'u2'))).toEqual({ workerId: 'w1', machineUnitId: 'u2' });
+  });
+
+  it('shows each score as points of its weight', () => {
+    expect(
+      scoreBreakdown(
+        {
+          workerId: 'w',
+          fullName: 'A',
+          email: null,
+          skills: [],
+          score: 0.7,
+          matchedSkills: [],
+          components: { operator: 1, skill: 0.6, efficiency: 0.5, workload: 1 },
+        },
+        { operator: 0.4, skill: 0.3, efficiency: 0.2, workload: 0.1 },
+      ),
+    ).toBe('Assigned operator 40 of 40 · Skill 18 of 30 · Performance 10 of 20 · Workload 10 of 10');
   });
 
   it('explains when the saved unit has no time at all', () => {

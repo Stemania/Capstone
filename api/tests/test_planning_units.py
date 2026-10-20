@@ -190,6 +190,43 @@ def test_the_typed_start_unit_chooser_notes_another_operators_unit(client, shop)
 
 # --- 3. Faster unit: suggested, never applied -------------------------------
 
+def test_pair_suggestions_list_each_worker_and_unit_with_next_free(client, shop):
+    _booked(shop, shop["ben"], shop["open"], _at(MON, 8), _at(MON, 12))
+    body = {
+        "machineTypeId": shop["lathe"].id,
+        "pairs": True,
+        "estimatedHours": 2,
+        "excludeJobId": _job(shop).id,
+    }
+    res = client.post("/api/v1/workers/suggest", json=body, headers=_headers(shop["admin"]))
+    assert res.status_code == 200, res.get_json()
+    rows = res.get_json()["suggestions"]
+    gio_pairs = [s for s in rows if s["fullName"] == "Gio Reyes"]
+    labels = {s["machineUnitLabel"] for s in gio_pairs}
+    assert labels == {"Lathe #2", "Lathe #8"}
+    own = next(s for s in gio_pairs if s["machineUnitLabel"] == "Lathe #2")
+    open_u = next(s for s in gio_pairs if s["machineUnitLabel"] == "Lathe #8")
+    assert own["isUnitOperator"] is True
+    assert own["components"]["operator"] == 1
+    assert open_u["components"]["operator"] == 0
+    assert own["nextFreeStart"]
+    assert open_u["nextFreeStart"]
+
+
+def test_a_late_job_gets_a_faster_worker_and_unit_pair(client, shop):
+    _booked(shop, shop["ben"], shop["gios"], _at(MON, 8), _at(MON + timedelta(days=2), 17))
+    job = _job(shop)
+    job.due_date = MON
+    db.session.commit()
+    result = _propose(client, shop, job, [_op(shop, shop["gio"], shop["gios"], hours=2)])
+    op = result["operations"][0]
+    assert op["machineUnitId"] == shop["gios"].id
+    pair = op.get("fasterPair")
+    assert pair, result
+    assert pair["machineUnitId"] == shop["open"].id
+    assert _parse(pair["projectedCompletion"]) < _parse(result["projectedCompletion"])
+
+
 def test_a_much_faster_unit_is_suggested_without_swapping(client, shop):
     _booked(shop, shop["ben"], shop["gios"], _at(MON, 8), _at(MON + timedelta(days=1), 17))
     job = _job(shop)

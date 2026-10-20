@@ -72,5 +72,7 @@ def suggest():
         operation_name=operation_name,
         lead_id=data.get("leadId"),
         exclude_worker_ids=data.get("excludeWorkerIds") or [],
+        pairs=bool(data.get("pairs")),
+        estimated_hours=data.get("estimatedHours"),
     )
     return jsonify(result)
