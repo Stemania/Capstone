@@ -685,25 +685,26 @@
     flex: 1 1 auto;
   }
 
-  /* Modals open as bottom sheets: reachable with a thumb, footer always visible. */
+  /* Modals: a centered card sized to its content; long forms scroll inside. */
   .ant-modal-wrap .ant-modal {
     position: absolute !important;
-    top: auto !important;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    top: 50% !important;
+    left: 12px;
+    right: 12px;
     width: auto !important;
     max-width: none !important;
     margin: 0 !important;
     padding-bottom: 0 !important;
+    translate: 0 -50%;
   }
 
-  .ant-modal-wrap .ant-modal .ant-modal-content {
+  .ant-modal-wrap .ant-modal .ant-modal-container {
     display: flex;
     flex-direction: column;
-    max-height: calc(100dvh - 24px);
-    border-radius: 16px 16px 0 0;
-    padding: 20px 16px calc(12px + env(safe-area-inset-bottom));
+    min-height: 0 !important;
+    max-height: calc(100dvh - 32px);
+    overflow: hidden;
+    border-radius: 14px !important;
   }
 
   .ant-modal-wrap .ant-modal .ant-modal-body {
@@ -1974,4 +1975,94 @@
 
 .app-shell--m .period-nav > .ant-btn .anticon {
   font-size: 18px;
+}
+
+.app-shell--m .ant-checkbox-wrapper,
+.ui-mbar__sheet .ant-checkbox-wrapper {
+  align-items: center;
+}
+
+.mtypes-wrap {
+  position: relative;
+}
+
+.mtypes-wrap__arrow {
+  display: none;
+}
+
+.app-shell--m .mtypes-wrap {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--c-border);
+}
+
+.app-shell--m .mtypes-wrap .mtypes {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.app-shell--m .mtypes-wrap::before,
+.app-shell--m .mtypes-wrap::after {
+  content: '';
+  position: absolute;
+  top: 12px;
+  bottom: 0;
+  z-index: 1;
+  width: 48px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease-out;
+}
+
+.app-shell--m .mtypes-wrap::before {
+  left: var(--mtypes-bleed, -12px);
+  background: linear-gradient(90deg, var(--c-surface) 30%, transparent);
+}
+
+.app-shell--m .mtypes-wrap::after {
+  right: var(--mtypes-bleed, -12px);
+  background: linear-gradient(270deg, var(--c-surface) 30%, transparent);
+}
+
+.app-shell--m .mtypes-wrap.can-left::before,
+.app-shell--m .mtypes-wrap.can-right::after {
+  opacity: 1;
+}
+
+.app-shell--m .mtypes-wrap__arrow {
+  position: absolute;
+  top: calc(12px + 50% - 6px);
+  z-index: 2;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 12px;
+  color: var(--c-text);
+  cursor: pointer;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 12%);
+  transform: translateY(-50%);
+}
+
+.app-shell--m .mtypes-wrap__arrow:active {
+  background: var(--c-surface-sunken);
+}
+
+.app-shell--m .mtypes-wrap__arrow--left {
+  left: 0;
+}
+
+.app-shell--m .mtypes-wrap__arrow--right {
+  right: 0;
+}
+
+.app-shell--m .mtypes-wrap.can-left .mtypes-wrap__arrow--left,
+.app-shell--m .mtypes-wrap.can-right .mtypes-wrap__arrow--right {
+  display: inline-flex;
 }

@@ -1,5 +1,5 @@
 import { shopToday } from '../../utils/shopTime';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DatePicker,
   Input,
@@ -19,6 +19,8 @@ import {
   DownOutlined,
   PlusOutlined,
   ClusterOutlined,
+  LeftOutlined,
+  RightOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -198,6 +200,28 @@ export default function MachinesPage() {
   }, [units]);
 
   const allGroups = useMemo(() => groupByType(units), [units]);
+
+  const typesRef = useRef<HTMLDivElement>(null);
+  const [typeEdges, setTypeEdges] = useState({ left: false, right: false });
+  const measureTypes = useCallback(() => {
+    const el = typesRef.current;
+    if (!el) return;
+    const left = el.scrollLeft > 2;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+    setTypeEdges((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  }, []);
+  useEffect(() => {
+    const el = typesRef.current;
+    if (!el) return;
+    measureTypes();
+    const ro = new ResizeObserver(measureTypes);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [allGroups.length, measureTypes]);
+  const scrollTypes = (dir: -1 | 1) => {
+    const el = typesRef.current;
+    el?.scrollBy({ left: dir * Math.max(160, el.clientWidth * 0.7), behavior: 'smooth' });
+  };
 
   const groups = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -548,7 +572,19 @@ export default function MachinesPage() {
           }
         />
         {allGroups.length > 0 && (
-          <div className="mtypes" role="group" aria-label="Machine types">
+          <div
+            className={`mtypes-wrap${typeEdges.left ? ' can-left' : ''}${typeEdges.right ? ' can-right' : ''}`}
+          >
+          <button
+            type="button"
+            className="mtypes-wrap__arrow mtypes-wrap__arrow--left"
+            onClick={() => scrollTypes(-1)}
+            aria-label="Scroll machine types left"
+            tabIndex={-1}
+          >
+            <LeftOutlined />
+          </button>
+          <div className="mtypes" role="group" aria-label="Machine types" ref={typesRef} onScroll={measureTypes}>
             <button
               type="button"
               className={`mtypes__chip${typeFilter === null ? ' is-active' : ''}`}
@@ -572,6 +608,16 @@ export default function MachinesPage() {
                 <span className="mtypes__count ui-tabular">{g.units.length}</span>
               </button>
             ))}
+          </div>
+          <button
+            type="button"
+            className="mtypes-wrap__arrow mtypes-wrap__arrow--right"
+            onClick={() => scrollTypes(1)}
+            aria-label="Scroll machine types right"
+            tabIndex={-1}
+          >
+            <RightOutlined />
+          </button>
           </div>
         )}
       </div>
