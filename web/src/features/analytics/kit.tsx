@@ -142,13 +142,21 @@ export function Kpi({
         {info ? <InfoTip content={info} label={`About ${label}`} /> : null}
       </div>
       <div className="ana-kpi__row">
-        <span className="ana-kpi__value" style={valueTone ? { color: tones[valueTone].fg } : undefined}>
+        <span
+          className="ana-kpi__value"
+          title={typeof value === 'string' || typeof value === 'number' ? String(value) : undefined}
+          style={valueTone ? { color: tones[valueTone].fg } : undefined}
+        >
           {value}
           {unit ? <small>{unit}</small> : null}
         </span>
         {delta !== undefined ? <Delta value={delta} unit={deltaUnit} better={better} /> : null}
       </div>
-      {sub ? <div className="ana-kpi__sub">{sub}</div> : null}
+      {sub ? (
+        <div className="ana-kpi__sub" title={typeof sub === 'string' ? sub : undefined}>
+          {sub}
+        </div>
+      ) : null}
     </div>
   );
 }

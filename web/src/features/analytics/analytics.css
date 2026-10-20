@@ -611,6 +611,69 @@ a.ana-list__row:hover .ana-list__title { color: var(--c-primary); text-decoratio
 .ana-good { color: var(--ana-good); }
 .ana-bad { color: var(--ana-bad); }
 
+@media (max-width: 1023.98px) {
+  .app-shell--m .ana-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .app-shell--m .ana-kpi__label,
+  .app-shell--m .ana-kpi__value,
+  .app-shell--m .ana-kpi__sub {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .app-shell--m .ana-kpi__value {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 18px;
+    line-height: 1.25;
+  }
+
+  .app-shell--m .ana-toolbar {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .app-shell--m .ana-toolbar .ui-tabbar.ant-segmented {
+    width: 100%;
+  }
+
+  .app-shell--m .ana-toolbar .ant-segmented-group {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .app-shell--m .ana-toolbar .ant-segmented-item-label {
+    white-space: normal;
+    line-height: 1.2;
+    padding: 6px 4px;
+    font-size: 12px;
+    text-align: center;
+  }
+
+  .app-shell--m .ana-toolbar__right {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .app-shell--m .ana-toolbar__right .ant-picker {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .app-shell--m .recharts-responsive-container,
+  .app-shell--m .recharts-wrapper {
+    max-width: 100%;
+  }
+}
+
 @media print {
   .ana-card, .ana-kpi { break-inside: avoid; box-shadow: none; }
   .ana-toolbar { position: static; }
