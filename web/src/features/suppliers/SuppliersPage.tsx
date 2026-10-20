@@ -17,11 +17,14 @@ import { suppliersApi } from '../../api/suppliers.api';
 import { getErrorMessage } from '../../api/client';
 import type { Supplier, SupplierReliability } from '../../types';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
-import { DataTable, EmptyState, EllipsisText, FilterBar, TwoLineCell, rowOpenProps } from '../../components/ui';
+import { DataTable, EmptyState, EllipsisText, FilterBar, FilterSelect, TwoLineCell, rowOpenProps } from '../../components/ui';
 import { useAuth } from '../../hooks/useAuth';
 import { PHONE_QUERY, useMediaQuery } from '../../hooks/useViewport';
 
 const GRADE_COLOR: Record<string, PillColor> = { A: 'green', B: 'blue', C: 'amber', D: 'red' };
+
+type StatusFilter = 'active' | 'inactive';
+type GradeFilter = 'A' | 'B' | 'C' | 'D' | 'none';
 
 function sectionLabel(text: string) {
   return <div className="app-form-section">{text}</div>;
@@ -56,24 +59,37 @@ export default function SuppliersPage() {
   const phone = useMediaQuery(PHONE_QUERY);
   const [reliability, setReliability] = useState<Record<string, SupplierReliability>>({});
   useEffect(() => {
-    if (!phone) return;
     suppliersApi
       .reliability()
       .then(({ data }) => setReliability(Object.fromEntries(data.map((r) => [r.supplierId, r]))))
       .catch(() => undefined);
-  }, [phone]);
+  }, []);
+
+  const [statusFilter, setStatusFilter] = useState<StatusFilter | undefined>();
+  const [gradeFilter, setGradeFilter] = useState<GradeFilter[]>([]);
+  const activeFilters = (statusFilter ? 1 : 0) + (gradeFilter.length ? 1 : 0);
+  const gradeOf = (r: Supplier): GradeFilter => {
+    const s = reliability[r.id];
+    return s?.score != null && s.grade ? (s.grade as GradeFilter) : 'none';
+  };
+  const scoreOf = (r: Supplier) => reliability[r.id]?.score ?? -1;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
-      (r) =>
+    return rows.filter((r) => {
+      if (statusFilter === 'active' && !r.active) return false;
+      if (statusFilter === 'inactive' && r.active) return false;
+      if (gradeFilter.length && !gradeFilter.includes(gradeOf(r))) return false;
+      if (!q) return true;
+      return (
         r.name.toLowerCase().includes(q) ||
         (r.code || '').toLowerCase().includes(q) ||
         (r.contactPerson || '').toLowerCase().includes(q) ||
         (r.phone || '').toLowerCase().includes(q)
-    );
-  }, [rows, search]);
+      );
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, search, statusFilter, gradeFilter, reliability]);
 
   const openCreate = () => {
     setEditing(null);
@@ -117,59 +133,84 @@ export default function SuppliersPage() {
     }
   };
 
+  const nameTags = (r: Supplier) => (
+    <>
+      {r.code ? (
+        <Tag color="blue" style={{ marginLeft: 4 }}>
+          {r.code}
+        </Tag>
+      ) : null}
+      {r.isSeed ? <Tag style={{ marginLeft: 4 }}>Seed</Tag> : null}
+    </>
+  );
+
   const columns: TableColumnsType<Supplier> = [
     {
       title: 'Supplier',
       key: 'name',
-      render: (_: unknown, r) => (
-        <TwoLineCell
-          primary={
-            <>
-              {r.name}
-              {r.code ? (
-                <Tag color="blue" style={{ marginLeft: 4 }}>
-                  {r.code}
-                </Tag>
-              ) : null}
-              {r.isSeed ? <Tag style={{ marginLeft: 4 }}>Seed</Tag> : null}
-            </>
-          }
-          secondary={r.contactPerson || null}
-        />
-      ),
-    },
-    {
-      title: 'Phone',
-      dataIndex: 'phone',
-      width: 130,
-      ellipsis: true,
-      render: (v: string | null) => <EllipsisText>{v || '—'}</EllipsisText>,
-    },
-    {
-      title: 'Lead time',
-      dataIndex: 'typicalLeadTimeDays',
-      width: 110,
-      render: (v: number | null) => (v == null ? '—' : `${v} day${v === 1 ? '' : 's'}`),
+      sorter: (a, b) => a.name.localeCompare(b.name),
+      render: (_: unknown, r) =>
+        phone ? (
+          r.name
+        ) : (
+          <TwoLineCell
+            primary={
+              <>
+                {r.name}
+                {nameTags(r)}
+              </>
+            }
+            secondary={r.contactPerson || null}
+          />
+        ),
     },
     ...(phone
       ? [
           {
-            title: 'Score',
-            key: 'score',
-            render: (_: unknown, r: Supplier) => {
-              const s = reliability[r.id];
-              if (s?.score == null || !s.grade) {
-                return s?.dueDeliveries ? <span style={{ fontSize: 12, color: '#94a3b8' }}>Too few deliveries</span> : '—';
-              }
-              return (
-                <StatusPill color={GRADE_COLOR[s.grade] ?? 'gray'} compact>
-                  {s.grade} · {Math.round(s.score)}
-                </StatusPill>
-              );
-            },
+            title: 'Code',
+            key: 'code',
+            render: (_: unknown, r: Supplier) =>
+              r.code ? <span className="supplier-mcode">{r.code}</span> : null,
           },
         ]
       : []),
+    phone
+      ? {
+          title: 'Contact',
+          key: 'contact',
+          render: (_: unknown, r: Supplier) => [r.contactPerson, r.phone].filter(Boolean).join(' · ') || null,
+        }
+      : {
+          title: 'Phone',
+          dataIndex: 'phone',
+          width: 130,
+          ellipsis: true,
+          render: (v: string | null) => <EllipsisText>{v || '—'}</EllipsisText>,
+        },
+    {
+      title: 'Lead time',
+      dataIndex: 'typicalLeadTimeDays',
+      width: 110,
+      sorter: (a, b) => (a.typicalLeadTimeDays ?? Infinity) - (b.typicalLeadTimeDays ?? Infinity),
+      render: (v: number | null) => (v == null ? '—' : `${v} day${v === 1 ? '' : 's'}`),
+    },
+    {
+      title: 'Reliability',
+      key: 'score',
+      width: 150,
+      sorter: (a, b) => scoreOf(a) - scoreOf(b),
+      render: (_: unknown, r: Supplier) => {
+        const s = reliability[r.id];
+        if (s?.score == null || !s.grade) {
+          return s?.dueDeliveries ? <span style={{ fontSize: 12, color: '#94a3b8' }}>Too few deliveries</span> : '—';
+        }
+        return (
+          <StatusPill color={GRADE_COLOR[s.grade] ?? 'gray'} compact>
+            {s.grade} · {Math.round(s.score)}
+          </StatusPill>
+        );
+      },
+    },
     {
       title: 'Status',
       dataIndex: 'active',
@@ -203,6 +244,40 @@ export default function SuppliersPage() {
     <div>
       <FilterBar
         search={{ value: search, onChange: setSearch, placeholder: 'Search name, code, contact, phone…' }}
+        activeFilters={activeFilters}
+        onClearFilters={() => {
+          setStatusFilter(undefined);
+          setGradeFilter([]);
+        }}
+        filters={
+          <>
+            <FilterSelect<StatusFilter>
+              label="Status"
+              allowClear
+              value={statusFilter}
+              onChange={(v) => setStatusFilter(v)}
+              options={[
+                { value: 'active', label: 'Active' },
+                { value: 'inactive', label: 'Inactive' },
+              ]}
+            />
+            <FilterSelect<GradeFilter[]>
+              label="Grade"
+              mode="multiple"
+              allowClear
+              maxTagCount="responsive"
+              value={gradeFilter}
+              onChange={setGradeFilter}
+              options={[
+                { value: 'A', label: 'A' },
+                { value: 'B', label: 'B' },
+                { value: 'C', label: 'C' },
+                { value: 'D', label: 'D' },
+                { value: 'none', label: 'Not rated yet' },
+              ]}
+            />
+          </>
+        }
         actions={
           canEdit ? (
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
@@ -213,7 +288,7 @@ export default function SuppliersPage() {
       />
 
       <DataTable<Supplier>
-        card={{ subtitle: ['phone'], badge: 'active' }}
+        card={{ title: 'name', subtitle: ['code', 'contact'], badge: 'active', actions: 'none', hide: ['actions'] }}
         rowKey="id"
         loading={loading}
         dataSource={filtered}

@@ -2019,6 +2019,12 @@
   }
 }
 
+.supplier-mcode {
+  font-weight: 700;
+  color: var(--c-primary);
+  letter-spacing: 0.02em;
+}
+
 .app-shell--m .ant-checkbox-wrapper,
 .ui-mbar__sheet .ant-checkbox-wrapper {
   align-items: center;
