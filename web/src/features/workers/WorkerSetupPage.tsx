@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Checkbox, Input, InputNumber, Select, Spin, Switch, Typography, message } from 'antd';
-import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { NARROW_QUERY, useViewport } from '../../hooks/useViewport';
+import { SearchOutlined } from '@ant-design/icons';
+import { useSearchParams } from 'react-router-dom';
+import { MOBILE_SHELL_QUERY, NARROW_QUERY, useMediaQuery, useViewport } from '../../hooks/useViewport';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { usersApi, workerProfileApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
@@ -50,7 +50,6 @@ function defaultSchedule(): WorkerSchedule[] {
 }
 
 export default function WorkerSetupPage() {
-  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const workerId = params.get('worker') || '';
   const detailTab: DetailTab =
@@ -70,6 +69,7 @@ export default function WorkerSetupPage() {
   const [savingSchedule, setSavingSchedule] = useState(false);
 
   const { isNarrow } = useViewport();
+  const compact = useMediaQuery(MOBILE_SHELL_QUERY);
   const pushedDetail = useRef(false);
 
   const setWorker = (id: string) => {
@@ -80,17 +80,6 @@ export default function WorkerSetupPage() {
     // On narrow screens the list and the detail are separate views, so Back should return to the list.
     pushedDetail.current = isNarrow && !workerId;
     setParams(nextParams, { replace: !pushedDetail.current });
-  };
-
-  const backToList = () => {
-    if (pushedDetail.current) {
-      pushedDetail.current = false;
-      navigate(-1);
-      return;
-    }
-    const nextParams = new URLSearchParams(params);
-    nextParams.delete('worker');
-    setParams(nextParams, { replace: true });
   };
 
   const setDetailTab = (next: DetailTab) => {
@@ -435,16 +424,7 @@ export default function WorkerSetupPage() {
             <PageSkeleton variant="block" />
           ) : (
             <>
-              {isNarrow ? (
-                <Button
-                  icon={<ArrowLeftOutlined />}
-                  onClick={backToList}
-                  className="worker-setup-back"
-                >
-                  All workers
-                </Button>
-              ) : null}
-              <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div className="ws-hero">
                 <PersonAvatar
                   userId={selected?.id}
                   fullName={selected?.fullName}
@@ -473,7 +453,7 @@ export default function WorkerSetupPage() {
                 </div>
               </div>
 
-              <div style={{ marginBottom: 16 }}>
+              <div className="ws-tabs">
                 <TabBar<DetailTab>
                   value={detailTab}
                   onChange={setDetailTab}
@@ -506,14 +486,76 @@ export default function WorkerSetupPage() {
                       </Button>
                     </div>
                   </div>
-                  <ResponsiveTable
-                    card={{ title: 'target', badge: 'enabled' }}
-                    size="small"
-                    rowKey="key"
-                    pagination={false}
-                    columns={skillColumns}
-                    dataSource={skillRows}
-                  />
+                  {compact ? (
+                    <div className="ws-rows">
+                      {skillRows.map((row) => (
+                        <div key={row.key} className="ws-row">
+                          <div className="ws-row__top">
+                            <strong className="ws-row__name">{row.name}</strong>
+                            <Switch
+                              checked={row.enabled}
+                              aria-label={`${row.name} enabled`}
+                              onChange={(checked) => {
+                                setSkillRows((prev) =>
+                                  prev.map((r) =>
+                                    r.key === row.key
+                                      ? { ...r, enabled: checked, isPrimary: checked ? r.isPrimary : false }
+                                      : r
+                                  )
+                                );
+                              }}
+                            />
+                          </div>
+                          <div className="ws-row__meta">
+                            <span className="ws-row__k">Level</span>
+                            {row.enabled ? (
+                              <span className="ws-row__level">
+                                <InputNumber
+                                  min={1}
+                                  max={5}
+                                  value={row.proficiency}
+                                  aria-label={`${row.name} level`}
+                                  onChange={(v) => {
+                                    setSkillRows((prev) =>
+                                      prev.map((r) =>
+                                        r.key === row.key ? { ...r, proficiency: Number(v) || 1 } : r
+                                      )
+                                    );
+                                  }}
+                                />
+                                <LevelBar level={row.proficiency} />
+                              </span>
+                            ) : (
+                              <span className="ui-muted-note">Can&apos;t run</span>
+                            )}
+                            <span className="ws-row__k">Primary</span>
+                            <Checkbox
+                              checked={row.isPrimary}
+                              disabled={!row.enabled}
+                              onChange={(e) => {
+                                const on = e.target.checked;
+                                setSkillRows((prev) =>
+                                  prev.map((r) => ({
+                                    ...r,
+                                    isPrimary: r.key === row.key ? on : on ? false : r.isPrimary,
+                                  }))
+                                );
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <ResponsiveTable
+                      card={{ title: 'target', badge: 'enabled' }}
+                      size="small"
+                      rowKey="key"
+                      pagination={false}
+                      columns={skillColumns}
+                      dataSource={skillRows}
+                    />
+                  )}
                 </div>
               ) : null}
 
@@ -532,14 +574,76 @@ export default function WorkerSetupPage() {
                       </Button>
                     </div>
                   </div>
-                  <ResponsiveTable
-                    card={{ title: 'dayOfWeek', badge: 'isWorking' }}
-                    size="small"
-                    rowKey="dayOfWeek"
-                    pagination={false}
-                    columns={scheduleColumns}
-                    dataSource={schedule}
-                  />
+                  {compact ? (
+                    <div className="ws-rows">
+                      {schedule.map((row) => (
+                        <div key={row.dayOfWeek} className="ws-row">
+                          <div className="ws-row__top">
+                            <strong className="ws-row__name">{DAY_LABELS[row.dayOfWeek]}</strong>
+                            <Switch
+                              checked={row.isWorking}
+                              aria-label={`${DAY_LABELS[row.dayOfWeek]} working`}
+                              onChange={(checked) => {
+                                setSchedule((prev) =>
+                                  prev.map((d) =>
+                                    d.dayOfWeek === row.dayOfWeek
+                                      ? {
+                                          ...d,
+                                          isWorking: checked,
+                                          startTime: checked ? d.startTime || '08:00' : null,
+                                          endTime: checked ? d.endTime || '17:00' : null,
+                                        }
+                                      : d
+                                  )
+                                );
+                              }}
+                            />
+                          </div>
+                          <div className="ws-row__meta">
+                            <span className="ws-row__k">Start</span>
+                            <Select
+                              disabled={!row.isWorking}
+                              value={row.startTime || undefined}
+                              aria-label={`${DAY_LABELS[row.dayOfWeek]} start`}
+                              options={Array.from({ length: 24 }, (_, h) => {
+                                const v = `${String(h).padStart(2, '0')}:00`;
+                                return { value: v, label: v };
+                              })}
+                              onChange={(v) =>
+                                setSchedule((prev) =>
+                                  prev.map((d) => (d.dayOfWeek === row.dayOfWeek ? { ...d, startTime: v } : d))
+                                )
+                              }
+                            />
+                            <span className="ws-row__k">End</span>
+                            <Select
+                              disabled={!row.isWorking}
+                              value={row.endTime || undefined}
+                              aria-label={`${DAY_LABELS[row.dayOfWeek]} end`}
+                              options={Array.from({ length: 24 }, (_, h) => {
+                                const v = `${String(h).padStart(2, '0')}:00`;
+                                return { value: v, label: v };
+                              })}
+                              onChange={(v) =>
+                                setSchedule((prev) =>
+                                  prev.map((d) => (d.dayOfWeek === row.dayOfWeek ? { ...d, endTime: v } : d))
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <ResponsiveTable
+                      card={{ title: 'dayOfWeek', badge: 'isWorking' }}
+                      size="small"
+                      rowKey="dayOfWeek"
+                      pagination={false}
+                      columns={scheduleColumns}
+                      dataSource={schedule}
+                    />
+                  )}
                 </div>
               ) : null}
 

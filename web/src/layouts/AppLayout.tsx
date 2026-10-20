@@ -217,10 +217,15 @@ function AppLayoutShell() {
   const section = getNavSection(location.pathname);
   const allKeys = groups.flatMap((g) => g.items.map((it) => it.key));
   const selectedKey = allKeys.find((k) => k === section) || '';
-  const meta =
+  const baseMeta =
     section === '/dashboard'
       ? { title: `${greeting()}, ${firstName(user?.nickname, user?.fullName)}`, subtitle: formatShop(shopNow(), 'dddd, MMMM D, YYYY') }
       : routeMeta(location.pathname, section);
+  const workerDetail = section === '/worker-setup' && new URLSearchParams(location.search).has('worker');
+  const meta =
+    mobileShell && workerDetail
+      ? { title: 'Worker', crumbs: [{ label: 'Worker setup', to: '/worker-setup' }, { label: 'Details' }] }
+      : baseMeta;
   const iconOnly = collapsed && !isCompact;
 
   const menuItems: MenuProps['items'] = groups.map((g) => ({

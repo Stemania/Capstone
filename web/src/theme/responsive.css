@@ -2475,3 +2475,114 @@
 .users-cards .ui-rowcard__head {
   align-items: flex-start;
 }
+
+/* Worker setup on phones and tablets: contained cards, aligned skill rows. */
+.app-shell--m .ws-hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+}
+
+.app-shell--m .ws-hero > div {
+  min-width: 0;
+}
+
+.app-shell--m .ws-tabs {
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.app-shell--m .ws-tabs .ui-tabbar.ant-segmented {
+  width: 100%;
+}
+
+.app-shell--phone .worker-setup-detail {
+  padding-bottom: 72px;
+}
+
+.app-shell--m .worker-setup-panel {
+  padding: 12px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+  border-top: 1px solid var(--c-border);
+}
+
+.app-shell--m .worker-setup-list {
+  padding: 10px;
+  border-radius: 12px;
+}
+
+.app-shell--m .ws-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.app-shell--m .ws-row {
+  padding: 10px 12px;
+  background: var(--c-surface-sunken, #f8fafc);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+}
+
+.app-shell--m .ws-row__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+}
+
+.app-shell--m .ws-row__name {
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.app-shell--m .ws-row__meta {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 64px auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.app-shell--m .ws-row__k {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+}
+
+.app-shell--m .ws-row__level {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.app-shell--m .ws-row__level .ant-input-number {
+  width: 64px;
+}
+
+.app-shell--m .worker-setup-panel__head {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.app-shell--m .ws-row__meta {
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.app-shell--m .worker-setup-panel__save {
+  width: 100%;
+}
+
+.app-shell--m .worker-setup-panel__save .ant-btn {
+  width: 100%;
+}
