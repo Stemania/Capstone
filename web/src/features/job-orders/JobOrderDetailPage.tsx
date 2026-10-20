@@ -779,7 +779,9 @@ function JobOrderDetailView() {
           )}
           <Button
             icon={<PrinterOutlined />}
-            onClick={() => navigate(`/job-orders/${job.id}/print`)}
+            onClick={() =>
+              navigate(`/job-orders/${job.id}/print`, { state: { from: location.pathname + location.search } })
+            }
           >
             Print
           </Button>

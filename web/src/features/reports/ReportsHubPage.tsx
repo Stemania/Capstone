@@ -7,7 +7,7 @@ import {
   ToolOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
@@ -40,6 +40,7 @@ const REPORTS = [
 
 function JobOrderPrintoutCard() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [jobs, setJobs] = useState<JobOrder[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [jobId, setJobId] = useState<string>();
@@ -96,7 +97,9 @@ function JobOrderPrintoutCard() {
             type="primary"
             icon={<PrinterOutlined />}
             disabled={!jobId}
-            onClick={() => jobId && navigate(`/job-orders/${jobId}/print`)}
+            onClick={() =>
+              jobId && navigate(`/job-orders/${jobId}/print`, { state: { from: location.pathname + location.search } })
+            }
           >
             Open printout
           </Button>

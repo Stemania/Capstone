@@ -17,7 +17,7 @@ import {
   AppstoreOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { formatShopDate, scheduleFlagStyle, formatShop, shopToday } from '../../utils/shopTime';
 import { jobOrdersApi } from '../../api/jobOrders.api';
@@ -259,6 +259,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
   const [delivering, setDelivering] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>(readViewMode);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const changeViewMode = (mode: ViewMode) => {
     setViewMode(mode);
@@ -488,7 +489,8 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
       key: 'print',
       icon: <PrinterOutlined />,
       label: 'Print',
-      onClick: () => navigate(`/job-orders/${record.id}/print`),
+      onClick: () =>
+        navigate(`/job-orders/${record.id}/print`, { state: { from: location.pathname + location.search } }),
     });
     if (record.status === 'COMPLETED' && isAdmin) {
       items.push({
