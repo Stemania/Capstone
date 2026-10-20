@@ -21,6 +21,7 @@ import {
   DashboardOutlined,
   BankOutlined,
   LeftOutlined,
+  CloseOutlined,
 } from '@ant-design/icons';
 import { useState, type ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -392,7 +393,7 @@ function AppLayoutShell() {
         <div className="app-nav-drawer__top">
           <Brand collapsed={false} />
           <button type="button" className="app-nav-drawer__close" onClick={() => setMobileOpen(false)} aria-label="Close menu">
-            ×
+            <CloseOutlined />
           </button>
         </div>
         <div className="app-sider__nav">{menu}</div>

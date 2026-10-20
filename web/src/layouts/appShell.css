@@ -196,16 +196,25 @@
 }
 
 .app-nav-drawer__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 32px;
   height: 32px;
+  padding: 0;
   border: none;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.08);
   color: #fff;
-  font-size: 18px;
-  line-height: 1;
+  font-size: 14px;
+  line-height: 0;
   cursor: pointer;
   flex-shrink: 0;
+}
+
+.app-nav-drawer__close .anticon {
+  display: flex;
+  line-height: 0;
 }
 
 .app-nav-drawer .ant-menu-item {
