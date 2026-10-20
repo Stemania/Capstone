@@ -2446,3 +2446,32 @@
   line-height: 1.35;
   color: var(--c-text-muted);
 }
+
+.users-cards .ui-rowcard__subtitle {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 6px;
+  align-items: flex-start;
+  padding-inline-start: 32px;
+  margin-top: 2px;
+}
+
+.users-cards .ui-rowcard__subtitle > span,
+.users-cards .ui-rowcard__subtitle > span + span:last-child {
+  flex: none;
+  max-width: 100%;
+}
+
+.users-cards .ui-rowcard__subtitle > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.users-cards .ui-rowcard__subtitle > span + span::before {
+  content: none;
+}
+
+.users-cards .ui-rowcard__head {
+  align-items: flex-start;
+}

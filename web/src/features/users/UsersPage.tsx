@@ -519,9 +519,9 @@ export default function UsersPage() {
       )}
 
       <ResponsiveTable
-        card={{ subtitle: ['role', 'email'], badge: 'status' }}
+        card={{ subtitle: ['email', 'role'], badge: 'status' }}
         cardsBelow="narrow"
-        className="std-list-table"
+        className="std-list-table users-cards"
         rowKey="id"
         columns={columns}
         dataSource={filtered}
