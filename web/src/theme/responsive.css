@@ -1804,8 +1804,9 @@
   }
 
   .app-shell--m .client-head__avatar {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
     font-size: 15px;
   }
 
@@ -1818,24 +1819,46 @@
   }
 
   .app-shell--m .client-head__contacts {
-    gap: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
     margin-top: 12px;
     padding-top: 0;
-    overflow: hidden;
-    border: 1px solid var(--c-border);
-    border-radius: 10px;
+    overflow: visible;
+    border: 0;
   }
 
   .app-shell--m .client-contact {
-    min-height: 48px;
-    padding: 6px 8px 6px 10px;
-    border: 0;
-    border-radius: 0;
+    min-height: 64px;
+    min-width: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--c-border);
+    border-radius: 10px;
     background: var(--c-surface);
   }
 
   .app-shell--m .client-contact + .client-contact {
     border-top: 1px solid var(--c-border);
+  }
+
+  .app-shell--m .client-contact__value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app-shell--m .client-jobs__filters .ui-tabbar.ant-segmented {
+    display: flex;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .app-shell--m .client-jobs__filters .ant-segmented-item {
+    flex: 1 0 auto;
+  }
+
+  .app-shell--m .ui-stat-grid.client-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 
   .app-shell--m .client-contact__main {
@@ -2499,6 +2522,70 @@
 
 .app-shell--m .ws-tabs .ui-tabbar.ant-segmented {
   width: 100%;
+}
+
+.app-shell--m .sched-m {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.app-shell--m .sched-m__top {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.app-shell--m .sched-m__nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.app-shell--m .sched-m__period {
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: center;
+}
+
+.app-shell--m .sched-m__period .period-nav__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-shell--m .sched-m__groups .sched-m__seg.ant-segmented {
+  width: 100%;
+}
+
+.app-shell--m .sched-m__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.app-shell--m .sched-m__stat {
+  min-width: 0;
+  padding: 8px 6px;
+  text-align: center;
+}
+
+.app-shell--m .sched-m__stat-n {
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.app-shell--m .sched-m__stat-l {
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.app-shell--m .sched-agenda__group-name {
+  margin: 8px 2px 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--c-text-muted);
 }
 
 .app-shell--phone .worker-setup-detail {

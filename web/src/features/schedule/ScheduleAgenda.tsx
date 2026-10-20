@@ -14,6 +14,7 @@ type Props = {
   downtimes: ScheduleBoardDowntime[];
   from: Dayjs;
   to: Dayjs;
+  groupBy?: 'machine' | 'worker';
   onOpenJob: (jobOrderId: string) => void;
 };
 
@@ -52,7 +53,16 @@ function timeRange(start: Dayjs, end: Dayjs) {
 }
 
 /** Phone view of the schedule board: one list per day, in time order. */
-export default function ScheduleAgenda({ operations, downtimes, from, to, onOpenJob }: Props) {
+function groupLabel(op: ScheduleBoardOperation, groupBy: 'machine' | 'worker') {
+  if (groupBy === 'worker') {
+    return op.assignedWorkerName
+      ? personLabel(op.assignedWorkerName, op.assignedWorkerNickname)
+      : 'No worker';
+  }
+  return op.machineUnitLabel || op.machineTypeName || 'No machine';
+}
+
+export default function ScheduleAgenda({ operations, downtimes, from, to, groupBy = 'machine', onOpenJob }: Props) {
   const days = useMemo<AgendaDay[]>(() => {
     const out: AgendaDay[] = [];
     const last = to.tz(SHOP_TZ).startOf('day');
@@ -105,7 +115,18 @@ export default function ScheduleAgenda({ operations, downtimes, from, to, onOpen
                 </span>
               </div>
             ))}
-            {day.items.map(({ op, start, end }) => {
+            {Array.from(
+              day.items.reduce((groups, item) => {
+                const label = groupLabel(item.op, groupBy);
+                const bucket = groups.get(label);
+                if (bucket) bucket.push(item);
+                else groups.set(label, [item]);
+                return groups;
+              }, new Map<string, AgendaItem[]>()),
+            ).map(([label, items]) => (
+              <div key={label} className="sched-agenda__group">
+                <h4 className="sched-agenda__group-name">{label}</h4>
+                {items.map(({ op, start, end }) => {
               const color = op.scheduleColor || OPERATION_BAR_COLOR[op.status] || '#2563eb';
               const crew =
                 crewNames(
@@ -164,8 +185,10 @@ export default function ScheduleAgenda({ operations, downtimes, from, to, onOpen
                   </span>
                   <RightOutlined className="sched-agenda__chev" aria-hidden />
                 </button>
-              );
-            })}
+                );
+                })}
+              </div>
+            ))}
           </section>
         );
       })}

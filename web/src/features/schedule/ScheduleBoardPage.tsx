@@ -363,7 +363,7 @@ function AdminOfficeScheduleBoard() {
   );
 
   const summary = data?.summary;
-  const isPhoneBoard = isMobile;
+  const isPhoneBoard = plainStats;
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const [boardAvailW, setBoardAvailW] = useState(0);
 
@@ -538,17 +538,7 @@ function AdminOfficeScheduleBoard() {
             <div className="sched-m__groups">
               <Segmented
                 className="sched-seg sched-m__seg"
-                aria-label="Period"
-                value={viewMode}
-                onChange={(v) => setViewMode(v as ViewMode)}
-                options={[
-                  { label: 'Day', value: 'day' },
-                  { label: 'Week', value: 'week' },
-                  { label: 'Month', value: 'month' },
-                ]}
-              />
-              <Segmented
-                className="sched-seg sched-m__seg"
+                block
                 aria-label="View"
                 value={phoneView}
                 onChange={(v) => changePhoneView(v as 'list' | 'board')}
@@ -558,20 +548,6 @@ function AdminOfficeScheduleBoard() {
                 ]}
               />
             </div>
-            {phoneView === 'board' ? (
-              <div className="sched-m__groups">
-                <Segmented
-                  className="sched-seg sched-m__seg"
-                  aria-label="Rows"
-                  value={rowMode}
-                  onChange={(v) => setRowMode(v as RowMode)}
-                  options={[
-                    { label: 'By machine', value: 'machine' },
-                    { label: 'By worker', value: 'worker' },
-                  ]}
-                />
-              </div>
-            ) : null}
           </div>
           <div className="sched-m__stats">
             <div className="sched-m__stat">
@@ -700,6 +676,7 @@ function AdminOfficeScheduleBoard() {
           downtimes={data?.downtimes ?? NO_DOWNTIMES}
           from={from}
           to={to}
+          groupBy={rowMode}
           onOpenJob={openJob}
         />
       ) : (
@@ -931,7 +908,47 @@ function AdminOfficeScheduleBoard() {
             </button>
           </div>
 
-          {!isPhoneBoard ? (
+          {isPhoneBoard ? (
+            <>
+              <div className="sched-f__card">
+                <div className="sched-f__label">Period</div>
+                <div className="sched-m__pills" role="tablist" aria-label="Period">
+                  {([
+                    ['day', 'Day'],
+                    ['week', 'Week'],
+                    ['month', 'Month'],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`sched-m__pill${viewMode === value ? ' is-on' : ''}`}
+                      onClick={() => setViewMode(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="sched-f__card">
+                <div className="sched-f__label">Group by</div>
+                <div className="sched-m__pills" role="tablist" aria-label="Rows">
+                  {([
+                    ['machine', 'Machine'],
+                    ['worker', 'Worker'],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`sched-m__pill${rowMode === value ? ' is-on' : ''}`}
+                      onClick={() => setRowMode(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
             <div className="sched-f__card">
               <div className="sched-f__label">Rows</div>
               <div className="sched-m__pills" role="tablist" aria-label="Rows">
@@ -950,7 +967,7 @@ function AdminOfficeScheduleBoard() {
                 ))}
               </div>
             </div>
-          ) : null}
+          )}
 
           <div className="sched-f__card">
             <div className="sched-f__label">Narrow by</div>
