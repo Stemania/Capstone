@@ -1,9 +1,10 @@
 import { formatShop, shopToday } from '../../utils/shopTime';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Col, DatePicker, Drawer, Dropdown, Form, Input, InputNumber, Modal, Row, Select, Space, Typography, message } from 'antd';
+import { Button, Col, DatePicker, Drawer, Dropdown, Form, Input, InputNumber, Modal, Row, Select, Skeleton, Space, Typography, message } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
   AppstoreAddOutlined,
+  CloseOutlined,
   DownloadOutlined,
   HistoryOutlined,
   MoreOutlined,
@@ -22,8 +23,9 @@ import { exportCsv } from '../../utils/csvExport';
 import ToolEventsPage from './ToolEventsPage';
 import { useAuth } from '../../hooks/useAuth';
 import { useIsPhone } from '../../hooks/useIsPhone';
+import { MOBILE_SHELL_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
-import { TwoLineCell } from '../../components/ui';
+import { TwoLineCell, rowOpenProps } from '../../components/ui';
 import { Package, Wrench } from 'lucide-react';
 import {
   CategoryTile,
@@ -54,6 +56,8 @@ function statusPill(status: ToolUnitStatus) {
 export default function ToolsAssetsPanel() {
   const { canOfficeWrite: canEdit } = useAuth();
   const isPhone = useIsPhone();
+  const compact = useMediaQuery(MOBILE_SHELL_QUERY);
+  const [detailType, setDetailType] = useState<ToolType | null>(null);
   const [types, setTypes] = useState<ToolType[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
@@ -223,6 +227,24 @@ export default function ToolsAssetsPanel() {
     }
   };
 
+  const openDetail = (t: ToolType) => {
+    setDetailType(t);
+    void loadUnits(t.id);
+  };
+
+  const unitMenuItems = (u: ToolUnit): MenuProps['items'] =>
+    [
+      u.status !== 'AVAILABLE'
+        ? { key: 'avail', label: 'Mark available', onClick: () => void setUnitStatus(u, 'AVAILABLE') }
+        : null,
+      u.status !== 'UNDER_REPAIR'
+        ? { key: 'repair', label: 'Under repair', onClick: () => void setUnitStatus(u, 'UNDER_REPAIR') }
+        : null,
+      u.status !== 'RETIRED'
+        ? { key: 'retire', label: 'Retire', onClick: () => void setUnitStatus(u, 'RETIRED') }
+        : null,
+    ].filter(Boolean) as MenuProps['items'];
+
   const setUnitStatus = async (unit: ToolUnit, status: ToolUnitStatus) => {
     try {
       await toolsApi.updateUnit(unit.id, { status });
@@ -240,7 +262,7 @@ export default function ToolsAssetsPanel() {
       key: 'name',
       render: (_: unknown, r) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <CategoryTile category="tool" />
+          <CategoryTile category="tool" icon={compact ? Wrench : undefined} />
           <TwoLineCell
             primary={
               <>
@@ -361,34 +383,7 @@ export default function ToolsAssetsPanel() {
                   QR
                 </Button>
                 {canEdit && (
-                <Dropdown
-                  menu={{
-                    items: [
-                      u.status !== 'AVAILABLE'
-                        ? {
-                            key: 'avail',
-                            label: 'Mark available',
-                            onClick: () => void setUnitStatus(u, 'AVAILABLE'),
-                          }
-                        : null,
-                      u.status !== 'UNDER_REPAIR'
-                        ? {
-                            key: 'repair',
-                            label: 'Under repair',
-                            onClick: () => void setUnitStatus(u, 'UNDER_REPAIR'),
-                          }
-                        : null,
-                      u.status !== 'RETIRED'
-                        ? {
-                            key: 'retire',
-                            label: 'Retire',
-                            onClick: () => void setUnitStatus(u, 'RETIRED'),
-                          }
-                        : null,
-                    ].filter(Boolean) as MenuProps['items'],
-                  }}
-                  trigger={['click']}
-                >
+                <Dropdown menu={{ items: unitMenuItems(u) }} trigger={['click']}>
                   <Button size="small" type="text" icon={<MoreOutlined />} />
                 </Dropdown>
                 )}
@@ -399,6 +394,8 @@ export default function ToolsAssetsPanel() {
       />
     );
   };
+
+  const detail = detailType ? (types.find((t) => t.id === detailType.id) ?? detailType) : null;
 
   return (
     <div>
@@ -424,7 +421,7 @@ export default function ToolsAssetsPanel() {
           />
         </div>
         <div className="std-list-actions">
-          {showSeedBadge() && types.some((t) => t.isSeed) && (
+          {!compact && showSeedBadge() && types.some((t) => t.isSeed) && (
             <InfoTip
               title="Seed placeholder tools"
               label="About seed tools"
@@ -511,11 +508,16 @@ export default function ToolsAssetsPanel() {
         loading={loading}
         dataSource={filtered}
         columns={columns}
-        expandable={{
-          expandedRowKeys: expandedKeys,
-          onExpand,
-          expandedRowRender,
-        }}
+        expandable={
+          compact
+            ? undefined
+            : {
+                expandedRowKeys: expandedKeys,
+                onExpand,
+                expandedRowRender,
+              }
+        }
+        onRow={compact ? (r) => rowOpenProps(() => openDetail(r)) : undefined}
         locale={{
           emptyText: onlyOut
             ? 'No tool types currently have units out with workers.'
@@ -566,6 +568,100 @@ export default function ToolsAssetsPanel() {
             { title: 'Returned', dataIndex: 'returnQuantity', align: 'right', width: 90 },
           ]}
         />
+      </Drawer>
+
+      <Drawer
+        open={Boolean(detailType)}
+        onClose={() => setDetailType(null)}
+        placement={isPhone ? 'bottom' : 'right'}
+        size={isPhone ? 'auto' : 420}
+        rootClassName={isPhone ? 'sched-f-drawer' : undefined}
+        title={isPhone ? null : detailType?.name}
+        closable={!isPhone}
+        styles={isPhone ? { header: { display: 'none' } } : undefined}
+        destroyOnHidden
+      >
+        {detail ? (
+          <div className={isPhone ? 'sched-f tunits' : 'tunits'}>
+            {isPhone ? (
+              <>
+                <div className="sched-f__handle" />
+                <div className="sched-f__head">
+                  <div>
+                    <div className="sched-f__title">{detail.name}</div>
+                    <div className="sched-f__sub">{detail.code}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="sched-m__icon"
+                    onClick={() => setDetailType(null)}
+                    aria-label="Close"
+                  >
+                    <CloseOutlined />
+                  </button>
+                </div>
+              </>
+            ) : null}
+            <div className="tunits__summary">
+              <span>
+                <strong>{detail.availableCount}</strong> of {detail.totalUnits} available
+              </span>
+              {detail.outCount ? <span className="tunits__out">{detail.outCount} out</span> : null}
+            </div>
+            {!unitsByType[detail.id] ? (
+              <Skeleton active title={false} paragraph={{ rows: 3 }} />
+            ) : unitsByType[detail.id].length === 0 ? (
+              <div className="tunits__empty">No units for this type yet. Add a unit with its own asset code and QR.</div>
+            ) : (
+              <ul className="tunits__list">
+                {unitsByType[detail.id].map((u) => (
+                  <li key={u.id} className="tunit">
+                    <CategoryTile category="tool" icon={Wrench} size={32} />
+                    <div className="tunit__main">
+                      <div className="tunit__code">{u.assetCode}</div>
+                      <div className="tunit__sub">
+                        {u.status === 'OUT'
+                          ? `With ${u.currentHolderName || 'a worker'}${
+                              u.heldSince ? ` · since ${formatShop(u.heldSince, 'MMM D')}` : ''
+                            }`
+                          : u.status === 'AVAILABLE'
+                            ? 'In the tool crib'
+                            : null}
+                      </div>
+                    </div>
+                    {statusPill(u.status)}
+                    {canEdit ? (
+                      <Dropdown menu={{ items: unitMenuItems(u) }} trigger={['click']}>
+                        <Button type="text" icon={<MoreOutlined />} aria-label={`Change status of ${u.assetCode}`} />
+                      </Dropdown>
+                    ) : null}
+                    <Button
+                      className="tunit__qr"
+                      icon={<QrcodeOutlined />}
+                      aria-label={`Show QR for ${u.assetCode}`}
+                      onClick={() => setQrUnit(u)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canEdit ? (
+              <div className="tunits__actions">
+                <Button icon={<PlusOutlined />} onClick={() => setUnitModalType(detailType)}>
+                  Add unit
+                </Button>
+                <Button
+                  onClick={() => {
+                    setReceiveType(detailType);
+                    receiveForm.setFieldsValue({ receivedOn: shopToday(), quantity: 1 });
+                  }}
+                >
+                  Receive delivery
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </Drawer>
 
       <Drawer

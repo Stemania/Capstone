@@ -20,6 +20,8 @@ export type InventoryCardTone = 'slate' | 'green' | 'amber' | 'red' | 'blue';
 export interface InventorySummaryCard {
   key: string;
   label: string;
+  /** Used in the compact phone/tablet strip. */
+  shortLabel?: string;
   value: number;
   icon: LucideIcon;
   tone?: InventoryCardTone;
@@ -74,11 +76,14 @@ export function categoryIcon(category: string | null | undefined): {
 export function CategoryTile({
   category,
   size = 28,
+  icon,
 }: {
   category?: string | null;
   size?: number;
+  icon?: LucideIcon;
 }) {
-  const { Icon, tile, fg } = categoryIcon(category);
+  const { Icon: CategoryIcon, tile, fg } = categoryIcon(category);
+  const Icon = icon ?? CategoryIcon;
   return (
     <span
       aria-hidden
@@ -122,7 +127,7 @@ export function InventorySummaryCards({
                 icon={<Icon size={16} strokeWidth={2} aria-hidden />}
                 tone={card.tone || 'slate'}
                 valueTone={card.tone && card.tone !== 'slate' && card.value > 0 ? card.tone : undefined}
-                label={card.label}
+                label={card.shortLabel ?? card.label}
                 value={card.value}
                 hint={card.caption}
                 active={pressed}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button, Col, Form, Input, Modal, Row, Select, Segmented, Switch, Tag, message } from 'antd';
-import { ChipOverflow, TwoLineCell } from '../../components/ui';
+import { ChipOverflow, FilterBar, FilterSelect, TwoLineCell, rowOpenProps } from '../../components/ui';
+import { MOBILE_SHELL_QUERY, NARROW_QUERY, PHONE_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import type { TableColumnsType } from 'antd';
 import { EditOutlined, PlusOutlined, SearchOutlined, BookOutlined } from '@ant-design/icons';
 import { BookOpen, Clock, Package, Layers } from 'lucide-react';
@@ -46,6 +47,9 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
   const [form] = Form.useForm();
   const [summaryKey, setSummaryKey] = useState<string | null>(null);
   const kindWatch = Form.useWatch('kind', form) as CatalogKind | undefined;
+  const compact = useMediaQuery(MOBILE_SHELL_QUERY);
+  const narrow = useMediaQuery(NARROW_QUERY);
+  const phone = useMediaQuery(PHONE_QUERY);
 
   const fetchRows = async () => {
     setLoading(true);
@@ -163,6 +167,70 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
     }
   };
 
+  const gradesOf = (r: CatalogItem) =>
+    r.gradesOrSizes?.length ? r.gradesOrSizes : r.grades || (r.sizeSpec ? [r.sizeSpec] : []);
+
+  const statusCell = (r: CatalogItem) => (
+    <div className="catalog-status">
+      {r.active ? (
+        <StatusPill color="green" compact>
+          Offered
+        </StatusPill>
+      ) : (
+        <StatusPill color="gray" compact>
+          Not offered
+        </StatusPill>
+      )}
+      {r.kind === 'CONSUMABLE' && r.notStockedYet ? <StockStatusPill status="NOT_STOCKED" /> : null}
+    </div>
+  );
+
+  const cardColumns: TableColumnsType<CatalogItem> = [
+    {
+      title: 'Item',
+      key: 'name',
+      sorter: (a, b) => a.name.localeCompare(b.name),
+      render: (_: unknown, r) => {
+        const kindLabel = r.kind === 'MATERIAL' ? 'Material' : 'Consumable';
+        const meta = [
+          kindLabel,
+          r.category && r.category.toLowerCase() !== kindLabel.toLowerCase() ? r.category : null,
+          r.unit,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        const extra = [r.kind === 'CONSUMABLE' && r.code ? r.code : null, r.shopTerm ? `Shop term “${r.shopTerm}”` : null]
+          .filter(Boolean)
+          .join(' · ');
+        return (
+          <div className="catalog-item">
+            <CategoryTile category={r.category || r.name} size={36} />
+            <div className="catalog-item__text">
+              <div className="catalog-item__name">{r.name}</div>
+              <div className="catalog-item__meta">{meta}</div>
+              {extra ? <div className="catalog-item__meta">{extra}</div> : null}
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      title: 'Category',
+      key: 'category',
+      sorter: (a, b) => (a.category || '').localeCompare(b.category || ''),
+      render: () => null,
+    },
+    {
+      title: 'Grades / sizes',
+      key: 'grades',
+      render: (_: unknown, r) => {
+        const list = gradesOf(r);
+        return list.length ? <ChipOverflow items={list} max={4} /> : null;
+      },
+    },
+    { title: 'Status', key: 'status', render: (_: unknown, r) => statusCell(r) },
+  ];
+
   const columns: TableColumnsType<CatalogItem> = [
     {
       title: 'Item',
@@ -198,12 +266,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
       title: 'Grades / sizes',
       key: 'grades',
       ellipsis: true,
-      render: (_: unknown, r) => {
-        const list = r.gradesOrSizes?.length
-          ? r.gradesOrSizes
-          : r.grades || (r.sizeSpec ? [r.sizeSpec] : []);
-        return <ChipOverflow items={list} max={2} />;
-      },
+      render: (_: unknown, r) => <ChipOverflow items={gradesOf(r)} max={2} />,
     },
     { title: 'Unit', dataIndex: 'unit', width: 80 },
     {
@@ -217,22 +280,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
       title: 'Status',
       key: 'status',
       width: 160,
-      render: (_: unknown, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {r.active ? (
-            <StatusPill color="green" compact>
-              Offered
-            </StatusPill>
-          ) : (
-            <StatusPill color="gray" compact>
-              Not offered
-            </StatusPill>
-          )}
-          {r.kind === 'CONSUMABLE' && r.notStockedYet ? (
-            <StockStatusPill status="NOT_STOCKED" />
-          ) : null}
-        </div>
-      ),
+      render: (_: unknown, r) => statusCell(r),
     },
     ...(canEdit
       ? [
@@ -263,6 +311,42 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
           else if (key === null) setTypeFilter('all');
         }}
       />
+      {compact ? (
+        <FilterBar
+          search={{ value: query, onChange: setQuery, placeholder: 'Search name, shop term, grade…' }}
+          activeFilters={typeFilter === 'all' ? 0 : 1}
+          onClearFilters={() => {
+            setTypeFilter('all');
+            setSummaryKey(null);
+          }}
+          filters={
+            <FilterSelect<CatalogTypeFilter>
+              label="Type"
+              style={phone ? undefined : { width: 200, flexBasis: 200 }}
+              value={typeFilter}
+              onChange={(v) => setTypeFilter(v ?? 'all')}
+              options={[
+                { label: 'All', value: 'all' },
+                { label: 'Materials', value: 'MATERIAL' },
+                { label: 'Consumables', value: 'CONSUMABLE' },
+              ]}
+            />
+          }
+          actions={
+            canEdit ? (
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={openCreate}
+                aria-label={ADD_CATALOG_ITEM_LABEL}
+                style={{ fontWeight: 700 }}
+              >
+                {phone ? null : ADD_CATALOG_ITEM_LABEL}
+              </Button>
+            ) : null
+          }
+        />
+      ) : (
       <div className="std-list-toolbar">
         <div className="std-list-filters">
           <Input
@@ -291,13 +375,17 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
           )}
         </div>
       </div>
+      )}
 
       <ResponsiveTable
         className="std-list-table"
         rowKey={(r) => `${r.kind}-${r.id}`}
         size="small"
         loading={loading}
-        columns={columns}
+        columns={narrow ? cardColumns : columns}
+        cardsBelow="narrow"
+        card={{ title: 'name', badge: 'status', actions: 'none', hide: ['category'], full: ['grades'] }}
+        onRow={narrow && canEdit ? (r) => rowOpenProps(() => openEdit(r)) : undefined}
         dataSource={filtered}
         scroll={{ x: 880 }}
         pagination={{ pageSize: 20, hideOnSinglePage: true }}
