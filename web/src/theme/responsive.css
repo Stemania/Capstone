@@ -1848,13 +1848,20 @@
   }
 
   .app-shell--m .client-jobs__filters .ui-tabbar.ant-segmented {
-    display: flex;
     width: 100%;
-    overflow-x: auto;
   }
 
-  .app-shell--m .client-jobs__filters .ant-segmented-item {
-    flex: 1 0 auto;
+  .app-shell--m .client-jobs__filters .ant-segmented-group {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .app-shell--m .client-jobs__filters .ant-segmented-item,
+  .app-shell--m .client-jobs__filters .ant-segmented-item-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .app-shell--m .ui-stat-grid.client-stats {
