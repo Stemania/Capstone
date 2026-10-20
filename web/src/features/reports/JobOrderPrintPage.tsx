@@ -2,7 +2,8 @@ import { formatShop } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
 import { Button, Spin, message } from 'antd';
 import { PrinterOutlined, ArrowLeftOutlined, EditOutlined } from '@ant-design/icons';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
+import { jobPrintBackPath } from './printNavigation';
 import { clientsApi, jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
@@ -56,7 +57,6 @@ function materialStatus(line: JobMaterialLine) {
 export default function JobOrderPrintPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const location = useLocation();
   const { user } = useAuth();
   const shop = useShopDetails();
   const [job, setJob] = useState<JobOrder | null>(null);
@@ -119,14 +119,7 @@ export default function JobOrderPrintPage() {
         <>
           <Button
             icon={<ArrowLeftOutlined />}
-            onClick={() => {
-              const from = (location.state as { from?: string } | null)?.from;
-              if (from && from !== location.pathname) {
-                navigate(from);
-                return;
-              }
-              navigate(`/job-orders/${job.id}`);
-            }}
+            onClick={() => navigate(jobPrintBackPath())}
           >
             Back
           </Button>
