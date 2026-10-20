@@ -116,7 +116,14 @@ export default function JobOrderPrintPage() {
       wide
       toolbar={
         <>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>
+          <Button
+            icon={<ArrowLeftOutlined />}
+            onClick={() => {
+              const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+              if (idx > 0) navigate(-1);
+              else navigate(`/job-orders/${job.id}`, { replace: true });
+            }}
+          >
             Back
           </Button>
           {user?.role === 'ADMIN' && (

@@ -1977,6 +1977,48 @@
   font-size: 18px;
 }
 
+.app-shell .jo-m__nav {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.app-shell .jo-m__nav > .jo-m__search {
+  flex: 1 1 auto;
+}
+
+.app-shell .jo-m__nav > .sched-m__icon,
+.app-shell .jo-m__nav > .sched-m__filter {
+  flex: none;
+}
+
+@media (min-width: 768px) and (max-width: 1023.98px) {
+  .app-shell--m .jo-list-toolbar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .app-shell--m .jo-list-filters {
+    display: contents;
+  }
+
+  .app-shell--m .jo-list-filters > .ant-input-affix-wrapper {
+    flex: 1 1 50%;
+    max-width: none;
+  }
+
+  .app-shell--m .jo-list-actions {
+    order: 1;
+  }
+
+  .app-shell--m .jo-list-filters > .jo-list-filter {
+    order: 2;
+    flex: 1 1 28%;
+    min-width: 0;
+    max-width: none;
+  }
+}
+
 .app-shell--m .ant-checkbox-wrapper,
 .ui-mbar__sheet .ant-checkbox-wrapper {
   align-items: center;

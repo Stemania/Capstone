@@ -61,7 +61,6 @@ import type {
 import { formatDifferenceFromTarget } from '../analytics/analyticsFormat';
 import { WorkerPageHeader } from '../../layouts/WorkerLayout';
 import { jobOrdersListPath } from './jobOrderListPaths';
-import JobScheduleColorPicker from './JobScheduleColorPicker';
 import OutsourcedOperationPanel from './OutsourcedOperationPanel';
 import OrderMaterialsModal from '../supplier-orders/OrderMaterialsModal';
 import {
@@ -748,26 +747,6 @@ function JobOrderDetailView() {
             >
               Plan
             </Button>
-          )}
-          {canManage && (
-            <JobScheduleColorPicker
-              value={job.scheduleColor}
-              onChange={async (hex) => {
-                const prev = job.scheduleColor;
-                setJob({ ...job, scheduleColor: hex });
-                try {
-                  const { data } = await jobOrdersApi.update(job.id, {
-                    scheduleColor: hex,
-                  });
-                  setJob((j) =>
-                    j ? { ...j, scheduleColor: data.scheduleColor ?? hex } : j
-                  );
-                } catch (err) {
-                  setJob((j) => (j ? { ...j, scheduleColor: prev } : j));
-                  message.error(getErrorMessage(err));
-                }
-              }}
-            />
           )}
           {canOfficeWrite && isDraft && (
             <Button
