@@ -1324,6 +1324,75 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .app-shell .sched-m {
+    overflow: visible;
+  }
+
+  .app-shell .sched-m__nav {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .app-shell .sched-m__period {
+    flex: 1;
+    min-width: 0;
+    gap: 0;
+  }
+
+  .app-shell .sched-m__period > .ant-btn {
+    flex: none;
+    width: 36px;
+    height: 40px;
+    padding: 0;
+    background: transparent;
+    color: var(--c-text);
+  }
+
+  .app-shell .sched-m__period > .ant-btn .anticon {
+    font-size: 18px;
+  }
+
+  .app-shell .sched-m__period .period-nav__trigger {
+    flex: 0 1 auto;
+    min-width: 0;
+    min-height: 40px;
+    padding: 0 6px;
+  }
+
+  .app-shell .sched-m__period .period-nav__label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 15px;
+  }
+
+  .app-shell .sched-m__today.ant-btn {
+    flex: none;
+    height: 36px;
+    padding: 0 12px;
+    font-weight: 600;
+  }
+
+  .app-shell .sched-m__groups {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .app-shell .sched-m__seg.ant-segmented {
+    flex: none;
+    overflow: visible;
+  }
+
+  .app-shell .sched-m__seg .ant-segmented-item-label {
+    min-height: 34px;
+    line-height: 34px;
+    padding: 0 14px;
+    font-size: 14px;
+  }
+
   .ui-filterbar-wrap--phone {
     margin-bottom: 12px;
   }
@@ -1895,4 +1964,14 @@
     color: var(--c-text-muted);
     font-variant-numeric: tabular-nums;
   }
+}
+
+.app-shell--m .period-nav > .ant-btn {
+  width: 36px;
+  height: 36px;
+  background: transparent;
+}
+
+.app-shell--m .period-nav > .ant-btn .anticon {
+  font-size: 18px;
 }

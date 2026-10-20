@@ -22,8 +22,6 @@ import {
   DashboardOutlined,
   WarningOutlined,
   InboxOutlined,
-  LeftOutlined,
-  RightOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
 import PeriodNavigator from '../../components/PeriodNavigator';
@@ -69,7 +67,7 @@ import ScheduleExpandShell from './ScheduleExpandShell';
 import WorkerPersonalSchedule from './WorkerPersonalSchedule';
 import ScheduleAgenda from './ScheduleAgenda';
 import { capacityLine } from './capacityText';
-import { TOUCH_QUERY, useMediaQuery } from '../../hooks/useViewport';
+import { MOBILE_SHELL_QUERY, TOUCH_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import { PersonAvatar, crewNames } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
 import './scheduleBoard.css';
@@ -224,6 +222,7 @@ function AdminOfficeScheduleBoard() {
   const isMobile = !screens.md;
   const labelW = isMobile ? adminPx(96) : adminPx(168);
   const isTouch = useMediaQuery(TOUCH_QUERY);
+  const plainStats = useMediaQuery(MOBILE_SHELL_QUERY);
   // Bars are rowH - 8 tall; touch screens get 44px bars.
   const rowH = isTouch ? 52 : isMobile ? adminPx(40) : adminPx(44);
   const [viewMode, setViewMode] = useState<ViewMode>('week');
@@ -439,13 +438,6 @@ function AdminOfficeScheduleBoard() {
   const activeFilterCount =
     [machineTypeId, workerId, clientId].filter(Boolean).length + (includeCompleted ? 0 : 1);
 
-  const periodLabel =
-    viewMode === 'day'
-      ? from.format('ddd, MMM D')
-      : viewMode === 'month'
-        ? from.format('MMMM YYYY')
-        : `${from.format('MMM D')} – ${to.format('MMM D')}`;
-
   const filterSelects = (
     <>
       {!isPhoneBoard && (
@@ -524,21 +516,19 @@ function AdminOfficeScheduleBoard() {
         <div className="sched-m">
           <div className="sched-m__top">
             <div className="sched-m__nav">
-              <button type="button" className="sched-m__icon" onClick={() => shiftPeriod(-1)} aria-label="Previous">
-                <LeftOutlined />
-              </button>
-              <button
-                type="button"
-                className="sched-m__date"
-                onClick={goToToday}
-                title="Jump to today"
-              >
-                <span className="sched-m__date-main">{periodLabel}</span>
-                <span className="sched-m__date-sub">{showingToday ? 'Today' : 'Jump to today'}</span>
-              </button>
-              <button type="button" className="sched-m__icon" onClick={() => shiftPeriod(1)} aria-label="Next">
-                <RightOutlined />
-              </button>
+              <PeriodNavigator
+                className="sched-m__period"
+                short
+                mode={viewMode}
+                value={anchor}
+                onChange={jumpToDate}
+                onStep={shiftPeriod}
+              />
+              {!showingToday ? (
+                <Button className="sched-m__today" onClick={goToToday}>
+                  Today
+                </Button>
+              ) : null}
               <Badge count={activeFilterCount} size="small" offset={[-4, 4]} className="sched-m__filter">
                 <button type="button" className="sched-m__icon" onClick={() => setFiltersOpen(true)} aria-label="Filters">
                   <FilterOutlined />
@@ -546,61 +536,40 @@ function AdminOfficeScheduleBoard() {
               </Badge>
             </div>
             <div className="sched-m__groups">
-              <div className="sched-m__pills" role="tablist" aria-label="Period">
-                {([
-                  ['day', 'Day'],
-                  ['week', 'Week'],
-                  ['month', 'Month'],
-                ] as const).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    role="tab"
-                    aria-selected={viewMode === value}
-                    className={`sched-m__pill${viewMode === value ? ' is-on' : ''}`}
-                    onClick={() => setViewMode(value)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <div className="sched-m__pills" role="tablist" aria-label="View">
-                {([
-                  ['list', 'List'],
-                  ['board', 'Board'],
-                ] as const).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    role="tab"
-                    aria-selected={phoneView === value}
-                    className={`sched-m__pill${phoneView === value ? ' is-on' : ''}`}
-                    onClick={() => changePhoneView(value)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <Segmented
+                className="sched-seg sched-m__seg"
+                aria-label="Period"
+                value={viewMode}
+                onChange={(v) => setViewMode(v as ViewMode)}
+                options={[
+                  { label: 'Day', value: 'day' },
+                  { label: 'Week', value: 'week' },
+                  { label: 'Month', value: 'month' },
+                ]}
+              />
+              <Segmented
+                className="sched-seg sched-m__seg"
+                aria-label="View"
+                value={phoneView}
+                onChange={(v) => changePhoneView(v as 'list' | 'board')}
+                options={[
+                  { label: 'List', value: 'list' },
+                  { label: 'Board', value: 'board' },
+                ]}
+              />
             </div>
             {phoneView === 'board' ? (
               <div className="sched-m__groups">
-                <div className="sched-m__pills" role="tablist" aria-label="Rows">
-                  {([
-                    ['machine', 'By machine'],
-                    ['worker', 'By worker'],
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      role="tab"
-                      aria-selected={rowMode === value}
-                      className={`sched-m__pill${rowMode === value ? ' is-on' : ''}`}
-                      onClick={() => setRowMode(value)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                <Segmented
+                  className="sched-seg sched-m__seg"
+                  aria-label="Rows"
+                  value={rowMode}
+                  onChange={(v) => setRowMode(v as RowMode)}
+                  options={[
+                    { label: 'By machine', value: 'machine' },
+                    { label: 'By worker', value: 'worker' },
+                  ]}
+                />
               </div>
             ) : null}
           </div>
@@ -622,16 +591,6 @@ function AdminOfficeScheduleBoard() {
               <div className="sched-m__stat-l">No material</div>
             </div>
           </div>
-          {nearFull.length ? (
-            <div className="sched-m__caps">
-              {nearFull.map((m) => (
-                <span key={m.machineTypeId} className="sched-m__cap" title={capacityLine(m)}>
-                  {m.machineTypeCode}
-                  {m.projectedLoadPct != null ? ` ${m.projectedLoadPct}%` : ''}
-                </span>
-              ))}
-            </div>
-          ) : null}
         </div>
       ) : (
         <StatGrid min={200}>
@@ -642,11 +601,13 @@ function AdminOfficeScheduleBoard() {
             value={summary?.jobsScheduled ?? '—'}
             loading={loading && !data}
             hint={
-              summary?.jobsScheduled
-                ? `${summary.operationsScheduled} operation${
-                    summary.operationsScheduled === 1 ? '' : 's'
-                  } on the board`
-                : 'No job orders in this period'
+              plainStats
+                ? undefined
+                : summary?.jobsScheduled
+                  ? `${summary.operationsScheduled} operation${
+                      summary.operationsScheduled === 1 ? '' : 's'
+                    } on the board`
+                  : 'No job orders in this period'
             }
           />
           <StatCard
@@ -655,7 +616,7 @@ function AdminOfficeScheduleBoard() {
             label={
               <>
                 Near full capacity
-                {capacityRows.length ? (
+                {capacityRows.length && !plainStats ? (
                   <InfoTip
                     label="How capacity is worked out"
                     title="Load this period"
@@ -674,10 +635,14 @@ function AdminOfficeScheduleBoard() {
                 ) : null}
               </>
             }
-            value={nearFull.length ? nearFull.map((m) => m.machineTypeCode).join(', ') : 'None'}
+            value={
+              plainStats ? nearFull.length : nearFull.length ? nearFull.map((m) => m.machineTypeCode).join(', ') : 'None'
+            }
             loading={loading && !data}
             hint={
-              nearFull.length
+              plainStats
+                ? undefined
+                : nearFull.length
                 ? nearFull.map((m) => `${m.machineTypeCode} ${m.projectedLoadPct ?? '—'}%`).join(' · ')
                 : 'None at 80% load or more'
             }
@@ -690,7 +655,9 @@ function AdminOfficeScheduleBoard() {
             valueTone={atRiskCount > 0 ? 'red' : undefined}
             loading={loading && !data}
             hint={
-              atRiskCount
+              plainStats
+                ? undefined
+                : atRiskCount
                 ? (summary?.jobsAtRisk || [])
                     .slice(0, 4)
                     .map((j) => j.jobNumber || j.jobTitle)
@@ -705,7 +672,9 @@ function AdminOfficeScheduleBoard() {
             value={waitingJobs.length}
             loading={loading && !data}
             hint={
-              waitingJobs.length
+              plainStats
+                ? undefined
+                : waitingJobs.length
                 ? waitingJobs.slice(0, 4).join(', ') + (waitingJobs.length > 4 ? '…' : '')
                 : 'All jobs have materials'
             }

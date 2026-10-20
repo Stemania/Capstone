@@ -20,10 +20,13 @@ export function pickerKindForMode(mode: PeriodMode): 'date' | 'week' | 'month' {
 }
 
 /** Bold period label for Day / Week / Month. */
-export function formatPeriodLabel(anchor: Dayjs, mode: PeriodMode): string {
+export function formatPeriodLabel(anchor: Dayjs, mode: PeriodMode, short = false): string {
   const { from, to } = periodBounds(anchor, mode);
-  if (mode === 'day') return from.format('ddd, MMM D, YYYY');
   if (mode === 'month') return from.format('MMMM YYYY');
+  if (short) {
+    return mode === 'day' ? from.format('ddd, MMM D') : `${from.format('MMM D')} – ${to.format('MMM D')}`;
+  }
+  if (mode === 'day') return from.format('ddd, MMM D, YYYY');
   if (from.year() === to.year()) {
     return `${from.format('MMM D')} – ${to.format('MMM D, YYYY')}`;
   }
@@ -39,6 +42,8 @@ type Props = {
   className?: string;
   /** Hide the calendar icon button (rare). */
   hidePicker?: boolean;
+  /** Drop the year from day and week labels (narrow screens). */
+  short?: boolean;
 };
 
 /**
@@ -52,11 +57,12 @@ export default function PeriodNavigator({
   onStep,
   className,
   hidePicker,
+  short,
 }: Props) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const label = formatPeriodLabel(value, mode);
+  const label = formatPeriodLabel(value, mode, short);
   const picker = pickerKindForMode(mode);
 
   const step = (delta: -1 | 1) => {
