@@ -1,30 +1,26 @@
 import { formatShop, shopToday } from '../../utils/shopTime';
+import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, DatePicker, Input, Modal, Select, Tooltip, message } from 'antd';
+import { Button, DatePicker, Descriptions, Drawer, Modal, Segmented, message } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { DownloadOutlined, LinkOutlined } from '@ant-design/icons';
-import { type Dayjs } from 'dayjs';
-import { Link, useNavigate } from 'react-router-dom';
-import { Flag, Package, ShoppingCart, Truck } from 'lucide-react';
+import { DownloadOutlined } from '@ant-design/icons';
+import { Link } from 'react-router-dom';
+import { Clock, Package, ShoppingCart, Truck } from 'lucide-react';
 import { inventoryApi } from '../../api/tools.api';
 import { jobOrdersApi } from '../../api/jobOrders.api';
-import { suppliersApi } from '../../api/suppliers.api';
 import { getErrorMessage } from '../../api/client';
 import OverdueTag from '../../components/OverdueTag';
 import StatusPill from '../../components/StatusPill';
-import type { PillColor } from '../../components/StatusPill';
 import type {
   MaterialPurchase,
   MaterialPurchaseList,
-  MaterialPurchaseStatus,
   MaterialStockBucket,
-  Supplier,
 } from '../../types';
 import { exportCsv } from '../../utils/csvExport';
 import { useAuth } from '../../hooks/useAuth';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
-import { FilterBar, FilterSelect, rowOpenProps } from '../../components/ui';
-import { MOBILE_SHELL_QUERY, NARROW_QUERY, PHONE_QUERY, useMediaQuery } from '../../hooks/useViewport';
+import { FilterBar, rowOpenProps } from '../../components/ui';
+import { MOBILE_SHELL_QUERY, NARROW_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import {
   CategoryTile,
   InventorySummaryCards,
@@ -40,26 +36,37 @@ function money(v: number | null | undefined) {
   })}`;
 }
 
-const STATUS_PILL: Record<MaterialPurchaseStatus, { color: PillColor; label: string }> = {
-  DRAFT: { color: 'gray', label: 'On draft PO' },
-  ORDERED: { color: 'amber', label: 'Ordered' },
-  RECEIVED: { color: 'green', label: 'Received' },
-  CONSUMED: { color: 'gray', label: 'Consumed' },
-  CANCELLED: { color: 'red', label: 'Cancelled' },
-};
-
-function purchaseStatus(r: MaterialPurchase): MaterialPurchaseStatus {
-  if (r.status === 'ORDERED' || r.status === 'RECEIVED' || r.status === 'CONSUMED') {
-    return r.status;
-  }
-  if (r.consumedAt) return 'CONSUMED';
-  return r.dateReceived ? 'RECEIVED' : 'ORDERED';
-}
-
 const EMPTY_BUCKET: MaterialStockBucket = { count: 0, value: 0, quantityByUnit: [] };
 
+type StockView = 'ON_HAND' | 'INCOMING' | 'CONSUMED';
+
+function isCancelled(r: MaterialPurchase) {
+  return r.status === 'CANCELLED';
+}
+
+function isConsumed(r: MaterialPurchase) {
+  return Boolean(r.consumedAt) || r.status === 'CONSUMED';
+}
+
+function isOnHand(r: MaterialPurchase) {
+  return Boolean(r.dateReceived) && !isConsumed(r) && !isCancelled(r);
+}
+
+function isIncoming(r: MaterialPurchase) {
+  return !r.dateReceived && !isConsumed(r) && !isCancelled(r) && r.status !== 'DRAFT';
+}
+
+function daysInStock(received?: string | null) {
+  if (!received) return null;
+  const days = shopToday().startOf('day').diff(dayjs(received).startOf('day'), 'day');
+  return Number.isFinite(days) ? Math.max(0, days) : null;
+}
+
+function jobLabel(r: MaterialPurchase) {
+  return r.jobNumber || (r.jobOrderId ? r.jobOrderId.slice(0, 8) : null);
+}
+
 export default function RawMaterialsPanel() {
-  const navigate = useNavigate();
   const { canOfficeWrite: canEdit } = useAuth();
   const [rows, setRows] = useState<MaterialPurchase[]>([]);
   const [summary, setSummary] = useState<MaterialPurchaseList['summary']>({
@@ -71,27 +78,17 @@ export default function RawMaterialsPanel() {
     consumed: EMPTY_BUCKET,
   });
   const [loading, setLoading] = useState(true);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null);
-  const [supplierId, setSupplierId] = useState<string | undefined>();
-  const [material, setMaterial] = useState('');
-  const [status, setStatus] = useState<MaterialPurchaseStatus | 'OVERDUE' | undefined>();
-  const [summaryKey, setSummaryKey] = useState<string | null>(null);
+  const [view, setView] = useState<StockView>('ON_HAND');
+  const [lateOnly, setLateOnly] = useState(false);
+  const [search, setSearch] = useState('');
+  const [detail, setDetail] = useState<MaterialPurchase | null>(null);
   const compact = useMediaQuery(MOBILE_SHELL_QUERY);
   const narrow = useMediaQuery(NARROW_QUERY);
-  const phone = useMediaQuery(PHONE_QUERY);
-  const [search, setSearch] = useState('');
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await inventoryApi.materialPurchases({
-        from: range?.[0]?.format('YYYY-MM-DD'),
-        to: range?.[1]?.format('YYYY-MM-DD'),
-        supplierId,
-        material: compact ? undefined : material.trim() || undefined,
-        status,
-      });
+      const { data } = await inventoryApi.materialPurchases({});
       setRows(data.items);
       setSummary(data.summary);
     } catch (err) {
@@ -99,18 +96,11 @@ export default function RawMaterialsPanel() {
     } finally {
       setLoading(false);
     }
-  }, [range, supplierId, material, status, compact]);
+  }, []);
 
   useEffect(() => {
     void fetchRows();
   }, [fetchRows]);
-
-  useEffect(() => {
-    suppliersApi
-      .list({ activeOnly: false })
-      .then(({ data }) => setSuppliers(data))
-      .catch(() => setSuppliers([]));
-  }, []);
 
   const markReceived = (row: MaterialPurchase) => {
     let receivedDate = shopToday();
@@ -137,6 +127,7 @@ export default function RawMaterialsPanel() {
             dateReceived: receivedDate.format('YYYY-MM-DD'),
           });
           message.success('Marked received');
+          setDetail(null);
           await fetchRows();
         } catch (err) {
           message.error(getErrorMessage(err));
@@ -146,24 +137,16 @@ export default function RawMaterialsPanel() {
     });
   };
 
+  const onHand = useMemo(() => rows.filter(isOnHand), [rows]);
+  const incoming = useMemo(() => rows.filter(isIncoming), [rows]);
+  const consumed = useMemo(() => rows.filter(isConsumed), [rows]);
+  const late = useMemo(() => incoming.filter((r) => (r.daysOverdue || 0) > 0), [incoming]);
+
   const rawCards: InventorySummaryCard[] = useMemo(
     () => [
-      {
-        key: 'awaiting',
-        label: 'Awaiting delivery',
-        shortLabel: 'Awaiting',
-        value: summary.awaitingDeliveryCount || 0,
-        icon: Truck,
-        tone: 'amber',
-      },
-      {
-        key: 'received_month',
-        label: 'Received this month',
-        shortLabel: 'In this month',
-        value: summary.receivedThisMonthCount || 0,
-        icon: Package,
-        tone: 'green',
-      },
+      { key: 'ON_HAND', label: 'On hand', shortLabel: 'On hand', value: onHand.length, icon: Package, tone: 'green' },
+      { key: 'INCOMING', label: 'Incoming', shortLabel: 'Incoming', value: incoming.length, icon: Truck, tone: 'amber' },
+      { key: 'late', label: 'Late deliveries', shortLabel: 'Late', value: late.length, icon: Clock, tone: 'red' },
       {
         key: 'jobs_waiting',
         label: 'Jobs waiting on materials',
@@ -172,84 +155,53 @@ export default function RawMaterialsPanel() {
         icon: ShoppingCart,
         tone: 'blue',
       },
-      {
-        key: 'review',
-        label: 'Flagged for review after cancel',
-        shortLabel: 'To review',
-        value: summary.reviewAfterJobCancelCount || 0,
-        icon: Flag,
-        tone: 'red',
-      },
     ],
-    [summary]
+    [onHand.length, incoming.length, late.length, summary.jobsWaitingOnMaterialsCount]
   );
 
   const visibleRows = useMemo(() => {
-    let list = rows;
-    if (summaryKey === 'awaiting') list = list.filter((r) => !r.dateReceived && r.status !== 'CANCELLED');
-    if (summaryKey === 'review') list = list.filter((r) => r.reviewAfterJobCancel);
-    const q = compact ? search.trim().toLowerCase() : '';
-    if (q) {
-      list = list.filter((r) =>
-        [r.materialName, r.gradeOrSpec, r.sizeSpec, r.jobNumber, r.supplierName, r.poNumber]
-          .some((v) => v && String(v).toLowerCase().includes(q))
-      );
-    }
-    return list;
-  }, [rows, summaryKey, compact, search]);
-
-  const statusOptions = [
-    {
-      value: 'OVERDUE' as const,
-      label: `Overdue${summary.overdueCount ? ` (${summary.overdueCount})` : ''}`,
-    },
-    { value: 'ORDERED' as const, label: 'Ordered' },
-    { value: 'RECEIVED' as const, label: 'Received (on hand)' },
-    { value: 'CONSUMED' as const, label: 'Consumed' },
-  ];
+    const pool =
+      lateOnly && view === 'INCOMING'
+        ? late
+        : view === 'ON_HAND'
+          ? onHand
+          : view === 'INCOMING'
+            ? incoming
+            : consumed;
+    const q = search.trim().toLowerCase();
+    if (!q) return pool;
+    return pool.filter((r) =>
+      [r.materialName, r.gradeOrSpec, r.sizeSpec, r.jobNumber].some(
+        (v) => v && String(v).toLowerCase().includes(q)
+      )
+    );
+  }, [view, lateOnly, late, onHand, incoming, consumed, search]);
 
   const exportRows = () =>
-    exportCsv('raw-material-purchases.csv', rows, [
-      { key: 'material', header: 'Material', value: (r) => r.materialName },
-      { key: 'grade', header: 'GradeOrSpec', value: (r) => r.gradeOrSpec },
-      { key: 'qty', header: 'Quantity', value: (r) => r.quantity },
-      { key: 'unit', header: 'Unit', value: (r) => r.unit },
-      { key: 'unitCost', header: 'UnitCost', value: (r) => r.unitCost },
-      {
-        key: 'total',
-        header: 'TotalCost',
-        value: (r) => r.lineTotal ?? r.quantity * r.unitCost,
-      },
-      { key: 'supplier', header: 'Supplier', value: (r) => r.supplierName },
-      { key: 'job', header: 'JobOrder', value: (r) => r.jobNumber },
-      { key: 'ordered', header: 'DateOrdered', value: (r) => r.dateOrdered },
-      { key: 'received', header: 'DateReceived', value: (r) => r.dateReceived },
-      {
-        key: 'status',
-        header: 'Status',
-        value: (r) => purchaseStatus(r),
-      },
-      { key: 'consumed', header: 'ConsumedAt', value: (r) => r.consumedAt },
-    ]);
+    exportCsv(
+      `raw-materials-${view.toLowerCase()}.csv`,
+      visibleRows,
+      [
+        { key: 'material', header: 'Material', value: (r) => r.materialName },
+        { key: 'grade', header: 'GradeOrSpec', value: (r) => r.gradeOrSpec },
+        { key: 'qty', header: 'Quantity', value: (r) => r.quantity },
+        { key: 'unit', header: 'Unit', value: (r) => r.unit },
+        { key: 'job', header: 'ReservedFor', value: (r) => r.jobNumber },
+        { key: 'received', header: 'DateReceived', value: (r) => r.dateReceived },
+        { key: 'expected', header: 'Expected', value: (r) => r.currentExpectedDate },
+        { key: 'consumed', header: 'ConsumedAt', value: (r) => r.consumedAt },
+        { key: 'days', header: 'DaysInStock', value: (r) => daysInStock(r.dateReceived) ?? '' },
+      ]
+    );
 
-  const activeFilters = [range, supplierId, status].filter(Boolean).length;
-
-  const statusCell = (r: MaterialPurchase) => {
-    const pill = STATUS_PILL[purchaseStatus(r)];
+  const reservedCell = (r: MaterialPurchase) => {
+    const label = jobLabel(r);
+    if (!label) return '—';
+    if (!r.jobOrderId) return label;
     return (
-      <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-        <StatusPill color={pill.color} compact>
-          {pill.label}
-        </StatusPill>
-        <OverdueTag
-          days={r.daysOverdue}
-          tooltip={
-            r.currentExpectedDate
-              ? `Expected ${formatShop(r.currentExpectedDate, 'MMM D, YYYY')} and not received yet.`
-              : undefined
-          }
-        />
-      </span>
+      <Link to={`/job-orders/${r.jobOrderId}`} onClick={(e) => e.stopPropagation()}>
+        {label}
+      </Link>
     );
   };
 
@@ -260,42 +212,43 @@ export default function RawMaterialsPanel() {
       sorter: (a, b) => a.materialName.localeCompare(b.materialName),
       render: (_: unknown, r) => formatPoMaterialLabel(r.materialName, r.gradeOrSpec, r.sizeSpec),
     },
+    { title: 'Reserved for', key: 'job', render: (_: unknown, r) => jobLabel(r) || '—' },
+    { title: 'Qty', key: 'qty', render: (_: unknown, r) => `${r.quantity} ${r.unit}` },
     {
-      title: 'Job order',
-      key: 'job',
-      render: (_: unknown, r) => r.jobNumber || 'No job order',
-    },
-    {
-      title: 'Qty',
-      key: 'qty',
-      render: (_: unknown, r) => `${r.quantity} ${r.unit}`,
-    },
-    {
-      title: 'Delivery',
+      title: view === 'CONSUMED' ? 'Consumed' : view === 'INCOMING' ? 'Expected' : 'Received',
       key: 'when',
-      sorter: (a, b) =>
-        (a.dateReceived || a.currentExpectedDate || '').localeCompare(b.dateReceived || b.currentExpectedDate || ''),
-      render: (_: unknown, r) =>
-        r.dateReceived
-          ? `Received ${formatShop(r.dateReceived, 'MMM D, YYYY')}`
-          : r.currentExpectedDate
-            ? `Expected ${formatShop(r.currentExpectedDate, 'MMM D, YYYY')}`
-            : 'No expected date',
+      render: (_: unknown, r) => {
+        if (view === 'CONSUMED') {
+          return r.consumedAt ? formatShop(r.consumedAt, 'MMM D, YYYY') : '—';
+        }
+        if (view === 'INCOMING') {
+          return (
+            <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              {r.currentExpectedDate ? formatShop(r.currentExpectedDate, 'MMM D, YYYY') : 'No date'}
+              <OverdueTag
+                days={r.daysOverdue}
+                tooltip={
+                  r.currentExpectedDate
+                    ? `Expected ${formatShop(r.currentExpectedDate, 'MMM D, YYYY')} and not received yet.`
+                    : undefined
+                }
+              />
+            </span>
+          );
+        }
+        const days = daysInStock(r.dateReceived);
+        return r.dateReceived
+          ? `${formatShop(r.dateReceived, 'MMM D, YYYY')}${days != null ? ` · ${days}d` : ''}`
+          : '—';
+      },
     },
-    { title: 'Status', key: 'status', render: (_: unknown, r) => statusCell(r) },
   ];
-
-  const openRow = (r: MaterialPurchase) => {
-    if (r.supplierOrderId) navigate(`/supplier-orders/${r.supplierOrderId}`);
-    else if (r.jobOrderId) navigate(`/job-orders/${r.jobOrderId}`);
-  };
 
   const columns: TableColumnsType<MaterialPurchase> = [
     {
       title: 'Material',
       dataIndex: 'materialName',
-      width: 260,
-      fixed: 'left',
+      width: 280,
       ellipsis: true,
       sorter: (a, b) => a.materialName.localeCompare(b.materialName),
       render: (_: string, r) => (
@@ -310,252 +263,110 @@ export default function RawMaterialsPanel() {
     {
       title: 'Qty',
       key: 'qty',
-      width: 100,
+      width: 110,
       render: (_: unknown, r) => `${r.quantity} ${r.unit}`,
     },
     {
-      title: 'Unit cost',
-      dataIndex: 'unitCost',
-      width: 110,
-      align: 'right',
-      render: (v: number) => money(v),
-    },
-    {
-      title: 'Total',
-      dataIndex: 'lineTotal',
-      width: 110,
-      align: 'right',
-      render: (v: number | null, r) => money(v ?? r.quantity * r.unitCost),
-    },
-    {
-      title: 'Supplier',
-      dataIndex: 'supplierName',
-      width: 130,
-      ellipsis: true,
-      render: (v: string | null) => v || '—',
-    },
-    {
-      title: 'Job order',
-      dataIndex: 'jobNumber',
-      width: 130,
-      render: (n: string | null, r) =>
-        r.jobOrderId ? (
-          <Button
-            type="link"
-            style={{ padding: 0, height: 'auto', fontWeight: 600 }}
-            onClick={() => navigate(`/job-orders/${r.jobOrderId}`)}
-          >
-            {n || r.jobOrderId.slice(0, 8)}
-          </Button>
-        ) : (
-          '—'
-        ),
-    },
-    {
-      title: 'Supplier order',
-      key: 'po',
+      title: 'Reserved for',
+      key: 'job',
       width: 140,
-      render: (_: unknown, r) =>
-        r.supplierOrderId ? (
-          <Button
-            type="link"
-            style={{ padding: 0, height: 'auto' }}
-            onClick={() => navigate(`/supplier-orders/${r.supplierOrderId}`)}
-          >
-            {r.poNumber}
-          </Button>
-        ) : (
-          <Tooltip title="Recorded without a supplier order">
-            <span style={{ fontSize: 12, color: '#64748b' }}>No PO</span>
-          </Tooltip>
-        ),
+      render: (_: unknown, r) => reservedCell(r),
     },
-    {
-      title: 'Ordered',
-      dataIndex: 'dateOrdered',
-      width: 110,
-      render: (v: string | null) => (v ? formatShop(v, 'MMM D, YYYY') : '—'),
-    },
-    {
-      title: 'Received',
-      dataIndex: 'dateReceived',
-      width: 110,
-      render: (v: string | null) => (v ? formatShop(v, 'MMM D, YYYY') : '—'),
-    },
-    {
-      title: 'Status',
-      dataIndex: 'status',
-      width: 190,
-      render: (_: string, r) => statusCell(r),
-    },
-    {
-      title: '',
-      key: 'act',
-      width: 110,
-      render: (_: unknown, r) => {
-        if (!canEdit || r.dateReceived || r.status === 'CANCELLED') return null;
-        if (r.supplierOrderId) {
-          return r.status === 'DRAFT' ? null : (
-            <Tooltip title="Deliveries arrive complete: receive the whole order on its page.">
-              <Link to={`/supplier-orders/${r.supplierOrderId}`}>Receive order</Link>
-            </Tooltip>
-          );
-        }
-        return r.jobOrderId ? (
-          <Button size="small" onClick={() => markReceived(r)}>
-            Received
-          </Button>
-        ) : null;
-      },
-    },
+    ...(view === 'ON_HAND'
+      ? [
+          {
+            title: 'Received',
+            dataIndex: 'dateReceived',
+            width: 130,
+            render: (v: string | null) => (v ? formatShop(v, 'MMM D, YYYY') : '—'),
+          },
+          {
+            title: 'Days in stock',
+            key: 'days',
+            width: 120,
+            sorter: (a: MaterialPurchase, b: MaterialPurchase) =>
+              (daysInStock(a.dateReceived) ?? -1) - (daysInStock(b.dateReceived) ?? -1),
+            render: (_: unknown, r: MaterialPurchase) => {
+              const days = daysInStock(r.dateReceived);
+              return days == null ? '—' : `${days} day${days === 1 ? '' : 's'}`;
+            },
+          },
+        ]
+      : view === 'INCOMING'
+        ? [
+            {
+              title: 'Expected',
+              key: 'expected',
+              width: 200,
+              render: (_: unknown, r: MaterialPurchase) => (
+                <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {r.currentExpectedDate ? formatShop(r.currentExpectedDate, 'MMM D, YYYY') : '—'}
+                  <OverdueTag
+                    days={r.daysOverdue}
+                    tooltip={
+                      r.currentExpectedDate
+                        ? `Expected ${formatShop(r.currentExpectedDate, 'MMM D, YYYY')} and not received yet.`
+                        : undefined
+                    }
+                  />
+                </span>
+              ),
+            },
+          ]
+        : [
+            {
+              title: 'Consumed',
+              dataIndex: 'consumedAt',
+              width: 140,
+              render: (v: string | null) => (v ? formatShop(v, 'MMM D, YYYY') : '—'),
+            },
+          ]),
   ];
 
   return (
     <div>
       <InventorySummaryCards
         cards={rawCards}
-        activeKey={summaryKey}
+        activeKey={lateOnly ? 'late' : view}
         onSelect={(key) => {
-          setSummaryKey(key);
-          if (key === 'awaiting') setStatus('ORDERED');
-          else if (key === null) setStatus(undefined);
+          if (!key || key === 'ON_HAND') {
+            setView('ON_HAND');
+            setLateOnly(false);
+          } else if (key === 'late') {
+            setView('INCOMING');
+            setLateOnly(true);
+          } else if (key === 'INCOMING' || key === 'CONSUMED') {
+            setView(key);
+            setLateOnly(false);
+          } else if (key === 'jobs_waiting') {
+            setView('INCOMING');
+            setLateOnly(false);
+          }
         }}
       />
-      {compact ? null : (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 12 }}
-          title="Bought per job order — not general stock. On hand waits for the job to start; consumed when the first operation begins."
-          action={
-            <Link to="/analytics/suppliers">
-              <Button size="small" type="link" icon={<LinkOutlined />}>
-                Spend by supplier
-              </Button>
-            </Link>
-          }
-        />
-      )}
 
-      {compact ? (
-        <div className="raw-mbar">
-        <FilterBar
-          search={{ value: search, onChange: setSearch, placeholder: 'Search material, job, supplier…' }}
-          activeFilters={activeFilters}
-          onClearFilters={() => {
-            setRange(null);
-            setSupplierId(undefined);
-            setStatus(undefined);
-            setSummaryKey(null);
-          }}
-          filters={
-            <>
-              <FilterSelect<MaterialPurchaseStatus | 'OVERDUE'>
-                label="Status"
-                allowClear
-                value={status}
-                onChange={(v) => setStatus(v)}
-                options={statusOptions}
-              />
-              <FilterSelect<string>
-                label="Supplier"
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                value={supplierId}
-                onChange={(v) => setSupplierId(v)}
-                options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
-              />
-              {phone ? (
-                <div className="so-range">
-                  <DatePicker
-                    value={range?.[0] ?? null}
-                    onChange={(d) =>
-                      setRange(d ? [d.startOf('day'), range?.[1] && !range[1].isBefore(d) ? range[1] : d.endOf('day')] : null)
-                    }
-                    placeholder="Ordered from"
-                    format="MMM D, YYYY"
-                    inputReadOnly
-                  />
-                  <DatePicker
-                    value={range?.[1] ?? null}
-                    onChange={(d) =>
-                      setRange(d ? [range?.[0] && !range[0].isAfter(d) ? range[0] : d.startOf('day'), d.endOf('day')] : null)
-                    }
-                    placeholder="Ordered to"
-                    format="MMM D, YYYY"
-                    inputReadOnly
-                  />
-                </div>
-              ) : (
-                <DatePicker.RangePicker
-                  className="ui-filterbar__range"
-                  value={range}
-                  onChange={(v) => setRange(v?.[0] && v?.[1] ? [v[0].startOf('day'), v[1].endOf('day')] : null)}
-                  placeholder={['Ordered from', 'to']}
-                  format="MMM D, YYYY"
-                  allowClear
-                  inputReadOnly
-                />
-              )}
-            </>
-          }
-          actions={
-            <Button icon={<DownloadOutlined />} disabled={!rows.length} onClick={exportRows} aria-label="Export CSV">
-              {phone ? null : 'Export CSV'}
-            </Button>
-          }
-        />
-        </div>
-      ) : (
-      <div className="std-list-toolbar" style={{ marginBottom: 12 }}>
-        <div className="std-list-filters" style={{ flexWrap: 'wrap', gap: 8 }}>
-          <DatePicker.RangePicker
-            value={range}
-            allowClear
-            format="YYYY-MM-DD"
-            onChange={(vals) => {
-              if (vals?.[0] && vals?.[1]) {
-                setRange([vals[0].startOf('day'), vals[1].endOf('day')]);
-              } else {
-                setRange(null);
-              }
+      <FilterBar
+        search={{ value: search, onChange: setSearch, placeholder: 'Search material or job #…' }}
+        tabs={
+          <Segmented<StockView>
+            value={view}
+            onChange={(v) => {
+              setView(v);
+              setLateOnly(false);
             }}
-            placeholder={['Ordered from', 'to']}
+            options={[
+              { label: `On hand (${onHand.length})`, value: 'ON_HAND' },
+              { label: `Incoming (${incoming.length})`, value: 'INCOMING' },
+              { label: `Consumed (${consumed.length})`, value: 'CONSUMED' },
+            ]}
           />
-          <Select
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            placeholder="Supplier"
-            style={{ minWidth: 160 }}
-            value={supplierId}
-            onChange={(v) => setSupplierId(v)}
-            options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
-          />
-          <Input
-            allowClear
-            placeholder="Material"
-            style={{ width: 180 }}
-            value={material}
-            onChange={(e) => setMaterial(e.target.value)}
-          />
-          <Select
-            allowClear
-            placeholder="Status"
-            style={{ minWidth: 160 }}
-            value={status}
-            onChange={(v) => setStatus(v)}
-            options={statusOptions}
-          />
-        </div>
-        <div className="std-list-actions">
-          <Button icon={<DownloadOutlined />} disabled={!rows.length} onClick={exportRows}>
-            Export CSV
+        }
+        actions={
+          <Button icon={<DownloadOutlined />} disabled={!visibleRows.length} onClick={exportRows} aria-label="Export CSV">
+            {compact ? null : 'Export CSV'}
           </Button>
-        </div>
-      </div>
-      )}
+        }
+      />
 
       <ResponsiveTable
         className="std-list-table raw-materials-table"
@@ -564,17 +375,95 @@ export default function RawMaterialsPanel() {
         dataSource={visibleRows}
         columns={narrow ? cardColumns : columns}
         cardsBelow="narrow"
-        card={{ title: 'material', subtitle: ['job'], badge: 'status', actions: 'none' }}
-        onRow={narrow ? (r) => rowOpenProps(() => openRow(r)) : undefined}
+        card={{ title: 'material', subtitle: ['job'], actions: 'none' }}
+        onRow={(r) => rowOpenProps(() => setDetail(r))}
         pagination={{ pageSize: 25, showSizeChanger: true }}
-        scroll={{ x: 1510 }}
-        sticky={{
-          offsetHeader: 0,
-          getContainer: () =>
-            (document.querySelector('.app-shell__scroll') as HTMLElement | null) ?? window,
+        scroll={narrow ? undefined : { x: 880 }}
+        sticky={
+          narrow
+            ? undefined
+            : {
+                offsetHeader: 0,
+                getContainer: () =>
+                  (document.querySelector('.app-shell__scroll') as HTMLElement | null) ?? window,
+              }
+        }
+        locale={{
+          emptyText:
+            view === 'ON_HAND'
+              ? 'No material on hand for a job.'
+              : view === 'INCOMING'
+                ? 'Nothing incoming.'
+                : 'No consumed material in this list.',
         }}
-        locale={{ emptyText: 'No material purchases match these filters.' }}
       />
+
+      <Drawer
+        title={detail ? formatPoMaterialLabel(detail.materialName, detail.gradeOrSpec, detail.sizeSpec) : 'Material'}
+        open={Boolean(detail)}
+        onClose={() => setDetail(null)}
+        size={400}
+        destroyOnHidden
+      >
+        {detail ? (
+          <div className="raw-detail">
+            <Descriptions column={1} size="small">
+              <Descriptions.Item label="Quantity">
+                {detail.quantity} {detail.unit}
+              </Descriptions.Item>
+              <Descriptions.Item label="Reserved for">
+                {detail.jobOrderId ? (
+                  <Link to={`/job-orders/${detail.jobOrderId}`}>{jobLabel(detail)}</Link>
+                ) : (
+                  '—'
+                )}
+              </Descriptions.Item>
+              <Descriptions.Item label="Supplier">{detail.supplierName || '—'}</Descriptions.Item>
+              <Descriptions.Item label="PO">
+                {detail.supplierOrderId ? (
+                  <Link to={`/supplier-orders/${detail.supplierOrderId}`}>{detail.poNumber || 'Open PO'}</Link>
+                ) : (
+                  detail.poNumber || 'No PO'
+                )}
+              </Descriptions.Item>
+              <Descriptions.Item label="Unit cost">{money(detail.unitCost)}</Descriptions.Item>
+              <Descriptions.Item label="Total">
+                {money(detail.lineTotal ?? detail.quantity * detail.unitCost)}
+              </Descriptions.Item>
+              <Descriptions.Item label="Ordered">
+                {detail.dateOrdered ? formatShop(detail.dateOrdered, 'MMM D, YYYY') : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Expected">
+                {detail.currentExpectedDate ? formatShop(detail.currentExpectedDate, 'MMM D, YYYY') : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Received">
+                {detail.dateReceived ? formatShop(detail.dateReceived, 'MMM D, YYYY') : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Days in stock">
+                {daysInStock(detail.dateReceived) ?? '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Consumed">
+                {detail.consumedAt ? formatShop(detail.consumedAt, 'MMM D, YYYY') : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Status">
+                <StatusPill
+                  color={
+                    isConsumed(detail) ? 'gray' : isOnHand(detail) ? 'green' : (detail.daysOverdue || 0) > 0 ? 'red' : 'amber'
+                  }
+                  compact
+                >
+                  {isConsumed(detail) ? 'Consumed' : isOnHand(detail) ? 'On hand' : 'Incoming'}
+                </StatusPill>
+              </Descriptions.Item>
+            </Descriptions>
+            {canEdit && isIncoming(detail) && detail.jobOrderId && !detail.supplierOrderId ? (
+              <Button style={{ marginTop: 16 }} onClick={() => markReceived(detail)}>
+                Mark received
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </Drawer>
     </div>
   );
 }
