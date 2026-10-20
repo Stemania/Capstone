@@ -610,6 +610,31 @@ td.ant-table-cell-row-hover.tabular-nums {
   transition: border-color var(--ease), box-shadow var(--ease);
 }
 
+@media (hover: hover) {
+  .ui-rowcard.is-clickable:hover {
+    border-color: var(--c-border-strong);
+  }
+}
+
+/* Whole-row open (rowOpenProps): tables and cards. */
+.ui-row-open,
+.ant-table-tbody > tr.ui-row-open > td {
+  cursor: pointer;
+}
+
+.ant-table-tbody > tr.ui-row-open > td {
+  transition: background-color var(--ease);
+}
+
+.ant-table-tbody > tr.ui-row-open:active > td {
+  background: var(--c-surface-sunken);
+}
+
+.ui-row-open:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: -2px;
+}
+
 .ui-rowcard.is-clickable:active {
   border-color: var(--c-border-strong);
   background: var(--c-surface-muted);

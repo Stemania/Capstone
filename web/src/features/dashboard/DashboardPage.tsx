@@ -36,6 +36,7 @@ import {
   StatCard,
   StatGrid,
   StatusPill,
+  rowOpenProps,
 } from '../../components/ui';
 import {
   JOB_FLAG,
@@ -347,10 +348,7 @@ export default function DashboardPage() {
                 <EmptyState compact icon={<FileTextOutlined />} title="No released job orders yet" />
               ),
             }}
-            onRow={(job) => ({
-              onClick: () => navigate(`/job-orders/${job.id}`),
-              style: { cursor: 'pointer' },
-            })}
+            onRow={(job) => rowOpenProps(() => navigate(`/job-orders/${job.id}`))}
             columns={[
               {
                 title: 'Job #',

@@ -1091,13 +1091,13 @@
   }
 
   .app-shell--m .ui-cardlist__select.ant-select {
-    height: 30px;
-    font-size: 12.5px;
+    height: var(--m-ctl);
+    font-size: 13px;
   }
 
-  .app-shell--m .ui-cardlist__toolbar .ant-select-outlined:not(.ant-select-focused) {
-    background: transparent;
-    border-color: transparent;
+  .app-shell--m .ui-cardlist__select .ant-select-prefix {
+    color: var(--c-text-muted);
+    font-size: 13px;
   }
 
   .app-shell--m .ui-rowcard {

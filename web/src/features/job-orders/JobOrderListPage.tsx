@@ -23,7 +23,7 @@ import { formatShopDate, scheduleFlagStyle, formatShop, shopToday } from '../../
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill from '../../components/StatusPill';
-import { EllipsisText, IdChip, TabBar } from '../../components/ui';
+import { EllipsisText, IdChip, TabBar, rowOpenProps } from '../../components/ui';
 import { JOB_FLAG, JOB_STATUS } from '../../theme/statuses';
 import MaterialDelayTag from '../../components/MaterialDelayTag';
 import NeedsReplanTag from '../../components/NeedsReplanTag';
@@ -187,15 +187,7 @@ function JobCard({ job, isDraftTab, selected, actions, onClick }: JobCardProps) 
   );
 
   return (
-    <div
-      className={`jo-card${selected ? ' is-selected' : ''}`}
-      onClick={onClick}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') onClick();
-      }}
-    >
+    <div {...rowOpenProps(onClick)} className={`jo-card ui-row-open${selected ? ' is-selected' : ''}`} role="button">
       <div className="jo-card__top">
         <span className="jo-card__number">{job.jobNumber || job.id.slice(0, 8).toUpperCase()}</span>
         <JobStatusBadge job={job} />
@@ -1045,19 +1037,10 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
               return (
                 <div
                   key={job.id}
-                  className="admin-card jo-mrow"
+                  {...rowOpenProps(() => (selectMode ? toggleSelected(job.id) : openJob(job)))}
+                  className="admin-card jo-mrow ui-row-open"
                   style={selected ? { borderColor: '#2563eb', background: '#eff6ff' } : undefined}
-                  onClick={() => {
-                    if (selectMode) {
-                      setSelectedKeys((keys) =>
-                        keys.includes(job.id) ? keys.filter((k) => k !== job.id) : [...keys, job.id]
-                      );
-                      return;
-                    }
-                    openJob(job);
-                  }}
                   role="button"
-                  tabIndex={0}
                 >
                   <div className="jo-mrow__top">
                     <span className="jo-mrow__no">{job.jobNumber || job.id.slice(0, 8).toUpperCase()}</span>
@@ -1142,10 +1125,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
               }
             : undefined
         }
-        onRow={(record) => ({
-          onClick: () => openJob(record),
-          style: { cursor: 'pointer' },
-        })}
+        onRow={(record) => rowOpenProps(() => (selectMode ? toggleSelected(record.id) : openJob(record)))}
       />
       )}
       {isPhone ? (

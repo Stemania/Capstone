@@ -17,7 +17,7 @@ import { usersApi, type InviteDelivery } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
-import { EllipsisText, ResponsiveTable } from '../../components/ui';
+import { EllipsisText, ResponsiveTable, rowOpenProps } from '../../components/ui';
 import { PersonAvatar, PersonChip } from '../../components/PersonAvatar';
 import PhotoUploadControl from '../../components/PhotoUploadControl';
 import type { User, UserRole } from '../../types';
@@ -527,6 +527,7 @@ export default function UsersPage() {
         dataSource={filtered}
         loading={loading}
         locale={{ emptyText: 'No users match your filters yet' }}
+        onRow={(r) => (selectMode ? {} : rowOpenProps(() => openEdit(r)))}
         size="small"
         pagination={{
           pageSize: 20,

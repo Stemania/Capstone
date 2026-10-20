@@ -17,7 +17,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { clientsApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import type { ClientDetail } from '../../types';
-import { DataTable, EmptyState, IdChip, Page, PageSkeleton, SectionCard, StatCard, StatusPill, TabBar } from '../../components/ui';
+import { DataTable, EmptyState, IdChip, Page, PageSkeleton, SectionCard, StatCard, StatusPill, TabBar, rowOpenProps } from '../../components/ui';
 import { JOB_STATUS } from '../../theme/statuses';
 import type { Tone } from '../../theme/tokens';
 import { useAuth } from '../../hooks/useAuth';
@@ -409,10 +409,7 @@ export default function ClientDetailPage() {
                   />
                 ),
               }}
-              onRow={(r) => ({
-                onClick: () => navigate(`/job-orders/${r.id}`),
-                style: { cursor: 'pointer' },
-              })}
+              onRow={(r) => rowOpenProps(() => navigate(`/job-orders/${r.id}`))}
               columns={columns}
             />
           </>

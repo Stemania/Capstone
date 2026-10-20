@@ -6,7 +6,7 @@ import { formatShop } from '../../utils/shopTime';
 import { operationsApi } from '../../api/operations.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
-import { StatusPill, EmptyState, PageSkeleton, EllipsisText, IdChip } from '../../components/ui';
+import { StatusPill, EmptyState, PageSkeleton, EllipsisText, IdChip, rowOpenProps } from '../../components/ui';
 import { canStartOperation, showActionError } from '../my-assignments/operationActions';
 import { machineLabel, opStatusPill, opTitle } from '../my-assignments/opStatus';
 import type { Operation, OperationPauseReason } from '../../types';
@@ -223,9 +223,7 @@ function AdminAssignedTable({ onCount }: { onCount?: (n: number) => void }) {
           dataSource={rows}
           pagination={{ pageSize: 20, showSizeChanger: false }}
           scroll={{ x: 960 }}
-          onRow={(op) => ({
-            onDoubleClick: () => navigate(`/my-assignments/${op.jobOrderId}`),
-          })}
+          onRow={(op) => rowOpenProps(() => navigate(`/my-assignments/${op.jobOrderId}`))}
         />
       )}
 

@@ -10,7 +10,6 @@ import {
   CalendarOutlined,
   ContactsOutlined,
   BuildOutlined,
-  AppstoreOutlined,
   MenuOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -271,8 +270,6 @@ function AppLayoutShell() {
     </div>
   );
 
-  const onSchedule = location.pathname.startsWith('/schedule');
-
   const accountPanel = (
     <div className="acct-panel">
       <div className="acct-panel__who">
@@ -351,11 +348,11 @@ function AppLayoutShell() {
   const backTo = [...(meta.crumbs || [])].reverse().find((c) => c.to);
 
   const phoneTabs = [
+    { key: '/dashboard', label: 'Dashboard', icon: <DashboardOutlined />, match: '/dashboard' },
     { key: '/job-orders', label: 'Jobs', icon: <FileTextOutlined />, match: '/job-orders' },
     { key: '/schedule', label: 'Schedule', icon: <CalendarOutlined />, match: '/schedule' },
-    { key: '/tools', label: 'Stock', icon: <ToolOutlined />, match: '/tools' },
-  ];
-  const moreActive = !phoneTabs.some((t) => location.pathname.startsWith(t.match));
+    { key: '/tools', label: 'Inventory', icon: <ToolOutlined />, match: '/tools' },
+  ].filter((t) => allKeys.includes(t.key));
 
   return (
     <ConfigProvider theme={mobileShell ? officeCompactTheme : undefined}>
@@ -401,7 +398,11 @@ function AppLayoutShell() {
         {mobileShell ? (
           <header className={`w-top app-mtop${backTo ? ' w-top--with-back' : ''}`}>
             <div className="w-top__row">
-              {!isPhone && (
+              {backTo ? (
+                <button type="button" className="w-iconbtn" onClick={() => navigate(backTo.to!)} aria-label={`Back to ${backTo.label}`}>
+                  <LeftOutlined style={{ fontSize: 18 }} />
+                </button>
+              ) : (
                 <button
                   type="button"
                   className="w-iconbtn"
@@ -414,22 +415,12 @@ function AppLayoutShell() {
                   <MenuOutlined />
                 </button>
               )}
-              {backTo && (
-                <button type="button" className="w-iconbtn" onClick={() => navigate(backTo.to!)} aria-label={`Back to ${backTo.label}`}>
-                  <LeftOutlined style={{ fontSize: 18 }} />
-                </button>
-              )}
               <div className="w-top__titles">
                 <h1 className="w-top__title">{meta.title || 'BMSC'}</h1>
                 {section === '/dashboard' && meta.subtitle ? <div className="w-top__sub">{meta.subtitle}</div> : null}
               </div>
               {pageHeaderActions ? <div className="app-mtop__actions">{pageHeaderActions}</div> : null}
               {showBell && <NotificationBell className="w-iconbtn" />}
-              {isPhone && !onSchedule && (
-                <button type="button" className="w-iconbtn" onClick={() => goSection('/schedule')} aria-label="Schedule">
-                  <CalendarOutlined />
-                </button>
-              )}
               {accountButton}
             </div>
           </header>
@@ -465,13 +456,6 @@ function AppLayoutShell() {
               <div className="app-topbar__page-actions">{pageHeaderActions}</div>
             ) : null}
             {showBell && <NotificationBell className="app-topbar__icon-btn" />}
-            {isPhone && !onSchedule && (
-              <Tooltip title="Schedule">
-                <button type="button" className="app-topbar__icon-btn" onClick={() => goSection('/schedule')} aria-label="Schedule">
-                  <CalendarOutlined />
-                </button>
-              </Tooltip>
-            )}
             {accountChip}
           </div>
         </Header>
@@ -500,16 +484,6 @@ function AppLayoutShell() {
                 </button>
               );
             })}
-            <button
-              type="button"
-              className={`app-phone-nav__item${moreActive ? ' is-active' : ''}`}
-              onClick={() => setMobileOpen(true)}
-            >
-              <span className="app-phone-nav__icon">
-                <AppstoreOutlined />
-              </span>
-              <span>More</span>
-            </button>
           </nav>
         )}
       </Layout>

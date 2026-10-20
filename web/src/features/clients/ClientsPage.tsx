@@ -11,7 +11,7 @@ import { clientsApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
-import { EllipsisText, ResponsiveTable } from '../../components/ui';
+import { EllipsisText, ResponsiveTable, rowOpenProps } from '../../components/ui';
 import { useAuth } from '../../hooks/useAuth';
 import type { Client } from '../../types';
 import { useNavigate } from 'react-router-dom';
@@ -274,6 +274,13 @@ export default function ClientsPage() {
           showTotal: (total) => `${total} client${total === 1 ? '' : 's'}`,
         }}
         locale={{ emptyText: 'No clients match your filters yet' }}
+        onRow={(r) =>
+          rowOpenProps(() =>
+            selectMode
+              ? setSelectedKeys((keys) => (keys.includes(r.id) ? keys.filter((k) => k !== r.id) : [...keys, r.id]))
+              : navigate(`/clients/${r.id}`)
+          )
+        }
         rowSelection={
           selectMode
             ? {

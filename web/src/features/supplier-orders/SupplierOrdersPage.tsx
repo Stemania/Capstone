@@ -7,7 +7,7 @@ import { supplierOrdersApi } from '../../api/supplierOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill from '../../components/StatusPill';
 import OverdueTag from '../../components/OverdueTag';
-import { IdChip, TabBar } from '../../components/ui';
+import { IdChip, TabBar, rowOpenProps } from '../../components/ui';
 import { useAuth } from '../../hooks/useAuth';
 import { useOverdueCheck } from '../../hooks/useOverdueCheck';
 import type { SupplierOrder, SupplierOrderStatus } from '../../types';
@@ -158,10 +158,7 @@ export default function SupplierOrdersPage() {
         columns={columns}
         scroll={{ x: 'max-content' }}
         pagination={{ pageSize: 20 }}
-        onRow={(r) => ({
-          onClick: () => navigate(`/supplier-orders/${r.id}`),
-          style: { cursor: 'pointer' },
-        })}
+        onRow={(r) => rowOpenProps(() => navigate(`/supplier-orders/${r.id}`))}
         locale={{
           emptyText: filter === 'OVERDUE' ? 'No overdue supplier orders.' : 'No supplier orders yet.',
         }}

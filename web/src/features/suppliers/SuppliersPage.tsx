@@ -17,7 +17,7 @@ import { suppliersApi } from '../../api/suppliers.api';
 import { getErrorMessage } from '../../api/client';
 import type { Supplier, SupplierReliability } from '../../types';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
-import { DataTable, EmptyState, EllipsisText, FilterBar, TwoLineCell } from '../../components/ui';
+import { DataTable, EmptyState, EllipsisText, FilterBar, TwoLineCell, rowOpenProps } from '../../components/ui';
 import { useAuth } from '../../hooks/useAuth';
 import { PHONE_QUERY, useMediaQuery } from '../../hooks/useViewport';
 
@@ -218,6 +218,7 @@ export default function SuppliersPage() {
         loading={loading}
         dataSource={filtered}
         columns={columns}
+        onRow={canEdit ? (r) => rowOpenProps(() => openEdit(r)) : undefined}
         locale={{
           emptyText: (
             <EmptyState

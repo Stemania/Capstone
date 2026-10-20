@@ -1,7 +1,7 @@
 import { isValidElement, useMemo, useState, type HTMLAttributes, type Key, type MouseEventHandler, type ReactNode } from 'react';
 import { Button, Checkbox, Pagination, Select, Skeleton, Table, type TableProps } from 'antd';
 import type { ColumnType } from 'antd/es/table';
-import { DownOutlined, RightOutlined, UpOutlined } from '@ant-design/icons';
+import { DownOutlined, RightOutlined, SwapOutlined, UpOutlined } from '@ant-design/icons';
 import { NARROW_QUERY, PHONE_QUERY, TOUCH_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import EmptyState from './EmptyState';
 
@@ -252,6 +252,8 @@ function CardList<T extends object>({
           {sortable.length ? (
             <Select
               className="ui-cardlist__select"
+              prefix={<SwapOutlined rotate={90} />}
+              aria-label="Sort"
               value={sort || undefined}
               placeholder="Sort"
               allowClear
