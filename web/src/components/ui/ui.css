@@ -383,6 +383,10 @@ a.ui-id:hover {
   width: 180px;
 }
 
+.ui-filterbar__range.ant-picker {
+  width: 260px;
+}
+
 .ui-filterbar__label {
   font-size: var(--fs-xs);
   font-weight: 600;

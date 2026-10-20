@@ -1,5 +1,5 @@
 import { formatShop, shopToday } from '../../utils/shopTime';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Alert, Button, DatePicker, Descriptions, Input, InputNumber, Modal, Select, Space, Tooltip, message } from 'antd';
 import type { TableColumnsType } from 'antd';
 import {
@@ -15,6 +15,7 @@ import dayjs, { type Dayjs } from 'dayjs';
 import { supplierOrdersApi } from '../../api/supplierOrders.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
+import { PHONE_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import OverdueTag from '../../components/OverdueTag';
 import StatusPill from '../../components/StatusPill';
 import { IdChip, Page, PageSkeleton, SectionCard } from '../../components/ui';
@@ -28,6 +29,14 @@ import {
   printedStatusLabel,
 } from './printReceiveGate';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
+
+type InfoItem = { key: string; label: ReactNode; children: ReactNode };
+
+const INFO_GROUPS: { title: string; keys: string[] }[] = [
+  { title: 'Order', keys: ['po', 'issued', 'exp', 'rec'] },
+  { title: 'People', keys: ['prep', 'iss', 'printed'] },
+  { title: 'Terms', keys: ['terms', 'mode', 'vat', 'notes'] },
+];
 
 const DELIVERY_MODE_OPTIONS: { value: DeliveryMode; label: string }[] = [
   { value: 'PICKUP', label: 'Pick-up' },
@@ -61,6 +70,7 @@ export default function SupplierOrderDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { canOfficeWrite } = useAuth();
+  const phone = useMediaQuery(PHONE_QUERY);
   const [order, setOrder] = useState<SupplierOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -389,6 +399,43 @@ export default function SupplierOrderDetailPage() {
     },
   ];
 
+  const renderInfo = (items: InfoItem[]) => {
+    if (!phone) {
+      return (
+        <Descriptions
+          size="small"
+          bordered
+          column={{ xs: 1, md: 3 }}
+          style={{ background: '#fff' }}
+          items={items}
+        />
+      );
+    }
+    const byKey = new Map(items.map((it) => [it.key, it]));
+    return (
+      <div className="so-glist">
+        {INFO_GROUPS.map((g) => (
+          <section key={g.title} className="so-glist__group">
+            <h3 className="so-glist__title">{g.title}</h3>
+            <dl className="so-glist__card">
+              {g.keys.map((k) => {
+                const it = byKey.get(k);
+                return it ? (
+                  <div key={k} className="so-glist__row">
+                    <dt>{it.label}</dt>
+                    <dd>{it.children}</dd>
+                  </div>
+                ) : null;
+              })}
+            </dl>
+          </section>
+        ))}
+      </div>
+    );
+  };
+
+  const vatAmount = order.vatRate ? Math.round(order.subtotal * order.vatRate) / 100 : 0;
+
   return (
     <Page className="so-detail-page">
       <section className="ui-card so-detail__head">
@@ -465,12 +512,7 @@ export default function SupplierOrderDetailPage() {
           </Space>
         </div>
 
-        <Descriptions
-          size="small"
-          bordered
-          column={{ xs: 1, md: 3 }}
-          style={{ background: '#fff' }}
-          items={[
+        {renderInfo([
             { key: 'po', label: 'PO number', children: order.poNumber || 'Assigned on issue' },
             { key: 'issued', label: 'Date issued', children: fmtDay(order.dateIssued) },
             {
@@ -602,8 +644,7 @@ export default function SupplierOrderDetailPage() {
                 order.notes || '—'
               ),
             },
-          ]}
-        />
+          ])}
 
         {order.expectedDeliveryChanges && order.expectedDeliveryChanges.length > 0 ? (
           <div
@@ -689,15 +730,93 @@ export default function SupplierOrderDetailPage() {
         subtitle={lines.length ? `${lines.length} line${lines.length === 1 ? '' : 's'}` : undefined}
         flush
       >
-        <ResponsiveTable<MaterialPurchase>
-          card={{ title: 'material', subtitle: ['job'], badge: 'status', actions: 'act' }}
-          size="small"
-          rowKey="id"
-          pagination={false}
-          dataSource={lines}
-          columns={columns}
-          locale={{ emptyText: editableDraft ? 'No lines yet. Add lines to this draft.' : 'No lines yet.' }}
-        />
+        {phone ? (
+          <div className="so-lines">
+            {lines.length === 0 ? (
+              <div className="so-lines__empty">
+                {editableDraft ? 'No lines yet. Add lines to this draft.' : 'No lines yet.'}
+              </div>
+            ) : (
+              lines.map((ln) => {
+                const p = LINE_STATUS_PILL[ln.status || 'ORDERED'] || LINE_STATUS_PILL.ORDERED;
+                return (
+                  <article key={ln.id} className={`so-line${ln.cancelledAt ? ' is-cancelled' : ''}`}>
+                    <div className="so-line__head">
+                      <div className="so-line__title">
+                        {formatPoMaterialLabel(ln.materialName, ln.gradeOrSpec, ln.sizeSpec)}
+                      </div>
+                      <StatusPill color={p.color} compact>
+                        {p.label}
+                      </StatusPill>
+                    </div>
+                    <div className="so-line__job">
+                      {ln.jobOrderId ? (
+                        <Link to={`/job-orders/${ln.jobOrderId}`}>{ln.jobNumber}</Link>
+                      ) : (
+                        'Consumable restock'
+                      )}
+                      {ln.jobOrderId && ln.jobTitle ? ` · ${ln.jobTitle}` : ln.toolCode ? ` · ${ln.toolCode}` : ''}
+                    </div>
+                    <div className="so-line__math ui-tabular">
+                      <span>
+                        {fmtQty(ln.quantity, ln.unit)} × {fmtMoney(ln.unitCost)}
+                      </span>
+                      <strong>{fmtMoney(ln.lineTotal ?? ln.quantity * ln.unitCost)}</strong>
+                    </div>
+                    {ln.dateReceived || (canOfficeWrite && isDraft) ? (
+                      <div className="so-line__foot">
+                        <span>{ln.dateReceived ? `Received ${fmtDay(ln.dateReceived)}` : ''}</span>
+                        {canOfficeWrite && isDraft ? (
+                          <Space size={4}>
+                            <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(ln)}>
+                              Edit
+                            </Button>
+                            <Button
+                              size="small"
+                              danger
+                              icon={<DeleteOutlined />}
+                              aria-label="Remove line"
+                              disabled={busy}
+                              onClick={() => removeLine(ln)}
+                            />
+                          </Space>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })
+            )}
+            {lines.length ? (
+              <dl className="so-totals ui-tabular">
+                <div>
+                  <dt>Subtotal</dt>
+                  <dd>{fmtMoney(order.subtotal)}</dd>
+                </div>
+                {order.vatRate ? (
+                  <div>
+                    <dt>VAT ({order.vatRate}%)</dt>
+                    <dd>{fmtMoney(vatAmount)}</dd>
+                  </div>
+                ) : null}
+                <div className="so-totals__total">
+                  <dt>Total</dt>
+                  <dd>{fmtMoney(order.subtotal + vatAmount)}</dd>
+                </div>
+              </dl>
+            ) : null}
+          </div>
+        ) : (
+          <ResponsiveTable<MaterialPurchase>
+            card={{ title: 'material', subtitle: ['job'], badge: 'status', actions: 'act' }}
+            size="small"
+            rowKey="id"
+            pagination={false}
+            dataSource={lines}
+            columns={columns}
+            locale={{ emptyText: editableDraft ? 'No lines yet. Add lines to this draft.' : 'No lines yet.' }}
+          />
+        )}
       </SectionCard>
 
       <OrderMaterialsModal
