@@ -10,6 +10,7 @@ import type { User, WorkerSchedule, WorkerSkill } from '../../types';
 import { PersonAvatar } from '../../components/PersonAvatar';
 import PhotoUploadControl from '../../components/PhotoUploadControl';
 import { personLabel } from '../../utils/people';
+import { showSetupLink } from '../users/UsersPage';
 import WorkerHistoryPanel from './WorkerHistoryPanel';
 import InfoTip from '../../components/InfoTip';
 import { LevelBar, TabBar, PageSkeleton } from '../../components/ui';
@@ -34,7 +35,7 @@ function personSubline(u: User): string {
   return [
     u.role === 'ADMIN' ? 'Admin' : 'Production worker',
     u.status === 'INVITED' ? 'not activated' : null,
-    u.email,
+    u.email || u.mobileNumber || 'No mobile yet',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -67,6 +68,8 @@ export default function WorkerSetupPage() {
   const [schedule, setSchedule] = useState<WorkerSchedule[]>(defaultSchedule());
   const [savingSkills, setSavingSkills] = useState(false);
   const [savingSchedule, setSavingSchedule] = useState(false);
+  const [mobileDraft, setMobileDraft] = useState('');
+  const [savingSignIn, setSavingSignIn] = useState(false);
 
   const { isNarrow } = useViewport();
   const compact = useMediaQuery(MOBILE_SHELL_QUERY);
@@ -118,6 +121,11 @@ export default function WorkerSetupPage() {
   }, []);
 
   useEffect(() => {
+    const current = workers.find((w) => w.id === workerId);
+    setMobileDraft(current?.mobileNumber || '');
+  }, [workerId, workers]);
+
+  useEffect(() => {
     if (!workerId) return;
     const load = async () => {
       setDetailLoading(true);
@@ -158,11 +166,42 @@ export default function WorkerSetupPage() {
     const q = query.trim().toLowerCase();
     if (!q) return workers;
     return workers.filter((w) =>
-      `${w.fullName} ${w.nickname || ''} ${w.email || ''}`.toLowerCase().includes(q)
+      `${w.fullName} ${w.nickname || ''} ${w.email || ''} ${w.mobileNumber || ''}`.toLowerCase().includes(q)
     );
   }, [workers, query]);
 
   const selected = workers.find((w) => w.id === workerId) || null;
+
+  const saveMobileAndLink = async (generate: boolean) => {
+    if (!selected) return;
+    const mobile = mobileDraft.trim();
+    if (!mobile && !selected.email) {
+      message.error('Add a mobile number first. This worker has no email.');
+      return;
+    }
+    setSavingSignIn(true);
+    try {
+      if (mobile !== (selected.mobileNumber || '')) {
+        const { data } = await usersApi.update(selected.id, { mobileNumber: mobile || undefined });
+        setWorkers((prev) => prev.map((w) => (w.id === data.id ? { ...w, ...data } : w)));
+      }
+      if (!generate) {
+        message.success('Mobile number saved');
+        return;
+      }
+      const { data } = await usersApi.resendInvite(selected.id);
+      showSetupLink(data.setupUrl);
+      message.success(
+        selected.email
+          ? 'Setup link ready. An email was sent as well when delivery succeeded.'
+          : 'Setup link ready. Show them the QR — it works once and expires in 48 hours.',
+      );
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setSavingSignIn(false);
+    }
+  };
 
   const saveSkills = async () => {
     if (!workerId) return;
@@ -452,6 +491,34 @@ export default function WorkerSetupPage() {
                   ) : null}
                 </div>
               </div>
+
+              {selected?.role === 'PRODUCTION_WORKER' && selected.status === 'INVITED' ? (
+                <div className="worker-setup-panel" style={{ marginBottom: 12 }}>
+                  <div className="worker-setup-panel__head">
+                    <span>Sign-in</span>
+                  </div>
+                  <p style={{ margin: '0 0 8px', color: '#5c6b7a', fontSize: 13 }}>
+                    No email is required. Save a mobile number, then generate a one-time setup link.
+                    They scan the QR, set a password, and sign in with that number.
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <Input
+                      value={mobileDraft}
+                      onChange={(e) => setMobileDraft(e.target.value)}
+                      placeholder="09XXXXXXXXX"
+                      style={{ maxWidth: 220 }}
+                      inputMode="tel"
+                      aria-label="Mobile number"
+                    />
+                    <Button loading={savingSignIn} onClick={() => saveMobileAndLink(false)}>
+                      Save mobile
+                    </Button>
+                    <Button type="primary" loading={savingSignIn} onClick={() => saveMobileAndLink(true)}>
+                      Generate setup link
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="ws-tabs">
                 <TabBar<DetailTab>

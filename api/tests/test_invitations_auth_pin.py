@@ -367,3 +367,96 @@ def test_normalize_ph_mobile_variants():
     assert normalize_ph_mobile("09171234567") == "+639171234567"
     assert normalize_ph_mobile("639171234567") == "+639171234567"
     assert normalize_ph_mobile("+63 917-123-4567") == "+639171234567"
+
+
+def _invited_worker_without_email(admin, mobile="09175550111"):
+    user = User(
+        email=None,
+        mobile_number=normalize_ph_mobile(mobile),
+        password_hash=None,
+        full_name="No Email Worker",
+        role=UserRole.PRODUCTION_WORKER,
+        status=UserStatus.INVITED,
+        active=False,
+    )
+    db.session.add(user)
+    db.session.flush()
+    invitation, raw = issue_invitation(
+        user, InvitationChannel.EMAIL, admin.id, commit=True
+    )
+    assert invitation.setup_url
+    assert getattr(invitation, "delivery", None) is None
+    assert user.status == UserStatus.INVITED
+    assert user.active is False
+    return user, invitation, raw
+
+
+def test_setup_link_without_email_then_login_by_mobile(client):
+    admin = _admin()
+    user, _invitation, raw = _invited_worker_without_email(admin)
+
+    accepted = client.post(
+        "/api/v1/auth/invitation/accept",
+        json={
+            "token": raw,
+            "password": "SecurePass1!",
+            "passwordConfirm": "SecurePass1!",
+        },
+    )
+    assert accepted.status_code == 200
+    db.session.refresh(user)
+    assert user.status == UserStatus.ACTIVE
+    assert user.email is None
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"identifier": "09175550111", "password": "SecurePass1!"},
+    )
+    assert login.status_code == 200
+    assert "accessToken" in login.get_json()
+
+
+def test_setup_link_is_single_use_and_expires(client):
+    admin = _admin()
+    user, invitation, raw = _invited_worker_without_email(admin, "09175550122")
+    invitation.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    db.session.flush()
+
+    expired = client.post("/api/v1/auth/invitation/validate", json={"token": raw})
+    assert expired.status_code == 400
+
+    _fresh, raw2 = issue_invitation(user, InvitationChannel.EMAIL, admin.id, commit=True)
+    ok = client.post(
+        "/api/v1/auth/invitation/accept",
+        json={
+            "token": raw2,
+            "password": "SecurePass1!",
+            "passwordConfirm": "SecurePass1!",
+        },
+    )
+    assert ok.status_code == 200
+    reused = client.post(
+        "/api/v1/auth/invitation/accept",
+        json={
+            "token": raw2,
+            "password": "SecurePass1!",
+            "passwordConfirm": "SecurePass1!",
+        },
+    )
+    assert reused.status_code == 400
+
+
+def test_regenerate_setup_link_revokes_the_previous_one(client):
+    admin = _admin()
+    user, _invitation, first = _invited_worker_without_email(admin, "09175550133")
+    _second, second = issue_invitation(
+        user, InvitationChannel.EMAIL, admin.id, commit=True
+    )
+
+    old = client.post("/api/v1/auth/invitation/validate", json={"token": first})
+    assert old.status_code == 400
+
+    current = client.post("/api/v1/auth/invitation/validate", json={"token": second})
+    assert current.status_code == 200
+    assert current.get_json()["email"] is None
+

@@ -33,7 +33,7 @@ const roleStyle: Record<string, { label: string; color: PillColor }> = {
 type StatusFilter = 'active' | 'inactive';
 
 /** Show the one-time setup link + QR so a worker without reliable email can still activate. */
-function showSetupLink(setupUrl: string | null | undefined) {
+export function showSetupLink(setupUrl: string | null | undefined) {
   if (!setupUrl) return;
   Modal.info({
     title: 'Setup link for this user',
@@ -76,9 +76,14 @@ function reportInviteDelivery(
   saved: string,
   setupUrl?: string | null,
 ) {
-  if (!delivery || delivery.status === 'SENT') {
+  if (!delivery) {
+    message.success(`${saved} Show them the setup link or QR. It works once and expires in 48 hours.`);
+    showSetupLink(setupUrl);
+    return;
+  }
+  if (delivery.status === 'SENT') {
     message.success(
-      `${saved} Invitation sent by email${delivery?.recipient ? ` to ${delivery.recipient}` : ''}.`,
+      `${saved} Invitation sent by email${delivery.recipient ? ` to ${delivery.recipient}` : ''}.`,
     );
     showSetupLink(setupUrl);
     return;
@@ -115,7 +120,7 @@ function reportInviteDelivery(
             </Space.Compact>
           </div>
         ) : (
-          <p>Add an email address for this user, then use Send invite again.</p>
+          <p>Add a mobile number or an email, then generate the setup link again.</p>
         )}
       </>
     ),
@@ -354,19 +359,11 @@ export default function UsersPage() {
         ];
         const status = record.status || (record.active ? 'ACTIVE' : 'DISABLED');
         if (status === 'INVITED') {
-          if (record.email) {
-            items.push({
-              key: 'invite-email',
-              label: 'Send invite by email',
-              onClick: () => sendInvite(record),
-            });
-          } else {
-            items.push({
-              key: 'invite-needs-email',
-              label: 'Add email to invite',
-              onClick: () => openEdit(record),
-            });
-          }
+          items.push({
+            key: 'invite-link',
+            label: record.email ? 'Send invite by email' : 'Generate setup link',
+            onClick: () => sendInvite(record),
+          });
           items.push({
             key: 'revoke-invite',
             label: 'Revoke invite',

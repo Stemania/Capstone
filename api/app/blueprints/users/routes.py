@@ -158,7 +158,10 @@ def resend_invite(user_id):
         raise AppError("Invitations are sent by email only", "VALIDATION_ERROR", 400)
     invitation, _raw = resend_invitation(user, get_current_user_id(), InvitationChannel.EMAIL)
     payload = invitation.to_dict()
-    payload["delivery"] = delivery_summary(getattr(invitation, "delivery", None))
+    # No email: the link is shown on screen. Don't report that as a failed send.
+    payload["delivery"] = (
+        delivery_summary(getattr(invitation, "delivery", None)) if user.email else None
+    )
     payload["setupUrl"] = getattr(invitation, "setup_url", None)
     return jsonify(payload)
 

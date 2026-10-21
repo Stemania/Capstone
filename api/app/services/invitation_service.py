@@ -123,10 +123,9 @@ def issue_invitation(
             "VALIDATION_ERROR",
             400,
         )
-    if not user.email:
+    if not user.email and not user.mobile_number:
         raise AppError(
-            "This user has no email address. Add an email, then send the invite again. "
-            "You can also copy the setup link shown after a successful invite.",
+            "Add a mobile number or an email before generating a setup link",
             "VALIDATION_ERROR",
             400,
         )
@@ -155,7 +154,11 @@ def issue_invitation(
     if commit:
         db.session.commit()
         # Not a column: the outcome of this send, for the admin's response.
-        invitation.delivery = _deliver_invitation(user, invitation, raw_secret)
+        # No email: the admin shows the link and QR on screen. The link rules
+        # (48 hours, single use, regenerate revokes the previous one) are the same.
+        invitation.delivery = (
+            _deliver_invitation(user, invitation, raw_secret) if user.email else None
+        )
         invitation.setup_url = invitation_setup_url(raw_secret)
     else:
         db.session.flush()
