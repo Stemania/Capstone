@@ -217,7 +217,9 @@ function JobCard({ job, isDraftTab, selected, actions, onClick }: JobCardProps) 
         {modified && dayjs(modified).isValid()
           ? `Modified ${formatShop(modified, 'MMM D, YYYY')}`
           : '—'}
-        {isDraftTab && job.createdByName ? ` · ${job.createdByName}` : ''}
+        {isDraftTab && job.createdByName
+          ? ` · Entered by ${job.createdByName}${job.createdByRole ? ` · ${job.createdByRole}` : ''}`
+          : ''}
       </div>
     </div>
   );
@@ -711,7 +713,11 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
       width: 120,
       ellipsis: true,
       render: (_: unknown, record) => (
-        <span style={{ fontSize: 13 }}>{record.createdByName || '—'}</span>
+        <span style={{ fontSize: 13 }}>
+          {record.createdByName
+            ? `${record.createdByName}${record.createdByRole ? ` · ${record.createdByRole}` : ''}`
+            : '—'}
+        </span>
       ),
     },
     {
@@ -794,7 +800,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
                 onChange={(e) => setSearch(e.target.value)}
                 className="jo-m__search"
               />
-              {canOfficeWrite && (
+              {(canOfficeWrite || isAdmin) && (
                 <button
                   type="button"
                   className="sched-m__icon jo-m__add"
@@ -954,7 +960,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
               Back to job orders
             </Button>
           )}
-          {canOfficeWrite && !archivedOnly && (
+          {(canOfficeWrite || isAdmin) && !archivedOnly && (
             <Button
               type="primary"
               icon={<PlusOutlined />}

@@ -182,16 +182,14 @@ export default function AppRoutes() {
                         </RouteSuspense>
                       }
                     />
-                    <Route element={<ProtectedRoute roles={['OFFICE_STAFF']} />}>
-                      <Route
-                        path="/job-orders/new"
-                        element={
-                          <RouteSuspense>
-                            <JobOrderFormPage />
-                          </RouteSuspense>
-                        }
-                      />
-                    </Route>
+                    <Route
+                      path="/job-orders/new"
+                      element={
+                        <RouteSuspense>
+                          <JobOrderFormPage />
+                        </RouteSuspense>
+                      }
+                    />
                     <Route
                       path="/job-orders/:id/edit"
                       element={

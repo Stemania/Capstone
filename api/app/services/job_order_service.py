@@ -692,8 +692,8 @@ def mark_job_delivered(job):
         raise
 
 
-# Job header fields Office may edit only while DRAFT. Admin is view-only for these
-# (except materials Not required after release — see _assert_can_edit_job_info).
+# Job header fields Admin or Office may edit only while DRAFT
+# (Admin may still set materials Not required after release — see _assert_can_edit_job_info).
 _JOB_INFO_KEYS = (
     "clientId",
     "title",
@@ -710,11 +710,11 @@ _JOB_INFO_KEYS = (
 
 
 def _assert_can_edit_job_info(job, data, role):
-    """Office edits job info only while DRAFT; Admin never (except Not required after release)."""
+    """Office and Admin edit job info only while DRAFT. After release it is locked.
+    Admin may still set materials to Not required after release."""
     present = [k for k in _JOB_INFO_KEYS if k in data]
     if not present:
         return
-    # Keep existing Admin-only "materials Not required after release".
     if (
         present == ["materialStatus"]
         and data.get("materialStatus") == MaterialStatus.NOT_REQUIRED.value
@@ -722,32 +722,29 @@ def _assert_can_edit_job_info(job, data, role):
         and role == UserRole.ADMIN.value
     ):
         return
-    if role == UserRole.ADMIN.value:
-        raise AppError(
-            "Only Office Staff can edit job order information, and only before release.",
-            "FORBIDDEN",
-            403,
-        )
+    if job.status == JobOrderStatus.DRAFT and role in (
+        UserRole.ADMIN.value,
+        UserRole.OFFICE_STAFF.value,
+    ):
+        return
     if job.status != JobOrderStatus.DRAFT:
         raise AppError(
             "Job order information is locked after release.",
             "JOB_INFO_LOCKED",
             409,
         )
-    if role != UserRole.OFFICE_STAFF.value:
-        raise AppError(
-            "Only Office Staff can edit job order information.",
-            "FORBIDDEN",
-            403,
-        )
+    raise AppError(
+        "Only Office Staff or an Admin can edit job order information.",
+        "FORBIDDEN",
+        403,
+    )
 
 
 def update_job_order(job, data, actor_role=None):
     """Update job fields and/or operations.
 
-    Office may edit job information while DRAFT only; after release it is locked.
-    Admin may edit operations while DRAFT but not job information (except setting
-    materials Not required after release). Status is re-derived after release.
+    Office or Admin may edit job information while DRAFT only; after release it is locked.
+    Admin may still set materials Not required after release. Status is re-derived after release.
     """
     try:
         _apply_job_update(job, data, actor_role)

@@ -283,11 +283,13 @@ export default function ClientDetailPage() {
               </span>
             </div>
           </div>
-          {canEdit ? (
+          {canEdit || isAdmin ? (
             <div className="client-head__actions m-action-bar">
-              <Button icon={<EditOutlined />} onClick={() => setEditOpen(true)}>
-                Edit client
-              </Button>
+              {canEdit ? (
+                <Button icon={<EditOutlined />} onClick={() => setEditOpen(true)}>
+                  Edit client
+                </Button>
+              ) : null}
               <Button type="primary" icon={<PlusOutlined />} onClick={newJob}>
                 New job order
               </Button>
@@ -419,7 +421,7 @@ export default function ClientDetailPage() {
             title="No job orders yet"
             description={`Job orders for ${data.name} will be listed here.`}
             action={
-              canEdit ? (
+              canEdit || isAdmin ? (
                 <Button type="primary" icon={<PlusOutlined />} onClick={newJob}>
                   New job order
                 </Button>

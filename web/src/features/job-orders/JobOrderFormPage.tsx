@@ -48,8 +48,9 @@ export default function JobOrderFormPage() {
   const [loadedValues, setLoadedValues] = useState<Record<string, unknown> | null>(null);
   const { isAdmin, canOfficeWrite } = useAuth();
   const released = jobStatus != null && jobStatus !== 'DRAFT';
-  /** Edit job info: Office Staff only, and only before release. */
-  const canEditInfo = canOfficeWrite && (!isEdit || !released);
+  /** Encode job info: Admin or Office Staff, only before release. */
+  const canEncode = isAdmin || canOfficeWrite;
+  const canEditInfo = canEncode && (!isEdit || !released);
   const backTo = !id
     ? presetClientId
       ? `/clients/${presetClientId}`
@@ -178,11 +179,11 @@ export default function JobOrderFormPage() {
     );
   }
 
-  if (isEdit && id && (released || !canOfficeWrite)) {
+  if (isEdit && id && (released || !canEncode)) {
     return <Navigate to={`/job-orders/${id}`} replace />;
   }
 
-  if (!isEdit && !canOfficeWrite) {
+  if (!isEdit && !canEncode) {
     return <Navigate to={jobOrdersDraftsListPath()} replace />;
   }
 

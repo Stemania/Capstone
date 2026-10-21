@@ -69,7 +69,7 @@ def list_job_orders():
 
 @job_orders_bp.route("", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def create_job_order():
     data = request.get_json() or {}
     required = ["clientId", "title", "dueDate"]

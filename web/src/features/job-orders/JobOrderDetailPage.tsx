@@ -754,7 +754,7 @@ function JobOrderDetailView() {
               Plan
             </Button>
           )}
-          {canOfficeWrite && isDraft && (
+          {isDraft && (canOfficeWrite || isAdmin) && (
             <Button
               icon={<EditOutlined />}
               onClick={() => navigate(`/job-orders/${job.id}/edit`)}
