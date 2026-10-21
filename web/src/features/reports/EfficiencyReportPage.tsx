@@ -113,6 +113,7 @@ export default function EfficiencyReportPage() {
             <ReportKpi
               label="Avg difference from target"
               value={formatPctVsTarget(overview?.efficiency.averageVariancePct)}
+              hint="Under target is faster (efficiency above 100%)."
             />
             <ReportKpi
               label="Redo share"

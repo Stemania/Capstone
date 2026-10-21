@@ -7,47 +7,34 @@ export function formatPct(value: number | null | undefined, digits = 1): string 
 }
 
 /**
- * Hours over/under target, then percent. Prefer this for difference-from-target numbers.
- * Example: "2.5 hours over target · 15% over"
+ * One phrase for a finished operation: "0.9 h over target (5%)", "on target",
+ * or "1.2 h under target". Hours above target are slower. Efficiency above
+ * 100% is the same fact as under target.
  */
 export function formatDifferenceFromTarget(
   hours?: number | null,
   pct?: number | null,
   digits = 1
 ): string {
-  const hPart =
-    hours == null || Number.isNaN(hours)
-      ? null
-      : hours === 0
-        ? 'On target'
-        : hours > 0
-          ? `${hours.toFixed(digits)} hours over target`
-          : `${Math.abs(hours).toFixed(digits)} hours under target`;
-
-  const pPart =
-    pct == null || Number.isNaN(pct)
-      ? null
-      : pct === 0
-        ? null
-        : pct > 0
-          ? `${pct.toFixed(digits)}% over`
-          : `${Math.abs(pct).toFixed(digits)}% under`;
-
-  if (hPart && pPart && hPart !== 'On target') return `${hPart} · ${pPart}`;
-  if (hPart) return hPart;
-  if (pPart) {
-    if (pct == null || Number.isNaN(pct) || pct === 0) return 'On target';
-    return pct > 0
-      ? `${pct.toFixed(digits)}% over target`
-      : `${Math.abs(pct).toFixed(digits)}% under target`;
+  const hoursKnown = hours != null && !Number.isNaN(hours);
+  const pctKnown = pct != null && !Number.isNaN(pct);
+  if (!hoursKnown && !pctKnown) return '—';
+  const hoursZero = !hoursKnown || Math.abs(hours) < 0.05;
+  const pctZero = !pctKnown || Math.abs(pct) < 0.05;
+  if (hoursZero && pctZero) return 'on target';
+  const over = !hoursZero ? hours! > 0 : pct! > 0;
+  const dir = over ? 'over target' : 'under target';
+  if (!hoursZero) {
+    const text = `${Math.abs(hours!).toFixed(digits)} h ${dir}`;
+    return pctZero ? text : `${text} (${Math.abs(pct!).toFixed(digits)}%)`;
   }
-  return '—';
+  return `${Math.abs(pct!).toFixed(digits)}% ${dir}`;
 }
 
-/** Shorter table cell for percent-only difference from target. */
+/** Percent-only difference from target. Negative variance is faster than target. */
 export function formatPctVsTarget(value: number | null | undefined, digits = 1): string {
   if (value == null || Number.isNaN(value)) return '—';
-  if (value === 0) return 'On target';
+  if (Math.abs(value) < 0.05) return 'on target';
   return value > 0
     ? `${value.toFixed(digits)}% over target`
     : `${Math.abs(value).toFixed(digits)}% under target`;

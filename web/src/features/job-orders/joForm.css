@@ -1,5 +1,10 @@
 /* Job order create / edit form */
 
+.jo-plan__panel:has(.jo-plan__footer--sticky) .jo-ops {
+  /* Clears the sticky action bar so the last worker-and-unit cards stay visible. */
+  padding-bottom: 64px;
+}
+
 .jo-form-page .jo-form__qty-row {
   display: flex;
   flex-wrap: wrap;

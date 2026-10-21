@@ -281,6 +281,12 @@ function JobOrderDetailView() {
   const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
   const [breakdowns, setBreakdowns] = useState<MachineDowntimeRecord[]>([]);
   const [purchaseOpen, setPurchaseOpen] = useState(false);
+  const [draftNotice, setDraftNotice] = useState<{
+    id: string;
+    supplierName: string;
+    lineCount: number;
+    jobCount: number;
+  } | null>(null);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [scheduleMoves, setScheduleMoves] = useState<ScheduleMove[]>([]);
@@ -1681,17 +1687,32 @@ function JobOrderDetailView() {
           setPurchaseOpen(false);
           await fetchPurchases();
           await fetchJob();
-          Modal.info({
-            title: 'Added to the draft supplier order',
-            content: `The lines are on the ${order.supplierName} draft order (${order.lineCount} line${
-              order.lineCount === 1 ? '' : 's'
-            }, ${order.jobCount} job${order.jobCount === 1 ? '' : 's'}). The material counts as ordered once the order is issued.`,
-            okText: 'Open supplier order',
-            onOk: () => navigate(`/supplier-orders/${order.id}`),
-            closable: true,
+          setDraftNotice({
+            id: order.id,
+            supplierName: order.supplierName,
+            lineCount: order.lineCount,
+            jobCount: order.jobCount,
           });
         }}
       />
+      <Modal
+        open={draftNotice != null}
+        title="Added to the draft supplier order"
+        okText="Open supplier order"
+        onCancel={() => setDraftNotice(null)}
+        onOk={() => {
+          const id = draftNotice?.id;
+          setDraftNotice(null);
+          if (id) navigate(`/supplier-orders/${id}`);
+        }}
+        destroyOnHidden
+      >
+        {draftNotice
+          ? `The lines are on the ${draftNotice.supplierName} draft order (${draftNotice.lineCount} line${
+              draftNotice.lineCount === 1 ? '' : 's'
+            }, ${draftNotice.jobCount} job${draftNotice.jobCount === 1 ? '' : 's'}). The material counts as ordered once the order is issued.`
+          : null}
+      </Modal>
 
       {rescheduleOpen && (
         <RescheduleModal

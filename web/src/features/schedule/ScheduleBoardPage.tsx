@@ -148,6 +148,33 @@ const BAR_PILL_STYLE = {
   whiteSpace: 'nowrap',
 } as const;
 
+function PressGroup<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: T;
+  onChange: (next: T) => void;
+  options: { label: string; value: T }[];
+}) {
+  return (
+    <div className="sched-press" role="group" aria-label={label}>
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          aria-pressed={value === opt.value}
+          onClick={() => onChange(opt.value)}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** Shop time, refreshed every minute for the board's "now" line. */
 function useShopNow(): Dayjs {
   const [now, setNow] = useState(() => dayjs().tz(SHOP_TZ));
@@ -220,7 +247,7 @@ function AdminOfficeScheduleBoard() {
   const navigate = useNavigate();
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
-  const labelW = isMobile ? adminPx(96) : adminPx(168);
+  const labelW = isMobile ? adminPx(96) : viewMode === 'month' ? adminPx(220) : adminPx(168);
   const isTouch = useMediaQuery(TOUCH_QUERY);
   const plainStats = useMediaQuery(MOBILE_SHELL_QUERY);
   // Bars are rowH - 8 tall; touch screens get 44px bars.
@@ -441,11 +468,10 @@ function AdminOfficeScheduleBoard() {
   const filterSelects = (
     <>
       {!isPhoneBoard && (
-        <Segmented
-          className="sched-seg"
-          block={isMobile}
+        <PressGroup
+          label="Rows"
           value={rowMode}
-          onChange={(v) => setRowMode(v as RowMode)}
+          onChange={setRowMode}
           options={[
             { label: 'By machine', value: 'machine' },
             { label: 'By worker', value: 'worker' },
@@ -684,11 +710,10 @@ function AdminOfficeScheduleBoard() {
           collapsedMaxHeight={boardCollapsedMaxHeight}
           title={
             !isPhoneBoard ? (
-              <Segmented
-                className="sched-seg"
+              <PressGroup
+                label="Period"
                 value={viewMode}
-                onChange={(v) => setViewMode(v as ViewMode)}
-                size="middle"
+                onChange={setViewMode}
                 options={[
                   { label: 'Day', value: 'day' },
                   { label: 'Week', value: 'week' },
@@ -921,6 +946,7 @@ function AdminOfficeScheduleBoard() {
                     <button
                       key={value}
                       type="button"
+                      aria-pressed={viewMode === value}
                       className={`sched-m__pill${viewMode === value ? ' is-on' : ''}`}
                       onClick={() => setViewMode(value)}
                     >
@@ -939,6 +965,7 @@ function AdminOfficeScheduleBoard() {
                     <button
                       key={value}
                       type="button"
+                      aria-pressed={rowMode === value}
                       className={`sched-m__pill${rowMode === value ? ' is-on' : ''}`}
                       onClick={() => setRowMode(value)}
                     >
@@ -1105,7 +1132,8 @@ const BoardRows = memo(function BoardRows({
         pos,
         { markClashes: !row.noMachine, gap: BAR_GAP, minWidth: MIN_BAR_W },
       );
-      const trackH = rowH * laneCount;
+      const lanes = viewMode === 'month' ? 1 : laneCount;
+      const trackH = rowH * lanes;
       const downRects = dts.flatMap((d) => {
         const clipped = clipSegmentToPeriod(d.segmentStart, d.segmentEnd, from, to);
         if (!clipped) return [];
@@ -1188,12 +1216,12 @@ const BoardRows = memo(function BoardRows({
                 fontWeight: 600,
                 color: row.noMachine ? '#64748b' : NAVY,
                 display: 'flex',
-                alignItems: 'center',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
+                alignItems: viewMode === 'month' ? 'flex-start' : 'center',
+                overflow: viewMode === 'month' ? 'visible' : 'hidden',
+                whiteSpace: viewMode === 'month' ? 'normal' : 'nowrap',
                 minHeight: trackH,
                 gap: 6,
+                lineHeight: 1.25,
               }}
             >
               {row.workerId && row.personName ? (
@@ -1204,7 +1232,9 @@ const BoardRows = memo(function BoardRows({
                   size={isMobile ? 20 : 24}
                 />
               ) : null}
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.label}</span>
+              <span style={viewMode === 'month' ? { whiteSpace: 'normal' } : { overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {row.label}
+              </span>
             </div>
             <div
               style={{
@@ -1282,7 +1312,46 @@ const BoardRows = memo(function BoardRows({
                   </Tooltip>
               ))}
 
-              {bars.flatMap((bar) => {
+              {viewMode === 'month'
+                ? dayColumns.map((col) => {
+                    const hits = [...opById.values()].filter((op) =>
+                      opSegments(op).some((seg) => {
+                        const start = dayjs(seg.start).tz(SHOP_TZ).format('YYYY-MM-DD');
+                        const end = dayjs(seg.end).tz(SHOP_TZ).format('YYYY-MM-DD');
+                        return start <= col.key && col.key <= end;
+                      })
+                    );
+                    if (!hits.length) return null;
+                    const n = hits.length;
+                    return (
+                      <Tooltip
+                        key={col.key}
+                        title={
+                          <div>
+                            {hits.slice(0, 12).map((op) => (
+                              <div key={op.id}>
+                                {op.jobNumber || 'Job'} · {op.operationName}
+                              </div>
+                            ))}
+                            {hits.length > 12 ? <div>+{hits.length - 12} more</div> : null}
+                          </div>
+                        }
+                      >
+                        <button
+                          type="button"
+                          className="sched-month-chip"
+                          style={{ left: col.left + 2, width: Math.max(24, col.width - 4) }}
+                          onClick={() => {
+                            const first = hits[0];
+                            if (first) onOpenJob(first.jobOrderId);
+                          }}
+                        >
+                          {n} operation{n === 1 ? '' : 's'}
+                        </button>
+                      </Tooltip>
+                    );
+                  })
+                : bars.flatMap((bar) => {
                 const op = opById.get(bar.opId);
                 if (!op) return [];
                 const barTop = columnFill ? bar.lane * rowH : bar.lane * rowH + 4;

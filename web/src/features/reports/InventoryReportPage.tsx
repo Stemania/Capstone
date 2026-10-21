@@ -167,7 +167,7 @@ export default function InventoryReportPage() {
         <>
           <ReportSection
             title="Consumables"
-            note={runOut?.description || 'On hand, reorder level, status, days left, and ABC class (same as Analytics → Inventory).'}
+            note="On hand, reorder level, status, days left, and ABC class."
           >
             <Table
               size="small"
@@ -309,6 +309,7 @@ export default function InventoryReportPage() {
               ]}
             />
           </ReportSection>
+          <p className="report-note">How reorder levels are computed: from recent usage, supplier lead time, and a safety buffer.</p>
         </>
       )}
     </PrintDocument>

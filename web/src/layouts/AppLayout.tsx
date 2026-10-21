@@ -107,7 +107,7 @@ const SECTION_META: Record<string, { title: string; subtitle: string }> = {
 };
 
 const REPORT_TITLES: Record<string, string> = {
-  efficiency: 'Production Performance',
+  efficiency: 'Efficiency report',
   inventory: 'Inventory Status',
   'worker-performance': 'Worker Performance',
 };
