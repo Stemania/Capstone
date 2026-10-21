@@ -305,6 +305,82 @@ def _register_cli(app):
             else "Dry run: nothing was saved. Run with --apply to commit."
         )
 
+    @app.cli.group("sample-history")
+    def sample_history_group():
+        """Add or remove local sample transaction history.
+
+        Dry run unless --apply. --apply asks for the database host before it
+        commits. Never points this at a hosted database.
+        """
+
+    def _confirm_sample_history_host(apply_changes):
+        from app.services.seed_cleanup_service import database_label
+
+        masked, host, _db_name = database_label()
+        print(f"Target database: {masked}")
+        if not apply_changes:
+            return
+        typed = click.prompt(
+            f"Type the host name to confirm ({host})",
+            default="",
+            show_default=False,
+        )
+        if typed.strip().lower() != host.lower():
+            raise click.ClickException(
+                f"Host confirmation failed (expected {host!r}, got {typed.strip()!r}). Aborted."
+            )
+
+    @sample_history_group.command("generate")
+    @click.option("--start", required=True, help="First shop day, YYYY-MM-DD.")
+    @click.option("--end", required=True, help="Last shop day, YYYY-MM-DD.")
+    @click.option("--seed", type=int, default=42, show_default=True)
+    @click.option(
+        "--apply",
+        "apply_changes",
+        is_flag=True,
+        help="Commit. Without it, build the history, print the summary, and roll back.",
+    )
+    def sample_history_generate(start, end, seed, apply_changes):
+        """Add sample job, purchasing, attendance and stock history on this machine only."""
+        from app.services.sample_history_service import format_summary, generate
+
+        _confirm_sample_history_host(apply_changes)
+        try:
+            summary = generate(start, end, seed=seed, apply=apply_changes)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        for line in format_summary(summary):
+            print(line)
+        print(
+            "Applied."
+            if apply_changes
+            else "Dry run: nothing was saved. Run with --apply to commit."
+        )
+
+    @sample_history_group.command("remove")
+    @click.option(
+        "--apply",
+        "apply_changes",
+        is_flag=True,
+        help="Commit the delete. Without it, delete and roll back after the summary.",
+    )
+    def sample_history_remove(apply_changes):
+        """Delete sample-history rows and restore snapshotted stock. Nothing else."""
+        from app.services.sample_history_service import format_summary, remove
+
+        _confirm_sample_history_host(apply_changes)
+        try:
+            summary = remove(apply=apply_changes)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        for line in format_summary(summary):
+            print(line)
+        print(
+            "Applied."
+            if apply_changes
+            else "Dry run: nothing was saved. Run with --apply to commit."
+        )
+
     @app.cli.command("import-employees")
     @click.option("--file", "file_path", required=True, help="CSV file, e.g. api/data/employees.local.csv")
     @click.option("--dry-run", is_flag=True, help="Show the changes without saving them.")
