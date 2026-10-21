@@ -1,6 +1,6 @@
 # CAPS2 load smoke (Locust)
 
-GET-only after one login per virtual user. **Do not run against the live/Neon production database or production API unless you mean to.**
+GET-only after one login per virtual user. Logins are spaced (default 7 seconds) so the API's 10-per-minute per-IP login limit is not tripped. Each user reuses its token. **Do not run against the live/Neon production database or production API unless you mean to.** Do not lower that limit to make a run pass.
 
 ## Setup (PowerShell)
 
@@ -9,18 +9,20 @@ cd C:\Users\Janvie\Project\CAPS2
 python -m pip install locust
 $env:LOADTEST_EMAIL = "your-test-user@example.com"
 $env:LOADTEST_PASSWORD = "your-password"
+# Optional extra accounts, round-robin: "email:password;email:password"
+# $env:LOADTEST_ACCOUNTS = "one@example.com:secret;two@example.com:secret"
 ```
 
 ## Run against a URL you choose
 
-Default shape: **25 users**, spawn **5/s**, run **2 minutes**.
+Default shape: **25 users**, run **2 minutes**. Leave the spawn rate high; the script itself spaces logins.
 
 ```powershell
 cd C:\Users\Janvie\Project\CAPS2
 locust -f scripts/loadtest/locustfile.py `
   --host https://YOUR-API-HOST `
   --users 25 `
-  --spawn-rate 5 `
+  --spawn-rate 25 `
   --run-time 2m `
   --headless `
   --only-summary
