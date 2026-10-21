@@ -1689,7 +1689,7 @@ function JobOrderDetailView() {
           await fetchJob();
           setDraftNotice({
             id: order.id,
-            supplierName: order.supplierName,
+            supplierName: order.supplierName || 'the supplier',
             lineCount: order.lineCount,
             jobCount: order.jobCount,
           });

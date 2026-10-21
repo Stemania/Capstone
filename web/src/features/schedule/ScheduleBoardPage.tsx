@@ -247,12 +247,12 @@ function AdminOfficeScheduleBoard() {
   const navigate = useNavigate();
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
-  const labelW = isMobile ? adminPx(96) : viewMode === 'month' ? adminPx(220) : adminPx(168);
   const isTouch = useMediaQuery(TOUCH_QUERY);
   const plainStats = useMediaQuery(MOBILE_SHELL_QUERY);
   // Bars are rowH - 8 tall; touch screens get 44px bars.
   const rowH = isTouch ? 52 : isMobile ? adminPx(40) : adminPx(44);
   const [viewMode, setViewMode] = useState<ViewMode>('week');
+  const labelW = isMobile ? adminPx(96) : viewMode === 'month' ? adminPx(220) : adminPx(168);
   const [rowMode, setRowMode] = useState<RowMode>('machine');
   // Keep the pills snappy; rebuild the heavy board at lower priority.
   const boardViewMode = useDeferredValue(viewMode);
