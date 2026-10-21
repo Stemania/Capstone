@@ -270,26 +270,79 @@ def test_duplicate_normalized_mobile_rejected(client):
 def test_pin_unlock_rejects_unknown_or_revoked_device(client):
     user = _active_user("pinuser@test.local", "+639170000099")
 
-    assert (
-        client.post(
-            "/api/v1/auth/pin/unlock",
-            json={"deviceId": "00000000-0000-0000-0000-000000000001", "pin": "258369"},
-        ).status_code
-        == 401
+    unknown = client.post(
+        "/api/v1/auth/pin/unlock",
+        json={"deviceId": "00000000-0000-0000-0000-000000000001", "pin": "258369"},
     )
+    assert unknown.status_code == 401
+    assert unknown.get_json()["error"]["code"] == "PIN_DEVICE_UNKNOWN"
+    assert "isn't set up" in unknown.get_json()["error"]["message"]
 
     _set_pin(user, "dev-known-1", "258369")
     device = UserDevice.query.filter_by(device_id="dev-known-1").first()
     device.revoked_at = datetime.now(timezone.utc)
     db.session.flush()
 
-    assert (
-        client.post(
-            "/api/v1/auth/pin/unlock",
-            json={"deviceId": "dev-known-1", "pin": "258369"},
-        ).status_code
-        == 401
+    revoked = client.post(
+        "/api/v1/auth/pin/unlock",
+        json={"deviceId": "dev-known-1", "pin": "258369"},
     )
+    assert revoked.status_code == 401
+    assert revoked.get_json()["error"]["code"] == "PIN_DEVICE_UNKNOWN"
+
+
+def test_pin_unlock_uses_the_row_that_has_a_pin(client):
+    """Same browser device id is stored once per user. Unlock must not pick a pin-less row."""
+    admin = _active_user("pinadmin@test.local", "+639170000091")
+    admin.role = UserRole.ADMIN
+    worker = _active_user("pinworker@test.local", "+639170000092")
+    shared = "shared-browser-device"
+    register_device_after_password_login(admin, shared, "Office PC")
+    _set_pin(worker, shared, "258369")
+
+    wrong = client.post(
+        "/api/v1/auth/pin/unlock",
+        json={"deviceId": shared, "pin": "000000"},
+    )
+    assert wrong.status_code == 401
+    assert wrong.get_json()["error"]["code"] == "PIN_INVALID"
+    assert wrong.get_json()["error"]["message"].startswith("PIN incorrect")
+
+    ok = client.post(
+        "/api/v1/auth/pin/unlock",
+        json={"deviceId": shared, "pin": "258369"},
+    )
+    assert ok.status_code == 200
+    assert "accessToken" in ok.get_json()
+
+
+def test_set_pin_then_unlock_without_a_session(client):
+    user = _active_user("pinflow@test.local", "+639170000093")
+    login = client.post(
+        "/api/v1/auth/login",
+        json={
+            "identifier": "pinflow@test.local",
+            "password": "Worker123!",
+            "deviceId": "phone-after-logout",
+        },
+    )
+    assert login.status_code == 200
+    token = login.get_json()["accessToken"]
+
+    saved = client.post(
+        "/api/v1/auth/pin",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"deviceId": "phone-after-logout", "pin": "258369"},
+    )
+    assert saved.status_code == 201
+
+    # Logout only drops the client token. The device binding stays.
+    unlocked = client.post(
+        "/api/v1/auth/pin/unlock",
+        json={"deviceId": "phone-after-logout", "pin": "258369"},
+    )
+    assert unlocked.status_code == 200
+    assert unlocked.get_json()["user"]["id"] == user.id
 
 
 def test_five_failed_pin_attempts_revokes_pin(client):

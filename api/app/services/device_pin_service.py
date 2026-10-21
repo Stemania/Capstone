@@ -96,12 +96,36 @@ def remove_device_pin(user: User, device_id: str) -> None:
     db.session.commit()
 
 
+def _device_not_set_up() -> AppError:
+    return AppError(
+        "This device isn't set up — sign in with your password",
+        "PIN_DEVICE_UNKNOWN",
+        401,
+    )
+
+
 def unlock_with_pin(device_id: str, pin: str) -> dict:
     if not device_id or not pin:
-        raise AppError("Invalid PIN or device", "PIN_INVALID", 401)
+        raise _device_not_set_up()
 
-    device = UserDevice.query.filter_by(device_id=device_id).first()
-    if not device or device.revoked_at is not None or not device.pin_hash:
+    # One browser shares a device id across accounts. Match the row that
+    # actually has a PIN, not whichever row the database returns first.
+    candidates = (
+        UserDevice.query.filter(
+            UserDevice.device_id == device_id,
+            UserDevice.revoked_at.is_(None),
+            UserDevice.pin_hash.isnot(None),
+        )
+        .order_by(UserDevice.pin_set_at.desc())
+        .all()
+    )
+    active: list[tuple[UserDevice, User]] = []
+    for row in candidates:
+        owner = db.session.get(User, row.user_id)
+        if owner and owner.status == UserStatus.ACTIVE:
+            active.append((row, owner))
+
+    if not active:
         write_audit_event(
             "PIN_FAILED",
             "UserDevice",
@@ -109,53 +133,50 @@ def unlock_with_pin(device_id: str, pin: str) -> dict:
             after={"deviceId": device_id, "reason": "unknown_or_revoked"},
         )
         db.session.commit()
-        raise AppError("Invalid PIN or device", "PIN_INVALID", 401)
+        raise _device_not_set_up()
 
-    user = User.query.get(device.user_id)
-    if not user or user.status != UserStatus.ACTIVE:
-        raise AppError("Invalid PIN or device", "PIN_INVALID", 401)
+    for device, user in active:
+        if bcrypt.check_password_hash(device.pin_hash, pin):
+            device.pin_failed_attempts = 0
+            device.last_used_at = _utcnow()
+            db.session.commit()
+            return issue_tokens(user, device)
 
-    if not bcrypt.check_password_hash(device.pin_hash, pin):
-        device.pin_failed_attempts = (device.pin_failed_attempts or 0) + 1
+    device, _user = active[0]
+    device.pin_failed_attempts = (device.pin_failed_attempts or 0) + 1
+    write_audit_event(
+        "PIN_FAILED",
+        "UserDevice",
+        device.id,
+        after={
+            "userId": device.user_id,
+            "deviceId": device_id,
+            "attempts": device.pin_failed_attempts,
+        },
+    )
+    if device.pin_failed_attempts >= MAX_PIN_FAILURES:
+        device.pin_hash = None
+        device.pin_set_at = None
+        device.revoked_at = _utcnow()
         write_audit_event(
-            "PIN_FAILED",
+            "DEVICE_REVOKED",
             "UserDevice",
             device.id,
-            after={
-                "userId": device.user_id,
-                "deviceId": device_id,
-                "attempts": device.pin_failed_attempts,
-            },
+            after={"userId": device.user_id, "reason": "pin_lockout"},
         )
-        if device.pin_failed_attempts >= MAX_PIN_FAILURES:
-            device.pin_hash = None
-            device.pin_set_at = None
-            device.revoked_at = _utcnow()
-            write_audit_event(
-                "DEVICE_REVOKED",
-                "UserDevice",
-                device.id,
-                after={"userId": device.user_id, "reason": "pin_lockout"},
-            )
-            db.session.commit()
-            raise AppError(
-                "PIN has been removed on this device. Sign in with your password.",
-                "PIN_LOCKED",
-                401,
-            )
         db.session.commit()
-        remaining = MAX_PIN_FAILURES - device.pin_failed_attempts
         raise AppError(
-            f"Incorrect PIN. {remaining} attempt{'s' if remaining != 1 else ''} left.",
-            "PIN_INVALID",
+            "PIN has been removed on this device. Sign in with your password.",
+            "PIN_LOCKED",
             401,
         )
-
-    device.pin_failed_attempts = 0
-    device.last_used_at = _utcnow()
     db.session.commit()
-
-    return issue_tokens(user, device)
+    remaining = MAX_PIN_FAILURES - device.pin_failed_attempts
+    raise AppError(
+        f"PIN incorrect. {remaining} attempt{'s' if remaining != 1 else ''} left.",
+        "PIN_INVALID",
+        401,
+    )
 
 
 def prune_stale_devices(user_id: str) -> int:

@@ -69,7 +69,7 @@ export default function LoginPage() {
     } catch (err) {
       const code = getErrorCode(err);
       const message = getErrorMessage(err);
-      if (code === 'PIN_LOCKED') {
+      if (code === 'PIN_LOCKED' || code === 'PIN_DEVICE_UNKNOWN') {
         localStorage.removeItem('bmsc_has_pin');
         setPinMode(false);
         setError(message);
