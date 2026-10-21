@@ -1680,11 +1680,13 @@ def _retarget_stock(rng, shop, ledger, counters):
         band = index % 10
         target_kind = "now" if band == 0 else "soon" if band in (1, 2) else "ok"
         target = _target_qty(adu, rop, target_kind)
-        # Same-band items would otherwise land on one on-hand and one days-left.
         if target_kind == "now":
             target = max(Decimal("0"), target - Decimal(index % 4))
         else:
             target = target + Decimal((index * 3) % 11)
+        # Hundredths are the item index, so on-hand (and therefore the
+        # on-hand / reorder-point / days-left triple) is unique per item.
+        target = Decimal(int(target)) + (Decimal(index + 1) / Decimal("100"))
         current = Decimal(str(tool.quantity_on_hand or 0))
         delta = target - current
         if delta == 0:
