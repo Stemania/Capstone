@@ -480,8 +480,46 @@ def _serialize(op):
     return _serialize_affected_operation(op)
 
 
+def paused_in_progress_on_unit(unit_id) -> list:
+    """In-progress work on this unit whose clock is already stopped."""
+    from app.models.operation_time import OperationTimeEvent
+    from app.services.operation_service import _last_event
+
+    paused = []
+    for op in JobOperation.query.filter_by(
+        machine_unit_id=unit_id, status=OperationStatus.IN_PROGRESS
+    ).all():
+        last = _last_event(op)
+        if last and last.event == OperationTimeEvent.PAUSE:
+            paused.append(op)
+    return paused
+
+
+def _reassign_paused(unit, paused, result):
+    """Move paused in-progress work onto another free unit of the same type."""
+    others = _other_usable_units(unit)
+    if not paused:
+        return
+    if not others:
+        result["left"].extend(op.id for op in paused)
+        return
+    target = others[0]
+    for op in paused:
+        op.machine_unit_id = target.id
+        result["moved"].append(
+            {
+                "jobId": op.job_order_id,
+                "jobNumber": op.job_order.job_number if op.job_order else None,
+                "outcome": "MOVED",
+                "reason": (
+                    f"Paused for machine breakdown; moved from {unit.label} to {target.label}"
+                ),
+            }
+        )
+
+
 def breakdown_options(unit_id, now_utc=None) -> dict:
-    """The unstarted work booked on a down unit and what can be done with it."""
+    """Work booked on a down unit, including an operation paused for the breakdown."""
     from app.services.operation_service import downtime_blocked_until, open_downtimes_by_unit
 
     now = _now(now_utc)
@@ -490,15 +528,26 @@ def breakdown_options(unit_id, now_utc=None) -> dict:
         raise AppError("This unit has no open breakdown.", "NOT_FOUND", 404)
     unit = row.machine_unit
     pairs = work_on_down_units(now, unit_id)
+    paused = paused_in_progress_on_unit(unit_id)
     others = _other_usable_units(unit)
     can_after = downtime_blocked_until(row, now) is not None
+    has_work = bool(pairs) or bool(paused)
     default = MOVE_UNIT if others else AFTER_REPAIR if can_after else None
+    operations = [_serialize(op) for op, _ in pairs]
+    seen = {item["id"] for item in operations}
+    for op in paused:
+        if op.id in seen:
+            continue
+        item = _serialize(op)
+        item["paused"] = True
+        item["pauseReason"] = "Machine breakdown"
+        operations.append(item)
     return {
         "downtimeId": row.id,
         "machineUnitId": unit.id,
         "machineUnitLabel": unit.label,
         "expectedRepairDate": row.expected_repair_date.isoformat() if row.expected_repair_date else None,
-        "operations": [_serialize(op) for op, _ in pairs],
+        "operations": operations,
         "otherUnits": [
             {"id": u.id, "label": u.label,
              "operatorName": u.default_operator.full_name if u.default_operator else None}
@@ -506,7 +555,7 @@ def breakdown_options(unit_id, now_utc=None) -> dict:
         ],
         "canMoveToUnit": bool(others),
         "canMoveAfterRepair": can_after,
-        "needsReplan": bool(pairs) and not others and not can_after,
+        "needsReplan": has_work and not others and not can_after,
         "defaultAction": default,
     }
 
@@ -567,7 +616,12 @@ def resolve_breakdown(unit_id, action, now_utc=None, actor_id=None) -> dict:
         lock_schedule()
         options = breakdown_options(unit_id, now)
         pairs = work_on_down_units(now, unit_id)
+        paused = paused_in_progress_on_unit(unit_id)
         result = {"action": action, "moved": [], "notPlaced": [], "needsReplan": [], "left": []}
+        if action == MOVE_UNIT:
+            unit_row = db.session.get(MachineUnit, unit_id)
+            if unit_row is not None:
+                _reassign_paused(unit_row, paused, result)
         if not pairs or action == LEAVE:
             result["left"] = [op.id for op, _ in pairs]
             db.session.commit()

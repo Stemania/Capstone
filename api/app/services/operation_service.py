@@ -1073,7 +1073,9 @@ def list_machine_unit_statuses(include_inactive=False):
         running = running_by_unit.get(unit.id)
         nxt = next_by_unit.get(unit.id)
         payload["currentOperation"] = (
-            _serialize_affected_operation(running) if running else None
+            None
+            if dt is not None
+            else _serialize_affected_operation(running) if running else None
         )
         payload["nextOperation"] = _serialize_affected_operation(nxt) if nxt else None
         payload["jobsToday"] = len(jobs_today.get(unit.id, ()))

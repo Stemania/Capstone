@@ -14,7 +14,7 @@ import type { Operation, OperationPauseReason } from '../../types';
 const PAUSE_REASONS: { value: OperationPauseReason; label: string }[] = [
   { value: 'END_OF_SHIFT', label: 'End of shift' },
   { value: 'BREAK', label: 'Break' },
-  { value: 'MACHINE_DOWN', label: 'Machine down' },
+  { value: 'MACHINE_DOWN', label: 'Machine breakdown' },
   { value: 'WAITING_MATERIAL', label: 'Waiting for material' },
   { value: 'WAITING_PRIOR_OPERATION', label: 'Waiting on prior operation' },
   { value: 'OTHER', label: 'Other' },

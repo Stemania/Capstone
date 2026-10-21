@@ -34,7 +34,7 @@ class OperationPauseReason(enum.Enum):
 PAUSE_REASON_LABELS = {
     OperationPauseReason.END_OF_SHIFT.value: "End of shift",
     OperationPauseReason.BREAK.value: "Break",
-    OperationPauseReason.MACHINE_DOWN.value: "Machine down",
+    OperationPauseReason.MACHINE_DOWN.value: "Machine breakdown",
     OperationPauseReason.WAITING_MATERIAL.value: "Waiting for material",
     OperationPauseReason.WAITING_PRIOR_OPERATION.value: "Waiting on prior operation",
     OperationPauseReason.OTHER.value: "Other",

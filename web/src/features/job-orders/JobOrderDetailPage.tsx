@@ -141,7 +141,7 @@ const NOTIF_STATUS_LABEL: Record<string, string> = {
 const PAUSE_REASONS: { value: OperationPauseReason; label: string }[] = [
   { value: 'END_OF_SHIFT', label: 'End of shift' },
   { value: 'BREAK', label: 'Break' },
-  { value: 'MACHINE_DOWN', label: 'Machine down' },
+  { value: 'MACHINE_DOWN', label: 'Machine breakdown' },
   { value: 'WAITING_MATERIAL', label: 'Waiting for material' },
   { value: 'WAITING_PRIOR_OPERATION', label: 'Waiting on prior operation' },
   { value: 'OTHER', label: 'Other' },
@@ -161,7 +161,7 @@ const TIME_EVENT_LABEL: Record<string, string> = {
 const PAUSE_REASON_LABEL: Record<string, string> = {
   END_OF_SHIFT: 'End of shift',
   BREAK: 'Break',
-  MACHINE_DOWN: 'Machine down',
+  MACHINE_DOWN: 'Machine breakdown',
   WAITING_MATERIAL: 'Waiting for material',
   WAITING_PRIOR_OPERATION: 'Waiting on prior operation',
   OTHER: 'Other',

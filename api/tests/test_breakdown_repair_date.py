@@ -207,5 +207,5 @@ def test_breakdown_on_multi_unit_type_raises_no_alert(client, shop):
 
 def test_pause_reasons_have_readable_labels():
     assert pause_reason_label("OTHER") == "Other"
-    assert pause_reason_label("MACHINE_DOWN") == "Machine down"
+    assert pause_reason_label("MACHINE_DOWN") == "Machine breakdown"
     assert pause_reason_label("SOMETHING_NEW") == "Something new"

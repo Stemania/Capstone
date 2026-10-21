@@ -62,7 +62,7 @@ export default function BreakdownWorkModal({ work, canDecide, onClose, onDone, o
   return (
     <Modal
       open
-      title={`${count} unstarted operation${count === 1 ? '' : 's'} booked on ${work.machineUnitLabel}`}
+      title={`${count} operation${count === 1 ? '' : 's'} affected on ${work.machineUnitLabel}`}
       onCancel={onClose}
       onOk={canDecide ? submit : onOpenSchedule}
       okText={canDecide ? 'Apply' : 'Open Schedule'}
@@ -74,6 +74,7 @@ export default function BreakdownWorkModal({ work, canDecide, onClose, onDone, o
         {work.operations.map((op) => (
           <li key={op.id}>
             <Typography.Text strong>{op.jobNumber || 'Job'}</Typography.Text> · {op.operationName}
+            {op.paused ? ' · paused, machine breakdown' : ''}
             {op.scheduledStart ? ` · ${formatShopDateTime(op.scheduledStart)}` : ''}
             {op.assignedWorkerName
               ? ` · ${personLabel(op.assignedWorkerName, op.assignedWorkerNickname)}`

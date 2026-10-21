@@ -713,6 +713,9 @@ export interface AffectedScheduledOperation {
   assignedWorkerNickname?: string | null;
   assignedWorkerPhotoVersion?: number | null;
   crew?: CrewMember[];
+  /** True when the operation was in progress and paused for this breakdown. */
+  paused?: boolean;
+  pauseReason?: string | null;
 }
 
 export interface MachineUnitStatus extends MachineUnitInfo {

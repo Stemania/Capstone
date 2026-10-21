@@ -108,3 +108,109 @@ def test_status_board_reports_jobs_today_and_next_job_while_running(client, app)
     assert row["nextOperation"]["operationName"] == "Facing"
     assert row["jobsToday"] == 1
     assert datetime.fromisoformat(row["nextOperation"]["scheduledStart"]) > now
+
+
+def test_breakdown_pauses_running_work_and_clears_running_now(client, app):
+    from app.models.operation_time import OperationPauseReason, OperationTimeEvent, OperationTimeLog
+
+    admin = _user("brk_admin@test.local", UserRole.ADMIN, "Bea Admin")
+    worker = _user("brk_worker@test.local", UserRole.PRODUCTION_WORKER, "Rio Worker")
+    lathe = MachineType(code="LATHE2", name="Lathe Machine", units=2)
+    db.session.add(lathe)
+    db.session.flush()
+    down = MachineUnit(machine_type_id=lathe.id, label="Lathe #3", active=True)
+    spare = MachineUnit(machine_type_id=lathe.id, label="Lathe #4", active=True)
+    customer = Client(name="BRK Client")
+    db.session.add_all([down, spare, customer])
+    db.session.flush()
+    job = JobOrder(
+        client_id=customer.id,
+        title="BRK job",
+        due_date=date(2026, 12, 30),
+        status=JobOrderStatus.IN_PROGRESS,
+        job_type=JobType.FABRICATION,
+        part_condition=PartCondition.RAW_MATERIAL,
+        material_status=MaterialStatus.NOT_REQUIRED,
+        raw_materials=[],
+        amount=Decimal("100"),
+        created_by_id=admin.id,
+    )
+    db.session.add(job)
+    db.session.flush()
+    now = shop_now().astimezone(timezone.utc)
+    op = JobOperation(
+        job_order_id=job.id,
+        sequence_no=1,
+        operation_name="Threading",
+        status=OperationStatus.IN_PROGRESS,
+        machine_type_id=lathe.id,
+        machine_unit_id=down.id,
+        assigned_worker_id=worker.id,
+        scheduled_start=now - timedelta(hours=1),
+        scheduled_end=now + timedelta(hours=1),
+        actual_start=now - timedelta(hours=1),
+    )
+    later = JobOperation(
+        job_order_id=job.id,
+        sequence_no=2,
+        operation_name="Facing",
+        status=OperationStatus.SCHEDULED,
+        machine_type_id=lathe.id,
+        machine_unit_id=down.id,
+        scheduled_start=now + timedelta(hours=2),
+        scheduled_end=now + timedelta(hours=3),
+    )
+    db.session.add_all([op, later])
+    db.session.flush()
+    db.session.add(
+        OperationTimeLog(
+            operation_id=op.id,
+            worker_id=worker.id,
+            event=OperationTimeEvent.START,
+            event_at=now - timedelta(hours=1),
+        )
+    )
+    db.session.commit()
+
+    token = create_access_token(identity=admin.id, additional_claims={"role": admin.role.value})
+    headers = {"Authorization": f"Bearer {token}"}
+    opened = client.post(
+        f"/api/v1/operations/machine-units/{down.id}/downtime",
+        json={"category": "MECHANICAL_FAILURE"},
+        headers=headers,
+    )
+    assert opened.status_code == 201, opened.get_json()
+    names = {row["operationName"] for row in opened.get_json()["affectedOperations"]}
+    assert names == {"Threading", "Facing"}
+
+    logs = (
+        OperationTimeLog.query.filter_by(operation_id=op.id)
+        .order_by(OperationTimeLog.event_at)
+        .all()
+    )
+    assert logs[-1].event == OperationTimeEvent.PAUSE
+    assert logs[-1].reason == OperationPauseReason.MACHINE_DOWN
+
+    board = client.get("/api/v1/operations/machine-units/status", headers=headers)
+    row = next(item for item in board.get_json() if item["id"] == down.id)
+    assert row["down"] is True
+    assert row["currentOperation"] is None
+
+    work = client.get(
+        f"/api/v1/operations/machine-units/{down.id}/downtime/work", headers=headers
+    )
+    assert work.status_code == 200, work.get_json()
+    listed = {item["operationName"]: item for item in work.get_json()["operations"]}
+    assert listed["Threading"]["paused"] is True
+    assert listed["Threading"]["pauseReason"] == "Machine breakdown"
+    assert "Facing" in listed
+
+    moved = client.post(
+        f"/api/v1/operations/machine-units/{down.id}/downtime/work",
+        json={"action": "MOVE_UNIT"},
+        headers=headers,
+    )
+    assert moved.status_code == 200, moved.get_json()
+    db.session.refresh(op)
+    assert op.machine_unit_id == spare.id
+    assert op.status == OperationStatus.IN_PROGRESS

@@ -200,7 +200,7 @@ export default function MachineDetailsDrawer({
               )}
             </Section>
 
-            {unit.currentOperation && (
+            {unit.currentOperation && status !== 'breakdown' && (
               <Section title="Running now">
                 <OperationBlock op={unit.currentOperation} onOpenJob={actions.onOpenJob} showFinish />
               </Section>

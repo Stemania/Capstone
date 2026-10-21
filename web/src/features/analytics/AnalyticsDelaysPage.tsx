@@ -9,7 +9,7 @@ import { useDelays, usePeriods } from './sources';
 const REASON_LABEL: Record<string, string> = {
   END_OF_SHIFT: 'End of shift',
   BREAK: 'Break',
-  MACHINE_DOWN: 'Machine down',
+  MACHINE_DOWN: 'Machine breakdown',
   WAITING_MATERIAL: 'Waiting for material',
   WAITING_PRIOR_OPERATION: 'Waiting on prior operation',
   OTHER: 'Other',

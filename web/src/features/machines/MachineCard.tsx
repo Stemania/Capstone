@@ -101,7 +101,7 @@ export default function MachineCard({
               <span className="mcard__person-name">Open to all</span>
             </span>
           )}
-          {runner && (
+          {runner && status !== 'breakdown' && (
             <>
               <div className="mcard__caption mcard__caption--gap">Running now</div>
               <Person
