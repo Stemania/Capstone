@@ -1,14 +1,18 @@
 """Sample-history generate and remove, on the test database only."""
 
-from datetime import date, time
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 
 import pytest
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.extensions import db
+from app.models.attendance import AttendanceRecord
 from app.models.client import Client
-from app.models.job_order import JobOrder
+from app.models.job_order import JobOrder, JobOrderStatus, JobType, MaterialStatus, PartCondition
+from app.models.material_purchase import MaterialPurchase
+from app.models.supplier_order import SupplierOrder, SupplierOrderStatus
+from app.models.tool_event import ToolEvent, ToolEventType
 from app.models.machine import MachineType, MachineUnit
 from app.models.material_catalog import MaterialCatalogItem
 from app.models.notification import NotificationLog
@@ -24,7 +28,7 @@ from app.models.worker_skill import (
     WorkerSchedule,
     WorkerSkill,
 )
-from app.services.sample_history_service import generate, remove
+from app.services.sample_history_service import clear_old_demo, generate, remove
 
 
 def _person(email, role, name):
@@ -170,6 +174,8 @@ def test_apply_then_remove_restores_stock_and_deletes_holidays(app):
     db.session.refresh(unit)
     assert unit.status == ToolUnitStatus.AVAILABLE
     assert unit.current_holder_id == held
+    assert summary["toolUnitsOpenBorrow"] == 0
+    assert summary["toolBorrows"] == summary["toolReturns"]
     assert Client.query.filter_by(id=client.id).one().name == "Northline Works"
     assert NotificationLog.query.count() == 0
     assert JobOrder.query.filter_by(created_by_id=User.query.filter_by(full_name="Ada Quill").one().id).count() > 0
@@ -213,3 +219,114 @@ def test_apply_aborts_when_the_host_does_not_match(app):
     assert result.exit_code != 0
     assert "Host confirmation failed" in result.output
     assert JobOrder.query.count() == 0
+
+
+def test_clear_old_demo_deletes_marked_rows_and_rewinds_stock(app):
+    admin = _shop()
+    disc = Tool.query.filter_by(code="CD4").one()
+    disc.quantity_on_hand = Decimal("50")
+    supplier = Supplier.query.filter_by(code="HRB").one()
+    client = Client.query.filter_by(name="Northline Works").one()
+    worker = User.query.filter_by(full_name="Wren Calder").one()
+    when = datetime(2026, 10, 3, 1, 0, tzinfo=timezone.utc)
+
+    def job(title, po, amount):
+        row = JobOrder(
+            client_id=client.id,
+            client_po_number=po,
+            title=title,
+            due_date=date(2026, 10, 20),
+            status=JobOrderStatus.DRAFT,
+            job_type=JobType.FABRICATION,
+            part_condition=PartCondition.RAW_MATERIAL,
+            material_status=MaterialStatus.NOT_REQUIRED,
+            raw_materials=[],
+            amount=Decimal(amount),
+            created_by_id=admin.id,
+            created_at=when,
+        )
+        db.session.add(row)
+        return row
+
+    job("Kept bushing", "PO-REAL-1", "12000")
+    job("Flange drilling run", "HIST-SEED-1", "55000")
+    job("frfr", "12738", "56")
+    db.session.add(
+        AttendanceRecord(
+            worker_id=worker.id,
+            work_date=date(2026, 10, 3),
+            clock_in=when,
+            clock_out=when,
+            recorded_by_id=admin.id,
+        )
+    )
+    order = SupplierOrder(
+        supplier_id=supplier.id,
+        po_number="HRB-OLD-1",
+        status=SupplierOrderStatus.RECEIVED,
+        date_issued=date(2026, 9, 1),
+        notes="consumable restock",
+        prepared_by_id=admin.id,
+    )
+    db.session.add(order)
+    db.session.flush()
+    line = MaterialPurchase(
+        tool_id=disc.id,
+        material_name=disc.name,
+        quantity=Decimal("10"),
+        unit="pcs",
+        unit_cost=Decimal("25"),
+        supplier_id=supplier.id,
+        supplier_order_id=order.id,
+        date_ordered=date(2026, 9, 1),
+        date_received=date(2026, 9, 8),
+    )
+    db.session.add(line)
+    db.session.flush()
+    db.session.add(
+        ToolEvent(
+            tool_id=disc.id,
+            worker_id=admin.id,
+            type=ToolEventType.RECEIVE,
+            quantity=Decimal("10"),
+            stock_delta=Decimal("10"),
+            material_purchase_id=line.id,
+        )
+    )
+    db.session.add(
+        ToolEvent(
+            tool_id=disc.id,
+            worker_id=admin.id,
+            type=ToolEventType.ADJUST,
+            quantity=Decimal("2"),
+            stock_delta=Decimal("-2"),
+            reason="Orphan count",
+        )
+    )
+    db.session.commit()
+
+    preview = clear_old_demo(apply=False)
+    assert preview["applied"] is False
+    assert preview["counts"]["HIST-SEED jobs"] == 1
+    assert preview["counts"]["manual scraps"] == 1
+    assert preview["counts"]["consumable restock orders"] == 1
+    assert preview["counts"]["receive events"] == 1
+    assert preview["counts"]["adjust events"] == 1
+    assert JobOrder.query.count() == 3
+    db.session.refresh(disc)
+    assert Decimal(str(disc.quantity_on_hand)) == Decimal("50")
+
+    done = clear_old_demo(apply=True)
+    assert done["applied"] is True
+    assert JobOrder.query.count() == 1
+    assert JobOrder.query.filter_by(title="Kept bushing").count() == 1
+    assert SupplierOrder.query.count() == 0
+    assert MaterialPurchase.query.count() == 0
+    assert ToolEvent.query.count() == 0
+    assert AttendanceRecord.query.count() == 1
+    db.session.refresh(disc)
+    assert Decimal(str(disc.quantity_on_hand)) == Decimal("42")
+    assert done["stock"][0]["before"] == "50.00"
+    assert done["stock"][0]["after"] == "42.00"
+    assert Client.query.filter_by(name="Northline Works").count() == 1
+    assert User.query.filter_by(full_name="Wren Calder").count() == 1

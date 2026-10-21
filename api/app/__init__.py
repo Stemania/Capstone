@@ -381,6 +381,30 @@ def _register_cli(app):
             else "Dry run: nothing was saved. Run with --apply to commit."
         )
 
+    @sample_history_group.command("clear-old-demo")
+    @click.option(
+        "--apply",
+        "apply_changes",
+        is_flag=True,
+        help="Commit the delete. Without it, delete and roll back after the summary.",
+    )
+    def sample_history_clear_old_demo(apply_changes):
+        """Delete the old HIST-SEED, TC-SEED, and scrap demo rows on this machine only."""
+        from app.services.sample_history_service import clear_old_demo, format_clear_summary
+
+        _confirm_sample_history_host(apply_changes)
+        try:
+            summary = clear_old_demo(apply=apply_changes)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        for line in format_clear_summary(summary):
+            print(line)
+        print(
+            "Applied."
+            if apply_changes
+            else "Dry run: nothing was saved. Run with --apply to commit."
+        )
+
     @app.cli.command("import-employees")
     @click.option("--file", "file_path", required=True, help="CSV file, e.g. api/data/employees.local.csv")
     @click.option("--dry-run", is_flag=True, help="Show the changes without saving them.")

@@ -76,6 +76,7 @@ from app.services.schedule_calendar import (
     build_worker_working_windows,
     clear_calendar_cache,
     default_shop_schedule_by_dow,
+    effective_hours_for_date,
     effective_windows_for_date,
     ensure_utc,
     intersect_intervals,
@@ -83,6 +84,7 @@ from app.services.schedule_calendar import (
     load_worker_schedule_maps_many,
     place_unbroken,
     shop_local_to_utc,
+    shop_working_hours,
     utc_to_shop,
 )
 
@@ -101,7 +103,7 @@ HOLIDAYS = (
 SUPPLIER_PROFILES = (
     {"late": 0.04, "extra": 1},
     {"late": 0.18, "extra": 2},
-    {"late": 0.35, "extra": 2},
+    {"late": 0.26, "extra": 2},
 )
 
 PARTS = (
@@ -127,20 +129,21 @@ PARTS = (
     ("Base plate", "Milled base, holes drilled and tapped."),
 )
 
-PAUSE_WEIGHTS = (
-    (OperationPauseReason.WAITING_MATERIAL, 0.42, "Waiting for material"),
-    (OperationPauseReason.MACHINE_DOWN, 0.22, None),
-    (OperationPauseReason.OTHER, 0.18, "Waiting for instruction"),
-    (OperationPauseReason.WAITING_PRIOR_OPERATION, 0.10, "Waiting on the prior operation"),
-    (OperationPauseReason.END_OF_SHIFT, 0.08, "Stopped at the end of the shift"),
+# Pause time is wall-clock and stays on the same shift. Machine downtime is
+# planted as its own records so it can carry shop hours without stretching
+# a job across lunch. Waiting-for-material pauses are omitted: supplier
+# lateness is recorded as a short material move instead.
+PAUSE_TARGETS = (
+    (OperationPauseReason.OTHER, 0.32, 1.0, "Waiting for instruction"),
+    (OperationPauseReason.WAITING_PRIOR_OPERATION, 0.20, 1.0, "Waiting on the prior operation"),
 )
 
 REWORK_WEIGHTS = (
-    (ReworkReasonCategory.DIMENSION_OUT_OF_TOLERANCE, 0.50, "Dimension out of tolerance"),
-    (ReworkReasonCategory.SURFACE_FINISH, 0.20, "Surface finish below the drawing"),
-    (ReworkReasonCategory.OPERATOR_ERROR, 0.15, "Setup error, recut required"),
-    (ReworkReasonCategory.MACHINE_FAULT, 0.10, "Machine fault marked the part"),
-    (ReworkReasonCategory.OTHER, 0.05, "Fit-up did not match the mating part"),
+    (ReworkReasonCategory.DIMENSION_OUT_OF_TOLERANCE, 0.88, "Dimension out of tolerance"),
+    (ReworkReasonCategory.SURFACE_FINISH, 0.05, "Surface finish below the drawing"),
+    (ReworkReasonCategory.OPERATOR_ERROR, 0.04, "Setup error, recut required"),
+    (ReworkReasonCategory.MACHINE_FAULT, 0.02, "Machine fault marked the part"),
+    (ReworkReasonCategory.OTHER, 0.01, "Fit-up did not match the mating part"),
 )
 
 DOWNTIME_REASONS = (
@@ -250,6 +253,293 @@ def remove(apply=False):
         _thaw_onupdate(frozen)
 
 
+_MANUAL_SCRAP_PO = "12738"
+_MANUAL_SCRAP_TITLES = frozenset({"title", "frfr"})
+_RESTOCK_NOTE = "consumable restock"
+
+
+def clear_old_demo(apply=False):
+    """Delete the pre-generator demo transactions and rewind the stock they received.
+
+    The set is the HIST-SEED jobs, the TC-SEED jobs, the two manual scraps on
+    client PO 12738, the purchase orders that belong only to those jobs, and
+    the old consumable-restock orders with their receives and the orphan
+    adjust. Rows tracked in sample_records are left alone. Master data and
+    attendance are not changed, except consumable quantity_on_hand, which
+    moves by the deleted stock deltas and never below zero.
+
+    Without ``apply`` the work runs and then rolls back.
+    """
+    assert_local_database()
+    frozen = _freeze_onupdate()
+    try:
+        with _quiet_audit():
+            before = _master_fingerprint()
+            attendance_before = AttendanceRecord.query.count()
+            summary = _clear_old_demo()
+            if _master_fingerprint() != before:
+                raise RuntimeError(
+                    "clear-old-demo changed a master row other than consumable "
+                    "quantity on hand. Rolled back."
+                )
+            if AttendanceRecord.query.count() != attendance_before:
+                raise RuntimeError("clear-old-demo changed attendance. Rolled back.")
+            if apply:
+                db.session.commit()
+            else:
+                db.session.rollback()
+            summary["applied"] = bool(apply)
+            return summary
+    except Exception:
+        db.session.rollback()
+        raise
+    finally:
+        _thaw_onupdate(frozen)
+
+
+def format_clear_summary(summary):
+    verb = "Deleted" if summary.get("applied") else "Would delete"
+    lines = [f"{verb}:"]
+    for key, count in summary["counts"].items():
+        lines.append(f"  {key}: {count}")
+    lines.append("Consumable quantity on hand:")
+    if not summary["stock"]:
+        lines.append("  no item changed")
+    for row in summary["stock"]:
+        lines.append(f"  {row['code']} {row['name']}: {row['before']} -> {row['after']}")
+    return lines
+
+
+def _ledger_ids(table):
+    return {
+        row.record_id
+        for row in SampleRecord.query.filter_by(table_name=table).all()
+    }
+
+
+def _clear_old_demo():
+    ledger_jobs = _ledger_ids("job_orders")
+    jobs = []
+    for job in JobOrder.query.order_by(JobOrder.created_at, JobOrder.id).all():
+        if job.id in ledger_jobs:
+            continue
+        po = job.client_po_number or ""
+        title = job.title or ""
+        if po.startswith("HIST-SEED") or po.startswith("TC-SEED"):
+            jobs.append(job)
+        elif po == _MANUAL_SCRAP_PO and title in _MANUAL_SCRAP_TITLES:
+            jobs.append(job)
+    job_ids = [job.id for job in jobs]
+    job_id_set = set(job_ids)
+    hist = sum(1 for job in jobs if (job.client_po_number or "").startswith("HIST-SEED"))
+    tc = sum(1 for job in jobs if (job.client_po_number or "").startswith("TC-SEED"))
+    manual = len(jobs) - hist - tc
+
+    op_ids = [
+        row.id
+        for row in JobOperation.query.filter(JobOperation.job_order_id.in_(job_ids)).all()
+    ] if job_ids else []
+
+    ledger_orders = _ledger_ids("supplier_orders")
+    job_lines = (
+        MaterialPurchase.query.filter(MaterialPurchase.job_order_id.in_(job_ids)).all()
+        if job_ids
+        else []
+    )
+    exclusive_order_ids = []
+    seen_orders = {line.supplier_order_id for line in job_lines if line.supplier_order_id}
+    for order_id in seen_orders:
+        if order_id in ledger_orders:
+            continue
+        siblings = MaterialPurchase.query.filter_by(supplier_order_id=order_id).all()
+        if siblings and all(line.job_order_id in job_id_set for line in siblings):
+            exclusive_order_ids.append(order_id)
+
+    restock_orders = [
+        order
+        for order in SupplierOrder.query.filter(SupplierOrder.notes == _RESTOCK_NOTE).all()
+        if order.id not in ledger_orders and order.id not in set(exclusive_order_ids)
+    ]
+    restock_ids = [order.id for order in restock_orders]
+    restock_lines = (
+        MaterialPurchase.query.filter(MaterialPurchase.supplier_order_id.in_(restock_ids)).all()
+        if restock_ids
+        else []
+    )
+    restock_line_ids = [line.id for line in restock_lines]
+    ledger_events = _ledger_ids("tool_events")
+    receive_events = (
+        ToolEvent.query.filter(
+            ToolEvent.material_purchase_id.in_(restock_line_ids),
+            ToolEvent.type == ToolEventType.RECEIVE,
+        ).all()
+        if restock_line_ids
+        else []
+    )
+    receive_events = [event for event in receive_events if event.id not in ledger_events]
+    adjusts = [
+        event
+        for event in ToolEvent.query.filter(
+            ToolEvent.type == ToolEventType.ADJUST,
+            ToolEvent.material_purchase_id.is_(None),
+        ).all()
+        if event.id not in ledger_events
+    ]
+    job_events = []
+    if job_ids or op_ids:
+        job_events = [
+            event
+            for event in ToolEvent.query.filter(
+                db.or_(
+                    ToolEvent.job_order_id.in_(job_ids or [""]),
+                    ToolEvent.operation_id.in_(op_ids or [""]),
+                )
+            ).all()
+            if event.id not in ledger_events
+        ]
+
+    stock_events = {event.id: event for event in receive_events}
+    for event in adjusts:
+        stock_events[event.id] = event
+    delta_by_tool = defaultdict(lambda: Decimal("0"))
+    for event in stock_events.values():
+        tool_id = event.tool_id
+        delta = _signed_stock_delta(event)
+        if not tool_id or delta == 0:
+            continue
+        delta_by_tool[tool_id] += delta
+
+    stock = []
+    for tool_id, delta in delta_by_tool.items():
+        tool = db.session.get(Tool, tool_id)
+        if tool is None or delta == 0:
+            continue
+        before_qty = Decimal(str(tool.quantity_on_hand or 0))
+        after_qty = before_qty - delta
+        if after_qty < 0:
+            after_qty = Decimal("0")
+        tool.quantity_on_hand = after_qty
+        stock.append(
+            {
+                "code": tool.code or "",
+                "name": tool.name,
+                "before": f"{before_qty:.2f}",
+                "after": f"{after_qty:.2f}",
+            }
+        )
+    stock.sort(key=lambda row: (row["code"], row["name"]))
+
+    order_ids = list(dict.fromkeys(exclusive_order_ids + restock_ids))
+    purchase_ids = list(dict.fromkeys([line.id for line in job_lines] + restock_line_ids))
+    event_ids = list(dict.fromkeys(
+        [event.id for event in receive_events]
+        + [event.id for event in adjusts]
+        + [event.id for event in job_events]
+    ))
+
+    counts = {
+        "job orders": len(job_ids),
+        "HIST-SEED jobs": hist,
+        "TC-SEED jobs": tc,
+        "manual scraps": manual,
+        "operations": len(op_ids),
+        "operation helpers": _delete_matching(OperationHelper, OperationHelper.operation_id, op_ids),
+        "time logs": _delete_matching(OperationTimeLog, OperationTimeLog.operation_id, op_ids),
+        "schedule moves": _delete_or(
+            ScheduleMove,
+            ScheduleMove.job_order_id, job_ids,
+            ScheduleMove.supplier_order_id, order_ids,
+        ),
+        "machine downtimes": _delete_or(
+            MachineDowntime,
+            MachineDowntime.job_order_id, job_ids,
+            MachineDowntime.operation_id, op_ids,
+        ),
+        "notification logs": _delete_matching(NotificationLog, NotificationLog.job_order_id, job_ids),
+        "staff alerts": _delete_or(
+            StaffAlert,
+            StaffAlert.job_order_id, job_ids,
+            StaffAlert.supplier_order_id, order_ids,
+        ),
+        "sales invoices": _delete_matching(SalesInvoice, SalesInvoice.job_order_id, job_ids),
+        "audit rows": _delete_audit(job_ids, op_ids),
+        "tool events": _delete_matching(ToolEvent, ToolEvent.id, event_ids),
+        "purchase lines": _delete_matching(MaterialPurchase, MaterialPurchase.id, purchase_ids),
+        "supplier orders for these jobs": len(exclusive_order_ids),
+        "consumable restock orders": len(restock_ids),
+        "receive events": len(receive_events),
+        "adjust events": len(adjusts),
+    }
+    counts["supplier orders"] = _delete_matching(SupplierOrder, SupplierOrder.id, order_ids)
+    _delete_matching(JobOperation, JobOperation.id, op_ids, rework_first=True)
+    counts["job orders deleted"] = _delete_matching(JobOrder, JobOrder.id, job_ids)
+    db.session.flush()
+    return {"counts": counts, "stock": stock}
+
+
+def _signed_stock_delta(event):
+    """How this event changed quantity on hand.
+
+    Newer rows store that in stock_delta. The old demo receives and the orphan
+    adjust only stored a positive quantity: a receive added that many, and the
+    adjust added its quantity.
+    """
+    if event.stock_delta is not None:
+        return Decimal(str(event.stock_delta))
+    qty = Decimal(str(event.quantity or 0))
+    if event.type in (ToolEventType.RECEIVE, ToolEventType.ADJUST):
+        return qty
+    return Decimal("0")
+
+
+def _delete_matching(model, column, ids, rework_first=False):
+    ids = [item for item in ids if item]
+    if not ids:
+        return 0
+    total = 0
+    if rework_first:
+        for chunk in _chunks(ids):
+            total += (
+                model.query.filter(
+                    column.in_(chunk),
+                    model.rework_of_operation_id.isnot(None),
+                ).delete(synchronize_session=False)
+                or 0
+            )
+    for chunk in _chunks(ids):
+        total += model.query.filter(column.in_(chunk)).delete(synchronize_session=False) or 0
+    return total
+
+
+def _delete_or(model, column_a, ids_a, column_b, ids_b):
+    total = _delete_matching(model, column_a, ids_a)
+    total += _delete_matching(model, column_b, ids_b)
+    return total
+
+
+def _delete_audit(job_ids, op_ids):
+    total = 0
+    if job_ids:
+        for chunk in _chunks(job_ids):
+            total += (
+                AuditLog.query.filter(
+                    AuditLog.entity_type == "JobOrder",
+                    AuditLog.entity_id.in_(chunk),
+                ).delete(synchronize_session=False)
+                or 0
+            )
+    if op_ids:
+        for chunk in _chunks(op_ids):
+            total += (
+                AuditLog.query.filter(
+                    AuditLog.entity_type == "JobOperation",
+                    AuditLog.entity_id.in_(chunk),
+                ).delete(synchronize_session=False)
+                or 0
+            )
+    return total
+
+
 def format_summary(summary):
     """Lines for the flask command."""
     if "deleted" in summary:
@@ -287,10 +577,7 @@ def format_summary(summary):
         f"Tool borrows: {summary['toolBorrows']}, returns: {summary['toolReturns']}, "
         f"borrows with no return event: {summary['toolUnitsOpenBorrow']}"
     )
-    lines.append(
-        "Tool unit status was not changed. A few borrow events have no return, "
-        "but the units stay at their previous custody so existing rows are untouched."
-    )
+    lines.append("Tool unit custody was not changed. Every borrow has a return the same day.")
     if summary["holidaysAdded"]:
         lines.append("Holidays added: " + ", ".join(summary["holidaysAdded"]))
     else:
@@ -335,6 +622,9 @@ def _generate(start, end, seed):
 
     shop.tune_efficiency(rng)
     plans = _plan_jobs(rng, shop, start, end)
+    ops_guess = max(1, len(plans) * 2.2)
+    capacity = max(1, len(shop.workers)) * 7.5 * max(1, len(shop.working_days))
+    shop.hours_per_op = min(1.6, max(1.0, (capacity * 0.30) / ops_guess))
     print(f"Scheduling {len(plans)} job orders...", flush=True)
     counters = _schedule_jobs(rng, shop, ledger, plans)
     _attendance(rng, shop, ledger, plans, counters)
@@ -353,12 +643,23 @@ def _generate(start, end, seed):
 
 
 def _plan_jobs(rng, shop, start, end):
-    month_shift = {m: rng.uniform(-0.06, 0.10) for m in range(1, 13)}
+    """More jobs, and larger ones, as the months go on, with a seasonal wobble.
+
+    The slope is strong enough that a trend forecast beats a flat one, and
+    the seasonal factors keep a mid-year dip from being a straight line.
+    """
     weeks = _weeks(shop.working_days)
+    span = max(1, (end.year - start.year) * 12 + (end.month - start.month))
     plans = []
     seq = 0
     for week in weeks:
-        count = rng.randint(10, 14) if len(week) >= 5 else max(1, round(12 * len(week) / 6))
+        anchor = week[0]
+        month_i = min(span, max(0, (anchor.year - start.year) * 12 + (anchor.month - start.month)))
+        season = {3: 1.08, 4: 0.97, 5: 1.03, 6: 0.90, 7: 1.05, 8: 1.08, 9: 0.96, 10: 1.12}.get(
+            anchor.month, 1.0
+        )
+        full = (6.5 + month_i * 1.55) * season * rng.uniform(0.94, 1.06)
+        count = max(1, int(round(full * (len(week) / 6))))
         for _ in range(count):
             seq += 1
             po = week[rng.randrange(len(week))]
@@ -367,10 +668,17 @@ def _plan_jobs(rng, shop, start, end):
             needs = _needs_material(rng, kind)
             part, blurb = PARTS[rng.randrange(len(PARTS))]
             size = f"{rng.choice((20, 35, 50, 80, 120))} mm"
-            month_i = (po.year - start.year) * 12 + (po.month - start.month)
-            raw = math.exp(rng.uniform(math.log(5000), math.log(250000)))
-            amount = min(250000.0, max(5000.0, raw * (1 + 0.035 * month_i + month_shift[po.month])))
-            due = shop.next_working(po + timedelta(days=rng.randint(7, 28)))
+            month_i_job = min(span, max(0, (po.year - start.year) * 12 + (po.month - start.month)))
+            sale_season = {
+                1: 0.94, 2: 0.97, 3: 1.06, 4: 0.95, 5: 1.0, 6: 0.94,
+                7: 1.03, 8: 1.08, 9: 0.96, 10: 1.12, 11: 1.04, 12: 0.98,
+            }[po.month]
+            raw = math.exp(rng.uniform(math.log(8000), math.log(180000)))
+            amount = min(
+                250000.0,
+                max(5000.0, raw * (1 + 0.11 * month_i_job) * sale_season * rng.uniform(0.94, 1.06)),
+            )
+            due = shop.next_working(po + timedelta(days=rng.randint(7, 21)))
             plans.append(
                 {
                     "seq": seq,
@@ -408,6 +716,7 @@ def _plan_jobs(rng, shop, start, end):
 
 def _schedule_jobs(rng, shop, ledger, plans):
     counters = _blank_counters()
+    _plant_downtime(rng, shop, ledger, plans, counters)
     office = shop.office or shop.admins[0]
     admin = shop.admins[0]
     for index, plan in enumerate(plans, start=1):
@@ -530,26 +839,31 @@ def _one_job(rng, shop, ledger, plan, counters, admin, office):
     )
 
     if late and previous_start and first["start"] > previous_start and fate == "run":
-        move = ScheduleMove(
-            id=_new_id(rng),
-            job_order_id=job.id,
-            kind=DelayKind.MATERIAL,
-            previous_start=previous_start,
-            new_start=first["start"],
-            reason="Supplier delivered after the promised date",
-            supplier_order_id=purchase["order"].id if purchase else None,
-            supplier_id=purchase["supplier"].id if purchase else None,
-            material_cause=MaterialCause.SUPPLIER_LATE,
-            moved_at=first["start"],
-            moved_by_id=admin.id,
+        capped = _cap_delay_start(
+            shop, previous_start, first["start"], purchase.get("extra") or 1
         )
-        ledger.add(move, first["start"])
-        job.material_delay_original_start = previous_start
-        job.material_delay_reason = move.reason
-        job.material_delay_supplier_order_id = move.supplier_order_id
-        job.material_delayed_at = first["start"]
-        job.delay_kind = DelayKind.MATERIAL
-        counters["material_moves"] += 1
+        if capped is not None:
+            move = ScheduleMove(
+                id=_new_id(rng),
+                job_order_id=job.id,
+                kind=DelayKind.MATERIAL,
+                previous_start=capped,
+                new_start=first["start"],
+                reason="Supplier delivered after the promised date",
+                supplier_order_id=purchase["order"].id if purchase else None,
+                supplier_id=purchase["supplier"].id if purchase else None,
+                material_cause=MaterialCause.SUPPLIER_LATE,
+                moved_at=first["start"],
+                moved_by_id=admin.id,
+            )
+            ledger.add(move, first["start"])
+            job.material_delay_original_start = capped
+            job.material_delay_reason = move.reason
+            job.material_delay_supplier_order_id = move.supplier_order_id
+            job.material_delayed_at = first["start"]
+            job.delay_kind = DelayKind.MATERIAL
+            counters["material_moves"] += 1
+            counters["material_hours"] += shop_working_hours([(capped, first["start"])])
 
     if purchase and purchase["received"] and fate != "waiting":
         job.material_received_date = purchase["received"]
@@ -601,7 +915,7 @@ def _purchase_for_job(rng, shop, ledger, plan, job, catalog, office, counters):
     lead = supplier.typical_lead_time_days or 7
     lead = min(30, max(1, int(lead)))
     expected = shop.next_working(issue + timedelta(days=lead))
-    late = rng.random() < profile["late"]
+    late = False if plan["fate"] == "waiting" else _supplier_is_late(counters, supplier.id, profile["late"])
     if plan["fate"] == "waiting":
         issue = shop.working_days[-2] if len(shop.working_days) >= 2 else plan["po"]
         expected = shop.next_working(shop.end + timedelta(days=6))
@@ -667,6 +981,39 @@ def _purchase_for_job(rng, shop, ledger, plan, job, catalog, office, counters):
         updated_at=order.updated_at,
     )
     ledger.add(line, issued_at)
+    if rng.random() < 0.35 and len(shop.catalog) > 1:
+        other = shop.catalog[rng.randrange(len(shop.catalog))]
+        if other.id == catalog.id:
+            other = shop.catalog[(shop.catalog.index(catalog) + 1) % len(shop.catalog)]
+        extra_line = MaterialPurchase(
+            id=_new_id(rng),
+            job_order_id=job.id,
+            material_catalog_id=other.id,
+            material_name=other.name,
+            grade_or_spec=_grade(other, rng),
+            size_spec=plan["title"].split(", ", 1)[-1],
+            quantity=Decimal(str(max(1, plan["qty"] // 2))),
+            unit=other.default_unit or "pcs",
+            unit_cost=Decimal(str(rng.randrange(80, 1800))),
+            supplier_id=supplier.id,
+            supplier_order_id=order.id,
+            date_ordered=issue,
+            date_received=received,
+            created_at=issued_at,
+            updated_at=order.updated_at,
+        )
+        ledger.add(extra_line, issued_at)
+        materials = list(job.raw_materials or [])
+        materials.append(
+            {
+                "id": _new_id(rng),
+                "name": other.name,
+                "grade": extra_line.grade_or_spec,
+                "quantity": float(extra_line.quantity),
+                "unit": extra_line.unit,
+            }
+        )
+        job.raw_materials = materials
     bucket = counters["suppliers"][supplier.id]
     bucket["name"] = supplier.name
     bucket["orders"] += 1
@@ -684,6 +1031,7 @@ def _purchase_for_job(rng, shop, ledger, plan, job, catalog, office, counters):
         "expected": expected,
         "received": received,
         "late": late and received is not None and received > expected,
+        "extra": profile["extra"] if late else 0,
     }
 
 
@@ -720,7 +1068,7 @@ def _place_operations(rng, shop, ledger, job, plan, not_before, horizon, admin, 
         estimated = max(0.75, min(6.0, hours_each))
         is_last = step == count
         in_progress = fate == "progress" and is_last
-        pause = fate == "run" and not in_progress and rng.random() < 0.28
+        pause = fate == "run" and not in_progress and rng.random() < 0.55
         result = _place_one(
             rng,
             shop,
@@ -763,7 +1111,8 @@ def _place_operations(rng, shop, ledger, job, plan, not_before, horizon, admin, 
         if (
             not in_progress
             and result["actual_end"] is not None
-            and rng.random() < 0.04
+            and counters["rework_hours"] < max(counters["delay_target_material"], 1) * 0.50
+            and rng.random() < 0.85
         ):
             redo = _place_one(
                 rng,
@@ -772,7 +1121,7 @@ def _place_operations(rng, shop, ledger, job, plan, not_before, horizon, admin, 
                 job,
                 op_type,
                 take_seq(),
-                max(0.75, estimated * 0.5),
+                max(1.5, min(2.5, estimated)),
                 result["actual_end"],
                 shop.future_end,
                 admin,
@@ -810,7 +1159,8 @@ def _place_one(
     pairs = shop.pairs.get(op_type.default_machine_type_id) or []
     if not pairs:
         return None
-    pause_len = 1.5 if pause else 0.0
+    chosen = _choose_pause(rng, counters) if pause else None
+    pause_len = chosen[2] if chosen else 0.0
     lead = pairs[0][1]
     if rework_of is not None:
         lead = rework_of["worker"]
@@ -823,18 +1173,13 @@ def _place_one(
             rest = rest[cut:] + rest[:cut]
         pairs = preferred + rest
 
-    duration_hours = estimated
-    worker = pairs[0][1]
-    eff = shop.efficiency.get(worker.id, 1.0)
-    noise = rng.uniform(0.92, 1.08)
-    worked = max(0.75, estimated * eff * noise)
-    if pause_len:
-        duration_hours = worked + pause_len
-    else:
-        duration_hours = worked if not in_progress else estimated
-
     start = end = unit = worker = None
+    worked = float(estimated)
     for unit_try, worker_try in pairs[:8]:
+        worked_try = _paced_hours(
+            shop, rng, worker_try, op_type.default_machine_type_id, estimated
+        )
+        duration_hours = estimated if in_progress else worked_try + pause_len
         windows = shop.windows[worker_try.id]
         busy = shop.worker_busy[worker_try.id] + shop.unit_busy[unit_try.id]
         start, end, _ = place_unbroken(
@@ -846,6 +1191,7 @@ def _place_one(
         )
         if start is not None:
             unit, worker = unit_try, worker_try
+            worked = worked_try
             break
         start = end = None
     if start is None:
@@ -902,6 +1248,7 @@ def _place_one(
     counters["operations"] += 1
     if rework_of is not None:
         counters["rework"] += 1
+        counters["rework_hours"] += float(op.actual_worked_hours or 0)
 
     helper = _maybe_helper(rng, shop, op, worker, start, end, ledger)
     if status == OperationStatus.COMPLETED and actual_start and actual_end:
@@ -914,6 +1261,7 @@ def _place_one(
             actual_start,
             actual_end,
             pause_len,
+            chosen,
             counters,
             admin,
             take_seq,
@@ -934,17 +1282,18 @@ def _place_one(
     }
 
 
-def _time_logs(rng, shop, ledger, op, worker, start, end, pause_len, counters, admin, take_seq):
+def _time_logs(rng, shop, ledger, op, worker, start, end, pause_len, chosen, counters, admin, take_seq):
     _log(ledger, rng, op, worker, OperationTimeEvent.START, start, None, None)
-    if pause_len:
+    if pause_len and chosen:
         pause_at = start + timedelta(minutes=20)
         resume_at = pause_at + timedelta(hours=pause_len)
         same_day = utc_to_shop(pause_at).date() == utc_to_shop(resume_at).date()
         if same_day and resume_at < end and utc_to_shop(start).hour <= 11:
-            reason, note = _pick_pause(rng)
+            reason, note, _length = chosen
             _log(ledger, rng, op, worker, OperationTimeEvent.PAUSE, pause_at, reason, note)
             _log(ledger, rng, op, worker, OperationTimeEvent.RESUME, resume_at, None, None)
             counters["pauses"][reason.value] += 1
+            counters["pause_hours"][reason.value] += pause_len
             if reason == OperationPauseReason.MACHINE_DOWN:
                 _downtime(rng, shop, ledger, op, worker, pause_at, resume_at, counters, admin, take_seq)
     _log(ledger, rng, op, worker, OperationTimeEvent.COMPLETE, end, None, None)
@@ -1062,9 +1411,11 @@ def _remember_work(shop, result):
 
 
 def _attendance(rng, shop, ledger, plans, counters):
-    busy_weeks = defaultdict(int)
-    for plan in plans:
-        busy_weeks[plan["po"].isocalendar()[:2]] += 1
+    """One row per production worker per working day, minus about 3 percent absences.
+
+    Clock times follow that worker's own weekly hours (the shop default when
+    they have no schedule). A few days run a little past the shift.
+    """
     existing = {
         (worker_id, work_date)
         for worker_id, work_date in db.session.query(
@@ -1077,7 +1428,8 @@ def _attendance(rng, shop, ledger, plans, counters):
         .all()
     }
     admin = shop.admins[0]
-    for person in shop.workers:
+    crew = shop.crew or shop.workers
+    for person in crew:
         for day in shop.working_days:
             if not shop.worker_works(person.id, day):
                 continue
@@ -1086,9 +1438,18 @@ def _attendance(rng, shop, ledger, plans, counters):
             if rng.random() < 0.03:
                 counters["absences"] += 1
                 continue
-            overtime = busy_weeks[day.isocalendar()[:2]] >= 13 and rng.random() < 0.2
-            clock_in = shop_local_to_utc(day, time(8, rng.randint(0, 12)))
-            clock_out = shop_local_to_utc(day, time(19 if overtime else 17, rng.randint(0, 15)))
+            sched = shop.worker_schedules.get(person.id) or {}
+            source = sched if _has_hours(sched) else shop.shop_schedule
+            start_t, end_t, working = effective_hours_for_date(day, source, shop.exceptions)
+            if not working or start_t is None or end_t is None:
+                continue
+            overtime = rng.random() < 0.04
+            clock_in = shop_local_to_utc(day, _shift_time(start_t, rng.randint(0, 8)))
+            clock_out = shop_local_to_utc(
+                day, _shift_time(end_t, 45 if overtime else rng.randint(0, 8))
+            )
+            if clock_out <= clock_in:
+                clock_out = shop_local_to_utc(day, end_t)
             row = AttendanceRecord(
                 id=_new_id(rng),
                 worker_id=person.id,
@@ -1116,7 +1477,11 @@ def _consumables(rng, shop, ledger, counters):
     cutoff = cutoff_days[0] if cutoff_days else shop.end
     qty = {t.id: Decimal(str(t.quantity_on_hand or 0)) for t in shop.consumables}
     inbound = []
-    supplier_cycle = 0
+    home = {}
+    for index, tool in enumerate(sorted(shop.consumables, key=lambda t: t.id)):
+        home[tool.id] = shop.suppliers[index % len(shop.suppliers)]
+    levels = {"high": Decimal(8), "mid": Decimal(5), "low": Decimal(3)}
+    amounts = {"high": Decimal(72), "mid": Decimal(36), "low": Decimal(18)}
 
     def receive_due(day):
         still = []
@@ -1127,52 +1492,59 @@ def _consumables(rng, shop, ledger, counters):
             _apply_receive(rng, shop, ledger, tool, amount, order, line, due, office, qty, counters)
         inbound[:] = still
 
-    for day in shop.working_days:
-        receive_due(day)
+    def order_due(day):
+        waiting = {row[1].id for row in inbound}
+        grouped = defaultdict(list)
         for tool in names:
-            if tool.id in estimated and day < cutoff:
-                continue
             rate = _usage_rate(tool.name)
-            if rate == "low" and day.toordinal() % 3 != 0:
-                scans = 1 if rng.random() < 0.35 else 0
-            elif rate == "high":
-                scans = rng.randint(3, 5)
-            else:
-                scans = rng.randint(1, 2)
-            for n in range(scans):
-                if qty[tool.id] < 1:
-                    break
-                _snapshot_stock(ledger, tool, shop_local_to_utc(day, time(9, 0)))
-                qty[tool.id] -= 1
-                tool.quantity_on_hand = qty[tool.id]
-                when = shop_local_to_utc(day, time(9, min(59, n * 7)))
-                link = shop.day_work.get(day) or []
-                worker_id = shop.workers[n % len(shop.workers)].id
-                op_id = job_id = None
-                if link:
-                    worker_id, op_id, job_id = link[n % len(link)]
-                event = ToolEvent(
-                    id=_new_id(rng),
-                    tool_id=tool.id,
-                    worker_id=worker_id,
-                    type=ToolEventType.SCAN,
-                    quantity=Decimal("1"),
-                    stock_delta=Decimal("-1"),
-                    job_order_id=job_id,
-                    operation_id=op_id,
-                    created_at=when,
-                )
-                ledger.add(event, when)
-                counters["scans"] += 1
-            reorder_at = Decimal(12 if rate == "high" else 6)
-            if qty[tool.id] <= reorder_at and not any(t.id == tool.id for _, t, *_ in inbound):
-                supplier = shop.suppliers[supplier_cycle % len(shop.suppliers)]
-                supplier_cycle += 1
-                amount = Decimal(48 if rate == "high" else 24)
-                order, line, due = _stock_po(
-                    rng, shop, ledger, tool, supplier, day, amount, office, counters
-                )
+            if tool.id in waiting or qty[tool.id] > levels[rate]:
+                continue
+            grouped[home[tool.id]].append((tool, amounts[rate]))
+        for supplier, rows in grouped.items():
+            order, due, packed = _stock_po(rng, shop, ledger, supplier, day, rows, office, counters)
+            for tool, amount, line in packed:
                 inbound.append((due, tool, amount, order, line))
+
+    weeks = _weeks(shop.working_days)
+    for week in weeks:
+        for day in week:
+            receive_due(day)
+            for tool in names:
+                if tool.id in estimated and day < cutoff:
+                    continue
+                rate = _usage_rate(tool.name)
+                if rate == "low" and day.toordinal() % 3 != 0:
+                    scans = 1 if rng.random() < 0.35 else 0
+                elif rate == "high":
+                    scans = rng.randint(3, 5)
+                else:
+                    scans = rng.randint(1, 2)
+                for n in range(scans):
+                    if qty[tool.id] < 1:
+                        break
+                    _snapshot_stock(ledger, tool, shop_local_to_utc(day, time(9, 0)))
+                    qty[tool.id] -= 1
+                    tool.quantity_on_hand = qty[tool.id]
+                    when = shop_local_to_utc(day, time(9, min(59, n * 7)))
+                    link = shop.day_work.get(day) or []
+                    worker_id = shop.workers[n % len(shop.workers)].id
+                    op_id = job_id = None
+                    if link:
+                        worker_id, op_id, job_id = link[n % len(link)]
+                    event = ToolEvent(
+                        id=_new_id(rng),
+                        tool_id=tool.id,
+                        worker_id=worker_id,
+                        type=ToolEventType.SCAN,
+                        quantity=Decimal("1"),
+                        stock_delta=Decimal("-1"),
+                        job_order_id=job_id,
+                        operation_id=op_id,
+                        created_at=when,
+                    )
+                    ledger.add(event, when)
+                    counters["scans"] += 1
+        order_due(week[-1])
     receive_due(shop.end + timedelta(days=1))
     # A few mid-history corrections, then the closing counts replace on-hand.
     for tool in names[: min(3, len(names))]:
@@ -1189,11 +1561,12 @@ def _consumables(rng, shop, ledger, counters):
     shop.estimated_ids = estimated
 
 
-def _stock_po(rng, shop, ledger, tool, supplier, day, amount, office, counters):
+def _stock_po(rng, shop, ledger, supplier, day, rows, office, counters):
+    """One purchase order for every item this supplier is replenishing this week."""
     lead = min(21, max(2, int(supplier.typical_lead_time_days or 7)))
     profile = SUPPLIER_PROFILES[min(shop.suppliers.index(supplier), len(SUPPLIER_PROFILES) - 1)]
     expected = shop.next_working(day + timedelta(days=lead))
-    late = rng.random() < profile["late"]
+    late = _supplier_is_late(counters, supplier.id, profile["late"])
     received = shop.next_working(expected + timedelta(days=profile["extra"])) if late else expected
     if received > shop.end:
         received = shop.end if shop.is_working(shop.end) else shop.working_on_or_before(shop.end)
@@ -1212,6 +1585,7 @@ def _stock_po(rng, shop, ledger, tool, supplier, day, amount, office, counters):
         expected_delivery_date=expected,
         original_expected_delivery_date=expected,
         received_date=received,
+        notes="consumable restock",
         terms_of_payment="PDC",
         delivery_mode="DELIVERY",
         prepared_by_id=office.id,
@@ -1223,24 +1597,28 @@ def _stock_po(rng, shop, ledger, tool, supplier, day, amount, office, counters):
         updated_at=shop_local_to_utc(received, time(11, 0)),
     )
     ledger.add(order, issued_at)
-    cost = tool.unit_cost if tool.unit_cost is not None else Decimal(str(rng.randrange(15, 400)))
-    line = MaterialPurchase(
-        id=_new_id(rng),
-        tool_id=tool.id,
-        material_name=tool.name,
-        grade_or_spec=tool.size_spec,
-        size_spec=tool.size_spec,
-        quantity=amount,
-        unit=tool.unit or "pcs",
-        unit_cost=Decimal(str(cost)),
-        supplier_id=supplier.id,
-        supplier_order_id=order.id,
-        date_ordered=day,
-        date_received=received,
-        created_at=issued_at,
-        updated_at=order.updated_at,
-    )
-    ledger.add(line, issued_at)
+    _audit(ledger, rng, office, "CREATE", "SupplierOrder", order.id, issued_at, {"po": order.po_number})
+    packed = []
+    for tool, amount in rows:
+        cost = tool.unit_cost if tool.unit_cost is not None else Decimal(str(rng.randrange(15, 400)))
+        line = MaterialPurchase(
+            id=_new_id(rng),
+            tool_id=tool.id,
+            material_name=tool.name,
+            grade_or_spec=tool.size_spec,
+            size_spec=tool.size_spec,
+            quantity=amount,
+            unit=tool.unit or "pcs",
+            unit_cost=Decimal(str(cost)),
+            supplier_id=supplier.id,
+            supplier_order_id=order.id,
+            date_ordered=day,
+            date_received=received,
+            created_at=issued_at,
+            updated_at=order.updated_at,
+        )
+        ledger.add(line, issued_at)
+        packed.append((tool, amount, line))
     bucket = counters["suppliers"][supplier.id]
     bucket["name"] = supplier.name
     bucket["orders"] += 1
@@ -1249,7 +1627,7 @@ def _stock_po(rng, shop, ledger, tool, supplier, day, amount, office, counters):
     else:
         bucket["late"] += 1
     counters["purchase_orders"] += 1
-    return order, line, received
+    return order, received, packed
 
 
 def _apply_receive(rng, shop, ledger, tool, amount, order, line, day, office, qty, counters):
@@ -1305,13 +1683,11 @@ def _tool_borrows(rng, shop, ledger, counters):
         for unit in ToolUnit.query.order_by(ToolUnit.asset_code).all()
         if unit.status == ToolUnitStatus.AVAILABLE
     ]
-    if not units or not shop.working_days:
+    if not units or not shop.working_days or not shop.workers:
         return
-    last_day = shop.working_days[-1]
-    leave_out = {unit.id for unit in units[:3]}
     for day in shop.working_days:
         for index, unit in enumerate(units):
-            if rng.random() < 0.08 and not (day == last_day and unit.id in leave_out):
+            if rng.random() < 0.08:
                 continue
             person = shop.workers[(index + day.toordinal()) % len(shop.workers)]
             borrow_at = shop_local_to_utc(day, time(8, 10))
@@ -1325,9 +1701,6 @@ def _tool_borrows(rng, shop, ledger, counters):
             )
             ledger.add(borrow, borrow_at)
             counters["borrows"] += 1
-            if day == last_day and unit.id in leave_out:
-                counters["open_borrows"] += 1
-                continue
             return_at = shop_local_to_utc(day, time(16, 40))
             returned = ToolEvent(
                 id=_new_id(rng),
@@ -1452,6 +1825,7 @@ class _Shop:
         self.suppliers = []
         self.catalog = []
         self.workers = []
+        self.crew = []
         self.admins = []
         self.office = None
         self.op_types = []
@@ -1462,6 +1836,7 @@ class _Shop:
         self.worker_busy = defaultdict(list)
         self.unit_busy = defaultdict(list)
         self.efficiency = {}
+        self.machine_pace = {}
         self.working_days = []
         self.exceptions = {}
         self.shop_schedule = default_shop_schedule_by_dow()
@@ -1549,19 +1924,21 @@ class _Shop:
                     seen.add(person.id)
                     used_workers.append(person)
         shop.workers = used_workers or [w for w in workers if w.id in worker_ids and skills.get(w.id)]
+        shop.crew = list(workers)
         span_start = start - timedelta(days=2)
         span_end = end + timedelta(days=21)
         shop.exceptions = load_calendar_exceptions(span_start, span_end)
-        schedules = load_worker_schedule_maps_many([w.id for w in shop.workers])
+        schedules = load_worker_schedule_maps_many([w.id for w in shop.crew])
         shop_windows = build_worker_working_windows(
             shop.shop_schedule,
             shop.exceptions,
             shop_local_to_utc(span_start, time(0, 0)),
             shop.future_end,
         )
+        for person in shop.crew:
+            shop.worker_schedules[person.id] = schedules.get(person.id) or {}
         for person in shop.workers:
-            sched = schedules.get(person.id) or {}
-            shop.worker_schedules[person.id] = sched
+            sched = shop.worker_schedules.get(person.id) or {}
             source = sched if _has_hours(sched) else shop.shop_schedule
             windows = build_worker_working_windows(
                 source,
@@ -1590,8 +1967,13 @@ class _Shop:
         return shop
 
     def tune_efficiency(self, rng):
+        self.machine_pace = {}
+        for type_id in {op.default_machine_type_id for op in self.op_types}:
+            self.machine_pace[type_id] = rng.uniform(0.96, 1.05)
         for person in self.workers:
-            self.efficiency[person.id] = rng.uniform(0.85, 1.25)
+            # actual ÷ target. The band is about 85–108 percent efficiency
+            # per worker; hours weight the shop result into 88–98 percent.
+            self.efficiency[person.id] = rng.uniform(0.93, 1.18)
 
     def is_working(self, day):
         return bool(effective_windows_for_date(day, self.shop_schedule, self.exceptions))
@@ -1815,6 +2197,9 @@ def _summary(plans, counters, holidays_added, holidays_present, ledger):
         "stockSnapshots": ledger.snapshots,
         "firstTitles": list(counters["titles"]),
         "materialMoves": counters["material_moves"],
+        "materialHours": round(counters["material_hours"], 1),
+        "downtimeHours": round(counters["downtime_hours"], 1),
+        "reworkHours": round(counters["rework_hours"], 1),
     }
 
 
@@ -1841,6 +2226,11 @@ def _blank_counters():
         "open_borrows": 0,
         "titles": [],
         "material_moves": 0,
+        "material_hours": 0.0,
+        "downtime_hours": 0.0,
+        "rework_hours": 0.0,
+        "pause_hours": defaultdict(float),
+        "delay_target_material": 0.0,
     }
 
 
@@ -2000,11 +2390,13 @@ def _job_type(rng):
 
 
 def _needs_material(rng, kind):
+    # Most jobs run from stock or client-supplied parts. A purchase is the
+    # exception, so job POs stay near a couple per week.
     if kind == JobType.FABRICATION:
-        return rng.random() < 0.95
+        return rng.random() < 0.28
     if kind == JobType.MODIFICATION:
-        return rng.random() < 0.25
-    return rng.random() < 0.08
+        return rng.random() < 0.08
+    return rng.random() < 0.02
 
 
 def _priority(rng):
@@ -2027,16 +2419,105 @@ def _op_count(rng):
     return 4
 
 
+def _supplier_is_late(counters, supplier_id, rate):
+    """A fixed share of each supplier's orders, spread through the run."""
+    bucket = counters["suppliers"][supplier_id]
+    bucket["draws"] = bucket.get("draws", 0) + 1
+    return (bucket["draws"] * 17) % 100 < int(round(rate * 100))
+
+
+def _choose_pause(rng, counters):
+    """The pause cause that is furthest under its share of the delay budget."""
+    base = max(float(counters.get("delay_target_material") or 0), float(counters["material_hours"]), 1.0)
+    best = None
+    gap = 0.0
+    for reason, share, length, note in PAUSE_TARGETS:
+        short = base * share - counters["pause_hours"][reason.value]
+        if short > gap:
+            gap = short
+            best = (reason, note, length)
+    if best is None or gap < best[2]:
+        return None
+    return best
+
+
+def _paced_hours(shop, rng, worker, machine_type_id, estimated):
+    """Actual hours. Overall target/actual lands near 93 percent.
+
+    Each worker sits between about 0.82 and 1.10 (target ÷ actual), and the
+    machine type nudges that without leaving the band.
+    """
+    pace = shop.efficiency.get(worker.id, 1.06)
+    pace *= shop.machine_pace.get(machine_type_id, 1.0)
+    pace = min(1.22, max(0.91, pace))
+    pace *= rng.uniform(0.98, 1.02)
+    return max(0.5, float(estimated) * pace)
+
+
+def _cap_delay_start(shop, expected_morning, actual_start, extra_days):
+    """Keep a late delivery's lost time to the lateness itself, at most two shop days.
+
+    A job that cannot start until a machine is free is not counted as weeks
+    of material delay. ``extra_days`` is the supplier's lateness.
+    """
+    if actual_start <= expected_morning:
+        return None
+    cap_days = min(2, max(1, int(extra_days)))
+    day = utc_to_shop(actual_start).date()
+    left = cap_days
+    guard = 0
+    while left > 0 and guard < 14:
+        day -= timedelta(days=1)
+        guard += 1
+        if shop.is_working(day):
+            left -= 1
+    floor = shop_local_to_utc(day, time(8, 0))
+    previous = expected_morning if expected_morning > floor else floor
+    if previous >= actual_start:
+        return None
+    return previous
+
+
+def _plant_downtime(rng, shop, ledger, plans, counters):
+    """Afternoon breakdowns, closed the same day, sized against the expected material delay."""
+    material_jobs = sum(1 for plan in plans if plan["needs"] and plan["fate"] == "run")
+    expected = material_jobs * ((0.04 * 8) + (0.18 * 12) + (0.26 * 14)) / 3
+    counters["delay_target_material"] = expected
+    target = expected * 0.75
+    units = [unit for grouped in shop.units_by_type.values() for unit in grouped]
+    if not units or not shop.workers or target < 3:
+        return
+    days = list(shop.working_days)
+    rng.shuffle(days)
+    reporter = shop.workers[0]
+    made = 0.0
+    for day in days:
+        if made >= target:
+            break
+        unit = units[rng.randrange(len(units))]
+        start = shop_local_to_utc(day, time(13, 0))
+        end = shop_local_to_utc(day, time(16, 0))
+        category, reason = DOWNTIME_REASONS[rng.randrange(len(DOWNTIME_REASONS))]
+        row = MachineDowntime(
+            id=_new_id(rng),
+            machine_unit_id=unit.id,
+            started_at=start,
+            ended_at=end,
+            category=category,
+            reason=reason,
+            reported_by_id=reporter.id,
+            expected_repair_date=day,
+            created_at=start,
+        )
+        ledger.add(row, start)
+        shop.unit_busy[unit.id].append((ensure_utc(start), ensure_utc(end)))
+        counters["breakdowns"] += 1
+        counters["downtime_hours"] += 3
+        made += 3
+
+
 def _pick_pause(rng):
-    roll = rng.random()
-    acc = 0.0
-    for reason, weight, note in PAUSE_WEIGHTS:
-        acc += weight
-        if roll <= acc:
-            if reason == OperationPauseReason.OTHER and rng.random() < 0.5:
-                note = "Hold for a rework check"
-            return reason, note
-    reason, _weight, note = PAUSE_WEIGHTS[0]
+    reason, _share, _length, note = PAUSE_TARGETS[0]
     return reason, note
 
 
@@ -2081,6 +2562,13 @@ def _target_qty(adu, rop, kind):
     else:
         qty = rop_n + max(adu_n * 20, 8)
     return Decimal(str(round(qty, 2)))
+
+
+def _shift_time(value, minutes):
+    base = datetime(2000, 1, 1, value.hour, value.minute) + timedelta(minutes=int(minutes))
+    if base.date() != date(2000, 1, 1):
+        return time(23, 50)
+    return base.time().replace(second=0, microsecond=0)
 
 
 def _has_hours(schedule):
