@@ -1476,6 +1476,15 @@ def _consumables(rng, shop, ledger, counters):
     cutoff_days = [d for d in shop.working_days if d <= shop.end][-8:]
     cutoff = cutoff_days[0] if cutoff_days else shop.end
     qty = {t.id: Decimal(str(t.quantity_on_hand or 0)) for t in shop.consumables}
+    # Snapshot the real on-hand first so remove restores it, then start each
+    # item from a different quantity so usage history does not begin identical.
+    open_day = shop.working_days[0] if shop.working_days else shop.end
+    open_when = shop_local_to_utc(open_day, time(8, 0))
+    index_of = {tool.id: index for index, tool in enumerate(names)}
+    for tool in names:
+        _snapshot_stock(ledger, tool, open_when)
+        qty[tool.id] = Decimal(8 + (index_of[tool.id] * 5) % 31)
+        tool.quantity_on_hand = qty[tool.id]
     inbound = []
     home = {}
     for index, tool in enumerate(sorted(shop.consumables, key=lambda t: t.id)):
@@ -1499,7 +1508,8 @@ def _consumables(rng, shop, ledger, counters):
             rate = _usage_rate(tool.name)
             if tool.id in waiting or qty[tool.id] > levels[rate]:
                 continue
-            grouped[home[tool.id]].append((tool, amounts[rate]))
+            spread = index_of[tool.id] % 5
+            grouped[home[tool.id]].append((tool, amounts[rate] + Decimal(spread * 6)))
         for supplier, rows in grouped.items():
             order, due, packed = _stock_po(rng, shop, ledger, supplier, day, rows, office, counters)
             for tool, amount, line in packed:
@@ -1513,12 +1523,14 @@ def _consumables(rng, shop, ledger, counters):
                 if tool.id in estimated and day < cutoff:
                     continue
                 rate = _usage_rate(tool.name)
-                if rate == "low" and day.toordinal() % 3 != 0:
-                    scans = 1 if rng.random() < 0.35 else 0
+                spread = index_of[tool.id] % 5
+                # Spread is per item, not per rate band, so ADU / ROP / days-left differ.
+                if rate == "low":
+                    scans = 1 + (spread % 2) if (day.toordinal() + index_of[tool.id]) % 3 == 0 else 0
                 elif rate == "high":
-                    scans = rng.randint(3, 5)
+                    scans = 2 + spread
                 else:
-                    scans = rng.randint(1, 2)
+                    scans = 1 + (spread % 3)
                 for n in range(scans):
                     if qty[tool.id] < 1:
                         break
@@ -1668,6 +1680,11 @@ def _retarget_stock(rng, shop, ledger, counters):
         band = index % 10
         target_kind = "now" if band == 0 else "soon" if band in (1, 2) else "ok"
         target = _target_qty(adu, rop, target_kind)
+        # Same-band items would otherwise land on one on-hand and one days-left.
+        if target_kind == "now":
+            target = max(Decimal("0"), target - Decimal(index % 4))
+        else:
+            target = target + Decimal((index * 3) % 11)
         current = Decimal(str(tool.quantity_on_hand or 0))
         delta = target - current
         if delta == 0:

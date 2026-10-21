@@ -330,3 +330,20 @@ def test_clear_old_demo_deletes_marked_rows_and_rewinds_stock(app):
     assert done["stock"][0]["after"] == "42.00"
     assert Client.query.filter_by(name="Northline Works").count() == 1
     assert User.query.filter_by(full_name="Wren Calder").count() == 1
+
+
+def test_consumables_do_not_share_on_hand_rop_or_days_left(app):
+    _shop()
+    generate(date(2026, 4, 6), date(2026, 4, 17), seed=7, apply=True)
+    tools = Tool.query.filter_by(category=ToolCategory.CONSUMABLE).order_by(Tool.name).all()
+    from app.services.forecast_service import stock_snapshot_for_tools
+
+    snap = stock_snapshot_for_tools(tools, today=date(2026, 4, 17))
+    rows = [snap[t.id] for t in tools]
+    hands = [row["quantityOnHand"] for row in rows]
+    rops = [row["reorderPoint"] for row in rows if row["reorderPoint"] is not None]
+    days = [row["daysLeft"] for row in rows if row["daysLeft"] is not None]
+    assert len(tools) >= 4
+    assert len(set(hands)) == len(hands)
+    assert len(set(rops)) > 1
+    assert len(set(days)) > 1
