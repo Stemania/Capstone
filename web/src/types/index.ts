@@ -149,6 +149,8 @@ export interface AttendanceRow {
   isWorkingDay: boolean;
   status: AttendanceStatus;
   lateMinutes: number;
+  /** LATE, OVERTIME, or OUTSIDE. Empty when the clock-in is on time. */
+  punctuality?: 'LATE' | 'OVERTIME' | 'OUTSIDE' | null;
   record: AttendanceRecord | null;
 }
 

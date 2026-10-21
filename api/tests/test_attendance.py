@@ -13,7 +13,7 @@ from app.models.attendance import AttendanceRecord
 from app.models.audit_log import AuditLog
 from app.models.user import User, UserRole, UserStatus
 from app.models.worker_profile import WorkerProfile
-from app.models.worker_skill import WorkerSchedule
+from app.models.worker_skill import CalendarExceptionType, WorkerSchedule, WorkCalendarException
 from app.services.schedule_calendar import SHOP_TZ, shop_now
 
 
@@ -206,6 +206,7 @@ def test_day_sheet_statuses_and_late(client, shop):
     rows = {r["workerName"]: r for r in sheet["rows"]}
     assert rows["Ana Worker"]["status"] == "PRESENT"
     assert rows["Ana Worker"]["lateMinutes"] == 20
+    assert rows["Ana Worker"]["punctuality"] == "LATE"
     assert rows["Ana Worker"]["scheduledStart"] == "08:00"
     assert rows["Ben Worker"]["status"] == "ABSENT"
     assert "Att Office" not in rows
@@ -408,3 +409,52 @@ def test_worker_off_today_gets_no_attendance_warning(app, shop, ten_am):
     ).update({"is_working": False})
     db.session.commit()
     assert not_clocked_in_today([shop["worker"].id, shop["other"].id]) == {shop["worker"].id}
+
+
+def test_invited_worker_can_be_clocked_in(client, shop):
+    invited = User(
+        email=None,
+        mobile_number="+639175550011",
+        password_hash=None,
+        full_name="Invited Welder",
+        role=UserRole.PRODUCTION_WORKER,
+        status=UserStatus.INVITED,
+        active=False,
+    )
+    db.session.add(invited)
+    db.session.flush()
+    db.session.add(WorkerProfile(user_id=invited.id))
+    db.session.commit()
+    res = client.post(
+        "/api/v1/attendance/clock-in",
+        json={"workerId": invited.id, "clockIn": _local(shop["day"], 8, 5)},
+        headers=_headers(shop["admin"]),
+    )
+    assert res.status_code == 201, res.get_json()
+
+
+def test_clock_in_after_shift_is_outside_or_overtime(client, shop):
+    day, h = shop["day"], _headers(shop["admin"])
+    client.post(
+        "/api/v1/attendance/clock-in",
+        json={"workerId": shop["worker"].id, "clockIn": _local(day, 18, 12)},
+        headers=h,
+    )
+    sheet = client.get(f"/api/v1/attendance/day?date={day.isoformat()}", headers=h).get_json()
+    row = next(r for r in sheet["rows"] if r["workerName"] == "Ana Worker")
+    assert row["lateMinutes"] == 0
+    assert row["punctuality"] == "OUTSIDE"
+
+    db.session.add(
+        WorkCalendarException(
+            date=day,
+            type=CalendarExceptionType.OVERTIME,
+            start_time=time(17, 0),
+            end_time=time(19, 0),
+        )
+    )
+    db.session.commit()
+    sheet = client.get(f"/api/v1/attendance/day?date={day.isoformat()}", headers=h).get_json()
+    row = next(r for r in sheet["rows"] if r["workerName"] == "Ana Worker")
+    assert row["lateMinutes"] == 0
+    assert row["punctuality"] == "OVERTIME"

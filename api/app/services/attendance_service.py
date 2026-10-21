@@ -9,6 +9,7 @@ from sqlalchemy.orm import joinedload
 from app.extensions import db
 from app.models.attendance import AttendanceRecord
 from app.models.user import User, UserRole, UserStatus
+from app.models.worker_skill import CalendarExceptionType
 from app.services.schedule_calendar import (
     SHOP_TZ,
     effective_hours_for_date,
@@ -91,10 +92,15 @@ def get_record(record_id):
     return record
 
 
+def _assert_recordable(worker):
+    """Attendance is entered by an Admin. Invited workers are not disabled."""
+    if worker.status == UserStatus.DISABLED:
+        raise AppError("This worker's account is disabled", "VALIDATION_ERROR", 400)
+
+
 def clock_in(data, actor_id):
     worker = _get_worker(data.get("workerId"))
-    if not worker.active:
-        raise AppError("This worker's account is disabled", "VALIDATION_ERROR", 400)
+    _assert_recordable(worker)
     ts = _parse_time(data.get("clockIn"), "Clock-in") or ensure_utc(shop_now())
     _assert_not_future(ts, "Clock-in")
     work_date = utc_to_shop(ts).date()
@@ -113,6 +119,7 @@ def clock_in(data, actor_id):
 
 def clock_out(record_id, data, actor_id):
     record = get_record(record_id)
+    _assert_recordable(record.worker or _get_worker(record.worker_id))
     if record.clock_out:
         raise AppError("Clock-out is already recorded; edit the record instead", "CONFLICT", 409)
     ts = _parse_time(data.get("clockOut"), "Clock-out") or ensure_utc(shop_now())
@@ -156,12 +163,37 @@ def delete_record(record_id):
     db.session.commit()
 
 
-def _late_minutes(record, on_date, start_t):
-    if not start_t:
-        return 0
-    scheduled = shop_local_to_utc(on_date, start_t)
-    late = (ensure_utc(record.clock_in) - scheduled).total_seconds() / 60
-    return int(late) if late > LATE_GRACE_MINUTES else 0
+def _punctuality(record, on_date, sched_map, exceptions):
+    """(late minutes, mark). Mark is LATE, OVERTIME, OUTSIDE, or None.
+
+    Lateness is only the minutes after the scheduled start while the shift is
+    still open. A clock-in after the shift has ended is Outside shift, or
+    Overtime when that day has an overtime window and the clock-in falls in it.
+    """
+    if not record:
+        return 0, None
+    start_t, end_t, is_working = effective_hours_for_date(on_date, sched_map, exceptions)
+    if not is_working or not start_t or not end_t:
+        return 0, "OUTSIDE"
+
+    clock_utc = ensure_utc(record.clock_in)
+    scheduled_end = shop_local_to_utc(on_date, end_t)
+    if clock_utc > scheduled_end:
+        return 0, "OUTSIDE"
+
+    exc = exceptions.get(on_date) if exceptions else None
+    overtime = bool(exc and getattr(exc, "type", None) == CalendarExceptionType.OVERTIME)
+    sched = (sched_map or {}).get(on_date.weekday())
+    base_end = None
+    if sched and getattr(sched, "is_working", False) and getattr(sched, "end_time", None):
+        base_end = shop_local_to_utc(on_date, sched.end_time)
+    if overtime and (base_end is None or clock_utc > base_end):
+        return 0, "OVERTIME"
+
+    late = (clock_utc - shop_local_to_utc(on_date, start_t)).total_seconds() / 60
+    if late > LATE_GRACE_MINUTES:
+        return int(late), "LATE"
+    return 0, None
 
 
 def _status(record, is_working, on_date, start_t):
@@ -181,6 +213,7 @@ def _status(record, is_working, on_date, start_t):
 
 def _row(worker, record, on_date, sched_map, exceptions):
     start_t, end_t, is_working = effective_hours_for_date(on_date, sched_map, exceptions)
+    late, mark = _punctuality(record, on_date, sched_map, exceptions)
     return {
         "workerId": worker.id,
         "workerName": worker.full_name,
@@ -189,7 +222,8 @@ def _row(worker, record, on_date, sched_map, exceptions):
         "scheduledEnd": end_t.strftime("%H:%M") if end_t else None,
         "isWorkingDay": is_working,
         "status": _status(record, is_working, on_date, start_t),
-        "lateMinutes": _late_minutes(record, on_date, start_t) if record else 0,
+        "lateMinutes": late,
+        "punctuality": mark,
         "record": record.to_dict() if record else None,
     }
 
@@ -332,7 +366,13 @@ def rows_to_csv(rows) -> str:
                 "" if present is None else f"{present:.2f}",
                 "" if hours is None else f"{hours:.2f}",
                 STATUS_LABELS.get(r["status"], r["status"]),
-                r["lateMinutes"] or "",
+                (
+                    "Outside shift"
+                    if r.get("punctuality") == "OUTSIDE"
+                    else "Overtime"
+                    if r.get("punctuality") == "OVERTIME"
+                    else (r["lateMinutes"] or "")
+                ),
                 rec.get("note") or "",
             ]
         )

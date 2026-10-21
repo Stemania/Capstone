@@ -5,6 +5,7 @@ import {
   DatePicker,
   Dropdown,
   Form,
+  Alert,
   Input,
   Modal,
   Select,
@@ -76,7 +77,17 @@ function StatusCell({ row }: { row: AttendanceRow }) {
   return (
     <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
       <StatusPill status={row.status} map={ATTENDANCE_STATUS} compact />
-      {row.lateMinutes > 0 && (
+      {row.punctuality === 'OUTSIDE' && (
+        <StatusPill tone="slate" compact>
+          Outside shift
+        </StatusPill>
+      )}
+      {row.punctuality === 'OVERTIME' && (
+        <StatusPill tone={ATTENDANCE_STATUS.LATE.tone} compact>
+          Overtime
+        </StatusPill>
+      )}
+      {row.punctuality === 'LATE' && row.lateMinutes > 0 && (
         <StatusPill tone={ATTENDANCE_STATUS.LATE.tone} compact>
           Late {fmtHours(row.lateMinutes / 60)}
         </StatusPill>
@@ -98,6 +109,7 @@ export default function AttendancePage() {
 
   const [modal, setModal] = useState<{ mode: ModalMode; row: AttendanceRow } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [form] = Form.useForm();
 
   const dayKey = day.format('YYYY-MM-DD');
@@ -153,6 +165,7 @@ export default function AttendancePage() {
   }, [view, historyWorker, workerOptions]);
 
   const openModal = (mode: ModalMode, row: AttendanceRow) => {
+    setSaveError('');
     const rec = row.record;
     form.resetFields();
     form.setFieldsValue({
@@ -183,6 +196,7 @@ export default function AttendancePage() {
     }
     try {
       setSaving(true);
+      setSaveError('');
       if (mode === 'in' && inAt) {
         await attendanceApi.clockIn({
           workerId: row.workerId,
@@ -204,7 +218,7 @@ export default function AttendancePage() {
       setModal(null);
       await refresh();
     } catch (err) {
-      message.error(getErrorMessage(err));
+      setSaveError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -548,6 +562,9 @@ export default function AttendancePage() {
           </button>
         </div>
         <Form form={form} layout="vertical" onFinish={onSave} style={{ padding: '20px 24px 8px' }}>
+          {saveError ? (
+            <Alert type="error" showIcon title={saveError} style={{ marginBottom: 12 }} />
+          ) : null}
           <div style={{ display: 'flex', gap: 16 }}>
             {modal?.mode !== 'out' && (
               <Form.Item
