@@ -37,6 +37,12 @@ def list_tools():
         )
     tools = q.all()
     worker_id = get_current_user_id()
+    from app.services.read_cache import get as cache_get, put as cache_put
+
+    cache_key = ("tools", category or "", str(request.args.get("stockedOnly") or ""), worker_id)
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
     rows = [t.to_dict(include_custody=True, worker_id=worker_id) for t in tools]
     # Consumables list: same status / label / ROP as the forecast (batched, not N+1).
     if category and str(category).upper() == "CONSUMABLE" and tools:
@@ -51,6 +57,7 @@ def list_tools():
             row["reorderLevel"] = snap.get("reorderLevel")
             if "lowStock" in snap:
                 row["lowStock"] = snap["lowStock"]
+    cache_put(cache_key, rows, ttl=30)
     return jsonify(rows)
 
 

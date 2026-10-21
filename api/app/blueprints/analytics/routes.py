@@ -32,6 +32,18 @@ def _min_ops_arg():
         raise AppError("minOps must be an integer", "VALIDATION_ERROR", 400)
 
 
+def _cached(name, builder, ttl=45, **key):
+    from app.services.read_cache import get as cache_get, put as cache_put
+
+    cache_key = (name, tuple(sorted((k, None if v is None else str(v)) for k, v in key.items())))
+    hit = cache_get(cache_key)
+    if hit is not None:
+        return jsonify(hit)
+    payload = builder()
+    cache_put(cache_key, payload, ttl=ttl)
+    return jsonify(payload)
+
+
 def _period():
     return {"from_s": request.args.get("from"), "to_s": request.args.get("to")}
 
@@ -40,7 +52,8 @@ def _period():
 @jwt_required()
 @require_roles(*PRODUCTION)
 def overview():
-    return jsonify(analytics.overview(**_period()))
+    period = _period()
+    return _cached("overview", lambda: analytics.overview(**period), **period)
 
 
 @analytics_bp.route("/efficiency/by-worker", methods=["GET"])
@@ -89,7 +102,7 @@ def utilization_weekly():
 @jwt_required()
 @require_roles(*PRODUCTION)
 def completion_estimates():
-    return jsonify(analytics.completion_estimates())
+    return _cached("completion-estimates", analytics.completion_estimates)
 
 
 @analytics_bp.route("/demand/capacity", methods=["GET"])
@@ -117,21 +130,22 @@ def sales_summary():
 @jwt_required()
 @require_roles(*TRANSACTIONS)
 def sales_forecast():
-    return jsonify(analytics.sales_forecast(**_period()))
+    period = _period()
+    return _cached("sales-forecast", lambda: analytics.sales_forecast(**period), **period)
 
 
 @analytics_bp.route("/demand/forecast", methods=["GET"])
 @jwt_required()
 @require_roles(*TRANSACTIONS)
 def demand_forecast():
-    return jsonify(analytics.demand_forecast())
+    return _cached("demand-forecast", analytics.demand_forecast)
 
 
 @analytics_bp.route("/consumables/run-out", methods=["GET"])
 @jwt_required()
 @require_roles(*TRANSACTIONS)
 def consumable_run_out():
-    return jsonify(analytics.consumable_run_out())
+    return _cached("consumable-run-out", analytics.consumable_run_out, ttl=60)
 
 
 @analytics_bp.route("/purchasing", methods=["GET"])

@@ -92,11 +92,11 @@ export default function DashboardPage() {
   useEffect(() => {
     let alive = true;
     jobOrdersApi
-      .list({ scope: 'production' })
+      .list({ scope: 'production', summary: true })
       .then(({ data }) => alive && setJobs({ data, failed: false }))
       .catch(() => alive && setJobs({ data: null, failed: true }));
     jobOrdersApi
-      .list({ scope: 'drafts' })
+      .list({ scope: 'drafts', summary: true })
       .then(({ data }) => alive && setToPlan(data.length))
       .catch(() => undefined);
     operationsApi

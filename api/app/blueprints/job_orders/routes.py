@@ -52,10 +52,19 @@ def list_job_orders():
         "yes",
     )
     role = get_current_user_role()
+    summary = str(request.args.get("summary", "")).lower() in ("1", "true", "yes")
+    cache_key = ("job-list", role, scope or "production", status or "", awaiting, summary)
+    from app.services.read_cache import get as cache_get, put as cache_put
+
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
     jobs = jo_service.list_job_orders(
-        get_current_user_id(), role, status, scope, awaiting_material=awaiting
+        get_current_user_id(), role, status, scope, awaiting_material=awaiting, summary=summary
     )
-    return jsonify([j.to_dict(viewer_role=role) for j in jobs])
+    payload = [j.to_dict(viewer_role=role, include_estimate=not summary) for j in jobs]
+    cache_put(cache_key, payload, ttl=20)
+    return jsonify(payload)
 
 
 @job_orders_bp.route("", methods=["POST"])

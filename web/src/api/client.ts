@@ -35,6 +35,17 @@ const apiClient = axios.create({
   timeout: REQUEST_TIMEOUT_MS,
 });
 
+const inflightGets = new Map<string, Promise<unknown>>();
+const getOnce = apiClient.get.bind(apiClient);
+apiClient.get = ((url: string, config?: object) => {
+  const key = `${url}?${JSON.stringify((config as { params?: unknown } | undefined)?.params ?? {})}`;
+  const pending = inflightGets.get(key);
+  if (pending) return pending;
+  const request = getOnce(url, config).finally(() => inflightGets.delete(key));
+  inflightGets.set(key, request);
+  return request;
+}) as typeof apiClient.get;
+
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = localStorage.getItem('accessToken');
   if (token && config.headers) {

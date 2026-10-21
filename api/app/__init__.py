@@ -44,6 +44,9 @@ def create_app(config_object=None):
     register_jwt_callbacks(jwt)
     bcrypt.init_app(app)
     limiter.init_app(app)
+    from app.services import read_cache as _read_cache
+
+    _read_cache.register()
 
     cors_origins = app.config.get("CORS_ORIGINS", "http://localhost:5173")
     if isinstance(cors_origins, str):

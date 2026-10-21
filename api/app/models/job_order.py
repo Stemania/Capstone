@@ -460,7 +460,7 @@ class JobOrder(db.Model):
             "delayedAt": self.material_delayed_at.isoformat(),
         }
 
-    def to_dict(self, include_operations=False, viewer_role=None):
+    def to_dict(self, include_operations=False, viewer_role=None, include_estimate=True):
         from app.models.operation import OperationStatus
         from app.models.user import UserRole
 
@@ -561,14 +561,15 @@ class JobOrder(db.Model):
                 data["salesInvoice"] = inv.to_dict() if inv else None
                 data["materialReadiness"] = self._material_readiness()
                 data["plannedMaterials"] = self.planned_materials_summary()
-        from app.services.completion_estimate_service import risk_state
+        if include_estimate:
+            from app.services.completion_estimate_service import risk_state
 
-        state = risk_state(self)
-        estimate = state["estimate"]
-        data["projectedCompletion"] = state["scheduled"].isoformat() if state["scheduled"] else None
-        data["predictedCompletion"] = estimate["predictedFinish"] if estimate else None
-        data["scheduleFlag"] = state["flag"]
-        data["scheduleFlagBasis"] = state["basis"] if state["flag"] else None
-        if include_operations:
-            data["completionEstimate"] = estimate
+            state = risk_state(self)
+            estimate = state["estimate"]
+            data["projectedCompletion"] = state["scheduled"].isoformat() if state["scheduled"] else None
+            data["predictedCompletion"] = estimate["predictedFinish"] if estimate else None
+            data["scheduleFlag"] = state["flag"]
+            data["scheduleFlagBasis"] = state["basis"] if state["flag"] else None
+            if include_operations:
+                data["completionEstimate"] = estimate
         return data

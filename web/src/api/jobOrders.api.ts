@@ -46,6 +46,8 @@ export const jobOrdersApi = {
     status?: string;
     scope?: 'production' | 'drafts' | 'archived' | 'all';
     awaitingMaterial?: boolean;
+    /** Skip completion estimates. Dashboard cards use this. */
+    summary?: boolean;
   }) =>
     apiClient.get<JobOrder[]>('/job-orders', {
       params: {

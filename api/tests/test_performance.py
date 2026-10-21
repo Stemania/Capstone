@@ -216,3 +216,14 @@ def test_fast_requests_are_not_logged_as_slow(client, caplog):
     with caplog.at_level(logging.WARNING):
         client.get("/api/v1/health")
     assert not [rec for rec in caplog.records if "slow_request" in rec.getMessage()]
+
+
+def test_summary_job_list_skips_completion_estimates(client, shop):
+    _add_jobs(shop, 1)
+    res = client.get("/api/v1/job-orders?scope=production&summary=1", headers=shop["headers"])
+    assert res.status_code == 200
+    body = res.get_json()
+    assert len(body) == 1
+    assert "predictedCompletion" not in body[0]
+    assert body[0]["title"]
+    assert body[0]["clientName"]

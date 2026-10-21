@@ -344,8 +344,26 @@ def job_list_load_options():
     )
 
 
-def list_job_orders(user_id, user_role, status=None, scope=None, awaiting_material=False):
-    query = JobOrder.query.options(*job_list_load_options())
+def job_list_summary_options():
+    """List cards: next operation and material wait, without time logs or estimates."""
+    from sqlalchemy.orm import selectinload
+
+    from app.models.material_purchase import MaterialPurchase
+
+    operations = selectinload(JobOrder.operations)
+    purchases = selectinload(JobOrder.material_purchases)
+    return (
+        operations.joinedload(JobOperation.assigned_worker),
+        joinedload(JobOrder.client),
+        joinedload(JobOrder.created_by),
+        purchases.joinedload(MaterialPurchase.supplier_order),
+    )
+
+
+def list_job_orders(user_id, user_role, status=None, scope=None, awaiting_material=False, summary=False):
+    query = JobOrder.query.options(
+        *(job_list_summary_options() if summary else job_list_load_options())
+    )
     if user_role == UserRole.PRODUCTION_WORKER.value:
         query = query.filter(
             JobOrder.status.in_(tuple(PRODUCTION_VISIBLE_STATUSES)),
