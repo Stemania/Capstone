@@ -2,6 +2,40 @@ import dayjs, { type Dayjs } from 'dayjs';
 import { SHOP_TZ, formatShop } from '../../utils/shopTime';
 import { adminPx } from '../../theme/adminTheme';
 
+
+// Converting an ISO time to shop time (dayjs-timezone) is slow, and the board
+// converts the same few hundred times on every render. Dayjs values are
+// immutable, so cache them.
+const SHOP_CACHE = new Map<string, Dayjs>();
+const DAY_START_CACHE = new Map<string, Dayjs>();
+
+/** ISO time (or Dayjs) in shop time, cached for strings. */
+export function toShop(value: string | Dayjs): Dayjs {
+  if (typeof value !== 'string') return dayjs(value).tz(SHOP_TZ);
+  let hit = SHOP_CACHE.get(value);
+  if (!hit) {
+    if (SHOP_CACHE.size > 20000) SHOP_CACHE.clear();
+    hit = dayjs(value).tz(SHOP_TZ);
+    SHOP_CACHE.set(value, hit);
+  }
+  return hit;
+}
+
+/** Shop-day key (YYYY-MM-DD) of an ISO time. */
+export function shopDayKey(value: string): string {
+  return toShop(value).format('YYYY-MM-DD');
+}
+
+/** Midnight of a shop date (YYYY-MM-DD), cached. */
+export function shopDayStart(date: string): Dayjs {
+  let hit = DAY_START_CACHE.get(date);
+  if (!hit) {
+    hit = dayjs.tz(date, SHOP_TZ).startOf('day');
+    DAY_START_CACHE.set(date, hit);
+  }
+  return hit;
+}
+
 export const TIMELINE_NAVY = '#0f1c2e';
 export const TIMELINE_BORDER = '#e2e8f0';
 export const HOUR_START = 6;
@@ -190,8 +224,8 @@ export function splitSegmentAcrossWeekDays(
   endIso: string,
   weekLayout: WeekTimelineLayout
 ): { start: string; end: string }[] {
-  const start = dayjs(startIso).tz(SHOP_TZ);
-  const end = dayjs(endIso).tz(SHOP_TZ);
+  const start = toShop(startIso);
+  const end = toShop(endIso);
   if (!start.isValid() || !end.isValid() || !end.isAfter(start)) return [];
 
   const startDate = start.format('YYYY-MM-DD');
@@ -201,14 +235,8 @@ export function splitSegmentAcrossWeekDays(
     // Month boards have ~30 columns — skip days the segment cannot touch.
     if (day.date < startDate || day.date > endDate) continue;
     if (!day.isWorking || day.durationHours <= 0) continue;
-    const dayStart = dayjs
-      .tz(day.date, SHOP_TZ)
-      .startOf('day')
-      .add(day.startMinutes, 'minute');
-    const dayEnd = dayjs
-      .tz(day.date, SHOP_TZ)
-      .startOf('day')
-      .add(day.endMinutes, 'minute');
+    const dayStart = shopDayStart(day.date).add(day.startMinutes, 'minute');
+    const dayEnd = shopDayStart(day.date).add(day.endMinutes, 'minute');
     if (!dayStart.isValid() || !dayEnd.isValid()) continue;
     const segStart = start.isAfter(dayStart) ? start : dayStart;
     const segEnd = end.isBefore(dayEnd) ? end : dayEnd;
@@ -235,8 +263,8 @@ export function mergeAdjacentWeekPieces(
   let cur = { ...sorted[0] };
   for (let i = 1; i < sorted.length; i++) {
     const next = sorted[i];
-    const curEndDay = dayjs(cur.end).tz(SHOP_TZ).startOf('day');
-    const nextStartDay = dayjs(next.start).tz(SHOP_TZ).startOf('day');
+    const curEndDay = toShop(cur.end).startOf('day');
+    const nextStartDay = toShop(next.start).startOf('day');
     const daysApart = nextStartDay.diff(curEndDay, 'day');
     if (daysApart <= 1) {
       const nextEnd = dayjs(next.end);
@@ -309,7 +337,8 @@ function shopMinutes(t: Dayjs): number {
 }
 
 function weekDayForInstant(t: Dayjs, layout: WeekTimelineLayout): WeekDayColumn | undefined {
-  return layout.days.find((d) => d.date === t.format('YYYY-MM-DD'));
+  const key = t.format('YYYY-MM-DD');
+  return layout.days.find((d) => d.date === key);
 }
 
 export function leftPx(
@@ -320,7 +349,7 @@ export function leftPx(
   weekLayout?: WeekTimelineLayout | null,
   hourPx?: number
 ): number | null {
-  const t = dayjs(iso).tz(SHOP_TZ);
+  const t = toShop(iso);
   if (mode !== 'day' && weekLayout) {
     const day = weekDayForInstant(t, weekLayout);
     // Outside the visible week — never fall back to left:0 (that pinned
@@ -350,8 +379,8 @@ export function widthPx(
   weekLayout?: WeekTimelineLayout | null,
   hourPx?: number
 ): number | null {
-  const start = dayjs(startIso).tz(SHOP_TZ);
-  const end = dayjs(endIso).tz(SHOP_TZ);
+  const start = toShop(startIso);
+  const end = toShop(endIso);
 
   if (mode !== 'day' && weekLayout) {
     const startDay = weekDayForInstant(start, weekLayout);
@@ -387,7 +416,7 @@ export function widthPx(
 
 export function weekStartFromIsoDates(isoDates: string[]): Dayjs {
   const dates = isoDates
-    .map((iso) => dayjs(iso).tz(SHOP_TZ).startOf('day'))
+    .map((iso) => toShop(iso).startOf('day'))
     .filter((d) => d.isValid());
   if (!dates.length) return dayjs().tz(SHOP_TZ).startOf('week').add(1, 'day');
   return dates.reduce((a, b) => (a.isBefore(b) ? a : b));
@@ -403,19 +432,36 @@ export function clipSegmentToPeriod(
   from: Dayjs,
   to: Dayjs
 ): { start: string; end: string } | null {
-  const start = dayjs(startIso).tz(SHOP_TZ);
-  const end = dayjs(endIso).tz(SHOP_TZ);
-  if (!start.isValid() || !end.isValid() || !end.isAfter(start)) return null;
+  // Plain millisecond compares: this runs for every bar on every render.
+  const startMs = Date.parse(startIso);
+  const endMs = Date.parse(endIso);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) return null;
+  const { startMs: rangeStart, endMs: rangeEnd } = periodMs(from, to);
+  if (endMs < rangeStart || startMs >= rangeEnd) return null;
+  const clippedStart = Math.max(startMs, rangeStart);
+  const clippedEnd = Math.min(endMs, rangeEnd);
+  if (clippedEnd <= clippedStart) return null;
+  return {
+    start: clippedStart === startMs ? startIso : new Date(clippedStart).toISOString(),
+    end: clippedEnd === endMs ? endIso : new Date(clippedEnd).toISOString(),
+  };
+}
 
-  const rangeStart = from.tz(SHOP_TZ).startOf('day');
-  const rangeEnd = to.tz(SHOP_TZ).endOf('day');
-  if (end.isBefore(rangeStart) || !start.isBefore(rangeEnd)) return null;
+const PERIOD_CACHE = new Map<string, { startMs: number; endMs: number }>();
 
-  const clippedStart = start.isBefore(rangeStart) ? rangeStart : start;
-  const clippedEnd = end.isAfter(rangeEnd) ? rangeEnd : end;
-  if (!clippedEnd.isAfter(clippedStart)) return null;
-
-  return { start: clippedStart.toISOString(), end: clippedEnd.toISOString() };
+/** Shop-day bounds of a period in epoch ms, cached per period. */
+function periodMs(from: Dayjs, to: Dayjs) {
+  const key = `${from.valueOf()}|${to.valueOf()}`;
+  let hit = PERIOD_CACHE.get(key);
+  if (!hit) {
+    if (PERIOD_CACHE.size > 200) PERIOD_CACHE.clear();
+    hit = {
+      startMs: from.tz(SHOP_TZ).startOf('day').valueOf(),
+      endMs: to.tz(SHOP_TZ).endOf('day').valueOf(),
+    };
+    PERIOD_CACHE.set(key, hit);
+  }
+  return hit;
 }
 
 export type TimelineDayColumn = {
@@ -722,8 +768,8 @@ export function mergePiecesAround(pieces: TimeSpan[], others: TimeSpan[]): TimeS
   const merged: TimeSpan[] = [];
   let cur = { ...sorted[0] };
   for (const next of sorted.slice(1)) {
-    const daysApart = dayjs(next.start).tz(SHOP_TZ).startOf('day')
-      .diff(dayjs(cur.end).tz(SHOP_TZ).startOf('day'), 'day');
+    const daysApart = toShop(next.start).startOf('day')
+      .diff(toShop(cur.end).startOf('day'), 'day');
     const gapStart = ms(cur.end);
     const gapEnd = ms(next.start);
     const blocked = others.some((o) => ms(o.start) < gapEnd && gapStart < ms(o.end));

@@ -48,6 +48,7 @@ import {
   buildWeekTimelineLayout,
   clipSegmentToPeriod,
   dayColumnsForView,
+  shopDayKey,
   defaultShopDayWindows,
   leftPx,
   periodBounds,
@@ -274,19 +275,28 @@ function AdminOfficeScheduleBoard() {
   );
   useOverdueCheck();
 
+  // Periods already seen show at once while they refresh, so going back and
+  // forth between Day / Week / Month or weeks does not wait on the server.
+  const boardCache = useRef(new Map<string, typeof data>());
   useEffect(() => {
     let cancelled = false;
+    const params = {
+      from: from.format('YYYY-MM-DD'),
+      to: to.format('YYYY-MM-DD'),
+      machineTypeId,
+      workerId,
+      clientId,
+      includeCompleted,
+    };
+    const cacheKey = JSON.stringify(params);
+    const cached = boardCache.current.get(cacheKey);
+    if (cached) setData(cached);
     (async () => {
-      setLoading(true);
+      setLoading(!cached);
       try {
-        const res = await scheduleApi.board({
-          from: from.format('YYYY-MM-DD'),
-          to: to.format('YYYY-MM-DD'),
-          machineTypeId,
-          workerId,
-          clientId,
-          includeCompleted,
-        });
+        const res = await scheduleApi.board(params);
+        if (boardCache.current.size > 30) boardCache.current.clear();
+        boardCache.current.set(cacheKey, res.data);
         if (!cancelled) setData(res.data);
       } catch (err) {
         if (!cancelled) message.error(getErrorMessage(err));
@@ -1078,18 +1088,29 @@ const BoardRows = memo(function BoardRows({
   const prepared = useMemo(() => {
     const pos = { from, to, mode: viewMode, mobile: isMobile, weekLayout, hourPx: dayHourPx };
     const args = [from, viewMode, isMobile, weekLayout, dayHourPx] as const;
+    // Only operations that touch the visible period need laying out.
+    const fromMs = from.startOf('day').valueOf();
+    const toMs = to.endOf('day').valueOf();
+    const inPeriod = (op: ScheduleBoardOperation) =>
+      opSegments(op).some(
+        (seg) => Date.parse(seg.start) <= toMs && Date.parse(seg.end) >= fromMs,
+      );
     return rows.map((row) => {
-      const ops = opsByRowKey.get(rowGroupKey(row, rowMode)) ?? NO_OPS;
+      const ops = (opsByRowKey.get(rowGroupKey(row, rowMode)) ?? NO_OPS).filter(inPeriod);
       const dts =
         (rowMode === 'machine' && row.machineUnitId
           ? downtimesByUnit.get(row.machineUnitId)
           : undefined) ?? NO_DOWNTIMES;
       const opById = new Map(ops.map((op) => [op.id, op]));
-      const { bars, laneCount } = layoutRowBars(
-        ops.map((op) => ({ id: op.id, segments: opSegments(op) })),
-        pos,
-        { markClashes: !row.noMachine, gap: BAR_GAP, minWidth: MIN_BAR_W },
-      );
+      // Month shows a count per day, not bars, so skip the bar layout there.
+      const { bars, laneCount } =
+        viewMode === 'month'
+          ? { bars: [] as ReturnType<typeof layoutRowBars>['bars'], laneCount: 1 }
+          : layoutRowBars(
+              ops.map((op) => ({ id: op.id, segments: opSegments(op) })),
+              pos,
+              { markClashes: !row.noMachine, gap: BAR_GAP, minWidth: MIN_BAR_W },
+            );
       const lanes = viewMode === 'month' ? 1 : laneCount;
       const trackH = rowH * lanes;
       const downRects = dts.flatMap((d) => {
@@ -1099,7 +1120,27 @@ const BoardRows = memo(function BoardRows({
         const width = widthPx(clipped.start, clipped.end, ...args);
         return left == null || width == null || width <= 0 ? [] : [{ d, left, width }];
       });
-      return { row, opById, bars, laneCount, trackH, downRects };
+      // Month: which operations touch each day, worked out once per row
+      // (not once per day column per operation).
+      const monthHits = new Map<string, ScheduleBoardOperation[]>();
+      if (viewMode === 'month') {
+        for (const op of ops) {
+          const days = new Set<string>();
+          for (const seg of opSegments(op)) {
+            const start = shopDayKey(seg.start);
+            const end = shopDayKey(seg.end);
+            for (const col of dayColumns) {
+              if (start <= col.key && col.key <= end) days.add(col.key);
+            }
+          }
+          for (const key of days) {
+            const list = monthHits.get(key);
+            if (list) list.push(op);
+            else monthHits.set(key, [op]);
+          }
+        }
+      }
+      return { row, opById, bars, laneCount, trackH, downRects, monthHits };
     });
   }, [
     rows,
@@ -1113,6 +1154,7 @@ const BoardRows = memo(function BoardRows({
     isMobile,
     weekLayout,
     dayHourPx,
+    dayColumns,
   ]);
 
   return (
@@ -1131,7 +1173,7 @@ const BoardRows = memo(function BoardRows({
         }}
       />
     ) : null}
-    {prepared.map(({ row, opById, bars, laneCount, trackH, downRects }) => {
+    {prepared.map(({ row, opById, bars, laneCount, trackH, downRects, monthHits }) => {
       return (
         <div key={row.key}>
           {row.group ? (
@@ -1272,14 +1314,8 @@ const BoardRows = memo(function BoardRows({
 
               {viewMode === 'month'
                 ? dayColumns.map((col) => {
-                    const hits = [...opById.values()].filter((op) =>
-                      opSegments(op).some((seg) => {
-                        const start = dayjs(seg.start).tz(SHOP_TZ).format('YYYY-MM-DD');
-                        const end = dayjs(seg.end).tz(SHOP_TZ).format('YYYY-MM-DD');
-                        return start <= col.key && col.key <= end;
-                      })
-                    );
-                    if (!hits.length) return null;
+                    const hits = monthHits.get(col.key);
+                    if (!hits?.length) return null;
                     const n = hits.length;
                     return (
                       <Tooltip
