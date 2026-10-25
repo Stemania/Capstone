@@ -694,12 +694,7 @@ export default function WorkerSetupPage() {
               ) : null}
 
               {detailTab === 'history' ? (
-                <div className="worker-setup-panel">
-                  <div className="worker-setup-panel__head">
-                    <span>History</span>
-                  </div>
-                  <WorkerHistoryPanel key={workerId} workerId={workerId} />
-                </div>
+                <WorkerHistoryPanel key={workerId} workerId={workerId} />
               ) : null}
             </>
           )}

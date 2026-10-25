@@ -1,7 +1,7 @@
 import { formatShop } from '../../utils/shopTime';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { DatePicker, Pagination, Skeleton, Tag, Tooltip, Typography, message } from 'antd';
+import { DatePicker, Pagination, Skeleton, Tooltip, Typography, message } from 'antd';
 import { WarningOutlined } from '@ant-design/icons';
 import { EmptyState } from '../../components/ui';
 import { type Dayjs } from 'dayjs';
@@ -63,195 +63,243 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
   }
 
   const s = data.summary;
-  const fmt = (v: number | null | undefined, suffix = '') =>
-    v == null ? '—' : `${v}${suffix}`;
-  const compare =
-    s.enoughHistory
-      ? `${fmt(s.totalEstimatedHours)}h → ${fmt(s.totalActualHours)}h`
-      : '—';
+  const pct = (v: number | null | undefined) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v}%`);
+  const ranged = Boolean(range[0] || range[1]);
+  const hoursRatio =
+    s.enoughHistory && s.totalEstimatedHours && s.totalActualHours != null
+      ? Math.min(s.totalActualHours / s.totalEstimatedHours, 2)
+      : null;
+  const varianceTone =
+    !s.enoughHistory || s.averageVariancePct == null
+      ? ''
+      : s.averageVariancePct > 5
+        ? ' is-bad'
+        : s.averageVariancePct < -5
+          ? ' is-good'
+          : ' is-ok';
 
   return (
-    <div className="wh-history">
-      <div style={{ marginBottom: 14 }}>
+    <div className="wh">
+      <header className="wh-head">
+        <div className="wh-head__text">
+          <h3 className="wh-head__title">Work history</h3>
+          <span className="wh-head__sub">
+            {s.operationsCompleted} operation{s.operationsCompleted === 1 ? '' : 's'} completed
+            {ranged ? ' in this range' : ''}
+          </span>
+        </div>
         <DatePicker.RangePicker
+          className="wh-head__range"
           allowClear
           value={range}
+          placeholder={['From', 'To']}
           onChange={(vals) => {
             setRange([vals?.[0] ?? null, vals?.[1] ?? null]);
             setPage(1);
           }}
         />
-      </div>
+      </header>
 
-      <div className="wh-summary">
-        <SummaryTile label="Completed ops" value={String(s.operationsCompleted)} />
-        <SummaryTile label="Target vs actual" value={compare} compare />
-        <SummaryTile label="Avg vs target" value={s.enoughHistory ? fmt(s.averageVariancePct, '%') : '—'} />
-        <SummaryTile label="Close to target" value={s.enoughHistory ? fmt(s.onEstimateRatePct, '%') : '—'} />
-        <SummaryTile label="Rework" value={String(s.reworkCount)} />
-      </div>
-      {s.message ? (
-        <Text type="secondary" style={{ display: 'block', marginBottom: 14, fontSize: 12 }}>
-          {s.message}
-        </Text>
-      ) : null}
-
-      <div className="wh-section-title">Completed operations</div>
-      <ResponsiveTable<WorkerHistoryOperation>
-        className="wh-ops"
-        size="small"
-        rowKey="id"
-        loading={loading}
-        dataSource={data.operations.items}
-        card={{ title: 'jobNumber', subtitle: ['completedAt'] }}
-        onRow={(record) => ({
-          onClick: () => {
-            if (record.jobOrderId) navigate(`/job-orders/${record.jobOrderId}`);
-          },
-        })}
-        pagination={{
-          current: data.operations.page,
-          total: data.operations.total,
-          pageSize: HISTORY_PAGE_SIZE,
-          size: 'small',
-          onChange: (p) => setPage(p),
-          showSizeChanger: false,
-          showTotal: (total, span) =>
-            historyRangeLabel(total, span[0] > 0 ? Math.floor((span[0] - 1) / HISTORY_PAGE_SIZE) + 1 : 1),
-        }}
-        locale={{ emptyText: 'No completed operations in this range' }}
-        columns={[
-          {
-            title: 'Date',
-            dataIndex: 'completedAt',
-            width: 118,
-            render: (v: string | null) => (v ? formatShop(v, 'MMM D, YYYY') : '—'),
-          },
-          {
-            title: 'Job',
-            dataIndex: 'jobNumber',
-            width: 128,
-            onCell: () => ({ className: 'wh-job-cell' }),
-            onHeaderCell: () => ({ className: 'wh-job-cell' }),
-            render: (v: string | null, r) =>
-              r.jobOrderId ? (
-                <Link
-                  to={`/job-orders/${r.jobOrderId}`}
-                  className="wh-jobno"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {v || '—'}
-                </Link>
-              ) : (
-                <span className="wh-jobno">{v || '—'}</span>
-              ),
-          },
-          {
-            title: 'Operation',
-            key: 'op',
-            render: (_: unknown, r) => (
-              <span>
-                {r.operationName}
-                {r.isRework ? (
-                  <Text type="secondary" style={{ marginLeft: 6, fontSize: 11 }}>
-                    rework
-                  </Text>
-                ) : null}
-                {r.isCrew ? (
-                  <Tooltip title={(r.crew || []).map((m) => m.fullName).join(', ')}>
-                    <Tag style={{ marginLeft: 6, fontSize: 11 }}>
-                      Crew of {r.crewSize} · {r.crewRole === 'LEAD' ? 'lead' : 'helper'}
-                    </Tag>
-                  </Tooltip>
-                ) : null}
-              </span>
-            ),
-          },
-          {
-            title: 'Machine',
-            dataIndex: 'machineUnitLabel',
-            width: 110,
-            render: (v) => v || '—',
-          },
-          {
-            title: 'Target',
-            dataIndex: 'estimatedHours',
-            width: 72,
-            align: 'right',
-            render: (v: number | null) => (v == null ? '—' : v.toFixed(1)),
-          },
-          {
-            title: 'Actual',
-            dataIndex: 'actualHours',
-            width: 72,
-            align: 'right',
-            render: (v: number | null) => (v == null ? '—' : v.toFixed(1)),
-          },
-          {
-            title: 'Diff',
-            dataIndex: 'differenceHours',
-            width: 72,
-            align: 'right',
-            render: (v: number | null) => {
-              if (v == null) return '—';
-              const sign = v > 0 ? '+' : '';
-              return `${sign}${v.toFixed(1)}`;
-            },
-          },
-        ]}
-      />
-
-      <div className="wh-tools">
-        <ToolPanel
-          title="Currently held"
-          empty="No tools held"
-          items={data.toolsHeld}
-          page={heldPage}
-          onPage={setHeldPage}
-          renderItem={(u) => (
-            <li key={u.id} className="wh-tool-row">
-              <strong>{u.toolTypeName || 'Tool'}</strong>
-              <span className="wh-tool-row__meta">
-                {u.assetCode}
-                {u.heldSince ? ` · since ${formatShop(u.heldSince, 'MMM D')}` : ''}
-              </span>
-            </li>
+      <section className="wh-score" aria-label="Summary">
+        <div className="wh-score__item">
+          <span className="wh-score__label">Completed</span>
+          <span className="wh-score__value">{s.operationsCompleted}</span>
+          <span className="wh-score__hint">operations</span>
+        </div>
+        <div className="wh-score__item wh-score__item--wide">
+          <span className="wh-score__label">Hours · target → actual</span>
+          <span className="wh-score__value">
+            {s.enoughHistory ? (
+              <>
+                {s.totalEstimatedHours ?? '—'}
+                <span className="wh-score__arrow">→</span>
+                {s.totalActualHours ?? '—'}
+                <small>h</small>
+              </>
+            ) : (
+              '—'
+            )}
+          </span>
+          {hoursRatio != null ? (
+            <span className="wh-meter" title="Actual hours against target hours">
+              <span
+                className={`wh-meter__fill${hoursRatio > 1.05 ? ' is-bad' : ''}`}
+                style={{ width: `${Math.min(hoursRatio, 1) * 100}%` }}
+              />
+              {hoursRatio > 1 ? (
+                <span className="wh-meter__over" style={{ width: `${Math.min(hoursRatio - 1, 1) * 100}%` }} />
+              ) : null}
+            </span>
+          ) : (
+            <span className="wh-score__hint">needs more history</span>
           )}
-        />
-        <ToolPanel
-          title="Recent borrow & return"
-          empty="No borrow history"
-          items={data.toolEvents}
-          page={eventPage}
-          onPage={setEventPage}
-          renderItem={(ev) => (
-            <li key={ev.id} className="wh-tool-row">
-              <strong>{ev.type === 'RETURN' ? 'Returned' : 'Borrowed'}</strong>
-              <span className="wh-tool-row__meta">
-                {[ev.toolName, ev.assetCode].filter(Boolean).join(' · ') || '—'}
-                {ev.createdAt ? ` · ${formatShop(ev.createdAt, 'MMM D, h:mm A')}` : ''}
-              </span>
-            </li>
-          )}
-        />
-      </div>
-    </div>
-  );
-}
+        </div>
+        <div className="wh-score__item">
+          <span className="wh-score__label">Avg vs target</span>
+          <span className={`wh-score__value${varianceTone}`}>
+            {s.enoughHistory ? pct(s.averageVariancePct) : '—'}
+          </span>
+          <span className="wh-score__hint">time per operation</span>
+        </div>
+        <div className="wh-score__item">
+          <span className="wh-score__label">Close to target</span>
+          <span className="wh-score__value">
+            {s.enoughHistory && s.onEstimateRatePct != null ? `${s.onEstimateRatePct}%` : '—'}
+          </span>
+          <span className="wh-score__hint">of operations</span>
+        </div>
+        <div className="wh-score__item">
+          <span className="wh-score__label">Rework</span>
+          <span className={`wh-score__value${s.reworkCount ? ' is-warn' : ''}`}>{s.reworkCount}</span>
+          <span className="wh-score__hint">redone</span>
+        </div>
+      </section>
+      {s.message ? <Text type="secondary" className="wh-note">{s.message}</Text> : null}
 
-function SummaryTile({
-  label,
-  value,
-  compare = false,
-}: {
-  label: string;
-  value: string;
-  compare?: boolean;
-}) {
-  return (
-    <div className={`wh-tile${compare ? ' wh-tile--compare' : ''}`}>
-      <div className="wh-tile__label">{label}</div>
-      <div className="wh-tile__value">{value}</div>
+      <div className="wh-body">
+        <section className="wh-card wh-card--ops">
+          <div className="wh-card__title">Completed operations</div>
+          <ResponsiveTable<WorkerHistoryOperation>
+            className="wh-ops"
+            size="small"
+            rowKey="id"
+            loading={loading}
+            dataSource={data.operations.items}
+            card={{ title: 'jobNumber', subtitle: ['completedAt'] }}
+            onRow={(record) => ({
+              onClick: () => {
+                if (record.jobOrderId) navigate(`/job-orders/${record.jobOrderId}`);
+              },
+            })}
+            pagination={{
+              current: data.operations.page,
+              total: data.operations.total,
+              pageSize: HISTORY_PAGE_SIZE,
+              size: 'small',
+              onChange: (p) => setPage(p),
+              showSizeChanger: false,
+              showTotal: (total, span) =>
+                historyRangeLabel(total, span[0] > 0 ? Math.floor((span[0] - 1) / HISTORY_PAGE_SIZE) + 1 : 1),
+            }}
+            locale={{ emptyText: 'No completed operations in this range' }}
+            columns={[
+              {
+                title: 'Date',
+                dataIndex: 'completedAt',
+                width: 76,
+                render: (v: string | null) => (v ? formatShop(v, 'MMM D') : '—'),
+              },
+              {
+                title: 'Job',
+                dataIndex: 'jobNumber',
+                width: 120,
+                onCell: () => ({ className: 'wh-job-cell' }),
+                onHeaderCell: () => ({ className: 'wh-job-cell' }),
+                render: (v: string | null, r) =>
+                  r.jobOrderId ? (
+                    <Link
+                      to={`/job-orders/${r.jobOrderId}`}
+                      className="wh-jobno"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {v || '—'}
+                    </Link>
+                  ) : (
+                    <span className="wh-jobno">{v || '—'}</span>
+                  ),
+              },
+              {
+                title: 'Operation',
+                key: 'op',
+                render: (_: unknown, r) => (
+                  <span className="wh-op">
+                    <span className="wh-op__name">{r.operationName}</span>
+                    {r.machineUnitLabel ? <span className="wh-op__machine">{r.machineUnitLabel}</span> : null}
+                    {r.isRework ? <span className="wh-tag wh-tag--amber">Redo</span> : null}
+                    {r.isCrew ? (
+                      <Tooltip title={(r.crew || []).map((m) => m.fullName).join(', ')}>
+                        <span className="wh-tag">
+                          {r.crewRole === 'LEAD' ? 'Lead' : 'Helper'} · crew of {r.crewSize}
+                        </span>
+                      </Tooltip>
+                    ) : null}
+                  </span>
+                ),
+              },
+              {
+                title: 'Target',
+                dataIndex: 'estimatedHours',
+                width: 66,
+                align: 'right',
+                render: (v: number | null) => (v == null ? '—' : `${v.toFixed(1)}h`),
+              },
+              {
+                title: 'Actual',
+                dataIndex: 'actualHours',
+                width: 66,
+                align: 'right',
+                render: (v: number | null) => (v == null ? '—' : `${v.toFixed(1)}h`),
+              },
+              {
+                title: 'Diff',
+                dataIndex: 'differenceHours',
+                width: 66,
+                align: 'right',
+                render: (v: number | null) => {
+                  if (v == null) return '—';
+                  const cls = v > 0.05 ? 'is-bad' : v < -0.05 ? 'is-good' : '';
+                  const shown = Math.abs(v) < 0.05 ? '0.0' : `${v > 0 ? '+' : ''}${v.toFixed(1)}`;
+                  return <span className={`wh-diff ${cls}`}>{shown}</span>;
+                },
+              },
+            ]}
+          />
+        </section>
+
+        <aside className="wh-side">
+          <ToolPanel
+            title="Tools held now"
+            empty="None right now"
+            items={data.toolsHeld}
+            page={heldPage}
+            onPage={setHeldPage}
+            renderItem={(u) => (
+              <li key={u.id} className="wh-tool-row">
+                <span className="wh-tool-row__dot is-held" aria-hidden />
+                <span className="wh-tool-row__text">
+                  <strong>{u.toolTypeName || 'Tool'}</strong>
+                  <span className="wh-tool-row__meta">
+                    {u.assetCode}
+                    {u.heldSince ? ` · since ${formatShop(u.heldSince, 'MMM D')}` : ''}
+                  </span>
+                </span>
+              </li>
+            )}
+          />
+          <ToolPanel
+            title="Recent borrow & return"
+            empty="No borrow history"
+            items={data.toolEvents}
+            page={eventPage}
+            onPage={setEventPage}
+            renderItem={(ev) => (
+              <li key={ev.id} className="wh-tool-row">
+                <span className={`wh-tool-row__dot ${ev.type === 'RETURN' ? 'is-in' : 'is-out'}`} aria-hidden />
+                <span className="wh-tool-row__text">
+                  <strong>
+                    {ev.type === 'RETURN' ? 'Returned' : 'Borrowed'} {ev.toolName || 'tool'}
+                  </strong>
+                  <span className="wh-tool-row__meta">
+                    {[ev.assetCode, ev.createdAt ? formatShop(ev.createdAt, 'MMM D, h:mm A') : null]
+                      .filter(Boolean)
+                      .join(' · ') || '—'}
+                  </span>
+                </span>
+              </li>
+            )}
+          />
+        </aside>
+      </div>
     </div>
   );
 }
@@ -274,14 +322,17 @@ function ToolPanel<T extends { id: string }>({
   const start = (page - 1) * HISTORY_PAGE_SIZE;
   const slice = items.slice(start, start + HISTORY_PAGE_SIZE);
   return (
-    <section className="wh-tool-panel">
-      <div className="wh-tool-panel__title">{title}</div>
+    <section className="wh-card wh-tool-panel">
+      <div className="wh-card__title">
+        {title}
+        {items.length ? <span className="wh-card__count">{items.length}</span> : null}
+      </div>
       {items.length === 0 ? (
         <div className="wh-tool-panel__body wh-tool-panel__empty">{empty}</div>
       ) : (
         <ul className="wh-tool-panel__body">{slice.map(renderItem)}</ul>
       )}
-      {items.length > 0 ? (
+      {items.length > HISTORY_PAGE_SIZE ? (
         <Pagination
           className="wh-pager"
           size="small"
@@ -294,9 +345,7 @@ function ToolPanel<T extends { id: string }>({
           }
           onChange={onPage}
         />
-      ) : (
-        <div className="wh-pager" aria-hidden />
-      )}
+      ) : null}
     </section>
   );
 }
