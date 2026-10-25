@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Segmented } from 'antd';
 import type { Tone } from '../../theme/tokens';
 
@@ -29,13 +29,20 @@ export default function TabBar<T extends string>({
   block?: boolean;
   className?: string;
 }) {
+  // Select the clicked pill at once so the sliding highlight starts on click,
+  // even when the parent only updates `value` after navigating or loading.
+  const [shown, setShown] = useState<T>(value);
+  useEffect(() => setShown(value), [value]);
   return (
     <Segmented<T>
       className={`ui-tabbar${className ? ` ${className}` : ''}`}
       size={size}
       block={block}
-      value={value}
-      onChange={(v) => onChange(v as T)}
+      value={shown}
+      onChange={(v) => {
+        setShown(v as T);
+        onChange(v as T);
+      }}
       options={items.map((it) => ({
         value: it.value,
         disabled: it.disabled,

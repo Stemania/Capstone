@@ -9,7 +9,7 @@ import {
   Alert,
   Row,
   Col,
-  Radio,
+  Segmented,
 } from 'antd';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -314,17 +314,14 @@ export default function JobOrderFormPage() {
             className="jo-form__materials-item"
             style={{ marginBottom: 4 }}
           >
-            <Radio.Group className="jo-form__materials-radios">
-              {MATERIALS_NEEDED_OPTIONS.map((opt) => (
-                <Radio
-                  key={opt.value}
-                  value={opt.value}
-                  disabled={opt.value === 'NOT_REQUIRED' && released && !isAdmin}
-                >
-                  {opt.label}
-                </Radio>
-              ))}
-            </Radio.Group>
+            <Segmented
+              className="jo-form__materials-radios"
+              options={MATERIALS_NEEDED_OPTIONS.map((opt) => ({
+                value: opt.value,
+                label: opt.label,
+                disabled: opt.value === 'NOT_REQUIRED' && released && !isAdmin,
+              }))}
+            />
           </Form.Item>
           <div className="ui-muted-note jo-form__materials-note">
             Materials are entered when ordering (Order materials on the job), not here.

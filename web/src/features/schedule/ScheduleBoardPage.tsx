@@ -1,5 +1,5 @@
 import { OPERATION_BAR_COLOR, OPERATION_STATUS, TONE_BAR_FILL } from '../../theme/statuses';
-import { Legend, StatCard, StatGrid, type LegendItem } from '../../components/ui';
+import { Legend, StatCard, StatGrid, TabBar, type LegendItem } from '../../components/ui';
 import InfoTip from '../../components/InfoTip';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -159,19 +159,11 @@ function PressGroup<T extends string>({
   onChange: (next: T) => void;
   options: { label: string; value: T }[];
 }) {
+  // The shared pill tabs, so the highlight slides between options like everywhere else.
   return (
-    <div className="sched-press" role="group" aria-label={label}>
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          aria-pressed={value === opt.value}
-          onClick={() => onChange(opt.value)}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
+    <span role="group" aria-label={label}>
+      <TabBar<T> className="sched-seg" size="small" value={value} onChange={onChange} items={options} />
+    </span>
   );
 }
 
@@ -937,61 +929,31 @@ function AdminOfficeScheduleBoard() {
             <>
               <div className="sched-f__card">
                 <div className="sched-f__label">Period</div>
-                <div className="sched-m__pills" role="tablist" aria-label="Period">
-                  {([
-                    ['day', 'Day'],
-                    ['week', 'Week'],
-                    ['month', 'Month'],
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      aria-pressed={viewMode === value}
-                      className={`sched-m__pill${viewMode === value ? ' is-on' : ''}`}
-                      onClick={() => setViewMode(value)}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                <div className="sched-m__pills" role="group" aria-label="Period">
+                  <TabBar className="sched-seg" block value={viewMode} onChange={setViewMode} items={[{ value: 'day' as const, label: 'Day' }, { value: 'week' as const, label: 'Week' }, { value: 'month' as const, label: 'Month' }]} />
                 </div>
               </div>
               <div className="sched-f__card">
                 <div className="sched-f__label">Group by</div>
-                <div className="sched-m__pills" role="tablist" aria-label="Rows">
-                  {([
-                    ['machine', 'Machine'],
-                    ['worker', 'Worker'],
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      aria-pressed={rowMode === value}
-                      className={`sched-m__pill${rowMode === value ? ' is-on' : ''}`}
-                      onClick={() => setRowMode(value)}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                <div className="sched-m__pills" role="group" aria-label="Rows">
+                  <TabBar className="sched-seg" block value={rowMode} onChange={setRowMode} items={[{ value: 'machine' as const, label: 'Machine' }, { value: 'worker' as const, label: 'Worker' }]} />
                 </div>
               </div>
             </>
           ) : (
             <div className="sched-f__card">
               <div className="sched-f__label">Rows</div>
-              <div className="sched-m__pills" role="tablist" aria-label="Rows">
-                {([
-                  ['machine', 'Machine'],
-                  ['worker', 'Worker'],
-                ] as const).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={`sched-m__pill${rowMode === value ? ' is-on' : ''}`}
-                    onClick={() => setRowMode(value)}
-                  >
-                    {label}
-                  </button>
-                ))}
+              <div className="sched-m__pills" role="group" aria-label="Rows">
+                <TabBar
+                  className="sched-seg"
+                  block
+                  value={rowMode}
+                  onChange={setRowMode}
+                  items={[
+                    { value: 'machine' as const, label: 'Machine' },
+                    { value: 'worker' as const, label: 'Worker' },
+                  ]}
+                />
               </div>
             </div>
           )}
@@ -1047,21 +1009,17 @@ function AdminOfficeScheduleBoard() {
 
           <div className="sched-f__card">
             <div className="sched-f__label">Operations</div>
-            <div className="sched-m__pills" role="tablist" aria-label="Completed">
-              <button
-                type="button"
-                className={`sched-m__pill${includeCompleted ? ' is-on' : ''}`}
-                onClick={() => setIncludeCompleted(true)}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                className={`sched-m__pill${!includeCompleted ? ' is-on' : ''}`}
-                onClick={() => setIncludeCompleted(false)}
-              >
-                Hide done
-              </button>
+            <div className="sched-m__pills" role="group" aria-label="Completed">
+              <TabBar
+                className="sched-seg"
+                block
+                value={includeCompleted ? 'all' : 'hide'}
+                onChange={(v) => setIncludeCompleted(v === 'all')}
+                items={[
+                  { value: 'all', label: 'All' },
+                  { value: 'hide', label: 'Hide done' },
+                ]}
+              />
             </div>
           </div>
 

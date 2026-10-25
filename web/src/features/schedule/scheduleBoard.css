@@ -71,3 +71,19 @@
   pointer-events: none;
   transition: opacity 0.12s linear;
 }
+
+/* Pill tabs inside the phone filter sheet fill their row. */
+.sched-m__pills:has(> .ui-tabbar) {
+  padding: 0;
+  background: transparent;
+}
+
+.sched-m__pills > .ui-tabbar {
+  flex: 1;
+  min-width: 0;
+}
+
+.sched-seg.ant-segmented .ant-segmented-item,
+.sched-seg.ant-segmented .ant-segmented-item-selected {
+  border-radius: 999px;
+}
