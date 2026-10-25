@@ -1,0 +1,154 @@
+/* Job order detail: one card per operation.
+   Head (name, status) · who (machine, crew) · facts strip (planned, actual, vs target). */
+
+.op-card {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 14px;
+  padding: 14px 16px 10px;
+  background: var(--c-surface, #fff);
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+}
+
+.op-card.is-active {
+  border-color: var(--tone-blue-bd);
+  box-shadow: 0 0 0 3px var(--tone-blue-bg);
+}
+
+.op-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.op-card__title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.op-card__name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--c-text);
+}
+
+.op-card__redo {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tone-amber-fg);
+  background: var(--tone-amber-bg);
+}
+
+.op-card__who {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  margin-top: 6px;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+}
+
+.op-card__machine {
+  font-weight: 600;
+}
+
+.op-card__sep {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--c-border-strong);
+}
+
+.op-card__facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.25fr) minmax(0, 0.8fr);
+  margin-top: 12px;
+  background: var(--c-surface-muted);
+  border-radius: 10px;
+}
+
+.op-card__fact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 14px;
+}
+
+.op-card__fact + .op-card__fact {
+  border-left: 1px solid var(--c-border);
+}
+
+.op-card__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--c-text-muted);
+  text-transform: uppercase;
+}
+
+.op-card__value {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.op-card__sub {
+  font-size: 12px;
+  color: var(--c-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.op-card__muted {
+  color: var(--c-text-muted);
+  font-weight: 400;
+}
+
+.op-card__diff {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.op-card__diff.is-over { color: var(--tone-red-fg); }
+.op-card__diff.is-under { color: var(--tone-green-fg); }
+.op-card__diff.is-even { color: var(--c-text); }
+
+.op-card__note {
+  margin-top: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--tone-amber-fg);
+  background: var(--tone-amber-bg);
+  border-radius: 8px;
+}
+
+/* Time log: a quiet link-like toggle under the facts. */
+.op-card .ant-collapse-ghost > .ant-collapse-item > .ant-collapse-header {
+  padding: 8px 0 2px;
+}
+
+.op-card .ant-collapse-ghost .ant-collapse-content-box {
+  padding: 4px 0 6px !important;
+}
+
+@media (max-width: 767px) {
+  .op-card__facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .op-card__fact + .op-card__fact {
+    border-top: 1px solid var(--c-border);
+    border-left: 0;
+  }
+}

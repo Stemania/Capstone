@@ -33,6 +33,7 @@ import {
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
 import { formatShop, shopToday } from '../../utils/shopTime';
+import './opCard.css';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { operationsApi } from '../../api/operations.api';
 import { notificationsApi } from '../../api/notifications.api';
@@ -183,6 +184,16 @@ function fmtDate(v?: string | null) {
 
 function fmtDateTime(v?: string | null) {
   return formatShop(v, 'MMM D, YYYY h:mm A');
+}
+
+/** "Mar 19 · 11:28 AM – 1:58 PM", or both dates when it runs over days. */
+function fmtRange(start?: string | null, end?: string | null) {
+  if (!start && !end) return null;
+  if (!start || !end) return formatShop(start || end, 'MMM D, h:mm A');
+  const sameDay = formatShop(start, 'YYYY-MM-DD') === formatShop(end, 'YYYY-MM-DD');
+  return sameDay
+    ? `${formatShop(start, 'MMM D')} · ${formatShop(start, 'h:mm A')} – ${formatShop(end, 'h:mm A')}`
+    : `${formatShop(start, 'MMM D, h:mm A')} – ${formatShop(end, 'MMM D, h:mm A')}`;
 }
 
 const SENT_LATE_MINUTES = 10;
@@ -1113,42 +1124,34 @@ function JobOrderDetailView() {
                         {done ? <CheckCircleFilled /> : op.sequenceNo}
                       </div>
 
-                      <div
-                        className="jo-op-body"
-                        style={{
-                          flex: 1,
-                          minWidth: 0,
-                          marginBottom: 12,
-                          padding: '12px 14px',
-                          borderRadius: 8,
-                          background: active ? tones.blue.bg : colors.surfaceMuted,
-                          border: `1px solid ${active ? tones.blue.border : 'transparent'}`,
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            gap: 8,
-                            alignItems: 'center',
-                            marginBottom: 10,
-                            flexWrap: 'wrap',
-                          }}
-                        >
-                          <span style={{ fontWeight: 800, fontSize: 15, color: NAVY }}>
-                            {op.operationName}
-                            {op.reworkOfOperationId ? (
-                              <Text type="secondary" style={{ fontWeight: 600, fontSize: 12 }}>
-                                {' '}
-                                (redo)
-                              </Text>
-                            ) : null}
-                          </span>
+                      <div className={`jo-op-body op-card${active ? ' is-active' : ''}`}>
+                        <div className="op-card__head">
+                          <div className="op-card__title">
+                            <span className="op-card__name">{op.operationName}</span>
+                            {op.reworkOfOperationId ? <span className="op-card__redo">Redo</span> : null}
+                          </div>
                           <StatusPill tone={opSt.tone} compact>
                             {op.isOutsourced && active ? 'Sent out' : opSt.label}
                             {active && op.isPaused ? ' · Paused' : ''}
                           </StatusPill>
                         </div>
+                        {op.isOutsourced ? null : (
+                          <div className="op-card__who">
+                            <span className="op-card__machine">{machine || 'No machine'}</span>
+                            <span className="op-card__sep" aria-hidden />
+                            <CrewChips
+                              crew={op.crew}
+                              lead={{
+                                id: op.assignedWorkerId,
+                                fullName: op.assignedWorkerName,
+                                nickname: op.assignedWorkerNickname,
+                                photoVersion: op.assignedWorkerPhotoVersion,
+                              }}
+                              size={20}
+                              emptyText="No worker yet"
+                            />
+                          </div>
+                        )}
 
                         {op.isOutsourced ? (
                           <OutsourcedOperationPanel
@@ -1158,71 +1161,53 @@ function JobOrderDetailView() {
                             onChanged={fetchJob}
                           />
                         ) : (
-                        <div
-                          className="jo-op-facts"
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-                            gap: '8px 16px',
-                            fontSize: 12,
-                            color: MUTED,
-                            marginBottom: 10,
-                          }}
-                        >
-                          <span>
-                            <strong style={{ color: '#475569' }}>Machine:</strong> {dash(machine)}
-                          </span>
-                          <span>
-                            <strong style={{ color: '#475569' }}>
-                              {(op.crewSize || 1) > 1 ? 'Crew:' : 'Worker:'}
-                            </strong>{' '}
-                            <CrewChips
-                              crew={op.crew}
-                              lead={{
-                                id: op.assignedWorkerId,
-                                fullName: op.assignedWorkerName,
-                                nickname: op.assignedWorkerNickname,
-                                photoVersion: op.assignedWorkerPhotoVersion,
-                              }}
-                              size={18}
-                              emptyText="—"
-                            />
-                          </span>
-                          <span>
-                            <strong style={{ color: '#475569' }}>Scheduled:</strong>{' '}
-                            {op.scheduledStart || op.scheduledEnd
-                              ? `${fmtDateTime(op.scheduledStart)} → ${fmtDateTime(op.scheduledEnd)}`
-                              : '—'}
-                          </span>
-                          <span>
-                            <strong style={{ color: '#475569' }}>Started–finished:</strong>{' '}
-                            {op.actualStart || op.actualEnd
-                              ? `${fmtDateTime(op.actualStart)} → ${fmtDateTime(op.actualEnd)}`
-                              : '—'}
-                          </span>
-                          <span>
-                            <strong style={{ color: '#475569' }}>Target hours:</strong>{' '}
-                            {fmtHours(op.estimatedHours)}
-                          </span>
-                          <span>
-                            <strong style={{ color: '#475569' }}>Hours worked:</strong>{' '}
-                            {fmtHours(op.actualWorkedHours)}
-                          </span>
-                          {(op.crewSize || 1) > 1 && op.laborHours != null ? (
-                            <span title="Hours worked times crew size, for information">
-                              <strong style={{ color: '#475569' }}>Labor hours:</strong>{' '}
-                              {fmtHours(op.laborHours)} ({op.crewSize} people)
+                        <div className="op-card__facts">
+                          <div className="op-card__fact">
+                            <span className="op-card__label">Planned</span>
+                            <span className="op-card__value">
+                              {fmtRange(op.scheduledStart, op.scheduledEnd) || '—'}
                             </span>
-                          ) : null}
-                          <span>
-                            <strong style={{ color: '#475569' }}>Difference from target:</strong>{' '}
-                            {fmtVariance(op.varianceHours, op.variancePct)}
-                          </span>
+                            <span className="op-card__sub">Target {fmtHours(op.estimatedHours)}</span>
+                          </div>
+                          <div className="op-card__fact">
+                            <span className="op-card__label">Actual</span>
+                            <span className="op-card__value">
+                              {fmtRange(op.actualStart, op.actualEnd) || (active ? 'In progress' : 'Not started')}
+                            </span>
+                            <span className="op-card__sub">
+                              Worked {fmtHours(op.actualWorkedHours)}
+                              {(op.crewSize || 1) > 1 && op.laborHours != null
+                                ? ` · ${fmtHours(op.laborHours)} labor (${op.crewSize} people)`
+                                : ''}
+                            </span>
+                          </div>
+                          <div className="op-card__fact op-card__fact--diff">
+                            <span className="op-card__label">Vs target</span>
+                            {op.varianceHours != null ? (
+                              <>
+                                <span
+                                  className={`op-card__diff ${op.varianceHours > 0.05 ? 'is-over' : op.varianceHours < -0.05 ? 'is-under' : 'is-even'}`}
+                                >
+                                  {op.varianceHours > 0 ? '+' : ''}
+                                  {op.varianceHours.toFixed(1)} h
+                                </span>
+                                <span className="op-card__sub">
+                                  {op.variancePct != null
+                                    ? `${Math.abs(op.variancePct).toFixed(1)}% ${op.varianceHours > 0 ? 'over' : 'under'}`
+                                    : op.varianceHours > 0
+                                      ? 'over target'
+                                      : 'under target'}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="op-card__value op-card__muted">—</span>
+                            )}
+                          </div>
                         </div>
                         )}
 
                         {op.reworkReasonCategory || op.reworkReason ? (
-                          <div style={{ fontSize: 12, color: MUTED, marginBottom: 8 }}>
+                          <div className="op-card__note">
                             Redo reason
                             {op.reworkReasonCategory
                               ? `: ${reworkCategoryLabel(op.reworkReasonCategory)}`
