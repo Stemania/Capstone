@@ -155,6 +155,17 @@ def purchasing():
     return jsonify(analytics.purchasing_summary(**_period()))
 
 
+@analytics_bp.route("/inventory", methods=["GET"])
+@jwt_required()
+@require_roles(*TRANSACTIONS)
+def inventory():
+    """Consumable use and job-material stock for the period (Inventory tab)."""
+    from app.services.inventory_analytics_service import inventory_summary
+
+    period = _period()
+    return _cached("inventory", lambda: inventory_summary(**period), **period)
+
+
 @analytics_bp.route("/me", methods=["GET"])
 @jwt_required()
 @require_roles(UserRole.PRODUCTION_WORKER)

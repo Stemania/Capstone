@@ -8,6 +8,7 @@ import type {
   AnalyticsDemandForecast,
   AnalyticsJobOrders,
   AnalyticsOverview,
+  AnalyticsInventory,
   AnalyticsPurchasing,
   AnalyticsSalesForecast,
   AnalyticsSalesSummary,
@@ -47,6 +48,8 @@ export const analyticsApi = {
   consumableRunOut: () => apiClient.get<ConsumableRunOut>('/analytics/consumables/run-out'),
   demandCapacity: (params?: AnalyticsDateParams) =>
     apiClient.get<AnalyticsDemandCapacity>('/analytics/demand/capacity', { params }),
+  inventory: (params?: AnalyticsDateParams) =>
+    apiClient.get<AnalyticsInventory>('/analytics/inventory', { params }),
   purchasing: (params?: AnalyticsDateParams) =>
     apiClient.get<AnalyticsPurchasing>('/analytics/purchasing', { params }),
   jobOrders: (params?: AnalyticsDateParams) =>

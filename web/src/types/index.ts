@@ -1724,6 +1724,59 @@ export interface ConsumableRunOutPeriod {
   used: number | null;
 }
 
+/** Analytics → Inventory: consumable use and job-material stock for a period. */
+export interface AnalyticsInventory {
+  from: string;
+  to: string;
+  today: string;
+  months: {
+    month: string;
+    consumableUseQty: number;
+    consumableUseValue: number;
+    materialReceivedValue: number;
+    materialConsumedValue: number;
+  }[];
+  consumables: {
+    useQty: number;
+    useValue: number;
+    itemsUsed: number;
+    topByValue: {
+      toolId: string;
+      name: string;
+      sizeSpec: string | null;
+      unit: string;
+      quantity: number;
+      value: number;
+    }[];
+  };
+  materials: {
+    onHandLines: number;
+    onHandValue: number;
+    incomingLines: number;
+    incomingValue: number;
+    incomingOverdueLines: number;
+    receivedValue: number;
+    consumedValue: number;
+    avgDaysInStock: number | null;
+    daysInStockSamples: number;
+    ageBuckets: { key: string; label: string; lines: number; value: number }[];
+    oldestOnHand: {
+      id: string;
+      materialName: string;
+      gradeOrSpec: string | null;
+      sizeSpec: string | null;
+      quantity: number;
+      unit: string;
+      value: number;
+      dateReceived: string;
+      daysInStock: number;
+      jobOrderId: string | null;
+      jobNumber: string | null;
+      jobStatus: string | null;
+    }[];
+  };
+}
+
 export interface ConsumableRunOutRow {
   toolId: string;
   name: string;

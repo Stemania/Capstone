@@ -678,3 +678,24 @@ a.ana-list__row:hover .ana-list__title { color: var(--c-primary); text-decoratio
   .ana-card, .ana-kpi { break-inside: avoid; box-shadow: none; }
   .ana-toolbar { position: static; }
 }
+
+/* Inventory tab: Consumables and Job materials sections. */
+.ana-inv__section {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  margin: 24px 0 12px;
+}
+
+.ana-inv__section h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--c-text);
+}
+
+.ana-inv__section span {
+  font-size: var(--fs-sm);
+  color: var(--c-text-muted);
+}

@@ -565,3 +565,27 @@ def test_same_material_for_two_jobs_on_one_po_is_stocked_per_job(client, shop):
     db.session.flush()
     assert stock("RECEIVED") == {shop["job_b"].id: 6}
     assert stock("CONSUMED") == {shop["job_a"].id: 4}
+
+
+def test_inventory_analytics_counts_job_material_stock(client, shop):
+    """Analytics → Inventory: received job materials are on hand until their job
+    starts; the move into stock is counted in the month it was received."""
+    order = _both_jobs_draft(client, shop)
+    _issue(client, shop, order["id"], when="2031-03-02")
+    assert _receive(client, shop, order["id"], "2031-03-09").status_code == 200
+
+    res = client.get(
+        "/api/v1/analytics/inventory?from=2031-03-01&to=2031-03-31",
+        headers=_headers(shop["office"]),
+    )
+    assert res.status_code == 200, res.get_json()
+    body = res.get_json()
+    mats = body["materials"]
+    assert mats["onHandLines"] == 2
+    assert mats["onHandValue"] == 2500.0  # (4 + 6) x 250
+    assert mats["incomingLines"] == 0
+    assert sum(b["lines"] for b in mats["ageBuckets"]) == 2
+    march = next(m for m in body["months"] if m["month"] == "2031-03")
+    assert march["materialReceivedValue"] == 2500.0
+    assert march["materialConsumedValue"] == 0
+    assert body["consumables"]["useQty"] == 0

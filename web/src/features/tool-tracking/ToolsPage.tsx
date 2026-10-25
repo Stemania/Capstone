@@ -12,7 +12,7 @@ import {
   AuditOutlined,
 } from '@ant-design/icons';
 import { BookOpen, Layers, Package, PackageOpen, Wrench } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { type Dayjs } from 'dayjs';
 import { toolsApi } from '../../api/tools.api';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
@@ -49,7 +49,12 @@ export default function ToolsPage() {
   const { canOfficeWrite } = useAuth();
   const canEdit = canOfficeWrite;
   const canEditCatalog = canOfficeWrite;
-  const [tab, setTab] = useState<PageTab>('tools');
+  const [searchParams] = useSearchParams();
+  // ?tab=consumables (or raw-materials, catalog) opens that tab, e.g. from Analytics.
+  const [tab, setTab] = useState<PageTab>(() => {
+    const asked = searchParams.get('tab');
+    return INVENTORY_TAB_OPTIONS.some((o) => o.value === asked) ? (asked as PageTab) : 'tools';
+  });
   const [tools, setTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
   const [editTool, setEditTool] = useState<Tool | null>(null);

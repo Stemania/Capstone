@@ -53,7 +53,7 @@ export default function AnalyticsLayout() {
       tabs[0].value,
     [location.pathname, tabs]
   );
-  const noPeriod = active === '/analytics/reports' || active === '/analytics/inventory';
+  const noPeriod = active === '/analytics/reports';
 
   return (
     <AnalyticsPeriodProvider range={range} setRange={setRange}>

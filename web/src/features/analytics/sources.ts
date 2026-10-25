@@ -29,6 +29,8 @@ export const useSalesSummary = (p: Period | null) =>
   useAnalyticsData(p ? key('sales', p) : null, () => analyticsApi.salesSummary(p!));
 export const useJobOrders = (p: Period | null) =>
   useAnalyticsData(p ? key('jobs', p) : null, () => analyticsApi.jobOrders(p!));
+export const useInventory = (p: Period | null) =>
+  useAnalyticsData(p ? key('inventory', p) : null, () => analyticsApi.inventory(p!));
 export const usePurchasing = (p: Period | null) =>
   useAnalyticsData(p ? key('purchasing', p) : null, () => analyticsApi.purchasing(p!));
 export const useReliability = (p: Period | null) =>

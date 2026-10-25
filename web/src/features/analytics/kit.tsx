@@ -539,18 +539,22 @@ export function ParetoChart({
   vitalFew,
   height = 280,
   valueLabel = 'Hours',
+  valueFormat = (v: number) => fmtNum(v, 1),
+  vitalLabel = 'top causes',
 }: {
   rows: ParetoRow[];
   threshold?: number;
   vitalFew: number;
   height?: number;
   valueLabel?: string;
+  valueFormat?: (v: number) => string;
+  vitalLabel?: string;
 }) {
   return (
     <div>
       <Legend
         items={[
-          { label: `${valueLabel} (top causes)`, color: PALETTE.primary, kind: 'bar' },
+          { label: `${valueLabel} (${vitalLabel})`, color: PALETTE.primary, kind: 'bar' },
           { label: valueLabel, color: PALETTE.muted, kind: 'bar' },
           { label: 'Cumulative %', color: PALETTE.navy },
           { label: `${threshold}% line`, color: PALETTE.warn, kind: 'dash' },
@@ -597,7 +601,7 @@ export function ParetoChart({
                   <TipBox
                     title={r.label}
                     rows={[
-                      { label: valueLabel, value: fmtNum(r.hours, 1) },
+                      { label: valueLabel, value: valueFormat(r.hours) },
                       { label: 'Share', value: `${fmtNum(r.shareOfTotalPct, 0)}%` },
                       { label: 'Cumulative', value: `${fmtNum(r.cumulativePct, 0)}%` },
                       ...(r.count != null ? [{ label: 'Times', value: r.count }] : []),
