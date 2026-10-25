@@ -530,3 +530,38 @@ def test_stored_sunday_promise_counts_from_next_working_day(client, shop, one_da
     row.supplier_order.expected_delivery_date = date(2031, 3, 9)  # Sunday, saved before this rule
     db.session.commit()
     assert row.promised_date == date(2031, 3, 10)
+
+
+def test_same_material_for_two_jobs_on_one_po_is_stocked_per_job(client, shop):
+    """One PO carries the same material for two jobs: it prints as one row, both
+    lines sit in stock after receipt, and starting job A uses only A's line
+    while B's stays on hand, reserved for B."""
+    from datetime import datetime, timezone
+
+    from app.services.material_purchase_service import consume_received_lines
+
+    order = _both_jobs_draft(client, shop)
+    _issue(client, shop, order["id"])
+    printed = client.get(
+        f"/api/v1/supplier-orders/{order['id']}/print", headers=_headers(shop["office"])
+    ).get_json()
+    assert len(printed["rows"]) == 1 and printed["rows"][0]["quantity"] == 10
+
+    assert _receive(client, shop, order["id"], "2031-03-09").status_code == 200
+
+    def stock(status):
+        res = client.get(
+            f"/api/v1/inventory/material-purchases?status={status}",
+            headers=_headers(shop["office"]),
+        )
+        assert res.status_code == 200, res.get_json()
+        body = res.get_json()
+        rows = body["items"] if isinstance(body, dict) else body
+        return {r["jobOrderId"]: r["quantity"] for r in rows}
+
+    assert stock("RECEIVED") == {shop["job_a"].id: 4, shop["job_b"].id: 6}
+
+    consume_received_lines(db.session.get(JobOrder, shop["job_a"].id), datetime.now(timezone.utc))
+    db.session.flush()
+    assert stock("RECEIVED") == {shop["job_b"].id: 6}
+    assert stock("CONSUMED") == {shop["job_a"].id: 4}
