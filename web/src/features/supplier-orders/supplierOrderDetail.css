@@ -1,0 +1,188 @@
+/* Supplier order detail: laid out like the shop's printed PO —
+   PO number and date, supplier and address, items, total, terms. */
+
+.so-doc {
+  padding: 20px 24px;
+}
+
+.so-doc__top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.so-doc__kicker {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--c-text-muted);
+  text-transform: uppercase;
+}
+
+.so-doc__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.so-doc__title-row h1 {
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--fs-title);
+  font-weight: 700;
+  color: var(--c-text);
+}
+
+.so-doc__grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr);
+  gap: 24px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--c-border);
+}
+
+.so-doc__label,
+.so-doc__facts dt,
+.so-doc__field > span {
+  margin-bottom: 4px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--c-text-muted);
+}
+
+.so-doc__supplier {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--c-text);
+}
+
+.so-doc__sub {
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+}
+
+.so-doc__muted {
+  color: var(--c-text-muted);
+}
+
+.so-doc__facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+}
+
+.so-doc__facts dd {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--c-text);
+}
+
+.so-doc__value-row {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.so-doc__value-row .ant-btn {
+  margin-top: -3px;
+}
+
+.so-doc__total {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.so-doc__terms {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(150px, 200px) minmax(120px, 160px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-top: 20px;
+  padding: 14px 16px;
+  background: var(--c-surface-muted);
+  border-radius: var(--r-md);
+}
+
+.so-doc__field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.so-doc__field > strong {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: 32px;
+}
+
+.so-doc__field--notes > div {
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--c-text-2);
+}
+
+/* Items: a little room on the left, totals under Amount. */
+.so-items .ant-table-thead > tr > th:first-child,
+.so-items .ant-table-tbody > tr > td:first-child,
+.so-items .ant-table-summary > tr > td:first-child {
+  padding-left: 20px !important;
+}
+
+.so-items__job {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.so-items__sum td {
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  background: #fff;
+}
+
+.so-items__sum--total td {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--c-text);
+  border-top: 1px solid var(--c-border-strong);
+}
+
+@media (max-width: 1100px) {
+  .so-doc__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .so-doc__terms {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .so-doc__field--notes {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 767px) {
+  .so-doc {
+    padding: 16px;
+  }
+
+  .so-doc__grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .so-doc__actions {
+    width: 100%;
+  }
+
+  .so-doc__terms {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

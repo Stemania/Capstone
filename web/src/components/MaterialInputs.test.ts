@@ -14,6 +14,7 @@ describe('material picker (Batch 4)', () => {
       'Mild steel — A36 — Ø50 × 200 mm'
     );
     expect(formatPoMaterialLabel('Mild steel', null, null)).toBe('Mild steel');
+    expect(formatPoMaterialLabel('HSS drill bit', '3 mm', '3 mm')).toBe('HSS drill bit — 3 mm');
     expect(formatPoMaterialLabel('Mild steel', 'A36', null)).toBe('Mild steel — A36');
   });
 });

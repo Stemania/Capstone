@@ -276,6 +276,9 @@ export interface SupplierOrder {
   supplierId: string;
   supplierName?: string | null;
   supplierLeadTimeDays?: number | null;
+  supplierAddress?: string | null;
+  supplierContactPerson?: string | null;
+  supplierPhone?: string | null;
   status: SupplierOrderStatus;
   dateIssued?: string | null;
   expectedDeliveryDate?: string | null;

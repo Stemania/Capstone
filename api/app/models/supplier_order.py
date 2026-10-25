@@ -151,6 +151,10 @@ class SupplierOrder(db.Model):
             "supplierId": self.supplier_id,
             "supplierName": s.name if s else None,
             "supplierLeadTimeDays": s.typical_lead_time_days if s else None,
+            # Printed under the supplier name on the PO.
+            "supplierAddress": s.address if s else None,
+            "supplierContactPerson": s.contact_person if s else None,
+            "supplierPhone": s.phone if s else None,
             "status": self.status.value,
             "dateIssued": self.date_issued.isoformat() if self.date_issued else None,
             "expectedDeliveryDate": (

@@ -1,6 +1,6 @@
 import { formatShop, isFutureShopDay, isPastShopDay, shopToday } from '../../utils/shopTime';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Alert, Button, DatePicker, Descriptions, Input, InputNumber, Modal, Select, Space, Tooltip, message } from 'antd';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, Button, DatePicker, Input, InputNumber, Modal, Select, Space, Table, Tooltip, message } from 'antd';
 import type { TableColumnsType } from 'antd';
 import {
   CheckOutlined,
@@ -18,7 +18,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { PHONE_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import OverdueTag from '../../components/OverdueTag';
 import StatusPill from '../../components/StatusPill';
-import { IdChip, Page, PageSkeleton, SectionCard } from '../../components/ui';
+import { Page, PageSkeleton, SectionCard } from '../../components/ui';
 import { GradeInput, formatPoMaterialLabel } from '../../components/MaterialInputs';
 import type { DeliveryMode, MaterialPurchase, SupplierOrder } from '../../types';
 import OrderMaterialsModal from './OrderMaterialsModal';
@@ -26,17 +26,9 @@ import { LINE_STATUS_PILL, ORDER_STATUS_PILL, fmtDay, fmtMoney, fmtQty } from '.
 import {
   PRINT_BEFORE_RECEIVE_HINT,
   canReceiveOrder,
-  printedStatusLabel,
 } from './printReceiveGate';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
-
-type InfoItem = { key: string; label: ReactNode; children: ReactNode };
-
-const INFO_GROUPS: { title: string; keys: string[] }[] = [
-  { title: 'Order', keys: ['po', 'issued', 'exp', 'rec'] },
-  { title: 'People', keys: ['prep', 'iss', 'printed'] },
-  { title: 'Terms', keys: ['terms', 'mode', 'vat', 'notes'] },
-];
+import './supplierOrderDetail.css';
 
 const DELIVERY_MODE_OPTIONS: { value: DeliveryMode; label: string }[] = [
   { value: 'PICKUP', label: 'Pick-up' },
@@ -143,7 +135,7 @@ export default function SupplierOrderDetailPage() {
   const printed = canReceiveOrder(order.printedAt);
   const receivableByMe = receivable && canOfficeWrite;
   const cancelled = order.status === 'CANCELLED';
-  const printTermsEditable = canOfficeWrite && !cancelled;
+  const printTermsEditable = canOfficeWrite && (isDraft || receivable);
 
   const printPo = async () => {
     if (isDraft || cancelled) return;
@@ -308,23 +300,7 @@ export default function SupplierOrderDetailPage() {
 
   const columns: TableColumnsType<MaterialPurchase> = [
     {
-      title: 'Job',
-      key: 'job',
-      width: 170,
-      render: (_: unknown, ln) =>
-        ln.jobOrderId ? (
-          <div>
-            <Link to={`/job-orders/${ln.jobOrderId}`} style={{ fontWeight: 600 }}>
-              {ln.jobNumber}
-            </Link>
-            <div style={{ fontSize: 11, color: '#64748b' }}>{ln.jobTitle}</div>
-          </div>
-        ) : ln.toolCode ? (
-          <div style={{ fontSize: 12, color: '#64748b' }}>{ln.toolCode}</div>
-        ) : null,
-    },
-    {
-      title: 'Material',
+      title: 'Item description',
       key: 'material',
       render: (_: unknown, ln) => (
         <div style={ln.cancelledAt ? { textDecoration: 'line-through', color: '#94a3b8' } : undefined}>
@@ -335,22 +311,38 @@ export default function SupplierOrderDetailPage() {
     {
       title: 'Qty',
       key: 'qty',
-      width: 100,
+      width: 110,
+      align: 'right',
       render: (_: unknown, ln) => fmtQty(ln.quantity, ln.unit),
     },
     {
-      title: 'Unit cost',
+      title: 'Unit price',
       dataIndex: 'unitCost',
-      width: 110,
+      width: 120,
       align: 'right',
       render: (v: number) => fmtMoney(v),
     },
     {
       title: 'Amount',
       dataIndex: 'lineTotal',
-      width: 120,
+      width: 130,
       align: 'right',
-      render: (v: number) => fmtMoney(v),
+      render: (v: number) => <strong>{fmtMoney(v)}</strong>,
+    },
+    {
+      title: 'For',
+      key: 'job',
+      width: 190,
+      render: (_: unknown, ln) =>
+        ln.jobOrderId ? (
+          <Tooltip title={ln.jobTitle || undefined}>
+            <Link to={`/job-orders/${ln.jobOrderId}`} className="so-items__job">
+              {ln.jobNumber}
+            </Link>
+          </Tooltip>
+        ) : (
+          <span className="so-doc__muted">Stock</span>
+        ),
     },
     {
       title: 'Status',
@@ -366,15 +358,9 @@ export default function SupplierOrderDetailPage() {
       },
     },
     {
-      title: 'Received',
-      dataIndex: 'dateReceived',
-      width: 110,
-      render: (v) => fmtDay(v),
-    },
-    {
       title: '',
       key: 'act',
-      width: 90,
+      width: 80,
       render: (_: unknown, ln) => {
         if (!canOfficeWrite || !isDraft) return null;
         return (
@@ -397,63 +383,91 @@ export default function SupplierOrderDetailPage() {
     },
   ];
 
-  const renderInfo = (items: InfoItem[]) => {
-    if (!phone) {
-      return (
-        <Descriptions
-          size="small"
-          bordered
-          column={{ xs: 1, md: 3 }}
-          style={{ background: '#fff' }}
-          items={items}
-        />
-      );
-    }
-    const byKey = new Map(items.map((it) => [it.key, it]));
-    return (
-      <div className="so-glist">
-        {INFO_GROUPS.map((g) => (
-          <section key={g.title} className="so-glist__group">
-            <h3 className="so-glist__title">{g.title}</h3>
-            <dl className="so-glist__card">
-              {g.keys.map((k) => {
-                const it = byKey.get(k);
-                return it ? (
-                  <div key={k} className="so-glist__row">
-                    <dt>{it.label}</dt>
-                    <dd>{it.children}</dd>
-                  </div>
-                ) : null;
-              })}
-            </dl>
-          </section>
-        ))}
-      </div>
-    );
-  };
-
   const vatAmount = order.vatRate ? Math.round(order.subtotal * order.vatRate) / 100 : 0;
+  const total = order.subtotal + vatAmount;
+  const changes = order.expectedDeliveryChanges || [];
+  const deliveryLabel =
+    DELIVERY_MODE_OPTIONS.find((o) => o.value === (order.deliveryMode || 'DELIVERY'))?.label || 'Delivery';
+  // Line status only when lines differ (e.g. one cancelled); otherwise the order status says it.
+  const showLineStatus = new Set(lines.map((ln) => ln.status || 'ORDERED')).size > 1;
+  const tableColumns = columns.filter(
+    (c) => c.key !== 'received' && (showLineStatus || c.key !== 'status'),
+  );
+
+  const expectedCell = (
+    <div className="so-doc__value-row">
+      <div>
+        {!order.expectedDeliveryDate ? (
+          <span className="so-doc__muted">
+            Issue date + {order.supplierLeadTimeDays ?? '—'} days
+          </span>
+        ) : (
+          <strong>{fmtDay(order.expectedDeliveryDate)}</strong>
+        )}
+        {order.originalExpectedDeliveryDate &&
+        order.originalExpectedDeliveryDate !== order.expectedDeliveryDate ? (
+          <Tooltip
+            title={
+              changes.length ? (
+                <div>
+                  {changes.map((c, i) => (
+                    <div key={`${c.changedAt}-${i}`} style={{ marginBottom: 4 }}>
+                      {fmtDay(c.from)} → {fmtDay(c.to)}
+                      {c.note ? ` · ${c.note}` : ''}
+                      <div style={{ opacity: 0.75, fontSize: 11 }}>
+                        {c.changedByName || 'Unknown'}
+                        {c.changedAt ? `, ${formatShop(c.changedAt, 'D MMM YYYY, h:mm A')}` : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : undefined
+            }
+          >
+            <div className="so-doc__sub">
+              Promised {fmtDay(order.originalExpectedDeliveryDate)}
+              {changes.length ? ` · changed ${changes.length}×` : ''}
+            </div>
+          </Tooltip>
+        ) : null}
+        {order.daysOverdue ? (
+          <div style={{ marginTop: 4 }}>
+            <OverdueTag
+              days={order.daysOverdue}
+              tooltip="Not received by the expected date. Follow up with the supplier."
+            />
+          </div>
+        ) : null}
+      </div>
+      {receivable && canOfficeWrite ? (
+        <Tooltip title="Change expected delivery date">
+          <Button
+            size="small"
+            type="text"
+            icon={<EditOutlined />}
+            aria-label="Change expected delivery date"
+            disabled={busy}
+            onClick={openDateChange}
+          />
+        </Tooltip>
+      ) : null}
+    </div>
+  );
 
   return (
     <Page className="so-detail-page">
-      <section className="ui-card so-detail__head">
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            gap: 12,
-            flexWrap: 'wrap',
-            marginBottom: 16,
-          }}
-        >
-          <Space wrap align="center">
-            {order.poNumber ? <IdChip>{order.poNumber}</IdChip> : null}
-            <span style={{ fontWeight: 700, fontSize: 'var(--fs-title)', color: 'var(--c-text)' }}>
-              {order.poNumber ? order.supplierName : `Draft order · ${order.supplierName}`}
+      <section className="ui-card so-doc">
+        <header className="so-doc__top">
+          <div className="so-doc__title">
+            <span className="so-doc__kicker">
+              {order.poNumber ? 'Purchase order' : 'Draft purchase order'}
             </span>
-            <StatusPill color={pill.color}>{pill.label}</StatusPill>
-          </Space>
-          <Space wrap className="m-action-bar">
+            <div className="so-doc__title-row">
+              <h1>{order.poNumber || 'No PO number yet'}</h1>
+              <StatusPill color={pill.color}>{pill.label}</StatusPill>
+            </div>
+          </div>
+          <Space wrap className="so-doc__actions m-action-bar">
             {editableDraft ? (
               <Button icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>
                 Add lines
@@ -461,7 +475,13 @@ export default function SupplierOrderDetailPage() {
             ) : null}
             {isDraft ? (
               <Tooltip
-                title={canOfficeWrite ? undefined : 'Only Office Staff can issue a supplier order.'}
+                title={
+                  !canOfficeWrite
+                    ? 'Only Office Staff can issue a supplier order.'
+                    : draftDirty
+                      ? 'Save your changes first'
+                      : undefined
+                }
               >
                 <Button
                   type="primary"
@@ -473,10 +493,20 @@ export default function SupplierOrderDetailPage() {
                 </Button>
               </Tooltip>
             ) : null}
+            {!isDraft && !cancelled ? (
+              <Button
+                type={printed ? 'default' : 'primary'}
+                icon={<PrinterOutlined />}
+                disabled={busy}
+                onClick={() => void printPo()}
+              >
+                Print PO
+              </Button>
+            ) : null}
             {receivableByMe ? (
               <Tooltip title={!printed ? PRINT_BEFORE_RECEIVE_HINT : undefined}>
                 <Button
-                  type="primary"
+                  type={printed ? 'primary' : 'default'}
                   icon={<CheckOutlined />}
                   disabled={!openLines.length || busy || !printed}
                   onClick={receiveOrder}
@@ -485,199 +515,125 @@ export default function SupplierOrderDetailPage() {
                 </Button>
               </Tooltip>
             ) : null}
-            <Tooltip
-              title={
-                isDraft
-                  ? 'Issue the order before printing'
-                  : cancelled
-                    ? 'A cancelled order cannot be printed'
-                    : undefined
-              }
-            >
-              <Button
-                icon={<PrinterOutlined />}
-                disabled={isDraft || cancelled || busy}
-                onClick={() => void printPo()}
-              >
-                Print PO
-              </Button>
-            </Tooltip>
             {canOfficeWrite && (order.status === 'DRAFT' || order.status === 'ISSUED') ? (
-              <Button danger icon={<StopOutlined />} disabled={busy} onClick={cancelOrder}>
-                Cancel order
+              <Button danger type="text" icon={<StopOutlined />} disabled={busy} onClick={cancelOrder}>
+                Cancel
               </Button>
             ) : null}
           </Space>
+        </header>
+
+        <div className="so-doc__grid">
+          <div className="so-doc__block">
+            <div className="so-doc__label">Supplier</div>
+            <div className="so-doc__supplier">{order.supplierName}</div>
+            {order.supplierAddress ? <div className="so-doc__sub">{order.supplierAddress}</div> : null}
+            {order.supplierContactPerson || order.supplierPhone ? (
+              <div className="so-doc__sub">
+                {[order.supplierContactPerson, order.supplierPhone].filter(Boolean).join(' · ')}
+              </div>
+            ) : null}
+          </div>
+          <dl className="so-doc__facts">
+            <div>
+              <dt>Date issued</dt>
+              <dd>{order.dateIssued ? fmtDay(order.dateIssued) : <span className="so-doc__muted">On issue</span>}</dd>
+            </div>
+            <div>
+              <dt>Expected delivery</dt>
+              <dd>{expectedCell}</dd>
+            </div>
+            {order.receivedDate ? (
+              <div>
+                <dt>Received</dt>
+                <dd>{fmtDay(order.receivedDate)}</dd>
+              </div>
+            ) : !isDraft && !cancelled ? (
+              <div>
+                <dt>Printed</dt>
+                <dd>
+                  {printed ? (
+                    <>
+                      {fmtDay(order.printedAt)}
+                      {order.printedByName ? (
+                        <div className="so-doc__sub">by {order.printedByName}</div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <StatusPill tone="amber" compact>
+                      Not printed yet
+                    </StatusPill>
+                  )}
+                </dd>
+              </div>
+            ) : null}
+            <div>
+              <dt>Total</dt>
+              <dd className="so-doc__total ui-tabular">{fmtMoney(total)}</dd>
+            </div>
+          </dl>
         </div>
 
-        {renderInfo([
-            { key: 'po', label: 'PO number', children: order.poNumber || 'Assigned on issue' },
-            { key: 'issued', label: 'Date issued', children: fmtDay(order.dateIssued) },
-            {
-              key: 'exp',
-              label: 'Expected delivery',
-              children: (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    {!order.expectedDeliveryDate ? (
-                      `Issue date + ${order.supplierLeadTimeDays ?? '—'} days`
-                    ) : order.originalExpectedDeliveryDate ? (
-                      <>
-                        <div>
-                          <span style={{ color: '#64748b' }}>Currently expected:</span>{' '}
-                          <strong>{fmtDay(order.expectedDeliveryDate)}</strong>
-                        </div>
-                        <div>
-                          <span style={{ color: '#64748b' }}>Originally expected:</span>{' '}
-                          {fmtDay(order.originalExpectedDeliveryDate)}
-                        </div>
-                      </>
-                    ) : (
-                      fmtDay(order.expectedDeliveryDate)
-                    )}
-                    {order.daysOverdue ? (
-                      <div style={{ marginTop: 4 }}>
-                        <OverdueTag
-                          days={order.daysOverdue}
-                          tooltip="Not received by the expected date. Follow up with the supplier."
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                  {receivable ? (
-                    <Tooltip
-                      title={
-                        canOfficeWrite
-                          ? 'Change expected delivery date'
-                          : 'Only Office Staff can change the expected delivery date.'
-                      }
-                    >
-                      <Button
-                        size="small"
-                        type="text"
-                        icon={<EditOutlined />}
-                        aria-label="Change expected delivery date"
-                        disabled={!canOfficeWrite || busy}
-                        onClick={openDateChange}
-                      />
-                    </Tooltip>
-                  ) : null}
-                </div>
-              ),
-            },
-            { key: 'prep', label: 'Prepared by', children: order.preparedByName || '—' },
-            { key: 'iss', label: 'Issued by', children: order.issuedByName || '—' },
-            {
-              key: 'printed',
-              label: 'Printed',
-              children: printedStatusLabel(order.printedAt, order.printedByName, fmtDay),
-            },
-            { key: 'rec', label: 'Received', children: fmtDay(order.receivedDate) },
-            { key: 'sub', label: 'Subtotal', children: fmtMoney(order.subtotal) },
-            {
-              key: 'vat',
-              label: 'VAT',
-              children: editableDraft ? (
-                <InputNumber
-                  size="small"
-                  min={0}
-                  max={100}
-                  placeholder="None"
-                  value={vatRate}
-                  onChange={(v) => setVatRate(v)}
-                  addonAfter="%"
-                  style={{ width: 120 }}
-                />
-              ) : order.vatRate ? (
-                `${order.vatRate}%`
-              ) : (
-                'None'
-              ),
-            },
-            {
-              key: 'terms',
-              label: 'Terms of payment',
-              children: printTermsEditable ? (
-                <Input
-                  size="small"
-                  maxLength={100}
-                  value={terms}
-                  disabled={busy}
-                  onChange={(e) => setTerms(e.target.value)}
-                  onBlur={commitTerms}
-                  onPressEnter={commitTerms}
-                  style={{ width: 180 }}
-                />
-              ) : (
-                order.termsOfPayment || 'PDC'
-              ),
-            },
-            {
-              key: 'mode',
-              label: 'Mode of delivery',
-              children: printTermsEditable ? (
-                <Select<DeliveryMode>
-                  size="small"
-                  value={order.deliveryMode || 'DELIVERY'}
-                  disabled={busy}
-                  onChange={(v) => void savePrintTerms({ deliveryMode: v })}
-                  options={DELIVERY_MODE_OPTIONS}
-                  style={{ width: 140 }}
-                />
-              ) : (
-                DELIVERY_MODE_OPTIONS.find((o) => o.value === (order.deliveryMode || 'DELIVERY'))
-                  ?.label
-              ),
-            },
-            {
-              key: 'notes',
-              label: 'Notes',
-              children: editableDraft ? (
-                <Input.TextArea
-                  autoSize={{ minRows: 1, maxRows: 4 }}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
-              ) : (
-                order.notes || '—'
-              ),
-            },
-          ])}
-
-        {order.expectedDeliveryChanges && order.expectedDeliveryChanges.length > 0 ? (
-          <div
-            style={{
-              background: '#fff',
-              border: '1px solid #e2e8f0',
-              borderRadius: 8,
-              padding: '10px 14px',
-              marginTop: 16,
-            }}
-          >
-            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
-              Expected delivery changes
+        <div className="so-doc__terms">
+          <label className="so-doc__field">
+            <span>Terms of payment</span>
+            {printTermsEditable ? (
+              <Input
+                maxLength={100}
+                value={terms}
+                disabled={busy}
+                onChange={(e) => setTerms(e.target.value)}
+                onBlur={commitTerms}
+                onPressEnter={commitTerms}
+              />
+            ) : (
+              <strong>{order.termsOfPayment || 'PDC'}</strong>
+            )}
+          </label>
+          <label className="so-doc__field">
+            <span>Mode of delivery</span>
+            {printTermsEditable ? (
+              <Select<DeliveryMode>
+                value={order.deliveryMode || 'DELIVERY'}
+                disabled={busy}
+                onChange={(v) => void savePrintTerms({ deliveryMode: v })}
+                options={DELIVERY_MODE_OPTIONS}
+              />
+            ) : (
+              <strong>{deliveryLabel}</strong>
+            )}
+          </label>
+          {editableDraft ? (
+            <label className="so-doc__field so-doc__field--vat">
+              <span>VAT (optional)</span>
+              <InputNumber
+                min={0}
+                max={100}
+                placeholder="None"
+                value={vatRate}
+                onChange={(v) => setVatRate(v)}
+                addonAfter="%"
+                style={{ width: '100%' }}
+              />
+            </label>
+          ) : null}
+          {editableDraft ? (
+            <label className="so-doc__field so-doc__field--notes">
+              <span>Notes (not printed)</span>
+              <Input.TextArea
+                autoSize={{ minRows: 1, maxRows: 4 }}
+                placeholder="For the office only"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            </label>
+          ) : order.notes ? (
+            <div className="so-doc__field so-doc__field--notes">
+              <span>Notes</span>
+              <div>{order.notes}</div>
             </div>
-            {order.expectedDeliveryChanges.map((c, i) => (
-              <div
-                key={`${c.changedAt}-${i}`}
-                style={{
-                  fontSize: 13,
-                  padding: '6px 0',
-                  borderTop: i ? '1px solid #f1f5f9' : undefined,
-                }}
-              >
-                <div>
-                  {fmtDay(c.from)} → <strong>{fmtDay(c.to)}</strong>
-                  {c.note ? <span style={{ color: '#334155' }}> · {c.note}</span> : null}
-                </div>
-                <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                  {c.changedByName || 'Unknown'}
-                  {c.changedAt ? `, ${formatShop(c.changedAt, 'D MMM YYYY, h:mm A')}` : ''}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
+          ) : null}
+        </div>
 
         {draftDirty ? (
           <Alert
@@ -711,21 +667,17 @@ export default function SupplierOrderDetailPage() {
             description="One or more lines are flagged for review. Cancel this purchase order or keep the material for other work."
           />
         ) : null}
-
-        {!isDraft && order.status !== 'CANCELLED' ? (
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginTop: 16 }}
-            title="Lines are locked after issue. To change the order, cancel it and issue a new one. Deliveries arrive complete: Receive order receives every line on one date."
-          />
-        ) : null}
-
       </section>
 
       <SectionCard
-        title="Lines"
-        subtitle={lines.length ? `${lines.length} line${lines.length === 1 ? '' : 's'}` : undefined}
+        title="Items"
+        subtitle={
+          lines.length
+            ? `${lines.length} line${lines.length === 1 ? '' : 's'}${
+                !isDraft && !cancelled ? ' · locked after issue; received together on one date' : ''
+              }`
+            : undefined
+        }
         flush
       >
         {phone ? (
@@ -743,16 +695,18 @@ export default function SupplierOrderDetailPage() {
                       <div className="so-line__title">
                         {formatPoMaterialLabel(ln.materialName, ln.gradeOrSpec, ln.sizeSpec)}
                       </div>
-                      <StatusPill color={p.color} compact>
-                        {p.label}
-                      </StatusPill>
+                      {showLineStatus ? (
+                        <StatusPill color={p.color} compact>
+                          {p.label}
+                        </StatusPill>
+                      ) : null}
                     </div>
                     {ln.jobOrderId || ln.toolCode ? (
                       <div className="so-line__job">
                         {ln.jobOrderId ? (
                           <Link to={`/job-orders/${ln.jobOrderId}`}>{ln.jobNumber}</Link>
                         ) : (
-                          ln.toolCode
+                          'Stock'
                         )}
                         {ln.jobOrderId && ln.jobTitle ? ` · ${ln.jobTitle}` : ''}
                       </div>
@@ -763,24 +717,22 @@ export default function SupplierOrderDetailPage() {
                       </span>
                       <strong>{fmtMoney(ln.lineTotal ?? ln.quantity * ln.unitCost)}</strong>
                     </div>
-                    {ln.dateReceived || (canOfficeWrite && isDraft) ? (
+                    {canOfficeWrite && isDraft ? (
                       <div className="so-line__foot">
-                        <span>{ln.dateReceived ? `Received ${fmtDay(ln.dateReceived)}` : ''}</span>
-                        {canOfficeWrite && isDraft ? (
-                          <Space size={4}>
-                            <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(ln)}>
-                              Edit
-                            </Button>
-                            <Button
-                              size="small"
-                              danger
-                              icon={<DeleteOutlined />}
-                              aria-label="Remove line"
-                              disabled={busy}
-                              onClick={() => removeLine(ln)}
-                            />
-                          </Space>
-                        ) : null}
+                        <span />
+                        <Space size={4}>
+                          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(ln)}>
+                            Edit
+                          </Button>
+                          <Button
+                            size="small"
+                            danger
+                            icon={<DeleteOutlined />}
+                            aria-label="Remove line"
+                            disabled={busy}
+                            onClick={() => removeLine(ln)}
+                          />
+                        </Space>
                       </div>
                     ) : null}
                   </article>
@@ -789,32 +741,72 @@ export default function SupplierOrderDetailPage() {
             )}
             {lines.length ? (
               <dl className="so-totals ui-tabular">
-                <div>
-                  <dt>Subtotal</dt>
-                  <dd>{fmtMoney(order.subtotal)}</dd>
-                </div>
                 {order.vatRate ? (
-                  <div>
-                    <dt>VAT ({order.vatRate}%)</dt>
-                    <dd>{fmtMoney(vatAmount)}</dd>
-                  </div>
+                  <>
+                    <div>
+                      <dt>Subtotal</dt>
+                      <dd>{fmtMoney(order.subtotal)}</dd>
+                    </div>
+                    <div>
+                      <dt>VAT ({order.vatRate}%)</dt>
+                      <dd>{fmtMoney(vatAmount)}</dd>
+                    </div>
+                  </>
                 ) : null}
                 <div className="so-totals__total">
                   <dt>Total</dt>
-                  <dd>{fmtMoney(order.subtotal + vatAmount)}</dd>
+                  <dd>{fmtMoney(total)}</dd>
                 </div>
               </dl>
             ) : null}
           </div>
         ) : (
           <ResponsiveTable<MaterialPurchase>
+            className="so-items"
             card={{ title: 'material', subtitle: ['job'], badge: 'status', actions: 'act' }}
             size="small"
             rowKey="id"
             pagination={false}
             dataSource={lines}
-            columns={columns}
+            columns={tableColumns}
             locale={{ emptyText: editableDraft ? 'No lines yet. Add lines to this draft.' : 'No lines yet.' }}
+            summary={() =>
+              lines.length ? (
+                <>
+                  {order.vatRate ? (
+                    <>
+                      <Table.Summary.Row className="so-items__sum">
+                        <Table.Summary.Cell index={0} colSpan={3} align="right">
+                          Subtotal
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={3} align="right">
+                          {fmtMoney(order.subtotal)}
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={4} colSpan={tableColumns.length - 4} />
+                      </Table.Summary.Row>
+                      <Table.Summary.Row className="so-items__sum">
+                        <Table.Summary.Cell index={0} colSpan={3} align="right">
+                          VAT ({order.vatRate}%)
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={3} align="right">
+                          {fmtMoney(vatAmount)}
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={4} colSpan={tableColumns.length - 4} />
+                      </Table.Summary.Row>
+                    </>
+                  ) : null}
+                  <Table.Summary.Row className="so-items__sum so-items__sum--total">
+                    <Table.Summary.Cell index={0} colSpan={3} align="right">
+                      Total
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={3} align="right">
+                      {fmtMoney(total)}
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={4} colSpan={tableColumns.length - 4} />
+                  </Table.Summary.Row>
+                </>
+              ) : null
+            }
           />
         )}
       </SectionCard>
