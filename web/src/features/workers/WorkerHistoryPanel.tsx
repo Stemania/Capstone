@@ -1,6 +1,7 @@
 import { formatShop } from '../../utils/shopTime';
-import { useEffect, useState } from 'react';
-import { DatePicker, Skeleton, Tag, Tooltip, Typography, message } from 'antd';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { DatePicker, Pagination, Skeleton, Tag, Tooltip, Typography, message } from 'antd';
 import { WarningOutlined } from '@ant-design/icons';
 import { EmptyState } from '../../components/ui';
 import { type Dayjs } from 'dayjs';
@@ -8,20 +9,20 @@ import { workerProfileApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import type { WorkerHistoryOperation, WorkerWorkHistory } from '../../types';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
+import { HISTORY_PAGE_SIZE, historyRangeLabel } from './workerHistoryPaging';
 
 const { Text } = Typography;
 
 type Props = { workerId: string };
 
 export default function WorkerHistoryPanel({ workerId }: Props) {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<WorkerWorkHistory | null>(null);
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null]>([null, null]);
   const [page, setPage] = useState(1);
-
-  useEffect(() => {
-    setPage(1);
-  }, [workerId, range]);
+  const [heldPage, setHeldPage] = useState(1);
+  const [eventPage, setEventPage] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,7 +33,7 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
           from: range[0]?.format('YYYY-MM-DD'),
           to: range[1]?.format('YYYY-MM-DD'),
           page,
-          perPage: 10,
+          perPage: HISTORY_PAGE_SIZE,
         });
         if (!cancelled) setData(hist);
       } catch (err) {
@@ -64,42 +65,29 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
   const s = data.summary;
   const fmt = (v: number | null | undefined, suffix = '') =>
     v == null ? '—' : `${v}${suffix}`;
+  const compare =
+    s.enoughHistory
+      ? `${fmt(s.totalEstimatedHours)}h → ${fmt(s.totalActualHours)}h`
+      : '—';
 
   return (
-    <div>
+    <div className="wh-history">
       <div style={{ marginBottom: 14 }}>
         <DatePicker.RangePicker
           allowClear
           value={range}
-          onChange={(vals) => setRange([vals?.[0] ?? null, vals?.[1] ?? null])}
+          onChange={(vals) => {
+            setRange([vals?.[0] ?? null, vals?.[1] ?? null]);
+            setPage(1);
+          }}
         />
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-          gap: 10,
-          marginBottom: 16,
-        }}
-      >
+      <div className="wh-summary">
         <SummaryTile label="Completed ops" value={String(s.operationsCompleted)} />
-        <SummaryTile
-          label="Target vs actual"
-          value={
-            s.enoughHistory
-              ? `${fmt(s.totalEstimatedHours)}h → ${fmt(s.totalActualHours)}h`
-              : '—'
-          }
-        />
-        <SummaryTile
-          label="Avg vs target"
-          value={s.enoughHistory ? fmt(s.averageVariancePct, '%') : '—'}
-        />
-        <SummaryTile
-          label="Close to target"
-          value={s.enoughHistory ? fmt(s.onEstimateRatePct, '%') : '—'}
-        />
+        <SummaryTile label="Target vs actual" value={compare} compare />
+        <SummaryTile label="Avg vs target" value={s.enoughHistory ? fmt(s.averageVariancePct, '%') : '—'} />
+        <SummaryTile label="Close to target" value={s.enoughHistory ? fmt(s.onEstimateRatePct, '%') : '—'} />
         <SummaryTile label="Rework" value={String(s.reworkCount)} />
       </div>
       {s.message ? (
@@ -108,28 +96,56 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
         </Text>
       ) : null}
 
-      <div style={{ fontWeight: 700, marginBottom: 8, color: '#0f1c2e' }}>Completed operations</div>
+      <div className="wh-section-title">Completed operations</div>
       <ResponsiveTable<WorkerHistoryOperation>
+        className="wh-ops"
         size="small"
         rowKey="id"
         loading={loading}
         dataSource={data.operations.items}
+        card={{ title: 'jobNumber', subtitle: ['completedAt'] }}
+        onRow={(record) => ({
+          onClick: () => {
+            if (record.jobOrderId) navigate(`/job-orders/${record.jobOrderId}`);
+          },
+        })}
         pagination={{
           current: data.operations.page,
           total: data.operations.total,
-          pageSize: data.operations.perPage,
+          pageSize: HISTORY_PAGE_SIZE,
+          size: 'small',
           onChange: (p) => setPage(p),
           showSizeChanger: false,
+          showTotal: (total, span) =>
+            historyRangeLabel(total, span[0] > 0 ? Math.floor((span[0] - 1) / HISTORY_PAGE_SIZE) + 1 : 1),
         }}
         locale={{ emptyText: 'No completed operations in this range' }}
         columns={[
           {
             title: 'Date',
             dataIndex: 'completedAt',
-            width: 110,
+            width: 118,
             render: (v: string | null) => (v ? formatShop(v, 'MMM D, YYYY') : '—'),
           },
-          { title: 'Job', dataIndex: 'jobNumber', width: 120, render: (v) => v || '—' },
+          {
+            title: 'Job',
+            dataIndex: 'jobNumber',
+            width: 128,
+            onCell: () => ({ className: 'wh-job-cell' }),
+            onHeaderCell: () => ({ className: 'wh-job-cell' }),
+            render: (v: string | null, r) =>
+              r.jobOrderId ? (
+                <Link
+                  to={`/job-orders/${r.jobOrderId}`}
+                  className="wh-jobno"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {v || '—'}
+                </Link>
+              ) : (
+                <span className="wh-jobno">{v || '—'}</span>
+              ),
+          },
           {
             title: 'Operation',
             key: 'op',
@@ -185,75 +201,102 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
         ]}
       />
 
-      <div style={{ fontWeight: 700, margin: '20px 0 8px', color: '#0f1c2e' }}>
-        Tools currently held
-      </div>
-      {data.toolsHeld.length === 0 ? (
-        <Text type="secondary" style={{ fontSize: 13 }}>
-          None out with this worker
-        </Text>
-      ) : (
-        <ul style={{ margin: 0, paddingLeft: 18 }}>
-          {data.toolsHeld.map((u) => (
-            <li key={u.id} style={{ marginBottom: 4, fontSize: 13 }}>
-              <strong>{u.toolTypeName || 'Tool'}</strong> · {u.assetCode}
-              {u.heldSince ? ` · since ${formatShop(u.heldSince, 'MMM D')}` : ''}
+      <div className="wh-tools">
+        <ToolPanel
+          title="Currently held"
+          empty="No tools held"
+          items={data.toolsHeld}
+          page={heldPage}
+          onPage={setHeldPage}
+          renderItem={(u) => (
+            <li key={u.id} className="wh-tool-row">
+              <strong>{u.toolTypeName || 'Tool'}</strong>
+              <span className="wh-tool-row__meta">
+                {u.assetCode}
+                {u.heldSince ? ` · since ${formatShop(u.heldSince, 'MMM D')}` : ''}
+              </span>
             </li>
-          ))}
-        </ul>
-      )}
-
-      <div style={{ fontWeight: 700, margin: '20px 0 8px', color: '#0f1c2e' }}>
-        Recent borrow / return
-      </div>
-      {data.toolEvents.length === 0 ? (
-        <Text type="secondary" style={{ fontSize: 13 }}>
-          No tool events yet
-        </Text>
-      ) : (
-        <ResponsiveTable
-          size="small"
-          rowKey="id"
-          pagination={false}
-          dataSource={data.toolEvents}
-          columns={[
-            {
-              title: 'When',
-              dataIndex: 'createdAt',
-              width: 140,
-              render: (v: string) => formatShop(v, 'MMM D, h:mm A'),
-            },
-            {
-              title: 'Event',
-              dataIndex: 'type',
-              width: 90,
-              render: (t: string) => (t === 'RETURN' ? 'Returned' : 'Borrowed'),
-            },
-            {
-              title: 'Unit',
-              key: 'unit',
-              render: (_: unknown, r: { toolName?: string; assetCode?: string | null }) =>
-                [r.toolName, r.assetCode].filter(Boolean).join(' · ') || '—',
-            },
-          ]}
+          )}
         />
-      )}
+        <ToolPanel
+          title="Recent borrow & return"
+          empty="No borrow history"
+          items={data.toolEvents}
+          page={eventPage}
+          onPage={setEventPage}
+          renderItem={(ev) => (
+            <li key={ev.id} className="wh-tool-row">
+              <strong>{ev.type === 'RETURN' ? 'Returned' : 'Borrowed'}</strong>
+              <span className="wh-tool-row__meta">
+                {[ev.toolName, ev.assetCode].filter(Boolean).join(' · ') || '—'}
+                {ev.createdAt ? ` · ${formatShop(ev.createdAt, 'MMM D, h:mm A')}` : ''}
+              </span>
+            </li>
+          )}
+        />
+      </div>
     </div>
   );
 }
 
-function SummaryTile({ label, value }: { label: string; value: string }) {
+function SummaryTile({
+  label,
+  value,
+  compare = false,
+}: {
+  label: string;
+  value: string;
+  compare?: boolean;
+}) {
   return (
-    <div
-      style={{
-        background: '#f8fafc',
-        border: '1px solid #e2e8f0',
-        borderRadius: 10,
-        padding: '10px 12px',
-      }}
-    >
-      <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{label}</div>
-      <div style={{ fontSize: 15, fontWeight: 700, color: '#0f1c2e', marginTop: 2 }}>{value}</div>
+    <div className={`wh-tile${compare ? ' wh-tile--compare' : ''}`}>
+      <div className="wh-tile__label">{label}</div>
+      <div className="wh-tile__value">{value}</div>
     </div>
+  );
+}
+
+function ToolPanel<T extends { id: string }>({
+  title,
+  empty,
+  items,
+  page,
+  onPage,
+  renderItem,
+}: {
+  title: string;
+  empty: string;
+  items: T[];
+  page: number;
+  onPage: (page: number) => void;
+  renderItem: (item: T) => ReactNode;
+}) {
+  const start = (page - 1) * HISTORY_PAGE_SIZE;
+  const slice = items.slice(start, start + HISTORY_PAGE_SIZE);
+  return (
+    <section className="wh-tool-panel">
+      <div className="wh-tool-panel__title">{title}</div>
+      {items.length === 0 ? (
+        <div className="wh-tool-panel__body wh-tool-panel__empty">{empty}</div>
+      ) : (
+        <ul className="wh-tool-panel__body">{slice.map(renderItem)}</ul>
+      )}
+      {items.length > 0 ? (
+        <Pagination
+          className="wh-pager"
+          size="small"
+          current={page}
+          pageSize={HISTORY_PAGE_SIZE}
+          total={items.length}
+          showSizeChanger={false}
+          showTotal={(total, span) =>
+            historyRangeLabel(total, span[0] > 0 ? Math.floor((span[0] - 1) / HISTORY_PAGE_SIZE) + 1 : 1)
+          }
+          onChange={onPage}
+        />
+      ) : (
+        <div className="wh-pager" aria-hidden />
+      )}
+    </section>
   );
 }

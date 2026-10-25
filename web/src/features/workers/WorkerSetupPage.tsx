@@ -10,6 +10,7 @@ import type { User, WorkerSchedule, WorkerSkill } from '../../types';
 import UserIdentity from '../../components/UserIdentity';
 import { showSetupLink } from '../users/UsersPage';
 import WorkerHistoryPanel from './WorkerHistoryPanel';
+import './workerSetup.css';
 import InfoTip from '../../components/InfoTip';
 import { LevelBar, TabBar, PageSkeleton } from '../../components/ui';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
@@ -388,7 +389,7 @@ export default function WorkerSetupPage() {
   ];
 
   return (
-    <div>
+    <div className="worker-setup-page">
       <div
         className={`worker-setup-grid${isNarrow ? (workerId ? ' worker-setup-grid--detail' : ' worker-setup-grid--list') : ''}`}
       >
@@ -431,6 +432,7 @@ export default function WorkerSetupPage() {
                     style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left' }}
                   >
                     <UserIdentity
+                      variant="list"
                       userId={w.id}
                       fullName={w.fullName}
                       nickname={w.nickname}
@@ -460,13 +462,28 @@ export default function WorkerSetupPage() {
                     email={selected.email}
                     mobileNumber={selected.mobileNumber}
                     size={48}
+                    lockSize
                   />
                 ) : (
                   'Worker'
                 )}
               </div>
 
-              {selected?.role === 'PRODUCTION_WORKER' && selected.status === 'INVITED' ? (
+              <div className="ws-tabs">
+                <TabBar<DetailTab>
+                  value={detailTab}
+                  onChange={setDetailTab}
+                  items={[
+                    { label: 'Skills', value: 'skills' },
+                    { label: 'Weekly hours', value: 'hours' },
+                    { label: 'History', value: 'history' },
+                  ]}
+                />
+              </div>
+
+              {detailTab === 'skills' &&
+              selected?.role === 'PRODUCTION_WORKER' &&
+              selected.status === 'INVITED' ? (
                 <div className="worker-setup-panel" style={{ marginBottom: 12 }}>
                   <div className="worker-setup-panel__head">
                     <span>Sign-in</span>
@@ -493,18 +510,6 @@ export default function WorkerSetupPage() {
                   </div>
                 </div>
               ) : null}
-
-              <div className="ws-tabs">
-                <TabBar<DetailTab>
-                  value={detailTab}
-                  onChange={setDetailTab}
-                  items={[
-                    { label: 'Skills', value: 'skills' },
-                    { label: 'Weekly hours', value: 'hours' },
-                    { label: 'History', value: 'history' },
-                  ]}
-                />
-              </div>
 
               {detailTab === 'skills' ? (
                 <div className="worker-setup-panel">
@@ -693,7 +698,7 @@ export default function WorkerSetupPage() {
                   <div className="worker-setup-panel__head">
                     <span>History</span>
                   </div>
-                  <WorkerHistoryPanel workerId={workerId} />
+                  <WorkerHistoryPanel key={workerId} workerId={workerId} />
                 </div>
               ) : null}
             </>

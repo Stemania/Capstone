@@ -8,8 +8,15 @@ export interface UserIdentityProps {
   nickname?: string | null;
   email?: string | null;
   mobileNumber?: string | null;
-  /** Avatar size on desktop. Phones always use 32px. */
+  /** Avatar size on desktop. Phones use 32px unless `lockSize` is set. */
   size?: number;
+  /** Keep `size` on phones too (the worker-setup header is 48px). */
+  lockSize?: boolean;
+  /**
+   * `list` is the narrow worker list: name, then the nickname as plain quoted
+   * text (no pill, no email). The nickname ellipsizes only past the panel width.
+   */
+  variant?: 'default' | 'list';
 }
 
 function clean(value?: string | null): string {
@@ -24,13 +31,31 @@ export default function UserIdentity({
   email,
   mobileNumber,
   size = 40,
+  lockSize = false,
+  variant = 'default',
 }: UserIdentityProps) {
   const phone = useMediaQuery(PHONE_QUERY);
   const name = clean(fullName) || '—';
   const nick = clean(nickname);
   const showNick = !!nick && nick.toLowerCase() !== name.toLowerCase();
   const contact = clean(email) || clean(mobileNumber);
-  const px = phone ? 32 : size;
+  const px = phone && !lockSize ? 32 : size;
+
+  if (variant === 'list') {
+    return (
+      <div className="user-identity user-identity--list">
+        <PersonAvatar userId={userId} fullName={name === '—' ? fullName : name} size={px} />
+        <div className="user-identity__text">
+          <div className="user-identity__name">{name}</div>
+          {showNick ? (
+            <Tooltip title={nick}>
+              <div className="user-identity__nick">“{nick}”</div>
+            </Tooltip>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="user-identity">
