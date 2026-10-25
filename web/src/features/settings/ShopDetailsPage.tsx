@@ -1,14 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import {
-  Alert,
-  Button,
-  Drawer,
-  Form,
-  Grid,
-  Input,
-  Spin,
-  message,
-} from 'antd';
+import { Alert, Button, Drawer, Form, Grid, Input, Segmented, Spin, message } from 'antd';
 import { EyeOutlined, SaveOutlined, SendOutlined } from '@ant-design/icons';
 import { shopDetailsApi, type ShopDetails } from '../../api/shopDetails.api';
 import { notificationsApi } from '../../api/notifications.api';
@@ -44,29 +35,32 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="shop-details-page__section">
-      <header className="shop-details-page__section-head">
-        <h2 className="shop-details-page__section-title">{title}</h2>
-        <p className="shop-details-page__section-hint">{hint}</p>
+    <section className="sd-section">
+      <header className="sd-section__head">
+        <h2 className="sd-section__title">{title}</h2>
+        <p className="sd-section__hint">{hint}</p>
       </header>
-      <div className="shop-details-page__section-body">{children}</div>
+      <div className="sd-section__body">{children}</div>
     </section>
   );
 }
 
-function LetterheadPreviewSheet({ values }: { values: Partial<ShopDetails> }) {
+type DocKind = 'PO' | 'JO';
+
+/** A scaled-down page: letterhead, a sketch of the document, the signature line. */
+function LetterheadPreviewSheet({ values, kind }: { values: Partial<ShopDetails>; kind: DocKind }) {
   const preview = shopLetterheadPreview(values);
+  const approverName = kind === 'PO' ? preview.poApproverName : preview.joApproverName;
+  const approverTitle = kind === 'PO' ? preview.poApproverTitle : preview.joApproverTitle;
 
   return (
-    <div className="shop-details-preview__sheet" data-testid="letterhead-preview-sheet">
-      <header className="shop-print-header shop-details-preview__header">
+    <div className="sd-paper" data-testid="letterhead-preview-sheet">
+      <header className="shop-print-header sd-paper__header">
         <div className="shop-print-header__row">
           <img className="shop-print-logo" src="/logo.png" alt="" />
           <div className="shop-print-header__text">
             <div className="shop-print-name">{preview.shopName}</div>
-            {preview.tagline ? (
-              <div className="shop-print-tagline">{preview.tagline}</div>
-            ) : null}
+            {preview.tagline ? <div className="shop-print-tagline">{preview.tagline}</div> : null}
           </div>
         </div>
         <div className="shop-print-bar" aria-hidden>
@@ -75,12 +69,39 @@ function LetterheadPreviewSheet({ values }: { values: Partial<ShopDetails> }) {
           ))}
         </div>
       </header>
-      <div className="shop-details-preview__body">
-        {preview.address ? (
-          <div className="shop-details-preview__address">{preview.address}</div>
-        ) : null}
+      <div className="sd-paper__doc" aria-hidden>
+        <div className="sd-paper__doc-title">{kind === 'PO' ? 'PURCHASE ORDER' : 'JOB ORDER'}</div>
+        <div className="sd-paper__doc-meta">
+          <span className="sd-sketch" style={{ width: '38%' }} />
+          <span className="sd-sketch" style={{ width: '22%' }} />
+        </div>
+        <div className="sd-paper__doc-table">
+          {[78, 64, 70, 52].map((w, i) => (
+            <div key={i} className="sd-paper__doc-row">
+              <span className="sd-sketch" style={{ width: `${w}%` }} />
+              <span className="sd-sketch" style={{ width: '12%' }} />
+              <span className="sd-sketch" style={{ width: '14%' }} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="sd-paper__sign">
+        <div>Approved by:</div>
+        <div className="sd-paper__sign-line" />
+        <div className="shop-print-signature__name">{approverName}</div>
+        <div>{approverTitle}</div>
+      </div>
+
+      <footer className="sd-paper__footer">
+        <div className="shop-print-bar" aria-hidden>
+          {(['gold', 'black', 'gold', 'black'] as const).map((tone, i) => (
+            <span key={i} className={`shop-print-bar__seg shop-print-bar__seg--${tone}`} />
+          ))}
+        </div>
+        {preview.address ? <div className="shop-print-address">{preview.address}</div> : null}
         {preview.contacts.length ? (
-          <div className="shop-details-preview__contacts">
+          <div className="shop-print-contacts">
             {preview.contacts.map((c, i) => (
               <span key={c}>
                 {i > 0 ? <span className="shop-print-sep"> - </span> : null}
@@ -89,42 +110,35 @@ function LetterheadPreviewSheet({ values }: { values: Partial<ShopDetails> }) {
             ))}
           </div>
         ) : null}
-        <div className="shop-details-preview__sigs shop-print-signatures">
-          <div className="shop-print-signature">
-            <div>Approved by: (PO)</div>
-            <div className="shop-print-signature__space" />
-            <div className="shop-print-signature__name">{preview.poApproverName}</div>
-            <div>{preview.poApproverTitle}</div>
-          </div>
-          <div className="shop-print-signature">
-            <div>Approved by: (JO)</div>
-            <div className="shop-print-signature__space" />
-            <div className="shop-print-signature__name">{preview.joApproverName}</div>
-            <div>{preview.joApproverTitle}</div>
-          </div>
-        </div>
-      </div>
+      </footer>
     </div>
   );
 }
 
-function PreviewPanel({
-  values,
-  dirty,
-}: {
-  values: Partial<ShopDetails>;
-  dirty: boolean;
-}) {
+function PreviewPanel({ values, dirty }: { values: Partial<ShopDetails>; dirty: boolean }) {
+  const [kind, setKind] = useState<DocKind>('PO');
   return (
-    <aside className="shop-details-page__preview" aria-label="Letterhead preview">
-      <div className="shop-details-page__preview-head">
-        <h2 className="shop-details-page__preview-title">Letterhead preview</h2>
-        <p className="shop-details-page__preview-caption">
-          As printed on purchase orders and job orders
-          {dirty ? ' · includes unsaved edits' : ''}.
-        </p>
+    <aside className="sd-preview" aria-label="Letterhead preview">
+      <div className="sd-preview__head">
+        <div>
+          <h2 className="sd-preview__title">Preview</h2>
+          <p className="sd-preview__caption">
+            {dirty ? 'Showing your unsaved edits' : 'As it prints today'}
+          </p>
+        </div>
+        <Segmented<DocKind>
+          size="small"
+          value={kind}
+          onChange={setKind}
+          options={[
+            { value: 'PO', label: 'Purchase order' },
+            { value: 'JO', label: 'Job order' },
+          ]}
+        />
       </div>
-      <LetterheadPreviewSheet values={values} />
+      <div className="sd-preview__desk">
+        <LetterheadPreviewSheet values={values} kind={kind} />
+      </div>
     </aside>
   );
 }
@@ -140,6 +154,7 @@ export default function ShopDetailsPage() {
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [baseline, setBaseline] = useState<ShopDetails | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerKind, setDrawerKind] = useState<DocKind>('PO');
   const watched = Form.useWatch([], form) as Partial<ShopDetails> | undefined;
 
   const dirty = useMemo(() => {
@@ -192,134 +207,119 @@ export default function ShopDetailsPage() {
   const previewValues = watched || {};
 
   return (
-    <div className="shop-details-page">
-      {error ? <Alert type="error" showIcon title={error} className="shop-details-page__alert" /> : null}
+    <div className="ui-page sd-page">
+      {error ? <Alert type="error" showIcon title={error} className="sd-page__alert" /> : null}
 
-      <div className="shop-details-page__workspace">
-        <div className="shop-details-page__main">
-          <Form
-            form={form}
-            layout="vertical"
-            onFinish={onSave}
-            requiredMark="optional"
-            className="shop-details-page__form"
-          >
-            <div className="shop-details-page__panel">
-              <Section
-                title="Letterhead"
-                hint="Shop identity at the top of every printed document."
-              >
-                <Form.Item
-                  name="shopName"
-                  label="Shop name"
-                  rules={[{ required: true, message: 'Shop name is required' }]}
-                  extra="Full legal or trading name as it should appear in print."
-                >
-                  <Input maxLength={255} />
-                </Form.Item>
-                <Form.Item
-                  name="tagline"
-                  label="Tagline"
-                  extra="Optional. Shown under the shop name."
-                >
-                  <Input.TextArea autoSize={{ minRows: 2, maxRows: 3 }} maxLength={500} />
-                </Form.Item>
-                <Form.Item
-                  name="address"
-                  label="Address"
-                  rules={[{ required: true, message: 'Address is required' }]}
-                >
-                  <Input maxLength={500} />
-                </Form.Item>
-              </Section>
-
-              <Section title="Contact" hint="Printed under the letterhead on every shop document.">
-                <div className="shop-details-page__field-pair">
-                  <Form.Item name="telephone" label="Telephone">
-                    <Input maxLength={100} placeholder="(043) 4303524" />
-                  </Form.Item>
-                  <Form.Item name="mobileNumbers" label="Mobile numbers">
-                    <Input maxLength={200} placeholder="0926… / 0915…" />
-                  </Form.Item>
-                </div>
-                <Form.Item
-                  name="email"
-                  label="Email"
-                  rules={[{ type: 'email', message: 'Enter a valid email' }]}
-                >
-                  <Input maxLength={255} placeholder="shop@example.com" className="shop-details-page__email" />
-                </Form.Item>
-              </Section>
-
-              <Section
-                title="Approvers"
-                hint="Names and titles on the signature lines of printed documents."
-              >
-                <div className="shop-details-page__approver-cards">
-                  <div
-                    className="shop-details-page__approver-card"
-                    role="group"
-                    aria-label="Purchase order approver"
-                  >
-                    <div className="shop-details-page__approver-card-title">Purchase orders</div>
-                    <Form.Item name="poApproverName" label="Name">
-                      <Input maxLength={255} />
-                    </Form.Item>
-                    <Form.Item name="poApproverTitle" label="Title" className="shop-details-page__mb-0">
-                      <Input maxLength={255} />
-                    </Form.Item>
-                  </div>
-                  <div
-                    className="shop-details-page__approver-card"
-                    role="group"
-                    aria-label="Job order approver"
-                  >
-                    <div className="shop-details-page__approver-card-title">Job orders</div>
-                    <Form.Item name="joApproverName" label="Name">
-                      <Input maxLength={255} />
-                    </Form.Item>
-                    <Form.Item name="joApproverTitle" label="Title" className="shop-details-page__mb-0">
-                      <Input maxLength={255} />
-                    </Form.Item>
-                  </div>
-                </div>
-              </Section>
-            </div>
-
-            <div className="shop-details-page__panel shop-details-page__panel--muted">
-              <Section
-                title="Test email"
-                hint="Send one message through the configured email backend to confirm delivery."
-              >
-                <div className="shop-details-page__test-row">
-                  <TestEmailFields />
-                </div>
-              </Section>
-            </div>
-
-            <div className="shop-details-page__footer">
-              <span className="shop-details-page__footer-note">
-                {updatedAt ? `Last saved ${formatShop(updatedAt, 'MMM D, YYYY h:mm A')}` : ''}
-              </span>
-              <div className="shop-details-page__footer-actions">
-                {isNarrow ? (
-                  <Button icon={<EyeOutlined />} onClick={() => setDrawerOpen(true)}>
-                    Preview letterhead
-                  </Button>
-                ) : null}
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  icon={<SaveOutlined />}
-                  loading={saving}
-                  disabled={!dirty}
-                >
-                  Save
+      <div className="sd-page__layout">
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={onSave}
+          requiredMark="optional"
+          className="sd-form"
+        >
+          <div className={`sd-bar${dirty ? ' is-dirty' : ''}`}>
+            <span className="sd-bar__status">
+              {dirty ? (
+                <>
+                  <span className="sd-bar__dot" aria-hidden /> Unsaved changes
+                </>
+              ) : updatedAt ? (
+                `Saved ${formatShop(updatedAt, 'MMM D, YYYY h:mm A')}`
+              ) : (
+                'Not saved yet'
+              )}
+            </span>
+            <div className="sd-bar__actions">
+              {isNarrow ? (
+                <Button icon={<EyeOutlined />} onClick={() => setDrawerOpen(true)}>
+                  Preview letterhead
                 </Button>
-              </div>
+              ) : null}
+              {dirty && baseline ? (
+                <Button type="text" onClick={() => form.setFieldsValue(baseline)}>
+                  Discard
+                </Button>
+              ) : null}
+              <Button
+                type="primary"
+                htmlType="submit"
+                icon={<SaveOutlined />}
+                loading={saving}
+                disabled={!dirty}
+              >
+                Save
+              </Button>
             </div>
-          </Form>
-        </div>
+          </div>
+
+          <div className="sd-card">
+            <Section title="Letterhead" hint="The name and line under it, at the top of every printed page.">
+              <Form.Item
+                name="shopName"
+                label="Shop name"
+                rules={[{ required: true, message: 'Shop name is required' }]}
+              >
+                <Input maxLength={255} />
+              </Form.Item>
+              <Form.Item name="tagline" label="Tagline">
+                <Input.TextArea autoSize={{ minRows: 2, maxRows: 3 }} maxLength={500} />
+              </Form.Item>
+            </Section>
+
+            <Section title="Contact" hint="Address and numbers printed at the foot of every page.">
+              <Form.Item
+                name="address"
+                label="Address"
+                rules={[{ required: true, message: 'Address is required' }]}
+              >
+                <Input maxLength={500} />
+              </Form.Item>
+              <div className="sd-pair">
+                <Form.Item name="telephone" label="Telephone">
+                  <Input maxLength={100} placeholder="(043) 4303524" />
+                </Form.Item>
+                <Form.Item name="mobileNumbers" label="Mobile numbers">
+                  <Input maxLength={200} placeholder="0926… / 0915…" />
+                </Form.Item>
+              </div>
+              <Form.Item name="email" label="Email" rules={[{ type: 'email', message: 'Enter a valid email' }]}>
+                <Input maxLength={255} placeholder="shop@example.com" />
+              </Form.Item>
+            </Section>
+
+            <Section title="Approvers" hint="Who signs each printed document.">
+              <div className="sd-approver">
+                <div className="sd-approver__doc">Purchase orders</div>
+                <div className="sd-pair">
+                  <Form.Item name="poApproverName" label="Name">
+                    <Input maxLength={255} />
+                  </Form.Item>
+                  <Form.Item name="poApproverTitle" label="Title">
+                    <Input maxLength={255} />
+                  </Form.Item>
+                </div>
+              </div>
+              <div className="sd-approver">
+                <div className="sd-approver__doc">Job orders</div>
+                <div className="sd-pair">
+                  <Form.Item name="joApproverName" label="Name">
+                    <Input maxLength={255} />
+                  </Form.Item>
+                  <Form.Item name="joApproverTitle" label="Title">
+                    <Input maxLength={255} />
+                  </Form.Item>
+                </div>
+              </div>
+            </Section>
+
+            <Section title="Test email" hint="Send one message to check that shop emails are delivered.">
+              <div className="sd-test">
+                <TestEmailFields />
+              </div>
+            </Section>
+          </div>
+        </Form>
 
         {!isNarrow ? <PreviewPanel values={previewValues} dirty={dirty} /> : null}
       </div>
@@ -330,13 +330,22 @@ export default function ShopDetailsPage() {
         title="Letterhead preview"
         size="large"
         destroyOnHidden
-        className="shop-details-preview-drawer"
+        className="sd-drawer"
+        extra={
+          <Segmented<DocKind>
+            size="small"
+            value={drawerKind}
+            onChange={setDrawerKind}
+            options={[
+              { value: 'PO', label: 'PO' },
+              { value: 'JO', label: 'JO' },
+            ]}
+          />
+        }
       >
-        <p className="shop-details-page__preview-caption shop-details-page__preview-caption--drawer">
-          As printed on purchase orders and job orders
-          {dirty ? ' · includes unsaved edits' : ''}.
-        </p>
-        <LetterheadPreviewSheet values={previewValues} />
+        <div className="sd-preview__desk">
+          <LetterheadPreviewSheet values={previewValues} kind={drawerKind} />
+        </div>
       </Drawer>
     </div>
   );
@@ -375,7 +384,7 @@ function TestEmailFields() {
       </Button>
       {result ? (
         <Alert
-          className="shop-details-page__test-result"
+          className="sd-test__result"
           type={result.status === 'SENT' ? 'success' : 'warning'}
           showIcon
           title={`${result.status}${result.errorMessage ? `: ${result.errorMessage}` : ''}`}
