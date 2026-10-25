@@ -6,6 +6,7 @@ import {
   CheckCircleOutlined,
   CopyOutlined,
   EditOutlined,
+  BellOutlined,
   FileTextOutlined,
   MailOutlined,
   PhoneOutlined,
@@ -17,7 +18,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { clientsApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import type { ClientDetail } from '../../types';
-import { DataTable, EmptyState, IdChip, Page, PageSkeleton, SectionCard, StatCard, StatusPill, TabBar, rowOpenProps } from '../../components/ui';
+import { DataTable, EmptyState, IdChip, Page, PageSkeleton, SectionCard, StatusPill, TabBar, rowOpenProps } from '../../components/ui';
+import './clientDetail.css';
 import { JOB_STATUS } from '../../theme/statuses';
 import type { Tone } from '../../theme/tokens';
 import { useAuth } from '../../hooks/useAuth';
@@ -40,12 +42,28 @@ function money(v: number | null | undefined) {
   return `₱${v.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
+const AVATAR_COLORS = ['#1d4ed8', '#0f766e', '#7c3aed', '#b45309', '#be123c', '#0e7490', '#4d7c0f', '#334155'];
+
+/** A steady colour per client name for the round avatar. */
+function avatarColor(name: string) {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   return (parts.length > 1 ? parts[0][0] + parts[1][0] : name.slice(0, 2)).toUpperCase();
 }
 
 /** Shop calendar date (YYYY-MM-DD) the job was ordered: the client's PO date, else when it was entered. */
+/** "Oct 23", with the year only when it is not this year. */
+function shortDay(v?: string | null) {
+  if (!v) return '—';
+  const sameYear = formatShop(v, 'YYYY') === shopToday().format('YYYY');
+  return formatShop(v, sameYear ? 'MMM D' : 'MMM D, YYYY');
+}
+
 function orderDay(j: Job): string | null {
   if (j.poDate) return j.poDate.slice(0, 10);
   return j.createdAt ? toShopDayjs(j.createdAt).format('YYYY-MM-DD') : null;
@@ -203,7 +221,7 @@ export default function ClientDetailPage() {
     {
       title: 'Job #',
       dataIndex: 'jobNumber',
-      width: '13%',
+      width: 122,
       render: (v: string | null, r) => (
         <IdChip to={`/job-orders/${r.id}`} onClick={(e) => e.stopPropagation()}>
           {v || r.id.slice(0, 8).toUpperCase()}
@@ -219,28 +237,28 @@ export default function ClientDetailPage() {
     {
       title: 'Ordered',
       key: 'ordered',
-      width: '12%',
+      width: 80,
       sorter: (a, b) => (orderDay(a) || '').localeCompare(orderDay(b) || ''),
-      render: (_: unknown, r) => formatShop(orderDay(r), 'MMM D, YYYY'),
+      render: (_: unknown, r) => shortDay(orderDay(r)),
     },
     {
-      title: 'Date required',
+      title: 'Required',
       dataIndex: 'dueDate',
-      width: '13%',
+      width: 112,
       sorter: (a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''),
       render: (v: string | null, r) =>
         isOverdue(r) ? (
           <span className="tone-text--red" title="Past the date required">
-            {formatShop(v, 'MMM D, YYYY')}
+            {shortDay(v)}
           </span>
         ) : (
-          formatShop(v, 'MMM D, YYYY')
+          shortDay(v)
         ),
     },
     {
       title: 'Value',
       dataIndex: 'amount',
-      width: '11%',
+      width: 116,
       align: 'right',
       sorter: (a, b) => (a.amount ?? 0) - (b.amount ?? 0),
       render: (v: number | null) => <span className="ui-tabular client-jobs__value">{money(v)}</span>,
@@ -248,133 +266,143 @@ export default function ClientDetailPage() {
     {
       title: 'Status',
       dataIndex: 'status',
-      width: '12%',
-      render: (s: string) => (
-        <StatusPill status={s} map={JOB_STATUS} compact>
-          {s === 'DRAFT' ? draftLabel : undefined}
-        </StatusPill>
+      width: 156,
+      render: (st: string, r) => (
+        <span className="cd-status">
+          <StatusPill status={st} map={JOB_STATUS} compact>
+            {st === 'DRAFT' ? draftLabel : undefined}
+          </StatusPill>
+          {r.deliveredOnTime === false ? (
+            <StatusPill tone="red" compact>
+              Late
+            </StatusPill>
+          ) : null}
+        </span>
       ),
-    },
-    {
-      title: 'On time',
-      dataIndex: 'deliveredOnTime',
-      width: '9%',
-      render: (v: boolean | null) => {
-        if (v === true) return <StatusPill tone="green" compact>On time</StatusPill>;
-        if (v === false) return <StatusPill tone="red" compact>Late</StatusPill>;
-        return <span className="client-jobs__muted">—</span>;
-      },
     },
   ];
 
+  const lastOrderText = stats.lastOrder ? formatShop(stats.lastOrder, 'MMM D, YYYY') : 'No orders yet';
+
   return (
-    <Page className="client-page">
-      <section className="ui-card client-head">
-        <div className="client-head__top">
-          <div className="client-head__avatar" aria-hidden>
-            {initials(data.name)}
-          </div>
-          <div className="client-head__titles">
-            <h2 className="client-head__name">{data.name}</h2>
-            <div className="client-head__meta">
-              {since ? <span>Client since {formatShop(since, 'MMMM YYYY')}</span> : null}
-              <span>
-                {stats.lastOrder ? `Last order ${formatShop(stats.lastOrder, 'MMM D, YYYY')}` : 'No orders yet'}
-              </span>
+    <Page className="client-page cd">
+      <div className="cd__layout">
+        <aside className="cd__side">
+          <section className="cd-card cd-profile">
+            <div className="cd-profile__avatar" style={{ background: avatarColor(data.name) }} aria-hidden>
+              {initials(data.name)}
             </div>
-          </div>
-          {canEdit ? (
-            <div className="client-head__actions m-action-bar">
-              <Button icon={<EditOutlined />} onClick={() => setEditOpen(true)}>
-                Edit client
-              </Button>
-              {canEncodeJob ? (
-                <Button type="primary" icon={<PlusOutlined />} onClick={newJob}>
-                  New job order
+            <h2 className="cd-profile__name">{data.name}</h2>
+            <div className="cd-profile__meta">
+              {since ? `Client since ${formatShop(since, 'MMMM YYYY')}` : 'New client'}
+            </div>
+            {canEdit ? (
+              <div className="cd-profile__actions">
+                <Button icon={<EditOutlined />} onClick={() => setEditOpen(true)} block>
+                  Edit client
                 </Button>
-              ) : null}
+                {canEncodeJob ? (
+                  <Button type="primary" icon={<PlusOutlined />} onClick={newJob} block>
+                    New job order
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="cd-profile__section">Contact</div>
+            <div className="cd-contacts">
+              <ContactRow icon={<UserOutlined />} label="Contact person" value={data.contact} />
+              <ContactRow
+                icon={<MailOutlined />}
+                label="Email"
+                value={data.email}
+                href={data.email ? `mailto:${data.email}` : undefined}
+                copyAs="Email"
+              />
+              <ContactRow
+                icon={<PhoneOutlined />}
+                label="Mobile"
+                value={data.mobileNumber}
+                href={data.mobileNumber ? `tel:${data.mobileNumber.replace(/\s+/g, '')}` : undefined}
+                copyAs="Mobile number"
+              />
+              <div className="client-contact">
+                <div className="client-contact__main">
+                  <span className="client-contact__icon" aria-hidden>
+                    <BellOutlined />
+                  </span>
+                  <span className="client-contact__text">
+                    <span className="client-contact__label">Job updates</span>
+                    <span className="client-contact__value">
+                      {notify.length ? (
+                        <StatusPill tone="blue" compact>
+                          By email
+                        </StatusPill>
+                      ) : (
+                        <StatusPill tone="grey" compact>
+                          Off
+                        </StatusPill>
+                      )}
+                    </span>
+                  </span>
+                </div>
+              </div>
             </div>
-          ) : null}
-        </div>
+          </section>
+        </aside>
 
-        <div className="client-head__contacts">
-          <ContactRow icon={<UserOutlined />} label="Contact person" value={data.contact} />
-          <ContactRow
-            icon={<MailOutlined />}
-            label="Email"
-            value={data.email}
-            href={data.email ? `mailto:${data.email}` : undefined}
-            copyAs="Email"
-          />
-          <ContactRow
-            icon={<PhoneOutlined />}
-            label="Mobile"
-            value={data.mobileNumber}
-            href={data.mobileNumber ? `tel:${data.mobileNumber.replace(/\s+/g, '')}` : undefined}
-            copyAs="Mobile number"
-          />
-          <div className="client-contact client-contact--notify">
-            <span className="client-contact__text">
-              <span className="client-contact__label">Job updates by</span>
-              <span className="client-contact__pills">
-                {notify.length ? (
-                  notify.map((n) => (
-                    <StatusPill key={n} tone="blue" compact>
-                      {n}
-                    </StatusPill>
-                  ))
-                ) : (
-                  <StatusPill tone="grey" compact>
-                    Off
-                  </StatusPill>
-                )}
+        <div className="cd__main">
+          <section className="cd-card cd-stats" aria-label="Summary">
+            <div className="cd-stat">
+              <span className="cd-stat__icon cd-stat__icon--blue" aria-hidden>
+                <FileTextOutlined />
               </span>
-            </span>
-          </div>
-        </div>
-      </section>
-
-      <div className="ui-stat-grid client-stats">
-        <StatCard
-          icon={<FileTextOutlined />}
-          tone="blue"
-          label="Job orders"
-          value={jobs.length ? jobs.length : <None>None yet</None>}
-          hint={
-            jobs.length
-              ? [stats.draft ? `${stats.draft} ${draftLabel.toLowerCase()}` : null, `${stats.active} active`]
-                  .filter(Boolean)
-                  .join(' · ')
-              : 'Their first order will show here'
-          }
-        />
-        <StatCard
-          icon={<ToolOutlined />}
-          tone="indigo"
-          label="In production"
-          value={stats.active ? stats.active : <None>Nothing running</None>}
-          hint="Scheduled or in progress"
-        />
-        <StatCard
-          icon={<CheckCircleOutlined />}
-          tone={stats.onTimePct == null ? 'slate' : onTimeTone(stats.onTimePct)}
-          label="On-time delivery"
-          value={stats.onTimePct == null ? <None>No deliveries yet</None> : `${stats.onTimePct}%`}
-          valueTone={stats.onTimePct == null ? undefined : onTimeTone(stats.onTimePct)}
-          hint={
-            stats.judged
-              ? `${stats.onTime} of ${stats.judged} set For Delivery by the date required`
-              : 'Measured when a job is set For Delivery'
-          }
-        />
-        <StatCard
-          icon={<span className="client-stats__peso">₱</span>}
-          tone="teal"
-          label="Total value"
-          value={data.totals.totalValue ? money(data.totals.totalValue) : <None>No released jobs</None>}
-          hint="Excludes pending jobs"
-        />
-      </div>
+              <span className="cd-stat__label">Job orders</span>
+              <span className="cd-stat__value">{jobs.length ? jobs.length : <None>None yet</None>}</span>
+              <span className="cd-stat__hint">
+                {jobs.length
+                  ? [stats.draft ? `${stats.draft} ${draftLabel.toLowerCase()}` : null, `last ${lastOrderText}`]
+                      .filter(Boolean)
+                      .join(' · ')
+                  : 'Their first order shows here'}
+              </span>
+            </div>
+            <div className="cd-stat">
+              <span className="cd-stat__icon cd-stat__icon--indigo" aria-hidden>
+                <ToolOutlined />
+              </span>
+              <span className="cd-stat__label">In production</span>
+              <span className="cd-stat__value">{stats.active ? stats.active : <None>Nothing running</None>}</span>
+              <span className="cd-stat__hint">Scheduled or in progress</span>
+            </div>
+            <div className="cd-stat">
+              <span
+                className={`cd-stat__icon cd-stat__icon--${stats.onTimePct == null ? 'slate' : onTimeTone(stats.onTimePct)}`}
+                aria-hidden
+              >
+                <CheckCircleOutlined />
+              </span>
+              <span className="cd-stat__label">On-time delivery</span>
+              <span
+                className={`cd-stat__value${stats.onTimePct == null ? '' : ` tone-text--${onTimeTone(stats.onTimePct)}`}`}
+              >
+                {stats.onTimePct == null ? <None>No deliveries yet</None> : `${stats.onTimePct}%`}
+              </span>
+              <span className="cd-stat__hint">
+                {stats.judged ? `${stats.onTime} of ${stats.judged} by the date required` : 'Counted when set For Delivery'}
+              </span>
+            </div>
+            <div className="cd-stat">
+              <span className="cd-stat__icon cd-stat__icon--teal" aria-hidden>
+                ₱
+              </span>
+              <span className="cd-stat__label">Total value</span>
+              <span className="cd-stat__value">
+                {data.totals.totalValue ? money(data.totals.totalValue) : <None>No released jobs</None>}
+              </span>
+              <span className="cd-stat__hint">Released jobs only</span>
+            </div>
+          </section>
 
       <SectionCard
         className="client-jobs"
@@ -430,6 +458,8 @@ export default function ClientDetailPage() {
           />
         )}
       </SectionCard>
+        </div>
+      </div>
 
       <ClientFormModal
         open={editOpen}

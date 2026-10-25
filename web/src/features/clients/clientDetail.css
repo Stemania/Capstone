@@ -1,0 +1,240 @@
+/* Client detail: profile on the left (round avatar, contact), summary strip
+   and job orders on the right. Stacks on narrow screens. */
+
+.cd__layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.cd__side {
+  position: sticky;
+  top: 0;
+}
+
+.cd__main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.cd-card {
+  background: var(--c-surface, #fff);
+  border: 1px solid var(--c-border);
+  border-radius: 14px;
+}
+
+/* Profile */
+.cd-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 20px 20px;
+  text-align: center;
+}
+
+.cd-profile__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #fff;
+  box-shadow: 0 0 0 4px var(--c-surface, #fff), 0 0 0 5px var(--c-border);
+}
+
+.cd-profile__name {
+  margin: 14px 0 0;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--c-text);
+  overflow-wrap: anywhere;
+}
+
+.cd-profile__meta {
+  margin-top: 4px;
+  font-size: var(--fs-sm);
+  color: var(--c-text-muted);
+}
+
+.cd-profile__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-top: 16px;
+}
+
+.cd-profile__section {
+  align-self: stretch;
+  margin: 20px 0 8px;
+  padding-top: 16px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-align: left;
+  color: var(--c-text-muted);
+  text-transform: uppercase;
+  border-top: 1px solid var(--c-border);
+}
+
+.cd-contacts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+}
+
+.cd .cd-contacts .client-contact,
+.app-shell--m .cd .cd-contacts .client-contact {
+  padding: 6px 4px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+}
+
+.cd .cd-contacts .client-contact:hover {
+  background: var(--c-surface-muted);
+}
+
+.cd-contacts .client-contact__icon {
+  border-radius: 50%;
+}
+
+.cd-contacts .client-contact__value {
+  font-size: var(--fs-sm);
+}
+
+/* Summary strip: four figures in one card, split by rules. */
+.cd-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.cd-stat {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  column-gap: 12px;
+  padding: 16px 18px;
+  min-width: 0;
+}
+
+.cd-stat + .cd-stat {
+  border-left: 1px solid var(--c-border);
+}
+
+.cd-stat__icon {
+  grid-row: 1 / span 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.cd-stat__icon--blue { color: var(--tone-blue-fg); background: var(--tone-blue-bg); }
+.cd-stat__icon--indigo { color: var(--tone-indigo-fg, #4338ca); background: var(--tone-indigo-bg, #eef0ff); }
+.cd-stat__icon--teal { color: var(--tone-teal-fg, #0f766e); background: var(--tone-teal-bg, #e7f8f6); }
+.cd-stat__icon--green { color: var(--tone-green-fg); background: var(--tone-green-bg); }
+.cd-stat__icon--amber { color: var(--tone-amber-fg); background: var(--tone-amber-bg); }
+.cd-stat__icon--red { color: var(--tone-red-fg); background: var(--tone-red-bg); }
+.cd-stat__icon--slate { color: var(--c-text-2); background: var(--c-surface-muted); }
+
+.cd-stat__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+}
+
+.cd-stat__value {
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--c-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.cd-stat__value .client-stats__none {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--c-text-muted);
+}
+
+.cd-stat__hint {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--c-text-muted);
+}
+
+@media (max-width: 1499px) {
+  .cd__layout {
+    grid-template-columns: minmax(230px, 270px) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1399px) {
+  .cd-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cd-stat:nth-child(3) {
+    border-left: 0;
+  }
+
+  .cd-stat:nth-child(n + 3) {
+    border-top: 1px solid var(--c-border);
+  }
+}
+
+@media (max-width: 991px) {
+  .cd__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cd__side {
+    position: static;
+  }
+}
+
+@media (max-width: 480px) {
+  .cd-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cd-stat + .cd-stat {
+    border-top: 1px solid var(--c-border);
+    border-left: 0;
+  }
+}
+
+.client-page.cd {
+  max-width: none;
+}
+
+/* Job table: dates, value and pills on one line; the title gives way. */
+.cd .client-jobs__table td:not(:nth-child(2)) {
+  white-space: nowrap;
+}
+
+.cd-status {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
