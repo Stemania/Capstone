@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { Button, DatePicker, Select, Tooltip } from 'antd';
+import { Button, DatePicker, Tooltip } from 'antd';
 import { ReloadOutlined, WarningFilled } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import StatusPill from '../../components/StatusPill';
@@ -22,9 +21,14 @@ import {
 
 const DATE_TIME = 'MMM D, YYYY HH:mm';
 
+/** A worker as named in the schedule table. */
+export type ScheduleWorker = { id: string; fullName?: string | null; nickname?: string | null };
+
 type Props = {
   operations: ProposedOperation[];
   machineUnits: MachineUnitInfo[];
+  /** Names for the Worker column (lead and helpers). */
+  workers?: ScheduleWorker[];
   projectedCompletion?: string | null;
   scheduleFlag?: ScheduleFlag | null;
   /** Date required (YYYY-MM-DD); rows that end after it are flagged. */
@@ -122,6 +126,7 @@ function MiniTimeline({
 export default function ScheduleProposalPanel({
   operations,
   machineUnits,
+  workers = [],
   projectedCompletion,
   scheduleFlag,
   dueDate,
@@ -144,7 +149,11 @@ export default function ScheduleProposalPanel({
   const daysLate =
     finishDate && dueDate ? Math.max(0, dayjs(finishDate).diff(dayjs(dueDate), 'day')) : 0;
   const flag = scheduleFlag ? scheduleFlagStyle[scheduleFlag] : null;
-  const [changingSeq, setChangingSeq] = useState<number | null>(null);
+  const nameOf = (workerId?: string | null) => {
+    if (!workerId) return null;
+    const w = workers.find((x) => x.id === workerId);
+    return w?.fullName || w?.nickname || 'Worker';
+  };
 
   return (
     <div className="jo-sched">
@@ -187,6 +196,7 @@ export default function ScheduleProposalPanel({
       <div className="jo-sched__table">
         <div className="jo-sched__row jo-sched__row--head">
           <div>Operation</div>
+          <div>Worker</div>
           <div>Machine unit</div>
           <div>Start</div>
           <div>End</div>
@@ -195,6 +205,18 @@ export default function ScheduleProposalPanel({
         {operations.map((op, idx) => {
           const problems = problemsBySeq[op.sequenceNo] || [];
           const warnings = warningsBySeq[op.sequenceNo] || [];
+          // Clashes are shown in red on the worker or unit involved.
+          const clashes = [...problems, ...warnings];
+          const workerClash = (workerId?: string | null) =>
+            clashes.some(
+              (p) =>
+                p.code === 'WORKER_CONFLICT' &&
+                (p.workerId ? p.workerId === workerId : workerId === op.assignedWorkerId),
+            );
+          const unitClash = clashes.some((p) => p.code === 'MACHINE_CONFLICT');
+          const crew = [op.assignedWorkerId, ...(op.helperIds || [])].filter(
+            (w): w is string => Boolean(w),
+          );
           const unitOptions = unitsForOp(op, machineUnits);
           const faster = op.fasterUnit;
           const needsMachine = Boolean(op.machineTypeId);
@@ -288,48 +310,38 @@ export default function ScheduleProposalPanel({
                 </div>
               </div>
 
+              <div className="jo-sched__field" data-label="Worker">
+                {op.isOutsourced ? (
+                  <span className="jo-sched__muted">Outside shop</span>
+                ) : crew.length ? (
+                  <div className="jo-sched__crew">
+                    {crew.map((wid, i) => (
+                      <span
+                        key={wid}
+                        className={`jo-sched__who${i > 0 ? ' is-helper' : ''}${workerClash(wid) ? ' is-clash' : ''}`}
+                        title={workerClash(wid) ? 'Booked elsewhere at this time' : undefined}
+                      >
+                        {nameOf(wid)}
+                        {i > 0 ? <span className="jo-sched__role"> · helper</span> : null}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="jo-sched__muted is-clash">No worker</span>
+                )}
+              </div>
+
               <div className="jo-sched__field" data-label="Machine unit">
                 {needsMachine ? (
-                  changingSeq === op.sequenceNo && !readOnly ? (
-                    <Select
-                      size="small"
-                      autoFocus
-                      style={{ width: '100%' }}
-                      placeholder="Select unit"
-                      allowClear
-                      value={op.machineUnitId || undefined}
-                      options={unitOptions.map((u) => ({
-                        value: u.id,
-                        label: unitPairText(u, op.assignedWorkerId) || u.label,
-                      }))}
-                      onBlur={() => setChangingSeq(null)}
-                      onChange={(unitId) => {
-                        const unit = unitOptions.find((u) => u.id === unitId);
-                        const machineUnitId = unitId || null;
-                        const machineUnitLabel = unit?.label || null;
-                        setChangingSeq(null);
-                        if (onMachineUnitChange) {
-                          onMachineUnitChange(op.sequenceNo, machineUnitId, machineUnitLabel);
-                        } else {
-                          onChangeOp(op.sequenceNo, { machineUnitId, machineUnitLabel });
-                        }
-                      }}
-                    />
-                  ) : (
-                    <div className="jo-sched__unit">
-                      <span className="jo-sched__unit-label">
-                        {unitPairText(
-                          unitOptions.find((u) => u.id === op.machineUnitId),
-                          op.assignedWorkerId,
-                        ) || op.machineUnitLabel || 'No unit'}
-                      </span>
-                      {!readOnly ? (
-                        <Button type="link" size="small" className="jo-sched__change" onClick={() => setChangingSeq(op.sequenceNo)}>
-                          Change
-                        </Button>
-                      ) : null}
-                    </div>
-                  )
+                  <span
+                    className={`jo-sched__unit-label${unitClash || !op.machineUnitId ? ' is-clash' : ''}`}
+                    title={unitClash ? 'Booked elsewhere or broken down at this time' : undefined}
+                  >
+                    {unitPairText(
+                      unitOptions.find((u) => u.id === op.machineUnitId),
+                      op.assignedWorkerId,
+                    ) || op.machineUnitLabel || 'No unit'}
+                  </span>
                 ) : (
                   <span className="jo-sched__muted">{op.isOutsourced ? 'Outside shop' : 'No machine'}</span>
                 )}

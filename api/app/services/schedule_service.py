@@ -1668,7 +1668,9 @@ def schedule_problems(
 
     problems = []
 
-    def add(op, code, message, severity="error"):
+    def add(op, code, message, severity="error", **who):
+        # ``who``: workerId / machineUnitId of the clashing worker or unit, so
+        # the schedule table can show that name in red.
         problems.append(
             {
                 "sequenceNo": op["sequenceNo"],
@@ -1676,6 +1678,7 @@ def schedule_problems(
                 "code": code,
                 "message": message,
                 "severity": severity,
+                **{k: v for k, v in who.items() if v},
             }
         )
 
@@ -1771,6 +1774,7 @@ def schedule_problems(
                     op,
                     "WORKER_CONFLICT",
                     f"{_worker_label(member)} is booked on {label(clash)} at the same time",
+                    workerId=member,
                 )
                 continue
             other = next(
@@ -1789,6 +1793,7 @@ def schedule_problems(
                     f"{_worker_label(member)} is already booked on "
                     f"{o.job_order.job_number} #{o.sequence_no} {o.operation_name} "
                     f"({_fmt_shop(segs[0][0])})",
+                    workerId=member,
                 )
 
         unit_id = op.get("machineUnitId")

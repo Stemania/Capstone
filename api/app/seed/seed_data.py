@@ -350,9 +350,10 @@ def seed_database():
         db.session.add_all(_skills_from_tokens(w.id, skill_tokens, machines))
         db.session.add_all(_default_schedule(w.id))
 
-    from app.services.seed_cleanup_service import DEMO_CLIENTS
+    from app.services.seed_cleanup_service import REAL_CLIENTS
 
-    clients = [Client(name=name, contact=contact) for name, contact in DEMO_CLIENTS]
+    # The shop's client companies (no contact people: those are entered by Office).
+    clients = [Client(name=name) for name in REAL_CLIENTS]
     db.session.add_all(clients)
     db.session.flush()
 

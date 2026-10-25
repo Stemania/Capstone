@@ -36,7 +36,7 @@ import { jobOrdersListPath } from './jobOrderListPaths';
 import JobInfoCard from './JobInfoCard';
 import { PersonAvatar, PersonChip } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
-import { pairKey, pairedUnitId, parsePairKey, scoreBreakdown, unitPairText } from './unitPairing';
+import { pairKey, pairedUnitId, parsePairKey, scoreBreakdown, unitOwnerName, unitPairText } from './unitPairing';
 import type {
   FasterPairSuggestion,
   JobOrder,
@@ -61,9 +61,10 @@ function readableDates(text: string) {
 }
 
 const SCHEDULE_HELP =
-  'The worker and machine unit are already chosen. Review and edit start times; the unit is shown ' +
-  'as text with a Change action if you need another. Changes show in the week view right away but ' +
-  'are not saved until you confirm. Confirming releases the job to the shop floor.';
+  'The worker and machine unit were chosen in the Operations step and are shown here for reference. ' +
+  'Review and edit start times. A worker or unit shown in red is booked elsewhere at that time. ' +
+  'Changes show in the week view right away but are not saved until you confirm. Confirming ' +
+  'releases the job to the shop floor.';
 
 function isPlanningStatus(status: string) {
   return status === 'DRAFT';
@@ -117,29 +118,42 @@ function prefillRows(types: OperationType[], jobType?: string): OpFormRow[] {
     }));
 }
 
-function machineOptionsForRow(catalog: MachineInfo[], operations: OpFormRow[], rowIndex: number) {
-  const reservedByOthers: Record<string, number> = {};
-  operations.forEach((op, i) => {
-    if (i === rowIndex) return;
-    if (op.status === 'IN_PROGRESS' || op.status === 'COMPLETED') return;
-    const code = catalog.find((m) => m.id === op.machineTypeId)?.code;
-    if (!code) return;
-    reservedByOthers[code] = (reservedByOthers[code] || 0) + 1;
-  });
-  const selectedId = operations[rowIndex]?.machineTypeId;
-  return catalog
-    .map((m) => {
-      const baseAvailable = m.available ?? m.units;
-      const remaining = Math.max(0, baseAvailable - (reservedByOthers[m.code] || 0));
-      const keep = remaining > 0 || m.id === selectedId;
-      return {
-        value: m.id || m.code,
-        label: `${m.name} (${remaining} available)`,
-        keep,
-      };
+/** Units grouped by machine type; the operation's usual machine comes first. */
+function machineUnitOptions(
+  units: MachineUnitInfo[],
+  catalog: MachineInfo[],
+  preferredTypeId?: string | null,
+  selectedUnitId?: string,
+) {
+  const byType = new Map<string, MachineUnitInfo[]>();
+  for (const u of units) {
+    if (u.active === false && u.id !== selectedUnitId) continue;
+    const list = byType.get(u.machineTypeId) || [];
+    list.push(u);
+    byType.set(u.machineTypeId, list);
+  }
+  const typeName = (typeId: string, sample: MachineUnitInfo) =>
+    sample.machineTypeName || catalog.find((m) => m.id === typeId)?.name || 'Machine';
+  return [...byType.entries()]
+    .sort(([a, ua], [b, ub]) => {
+      if (a === preferredTypeId) return -1;
+      if (b === preferredTypeId) return 1;
+      return typeName(a, ua[0]).localeCompare(typeName(b, ub[0]));
     })
-    .filter((o) => o.keep)
-    .map(({ value, label }) => ({ value, label }));
+    .map(([typeId, list]) => ({
+      label: typeName(typeId, list[0]),
+      title: typeName(typeId, list[0]),
+      options: list
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
+        .map((u) => {
+          const owner = unitOwnerName(u);
+          return {
+            value: u.id,
+            search: `${u.label} ${typeName(typeId, u)} ${owner || ''}`,
+            label: owner ? `${u.label} · ${owner}` : u.label,
+          };
+        }),
+    }));
 }
 
 function workerOptions(workers: User[]) {
@@ -282,7 +296,17 @@ export default function JobOrderPlanningPage() {
         if (stillValid) return prev;
       }
 
-      const best = pickBestWorker(suggestions, workers);
+      // A unit the Admin picked stays; only the worker is chosen for it.
+      const pinnedUnit = row.machineTypeId ? row.machineUnitId : undefined;
+      const best = pinnedUnit
+        ? {
+            ...pickBestWorker(
+              suggestions.filter((s) => s.machineUnitId === pinnedUnit),
+              workers,
+            ),
+            machineUnitId: pinnedUnit,
+          }
+        : pickBestWorker(suggestions, workers);
       if (row.assignedWorkerId === best.workerId && (row.machineUnitId || undefined) === best.machineUnitId) {
         return prev;
       }
@@ -703,6 +727,31 @@ export default function JobOrderPlanningPage() {
     });
   };
 
+  /** The Admin picks the machine unit itself; its machine type follows. */
+  const onMachineUnitChange = (index: number, unitId?: string) => {
+    const row = operations[index];
+    if (!unitId) {
+      onMachineTypeChange(index, undefined);
+      return;
+    }
+    const unit = machineUnits.find((u) => u.id === unitId);
+    if (!unit) return;
+    if (row?.machineTypeId === unit.machineTypeId) {
+      patchRow(index, { machineUnitId: unitId });
+      syncRowWorkerAssignment(index, { preserveExisting: true });
+      return;
+    }
+    const machineTypeId = unit.machineTypeId;
+    patchRow(index, { machineTypeId, machineUnitId: unitId, assignedWorkerId: undefined });
+    void loadRowWorkers(index, machineTypeId, true, row?.operationTypeId);
+    void loadSuggestions(index, {
+      ...operations[index],
+      machineTypeId,
+      machineUnitId: unitId,
+      assignedWorkerId: undefined,
+    });
+  };
+
   const buildOperationsPayload = () =>
     operations.map((op, i) => {
       const ot = operationTypes.find((t) => t.id === op.operationTypeId);
@@ -1069,22 +1118,22 @@ export default function JobOrderPlanningPage() {
   );
 
   const renderMachineCell = (record: OpFormRow, index: number) => {
-    const outsourced = isOutsourcedType(typeOf(record));
+    const ot = typeOf(record);
+    const outsourced = isOutsourcedType(ot);
+    const options = machineUnitOptions(machineUnits, machines, ot?.defaultMachineTypeId, record.machineUnitId);
     return (
-      <>
-        <Select
-          allowClear={!outsourced}
-          style={{ width: '100%' }}
-          placeholder={outsourced ? 'Outsourced' : 'Machine'}
-          value={outsourced ? undefined : record.machineTypeId}
-          disabled={readOnly || outsourced}
-          labelRender={({ label, value }) =>
-            label == null ? String(value) : String(label).replace(/ \(\d+ available\)$/, '')
-          }
-          options={machineOptionsForRow(machines, operations, index)}
-          onChange={(v) => onMachineTypeChange(index, v)}
-        />
-      </>
+      <Select
+        allowClear={!outsourced}
+        showSearch
+        optionFilterProp="search"
+        style={{ width: '100%' }}
+        placeholder={outsourced ? 'Outsourced' : record.machineTypeId ? 'Pick a unit' : 'No machine'}
+        value={outsourced ? undefined : record.machineUnitId}
+        disabled={readOnly || outsourced}
+        status={!outsourced && record.machineTypeId && !record.machineUnitId ? 'warning' : undefined}
+        options={options}
+        onChange={(v) => onMachineUnitChange(index, v)}
+      />
     );
   };
 
@@ -1108,8 +1157,9 @@ export default function JobOrderPlanningPage() {
     const canAddHelper = !readOnly && Boolean(record.assignedWorkerId) && helpers.length < MAX_HELPERS;
     const suggestions = rowSuggestions[index] || [];
     const applyPair = (workerId?: string, unitId?: string) => {
-      const resolvedUnit = workerId
-        ? unitId || pairedUnitId(workerId, record.machineTypeId, machineUnits)
+      const resolvedUnit = record.machineTypeId
+        ? record.machineUnitId ||
+          (workerId ? unitId || pairedUnitId(workerId, record.machineTypeId, machineUnits) : undefined)
         : undefined;
       patchRow(index, {
         assignedWorkerId: workerId,
@@ -1119,40 +1169,28 @@ export default function JobOrderPlanningPage() {
     };
     const pairOptions = rowMachineId
       ? (() => {
+          // The unit is picked in the Machine column; here only the worker,
+          // best match for that unit first.
+          const unitId = record.machineUnitId;
           const seen = new Set<string>();
-          const fromSuggestions = suggestions
-            .filter((s) => s.workerId)
-            .map((s) => {
-              const value = pairKey(s.workerId, s.machineUnitId);
-              seen.add(value);
-              return {
-                value,
-                search: `${personLabel(s.fullName, s.nickname)} ${s.machineUnitLabel || ''}`,
-                label: suggestionLabel(s, machineUnits),
-              };
-            });
+          const ranked = suggestions.filter(
+            (s) => s.workerId && (!unitId || s.machineUnitId === unitId),
+          );
+          const fromSuggestions = ranked
+            .filter((s) => !seen.has(s.workerId) && seen.add(s.workerId))
+            .map((s) => ({
+              value: pairKey(s.workerId, unitId),
+              search: personLabel(s.fullName, s.nickname),
+              label: personLabel(s.fullName, s.nickname),
+              disabled: s.qualified === false,
+            }));
           const extras = qualifiedWorkers
-            .filter((w) => !seen.has(pairKey(w.id, pairedUnitId(w.id, record.machineTypeId, machineUnits))))
-            .map((w) => {
-              const unitId = pairedUnitId(w.id, record.machineTypeId, machineUnits);
-              return {
-                value: pairKey(w.id, unitId),
-                search: personLabel(w.fullName, w.nickname),
-                label: suggestionLabel(
-                  {
-                    workerId: w.id,
-                    fullName: w.fullName,
-                    nickname: w.nickname,
-                    email: w.email,
-                    skills: [],
-                    score: 0,
-                    matchedSkills: [],
-                    machineUnitId: unitId,
-                  },
-                  machineUnits,
-                ),
-              };
-            });
+            .filter((w) => !seen.has(w.id))
+            .map((w) => ({
+              value: pairKey(w.id, unitId),
+              search: personLabel(w.fullName, w.nickname),
+              label: personLabel(w.fullName, w.nickname),
+            }));
           return [...fromSuggestions, ...extras];
         })()
       : qualifiedWorkers.map((w) => ({
@@ -1172,7 +1210,7 @@ export default function JobOrderPlanningPage() {
             showSearch
             optionFilterProp="search"
             style={{ flex: 1, minWidth: 0 }}
-            placeholder={rowMachineId ? 'Lead and machine unit' : 'Lead worker'}
+            placeholder="Lead worker"
             value={leadValue}
             disabled={readOnly}
             options={pairOptions}
@@ -1438,7 +1476,7 @@ export default function JobOrderPlanningPage() {
                 </div>
               ) : null}
             </div>
-            <div className="jo-op__field jo-op__field--machine" data-label="Machine">
+            <div className="jo-op__field jo-op__field--machine" data-label="Machine unit">
               {renderMachineCell(record, index)}
             </div>
             <div className="jo-op__field jo-op__field--crew" data-label="Crew">
@@ -1564,7 +1602,7 @@ export default function JobOrderPlanningPage() {
           <div className="jo-ops__head" aria-hidden>
             <span>#</span>
             <span>Operation</span>
-            <span>Machine</span>
+            <span>Machine unit</span>
             <span>Crew</span>
             <span>Target</span>
             <span />
@@ -1636,6 +1674,7 @@ export default function JobOrderPlanningPage() {
               <ScheduleProposalPanel
                 operations={scheduleOps}
                 machineUnits={machineUnits}
+                workers={allWorkers}
                 projectedCompletion={scheduleMeta?.projectedCompletion}
                 scheduleFlag={scheduleMeta?.scheduleFlag}
                 dueDate={job.dueDate}

@@ -807,6 +807,8 @@ export interface ScheduleProblem {
   code: string;
   message: string;
   severity?: 'error' | 'warning';
+  /** WORKER_CONFLICT: the worker who is double-booked. */
+  workerId?: string | null;
 }
 
 export interface ScheduleWarning {

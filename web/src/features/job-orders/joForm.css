@@ -61,3 +61,59 @@
   padding: 0 4px;
   font-size: 12px;
 }
+
+/* Schedule step: Operation · Worker · Machine unit · Start · End.
+   Worker and unit come from the Operations step and are read-only here. */
+.jo-sched .jo-sched__row {
+  grid-template-columns:
+    minmax(170px, 1.25fr) minmax(130px, 0.9fr) minmax(110px, 0.7fr) minmax(170px, 1fr)
+    minmax(140px, 0.85fr);
+}
+
+.jo-sched__crew {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.jo-sched__who {
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--c-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jo-sched__who.is-helper {
+  font-weight: 400;
+  color: var(--c-text-muted);
+}
+
+.jo-sched__role {
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
+
+.jo-sched__who.is-clash,
+.jo-sched__who.is-clash .jo-sched__role,
+.jo-sched__unit-label.is-clash,
+.jo-sched__muted.is-clash {
+  font-weight: 600;
+  color: var(--tone-red-fg, #b91c1c);
+}
+
+.jo-sched__unit-label {
+  display: block;
+}
+
+@media (max-width: 860px) {
+  .jo-sched .jo-sched__row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .jo-sched .jo-sched__row--head {
+    display: none;
+  }
+}
