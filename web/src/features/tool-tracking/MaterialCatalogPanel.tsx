@@ -23,7 +23,6 @@ import { ADD_CATALOG_ITEM_LABEL } from './inventoryTabs';
 import {
   CategoryTile,
   InventorySummaryCards,
-  StockStatusPill,
   type InventorySummaryCard,
 } from './inventoryLook';
 
@@ -170,20 +169,18 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
   const gradesOf = (r: CatalogItem) =>
     r.gradesOrSizes?.length ? r.gradesOrSizes : r.grades || (r.sizeSpec ? [r.sizeSpec] : []);
 
-  const statusCell = (r: CatalogItem) => (
-    <div className="catalog-status">
-      {r.active ? (
-        <StatusPill color="green" compact>
-          Offered
+  const statusCell = (r: CatalogItem) => {
+    const notStocked = r.kind === 'CONSUMABLE' && r.notStockedYet;
+    const label = !r.active ? 'Not offered' : notStocked ? 'Not stocked yet' : 'Offered';
+    const color = !r.active ? 'gray' : notStocked ? 'amber' : 'green';
+    return (
+      <div className="catalog-status">
+        <StatusPill color={color} compact>
+          {label}
         </StatusPill>
-      ) : (
-        <StatusPill color="gray" compact>
-          Not offered
-        </StatusPill>
-      )}
-      {r.kind === 'CONSUMABLE' && r.notStockedYet ? <StockStatusPill status="NOT_STOCKED" /> : null}
-    </div>
-  );
+      </div>
+    );
+  };
 
   const cardColumns: TableColumnsType<CatalogItem> = [
     {
@@ -279,7 +276,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
     {
       title: 'Status',
       key: 'status',
-      width: 160,
+      width: 148,
       render: (_: unknown, r) => statusCell(r),
     },
     ...(canEdit
