@@ -7,9 +7,7 @@ import { jobOrdersApi } from '../../api/jobOrders.api';
 import { usersApi, workerProfileApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import type { User, WorkerSchedule, WorkerSkill } from '../../types';
-import { PersonAvatar } from '../../components/PersonAvatar';
-import PhotoUploadControl from '../../components/PhotoUploadControl';
-import { personLabel } from '../../utils/people';
+import UserIdentity from '../../components/UserIdentity';
 import { showSetupLink } from '../users/UsersPage';
 import WorkerHistoryPanel from './WorkerHistoryPanel';
 import InfoTip from '../../components/InfoTip';
@@ -30,16 +28,6 @@ type SkillRow = {
   proficiency: number;
   isPrimary: boolean;
 };
-
-function personSubline(u: User): string {
-  return [
-    u.role === 'ADMIN' ? 'Admin' : 'Production worker',
-    u.status === 'INVITED' ? 'not activated' : null,
-    u.email || u.mobileNumber || 'No mobile yet',
-  ]
-    .filter(Boolean)
-    .join(' · ');
-}
 
 function defaultSchedule(): WorkerSchedule[] {
   return DAY_LABELS.map((_, dow) => ({
@@ -442,13 +430,13 @@ export default function WorkerSetupPage() {
                     onClick={() => setWorker(w.id)}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left' }}
                   >
-                    <PersonAvatar userId={w.id} fullName={w.fullName} photoVersion={w.photoVersion} />
-                    <span style={{ minWidth: 0 }}>
-                      <div className="worker-setup-list__name">
-                        {personLabel(w.fullName, w.nickname)}
-                      </div>
-                      <div className="worker-setup-list__email">{personSubline(w)}</div>
-                    </span>
+                    <UserIdentity
+                      userId={w.id}
+                      fullName={w.fullName}
+                      nickname={w.nickname}
+                      email={w.email}
+                      mobileNumber={w.mobileNumber}
+                    />
                   </button>
                 );
               })}
@@ -464,32 +452,18 @@ export default function WorkerSetupPage() {
           ) : (
             <>
               <div className="ws-hero">
-                <PersonAvatar
-                  userId={selected?.id}
-                  fullName={selected?.fullName}
-                  photoVersion={selected?.photoVersion}
-                  size={56}
-                />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: '#0f1c2e' }}>
-                    {selected ? personLabel(selected.fullName, selected.nickname) : 'Worker'}
-                  </div>
-                  <Text type="secondary">{selected ? personSubline(selected) : ''}</Text>
-                  {selected ? (
-                    <div style={{ marginTop: 6 }}>
-                      <PhotoUploadControl
-                        user={selected}
-                        onChange={(updated) =>
-                          setWorkers((prev) =>
-                            prev.map((w) =>
-                              w.id === updated.id ? { ...w, photoVersion: updated.photoVersion } : w
-                            )
-                          )
-                        }
-                      />
-                    </div>
-                  ) : null}
-                </div>
+                {selected ? (
+                  <UserIdentity
+                    userId={selected.id}
+                    fullName={selected.fullName}
+                    nickname={selected.nickname}
+                    email={selected.email}
+                    mobileNumber={selected.mobileNumber}
+                    size={48}
+                  />
+                ) : (
+                  'Worker'
+                )}
               </div>
 
               {selected?.role === 'PRODUCTION_WORKER' && selected.status === 'INVITED' ? (

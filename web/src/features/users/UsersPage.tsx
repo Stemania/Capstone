@@ -18,7 +18,8 @@ import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
 import { EllipsisText, ResponsiveTable, rowOpenProps } from '../../components/ui';
-import { PersonAvatar, PersonChip } from '../../components/PersonAvatar';
+import { PersonAvatar } from '../../components/PersonAvatar';
+import UserIdentity from '../../components/UserIdentity';
 import PhotoUploadControl from '../../components/PhotoUploadControl';
 import type { User, UserRole } from '../../types';
 
@@ -291,15 +292,14 @@ export default function UsersPage() {
       key: 'fullName',
       sorter: (a, b) => a.fullName.localeCompare(b.fullName),
       render: (_: string, record: User) => (
-        <span style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>
-          <PersonChip
-            userId={record.id}
-            fullName={record.fullName}
-            nickname={record.nickname}
-            photoVersion={record.photoVersion}
-            size={26}
-          />
-        </span>
+        <UserIdentity
+          userId={record.id}
+          fullName={record.fullName}
+          nickname={record.nickname}
+          email={record.email}
+          mobileNumber={record.mobileNumber}
+          size={32}
+        />
       ),
     },
     {
@@ -741,7 +741,7 @@ export default function UsersPage() {
           <Form.Item
             name="nickname"
             label="Nickname"
-            extra='Shown with the name, e.g. "JD · Juan Dela Cruz".'
+            extra='Shown under the full name, e.g. “JD”.'
           >
             <Input maxLength={40} />
           </Form.Item>

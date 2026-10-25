@@ -350,6 +350,7 @@ a.ui-id:hover {
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  margin-bottom: 12px;
 }
 
 .ui-filterbar {
@@ -419,6 +420,8 @@ a.ui-id:hover {
   padding: 0;
 }
 
+.dashboard-recent .ant-table-thead > tr > th:first-child,
+.dashboard-recent .ant-table-tbody > tr > td:first-child,
 .so-detail-page .ui-card__body--flush .ant-table-thead > tr > th:first-child,
 .so-detail-page .ui-card__body--flush .ant-table-tbody > tr > td:first-child,
 .jo-detail-page .ui-card__body--flush .ant-table-thead > tr > th:first-child,
@@ -428,6 +431,7 @@ a.ui-id:hover {
 .jo-list-table .ant-table-thead > tr > th:first-child,
 .jo-list-table .ant-table-tbody > tr > td:first-child {
   padding-left: 16px !important;
+  padding-inline-start: 16px !important;
 }
 
 .so-detail-page .ui-card__body--flush .ant-table-thead > tr > th:last-child,
@@ -461,7 +465,18 @@ td.ant-table-cell-row-hover.tabular-nums {
 }
 
 /* Fixed row height across DataTable (ui-table) and std/jo list tables. */
-.ui-table .ant-table-tbody > tr > td,
+.ui-table .ant-table-tbody > tr.ant-table-measure-row,
+.ui-table .ant-table-tbody > tr.ant-table-measure-row > td {
+  height: 0 !important;
+  max-height: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  font-size: 0 !important;
+  line-height: 0 !important;
+  overflow: hidden;
+}
+
+.ui-table .ant-table-tbody > tr:not(.ant-table-measure-row) > td,
 .std-list-table .ant-table-tbody > tr:not(.ant-table-measure-row) > td,
 .jo-list-table .ant-table-tbody > tr:not(.ant-table-measure-row) > td {
   font-size: var(--fs-base);
@@ -951,4 +966,73 @@ td.ant-table-cell-row-hover.tabular-nums {
 .ant-input-disabled {
   color: var(--c-text-2) !important;
   -webkit-text-fill-color: var(--c-text-2);
+}
+
+.std-list-table .ant-table-tbody > tr:not(.ant-table-measure-row) > td:has(.user-identity),
+.ui-table .ant-table-tbody > tr:not(.ant-table-measure-row) > td:has(.user-identity) {
+  height: auto;
+  max-height: none;
+}
+
+.user-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.user-identity__text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.user-identity__name {
+  font-weight: 700;
+  font-size: var(--fs-base);
+  line-height: 1.3;
+  color: var(--c-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-identity__meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-top: 1px;
+  color: var(--c-text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.user-identity__nick {
+  flex: 0 1 auto;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--c-surface-sunken, #f1f5f9);
+}
+
+.user-identity__dot {
+  flex: 0 0 auto;
+}
+
+.user-identity__contact {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-recent .ant-table-body {
+  min-height: 0 !important;
+  max-height: none !important;
 }

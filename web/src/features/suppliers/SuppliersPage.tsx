@@ -12,8 +12,7 @@ import {
   Tag,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { PlusOutlined, EditOutlined, ShopOutlined, BarChartOutlined } from '@ant-design/icons';
-import { Link } from 'react-router-dom';
+import { PlusOutlined, EditOutlined, ShopOutlined } from '@ant-design/icons';
 import { suppliersApi } from '../../api/suppliers.api';
 import { getErrorMessage } from '../../api/client';
 import type { Supplier, SupplierReliability } from '../../types';
@@ -281,9 +280,6 @@ export default function SuppliersPage() {
         }
         actions={
           <>
-            <Link to="/analytics/suppliers">
-              <Button icon={<BarChartOutlined />}>Spend by supplier</Button>
-            </Link>
             {canEdit ? (
               <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
                 Add supplier

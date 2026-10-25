@@ -318,12 +318,9 @@ export default function SupplierOrderDetailPage() {
             </Link>
             <div style={{ fontSize: 11, color: '#64748b' }}>{ln.jobTitle}</div>
           </div>
-        ) : (
-          <div>
-            <div style={{ fontWeight: 600, color: '#475569' }}>Consumable restock</div>
-            {ln.toolCode ? <div style={{ fontSize: 11, color: '#64748b' }}>{ln.toolCode}</div> : null}
-          </div>
-        ),
+        ) : ln.toolCode ? (
+          <div style={{ fontSize: 12, color: '#64748b' }}>{ln.toolCode}</div>
+        ) : null,
     },
     {
       title: 'Material',
@@ -749,14 +746,16 @@ export default function SupplierOrderDetailPage() {
                         {p.label}
                       </StatusPill>
                     </div>
-                    <div className="so-line__job">
-                      {ln.jobOrderId ? (
-                        <Link to={`/job-orders/${ln.jobOrderId}`}>{ln.jobNumber}</Link>
-                      ) : (
-                        'Consumable restock'
-                      )}
-                      {ln.jobOrderId && ln.jobTitle ? ` · ${ln.jobTitle}` : ln.toolCode ? ` · ${ln.toolCode}` : ''}
-                    </div>
+                    {ln.jobOrderId || ln.toolCode ? (
+                      <div className="so-line__job">
+                        {ln.jobOrderId ? (
+                          <Link to={`/job-orders/${ln.jobOrderId}`}>{ln.jobNumber}</Link>
+                        ) : (
+                          ln.toolCode
+                        )}
+                        {ln.jobOrderId && ln.jobTitle ? ` · ${ln.jobTitle}` : ''}
+                      </div>
+                    ) : null}
                     <div className="so-line__math ui-tabular">
                       <span>
                         {fmtQty(ln.quantity, ln.unit)} × {fmtMoney(ln.unitCost)}
@@ -881,7 +880,7 @@ export default function SupplierOrderDetailPage() {
         confirmLoading={busy}
         title={
           editLine
-            ? `Edit ${editLine.materialName} (${editLine.jobNumber || 'consumable restock'})`
+            ? `Edit ${editLine.materialName}${editLine.jobNumber ? ` (${editLine.jobNumber})` : ''}`
             : ''
         }
         destroyOnHidden

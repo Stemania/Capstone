@@ -570,7 +570,7 @@ export default function OrderMaterialsModal({
                 }}
               >
                 <div style={{ fontWeight: 700, fontSize: 13 }}>
-                  Consumables to restock (not tied to a job)
+                  Consumables to restock
                 </div>
                 <Select
                   showSearch

@@ -324,6 +324,7 @@ export default function DashboardPage() {
       </div>
 
       <SectionCard
+        className="dashboard-recent"
         title="Recent job orders"
         subtitle="Last changed first"
         flush
