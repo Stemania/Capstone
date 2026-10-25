@@ -35,6 +35,16 @@ export function shopToday(): dayjs.Dayjs {
   return dayjs(shopNow().format('YYYY-MM-DD'));
 }
 
+/** DatePicker ``disabledDate`` for dates that must be today or later (shop day). */
+export function isPastShopDay(d?: dayjs.Dayjs | null): boolean {
+  return Boolean(d && d.isBefore(shopToday(), 'day'));
+}
+
+/** DatePicker ``disabledDate`` for dates that cannot be in the future (received, issued). */
+export function isFutureShopDay(d?: dayjs.Dayjs | null): boolean {
+  return Boolean(d && d.isAfter(shopToday(), 'day'));
+}
+
 /** Format any timestamp in shop time with a dayjs format string. */
 export function formatShop(value: DateInput, format: string, empty = '—'): string {
   if (value == null || value === '') return empty;

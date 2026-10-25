@@ -16,6 +16,7 @@ import dayjs from 'dayjs';
 import { clientsApi, jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
+import { isFutureShopDay, isPastShopDay } from '../../utils/shopTime';
 import type { Client, JobOrderStatus } from '../../types';
 import { jobOrdersDraftsListPath } from './jobOrderListPaths';
 import { MATERIALS_NEEDED_OPTIONS } from './jobOrderListTabs';
@@ -244,7 +245,7 @@ export default function JobOrderFormPage() {
             </Col>
             <Col xs={24} md={8}>
               <Form.Item name="poDate" label="PO Date">
-                <DatePicker style={{ width: '100%' }} format="MMM D, YYYY" />
+                <DatePicker style={{ width: '100%' }} format="MMM D, YYYY" disabledDate={isFutureShopDay} />
               </Form.Item>
             </Col>
           </Row>
@@ -269,7 +270,7 @@ export default function JobOrderFormPage() {
             </Col>
             <Col xs={24} md={6}>
               <Form.Item name="dueDate" label="Date Required" rules={[{ required: true }]}>
-                <DatePicker style={{ width: '100%' }} format="MMM D, YYYY" />
+                <DatePicker style={{ width: '100%' }} format="MMM D, YYYY" disabledDate={isPastShopDay} />
               </Form.Item>
             </Col>
           </Row>

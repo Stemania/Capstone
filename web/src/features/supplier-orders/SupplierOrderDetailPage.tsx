@@ -1,4 +1,4 @@
-import { formatShop, shopToday } from '../../utils/shopTime';
+import { formatShop, isFutureShopDay, isPastShopDay, shopToday } from '../../utils/shopTime';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Alert, Button, DatePicker, Descriptions, Input, InputNumber, Modal, Select, Space, Tooltip, message } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -55,6 +55,7 @@ function askDate(title: string, intro: string, okText: string, onOk: (d: string)
           defaultValue={shopToday()}
           format="YYYY-MM-DD"
           allowClear={false}
+          disabledDate={isFutureShopDay}
           onChange={(d) => {
             if (d) picked = d;
           }}
@@ -855,7 +856,8 @@ export default function SupplierOrderDetailPage() {
               value={newDate}
               onChange={(d) => setNewDate(d)}
               disabledDate={(d) =>
-                !!order.dateIssued && d.isBefore(dayjs(order.dateIssued), 'day')
+                isPastShopDay(d) ||
+                (!!order.dateIssued && d.isBefore(dayjs(order.dateIssued), 'day'))
               }
             />
           </div>

@@ -1,4 +1,4 @@
-import { shopToday } from '../../utils/shopTime';
+import { isPastShopDay } from '../../utils/shopTime';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DatePicker,
@@ -118,7 +118,7 @@ function statusSummary(units: MachineUnitStatus[]) {
   return c;
 }
 
-const disablePastDates = (d: dayjs.Dayjs) => d.isBefore(shopToday(), 'day');
+const disablePastDates = isPastShopDay;
 
 export default function MachinesPage() {
   const navigate = useNavigate();

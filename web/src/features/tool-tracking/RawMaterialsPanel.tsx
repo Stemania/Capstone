@@ -1,4 +1,4 @@
-import { formatShop, shopToday } from '../../utils/shopTime';
+import { formatShop, isFutureShopDay, shopToday } from '../../utils/shopTime';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, DatePicker, Descriptions, Drawer, Modal, Segmented, message } from 'antd';
@@ -114,6 +114,7 @@ export default function RawMaterialsPanel() {
             defaultValue={shopToday()}
             format="YYYY-MM-DD"
             allowClear={false}
+            disabledDate={isFutureShopDay}
             onChange={(d) => {
               if (d) receivedDate = d;
             }}

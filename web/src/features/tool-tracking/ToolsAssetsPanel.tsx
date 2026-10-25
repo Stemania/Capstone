@@ -1,4 +1,4 @@
-import { formatShop, shopToday } from '../../utils/shopTime';
+import { formatShop, isFutureShopDay, shopToday } from '../../utils/shopTime';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Col, DatePicker, Drawer, Dropdown, Form, Input, InputNumber, Modal, Row, Select, Skeleton, Space, Typography, message } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
@@ -879,7 +879,7 @@ export default function ToolsAssetsPanel() {
             rules={[{ required: true }]}
             style={{ marginBottom: 14 }}
           >
-            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" allowClear={false} />
+            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" allowClear={false} disabledDate={isFutureShopDay} />
           </Form.Item>
           <Form.Item name="note" label="Note (optional)" style={{ marginBottom: 14 }}>
             <Input.TextArea rows={2} placeholder="PO number, invoice, etc." />

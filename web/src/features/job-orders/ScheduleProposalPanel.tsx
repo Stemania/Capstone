@@ -14,6 +14,7 @@ import { fasterPairText, fasterUnitText, unitPairText } from './unitPairing';
 import {
   SHOP_TZ,
   formatShop,
+  isPastShopDay,
   isoToShopDayjs,
   scheduleFlagStyle,
   shopLocalToIso,
@@ -359,6 +360,7 @@ export default function ScheduleProposalPanel({
                       value={isoToShopDayjs(op.scheduledStart)}
                       allowClear={false}
                       disabledDate={(d) =>
+                        isPastShopDay(d) ||
                         Boolean(earliestStart && d && d.endOf('day').isBefore(earliestStart))
                       }
                       disabledTime={(d) => {

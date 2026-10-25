@@ -1,4 +1,4 @@
-import { formatShop, shopNow, shopToday } from '../../utils/shopTime';
+import { formatShop, isPastShopDay, shopNow, shopToday } from '../../utils/shopTime';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
@@ -683,7 +683,7 @@ export default function WorkCalendarPage() {
             rules={[{ required: true, message: 'Pick a date' }]}
             style={{ marginBottom: 14 }}
           >
-            <DatePicker style={{ width: '100%' }} />
+            <DatePicker style={{ width: '100%' }} disabledDate={isPastShopDay} />
           </Form.Item>
           {!editing && (
             <Form.Item
@@ -692,7 +692,12 @@ export default function WorkCalendarPage() {
               tooltip="Set an end date to create the same exception across a range, e.g. a week of OT."
               style={{ marginBottom: 14 }}
             >
-              <DatePicker style={{ width: '100%' }} />
+              <DatePicker
+                style={{ width: '100%' }}
+                disabledDate={(d) =>
+                  isPastShopDay(d) || Boolean(d && form.getFieldValue('date')?.isAfter?.(d, 'day'))
+                }
+              />
             </Form.Item>
           )}
           {watchType !== 'HOLIDAY_NO_WORK' && (
