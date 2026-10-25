@@ -134,7 +134,7 @@ function ContactRow({
 export default function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { isAdmin, canOfficeWrite: canEdit } = useAuth();
+  const { isAdmin, canManageContacts: canEdit, canOfficeWrite: canEncodeJob } = useAuth();
   const [data, setData] = useState<ClientDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<JobFilter>('all');
@@ -283,16 +283,16 @@ export default function ClientDetailPage() {
               </span>
             </div>
           </div>
-          {canEdit || isAdmin ? (
+          {canEdit ? (
             <div className="client-head__actions m-action-bar">
-              {canEdit ? (
-                <Button icon={<EditOutlined />} onClick={() => setEditOpen(true)}>
-                  Edit client
+              <Button icon={<EditOutlined />} onClick={() => setEditOpen(true)}>
+                Edit client
+              </Button>
+              {canEncodeJob ? (
+                <Button type="primary" icon={<PlusOutlined />} onClick={newJob}>
+                  New job order
                 </Button>
               ) : null}
-              <Button type="primary" icon={<PlusOutlined />} onClick={newJob}>
-                New job order
-              </Button>
             </div>
           ) : null}
         </div>
@@ -421,7 +421,7 @@ export default function ClientDetailPage() {
             title="No job orders yet"
             description={`Job orders for ${data.name} will be listed here.`}
             action={
-              canEdit || isAdmin ? (
+              canEncodeJob ? (
                 <Button type="primary" icon={<PlusOutlined />} onClick={newJob}>
                   New job order
                 </Button>

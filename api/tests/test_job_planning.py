@@ -152,23 +152,16 @@ def test_production_cannot_fetch_draft_by_id(client, seeded):
     assert client.get(f"/api/v1/job-orders/{draft.id}", headers=headers).status_code == 403
 
 
-def test_admin_and_office_create_job_orders_workers_cannot(client, seeded):
+def test_only_office_staff_create_job_orders(client, seeded):
     body = {"clientId": seeded["client_id"], "title": "New job", "dueDate": "2026-12-01"}
 
-    worker = _auth_header(_login(client, "plan_worker@test.local", "Worker123!").get_json()["accessToken"])
-    assert client.post("/api/v1/job-orders", json=body, headers=worker).status_code == 403
-
     admin = _auth_header(_login(client, "plan_admin@test.local", "Admin123!").get_json()["accessToken"])
-    admin_created = client.post("/api/v1/job-orders", json=body, headers=admin)
-    assert admin_created.status_code == 201, admin_created.get_json()
-    assert admin_created.get_json()["status"] == "DRAFT"
-    assert admin_created.get_json()["createdByRole"] == "Admin"
+    assert client.post("/api/v1/job-orders", json=body, headers=admin).status_code == 403
 
     office = _auth_header(_login(client, "plan_office@test.local", "Office123!").get_json()["accessToken"])
-    created = client.post("/api/v1/job-orders", json={**body, "title": "Office job"}, headers=office)
+    created = client.post("/api/v1/job-orders", json=body, headers=office)
     assert created.status_code == 201
     assert created.get_json()["status"] == "DRAFT"
-    assert created.get_json()["createdByRole"] == "Office Staff"
 
 
 def test_priority_is_optional_and_kept_on_edit(client, seeded):
@@ -343,7 +336,7 @@ def test_no_notification_on_draft_or_planning_job_received_on_confirm(
     assert save_ops.get_json()["status"] == "DRAFT"
     assert sent == []
 
-    # Office sets materials; Admin plans operations and may also edit job info while DRAFT.
+    # Office sets materials; Admin plans operations (Admin cannot edit job info).
     mats = client.patch(
         f"/api/v1/job-orders/{job_id}",
         json={"materialStatus": "NOT_REQUIRED"},

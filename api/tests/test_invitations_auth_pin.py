@@ -513,3 +513,41 @@ def test_regenerate_setup_link_revokes_the_previous_one(client):
     assert current.status_code == 200
     assert current.get_json()["email"] is None
 
+
+
+def test_pin_unlock_is_for_production_workers_only(client, app):
+    """Admin and Office Staff sign in with a password; they cannot set a PIN,
+    and an old PIN on their device stops working."""
+    from app.extensions import bcrypt as _bcrypt, db as _db
+    from app.models.user import User, UserRole, UserStatus
+    from app.models.user_security import UserDevice
+
+    office = User(
+        email="pin-office@test.local",
+        full_name="Pin Office",
+        password_hash=_bcrypt.generate_password_hash("Office-pass-2031").decode(),
+        role=UserRole.OFFICE_STAFF,
+        status=UserStatus.ACTIVE,
+    )
+    _db.session.add(office)
+    _db.session.commit()
+    res = client.post(
+        "/api/v1/auth/login",
+        json={"identifier": "pin-office@test.local", "password": "Office-pass-2031", "deviceId": "dev-office-1"},
+    )
+    assert res.status_code == 200, res.get_json()
+    token = res.get_json()["accessToken"]
+    res = client.post(
+        "/api/v1/auth/pin",
+        json={"deviceId": "dev-office-1", "pin": "482916"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 403
+    assert res.get_json()["error"]["code"] == "PIN_NOT_ALLOWED"
+
+    # A PIN left from before still does not unlock.
+    device = UserDevice.query.filter_by(user_id=office.id, device_id="dev-office-1").first()
+    device.pin_hash = _bcrypt.generate_password_hash("482916").decode()
+    _db.session.commit()
+    res = client.post("/api/v1/auth/pin/unlock", json={"deviceId": "dev-office-1", "pin": "482916"})
+    assert res.status_code == 401

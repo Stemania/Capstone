@@ -1,4 +1,4 @@
-"""Job order info is editable by Office Staff or Admin while DRAFT, and locked after release."""
+"""Job order info is Office-only while DRAFT; locked after release. Admin is view-only."""
 
 from flask_jwt_extended import create_access_token
 
@@ -87,35 +87,33 @@ def test_office_edit_after_release_blocked(client, app):
     assert res.get_json()["error"]["code"] == "JOB_INFO_LOCKED"
 
 
-def test_admin_encodes_job_info_before_release(client, app):
+def test_admin_edit_job_info_blocked(client, app):
+    office = _user("lock3_office@test.local", UserRole.OFFICE_STAFF)
     admin = _user("lock3_admin@test.local", UserRole.ADMIN)
     client_row = Client(name="Lock3 Client")
-    db.session.add_all([admin, client_row])
+    db.session.add_all([office, admin, client_row])
     db.session.commit()
 
     created = client.post(
         "/api/v1/job-orders",
         json={
             "clientId": client_row.id,
-            "title": "Admin encodes",
+            "title": "Admin cannot",
             "dueDate": "2031-06-01",
             "jobType": "FABRICATION",
         },
-        headers=_headers(admin),
+        headers=_headers(office),
     )
     assert created.status_code == 201, created.get_json()
-    body = created.get_json()
-    assert body["createdByName"] == "lock3_admin"
-    assert body["createdByRole"] == "Admin"
-    job_id = body["id"]
+    job_id = created.get_json()["id"]
 
     res = client.patch(
         f"/api/v1/job-orders/{job_id}",
         json={"title": "Admin edit"},
         headers=_headers(admin),
     )
-    assert res.status_code == 200, res.get_json()
-    assert res.get_json()["title"] == "Admin edit"
+    assert res.status_code == 403
+    assert res.get_json()["error"]["code"] == "FORBIDDEN"
 
     row = db.session.get(JobOrder, job_id)
     row.status = JobOrderStatus.SCHEDULED
@@ -126,5 +124,4 @@ def test_admin_encodes_job_info_before_release(client, app):
         json={"description": "still blocked"},
         headers=_headers(admin),
     )
-    assert res.status_code == 409
-    assert res.get_json()["error"]["code"] == "JOB_INFO_LOCKED"
+    assert res.status_code == 403

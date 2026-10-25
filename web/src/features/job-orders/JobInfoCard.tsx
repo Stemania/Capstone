@@ -141,10 +141,8 @@ export default function JobInfoCard({ job, finish }: { job: JobOrder; finish?: P
   const rows = materialRows(job);
   const description = job.description?.trim();
   const entered = job.createdAt
-    ? `Entered by ${job.createdByName || '—'}${job.createdByRole ? ` · ${job.createdByRole}` : ''} · ${fmtDate(job.createdAt)}`
-    : job.createdByName
-      ? `Entered by ${job.createdByName}${job.createdByRole ? ` · ${job.createdByRole}` : ''}`
-      : null;
+    ? `Entered${job.createdByName ? ` by ${job.createdByName}` : ''} · ${fmtDate(job.createdAt)}`
+    : null;
   const lateBy =
     finish?.projectedCompletion && job.dueDate && finish.flag && finish.flag !== 'GREEN'
       ? daysPastDue(finish.projectedCompletion, job.dueDate)

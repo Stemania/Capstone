@@ -551,15 +551,6 @@ class JobOrder(db.Model):
             data["poDate"] = self.po_date.isoformat() if self.po_date else None
             data["createdById"] = self.created_by_id
             data["createdByName"] = self.created_by.full_name if self.created_by else None
-            data["createdByRole"] = (
-                {
-                    "ADMIN": "Admin",
-                    "OFFICE_STAFF": "Office Staff",
-                    "PRODUCTION_WORKER": "Production Worker",
-                }.get(self.created_by.role.value)
-                if self.created_by and self.created_by.role
-                else None
-            )
             data["amount"] = _num(self.amount)
             data["materialDelay"] = self._material_delay()
         if include_operations:

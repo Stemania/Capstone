@@ -908,7 +908,6 @@ export interface JobOrder extends MaterialWait {
   plannedMaterials?: PlannedMaterialSummary[];
   createdById?: string;
   createdByName?: string | null;
-  createdByRole?: string | null;
   draftStage?: string | null;
   deliveredAt?: string | null;
   cancelledAt?: string | null;

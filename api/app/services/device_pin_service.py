@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func
 
 from app.extensions import bcrypt, db
-from app.models.user import User, UserStatus
+from app.models.user import User, UserRole, UserStatus
 from app.models.user_security import UserDevice
 from app.services.audit_service import write_audit_event
 from app.services.session_service import issue_tokens
@@ -15,6 +15,13 @@ from app.utils.errors import AppError
 from app.utils.passwords import validate_pin
 
 MAX_PIN_FAILURES = 5
+# PIN unlock is a shop-floor convenience for Production Workers only. Admin and
+# Office Staff always sign in with email (or mobile) and password.
+PIN_ROLES = (UserRole.PRODUCTION_WORKER,)
+
+
+def pin_allowed(user: User | None) -> bool:
+    return bool(user) and user.role in PIN_ROLES
 # Rows without a PIN and unused this long are deleted (a session lasts at most 7 days).
 STALE_DEVICE_DAYS = 30
 
@@ -52,6 +59,11 @@ def register_device_after_password_login(
     prune_stale_devices(user.id)
     device = _get_or_create_device(user.id, device_id, device_label)
     device.last_used_at = _utcnow()
+    if not pin_allowed(user) and device.pin_hash:
+        # A PIN set before PIN unlock became worker-only stops working.
+        device.pin_hash = None
+        device.pin_set_at = None
+        device.pin_failed_attempts = 0
     db.session.commit()
     return device
 
@@ -61,6 +73,12 @@ def set_device_pin(
 ) -> UserDevice:
     if not device_id:
         raise AppError("deviceId is required", "VALIDATION_ERROR", 400)
+    if not pin_allowed(user):
+        raise AppError(
+            "PIN unlock is for Production Workers. Sign in with your password.",
+            "PIN_NOT_ALLOWED",
+            403,
+        )
     validate_pin(pin)
     # PIN may only be set on a device that already completed a password login.
     device = UserDevice.query.filter_by(user_id=user.id, device_id=device_id).first()
@@ -122,7 +140,7 @@ def unlock_with_pin(device_id: str, pin: str) -> dict:
     active: list[tuple[UserDevice, User]] = []
     for row in candidates:
         owner = db.session.get(User, row.user_id)
-        if owner and owner.status == UserStatus.ACTIVE:
+        if owner and owner.status == UserStatus.ACTIVE and pin_allowed(owner):
             active.append((row, owner))
 
     if not active:

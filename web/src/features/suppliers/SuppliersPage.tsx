@@ -31,7 +31,7 @@ function sectionLabel(text: string) {
 }
 
 export default function SuppliersPage() {
-  const { canOfficeWrite: canEdit } = useAuth();
+  const { canManageContacts: canEdit } = useAuth();
   const [rows, setRows] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);

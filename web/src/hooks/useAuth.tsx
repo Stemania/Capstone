@@ -13,6 +13,8 @@ interface AuthContextType {
   isOfficeStaff: boolean;
   /** Office Staff write actions only; Admin views Office pages read-only. */
   canOfficeWrite: boolean;
+  /** Add and edit client and supplier records: Office Staff and Admin. */
+  canManageContacts: boolean;
   isWorker: boolean;
 }
 
@@ -38,6 +40,7 @@ export function TestAuthProvider({
         isAdmin: role === 'ADMIN',
         isOfficeStaff: role === 'OFFICE_STAFF',
         canOfficeWrite: role === 'OFFICE_STAFF',
+        canManageContacts: role === 'OFFICE_STAFF' || role === 'ADMIN',
         isWorker: role === 'PRODUCTION_WORKER',
       }}
     >
@@ -102,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAdmin: user?.role === 'ADMIN',
         isOfficeStaff: user?.role === 'OFFICE_STAFF',
         canOfficeWrite: user?.role === 'OFFICE_STAFF',
+        canManageContacts: user?.role === 'OFFICE_STAFF' || user?.role === 'ADMIN',
         isWorker: user?.role === 'PRODUCTION_WORKER',
       }}
     >

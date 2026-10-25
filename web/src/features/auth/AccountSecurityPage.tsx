@@ -76,10 +76,12 @@ function DeviceRow({
   device,
   current,
   onSignOut,
+  showPin = true,
 }: {
   device: UserDevice;
   current: boolean;
   onSignOut?: () => void;
+  showPin?: boolean;
 }) {
   const info = describeDevice(device.deviceLabel, device.deviceId);
   const last = lastActive(device);
@@ -96,7 +98,7 @@ function DeviceRow({
               This device
             </StatusPill>
           ) : null}
-          {device.hasPin ? (
+          {showPin && device.hasPin ? (
             <StatusPill tone="green" compact>
               PIN on
             </StatusPill>
@@ -109,7 +111,7 @@ function DeviceRow({
           <span title={formatShop(device.createdAt, 'MMM D, YYYY h:mm A')}>
             First signed in {formatShop(device.createdAt, 'MMM D, YYYY')}
           </span>
-          {device.hasPin ? null : <span>PIN off</span>}
+          {showPin && !device.hasPin ? <span>PIN off</span> : null}
           <span className="sec-device__id" title="Device ID (stored in that browser)">
             ID {device.deviceId.slice(-4).toUpperCase()}
           </span>
@@ -199,7 +201,11 @@ export default function AccountSecurityPage() {
     try {
       await authApi.changePassword(values.currentPassword, values.newPassword);
       localStorage.removeItem('bmsc_has_pin');
-      message.success('Password updated. Your other devices were signed out and PIN unlock is off.');
+      message.success(
+        isWorker
+          ? 'Password updated. Your other devices were signed out and PIN unlock is off.'
+          : 'Password updated. Your other devices were signed out.',
+      );
       passwordForm.resetFields();
       load();
     } catch (err) {
@@ -209,8 +215,9 @@ export default function AccountSecurityPage() {
     }
   };
 
-  const signOutNote =
-    'It is signed out right away and its PIN unlock is turned off. Signing in there again needs the password.';
+  const signOutNote = isWorker
+    ? 'It is signed out right away and its PIN unlock is turned off. Signing in there again needs the password.'
+    : 'It is signed out right away. Signing in there again needs the password.';
 
   const signOutOne = (row: UserDevice) => {
     modal.confirm({
@@ -234,7 +241,7 @@ export default function AccountSecurityPage() {
   const signOutOthers = () => {
     modal.confirm({
       title: `Sign out ${others.length} other device${others.length === 1 ? '' : 's'}?`,
-      content: `Each one is signed out right away and its PIN unlock is turned off. This ${deviceWord} stays signed in.`,
+      content: `Each one is signed out right away${isWorker ? ' and its PIN unlock is turned off' : ''}. This ${deviceWord} stays signed in.`,
       okText: 'Sign out others',
       okButtonProps: { danger: true },
       centered: true,
@@ -337,7 +344,9 @@ export default function AccountSecurityPage() {
         </Form.Item>
         <p className="sec-note">
           <InfoCircleOutlined aria-hidden />
-          Changing your password signs out your other devices and turns off PIN unlock on all of them.
+          {isWorker
+            ? 'Changing your password signs out your other devices and turns off PIN unlock on all of them.'
+            : 'Changing your password signs out your other devices.'}
         </p>
         <Button type="primary" htmlType="submit" size="large" loading={passwordSaving} className="sec-btn">
           Update password
@@ -441,7 +450,7 @@ export default function AccountSecurityPage() {
         <>
           {thisDevice ? (
             <ul className="sec-devices">
-              <DeviceRow device={thisDevice} current />
+              <DeviceRow device={thisDevice} current showPin={isWorker} />
             </ul>
           ) : null}
           <div className="sec-devices__label">
@@ -453,7 +462,7 @@ export default function AccountSecurityPage() {
           ) : (
             <ul className="sec-devices">
               {visibleOthers.map((d) => (
-                <DeviceRow key={d.id} device={d} current={false} onSignOut={() => signOutOne(d)} />
+                <DeviceRow key={d.id} device={d} current={false} showPin={isWorker} onSignOut={() => signOutOne(d)} />
               ))}
             </ul>
           )}
@@ -500,18 +509,15 @@ export default function AccountSecurityPage() {
               <div className="sec-who__sub">Signed in on this device</div>
             </div>
             <div className="sec-who__chips">
-              <StatusPill tone={pinOn ? 'green' : 'slate'} compact>
-                PIN {pinOn ? 'on' : 'off'}
-              </StatusPill>
               <StatusPill tone="blue" compact>
-                {loading ? 'â€¦' : others.length + (thisDevice ? 1 : 0)} device
+                {loading ? '…' : others.length + (thisDevice ? 1 : 0)} device
                 {others.length + (thisDevice ? 1 : 0) === 1 ? '' : 's'}
               </StatusPill>
             </div>
           </div>
         )}
         <div className="sec__grid">
-          <div className="sec__col">{isWorker ? [pinCard, passwordCard] : [passwordCard, pinCard]}</div>
+          <div className="sec__col">{isWorker ? [pinCard, passwordCard] : [passwordCard]}</div>
           <div className="sec__col">{devicesCard}</div>
         </div>
       </div>

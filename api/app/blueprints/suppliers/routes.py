@@ -52,7 +52,7 @@ def get_supplier(supplier_id):
 
 @suppliers_bp.route("", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def create_supplier():
     data = request.get_json() or {}
     s = svc.create_supplier(data)
@@ -61,7 +61,7 @@ def create_supplier():
 
 @suppliers_bp.route("/<supplier_id>", methods=["PATCH"])
 @jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
 def update_supplier(supplier_id):
     data = request.get_json() or {}
     s = svc.update_supplier(supplier_id, data)

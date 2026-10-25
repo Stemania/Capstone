@@ -1,4 +1,4 @@
-"""Admin is view-only on Clients, Suppliers, Supplier Orders and Inventory.
+"""Admin is view-only on Supplier Orders and Inventory, and may add and edit Clients and Suppliers.
 
 The Admin can open every screen (lists, details, exports, printouts, QR codes)
 but every change is refused on the server; Office Staff keep full access.
@@ -21,10 +21,6 @@ from tests.test_material_delay import _draft_order, _headers, _issue, _job, _loc
 X = "00000000-0000-0000-0000-000000000000"
 
 ADMIN_REFUSED = [
-    ("POST", "/api/v1/clients"),
-    ("PATCH", f"/api/v1/clients/{X}"),
-    ("POST", "/api/v1/suppliers"),
-    ("PATCH", f"/api/v1/suppliers/{X}"),
     ("POST", "/api/v1/supplier-orders/draft-lines"),
     ("PATCH", f"/api/v1/supplier-orders/{X}"),
     ("PATCH", f"/api/v1/supplier-orders/{X}/expected-delivery"),
@@ -76,15 +72,6 @@ def test_admin_refusal_changes_nothing(client, shop):
     consumable, tool_type, unit = _inventory(shop)
     h = _headers(shop["admin"])
 
-    assert client.post("/api/v1/clients", json={"name": "Nope"}, headers=h).status_code == 403
-    assert (
-        client.patch(f"/api/v1/clients/{shop['client'].id}", json={"name": "Renamed"}, headers=h).status_code
-        == 403
-    )
-    assert (
-        client.post("/api/v1/suppliers", json={"name": "Nope", "typicalLeadTimeDays": 1}, headers=h).status_code
-        == 403
-    )
     assert (
         client.post(f"/api/v1/tools/{consumable.id}/adjust", json={"quantity": -5, "reason": "x"}, headers=h).status_code
         == 403
@@ -95,9 +82,6 @@ def test_admin_refusal_changes_nothing(client, shop):
     )
 
     db.session.expire_all()
-    assert Client.query.count() == 1
-    assert db.session.get(Client, shop["client"].id).name == "Delay Client"
-    assert Supplier.query.count() == 2
     assert db.session.get(Tool, consumable.id).quantity_on_hand == Decimal("10")
     assert db.session.get(ToolUnit, unit.id).status.value == "AVAILABLE"
 
@@ -232,3 +216,25 @@ def test_stocktake_endpoints_removed(client, shop):
     assert client.get("/api/v1/inventory/stocktakes/form", headers=h).status_code == 404
     assert client.post("/api/v1/inventory/stocktakes", json={"lines": []}, headers=h).status_code == 404
 
+
+
+def test_admin_adds_and_edits_clients_and_suppliers(client, shop):
+    """Client and supplier records: Admin has the same access as Office Staff."""
+    h = _headers(shop["admin"])
+    res = client.post("/api/v1/clients", json={"name": "Admin Client"}, headers=h)
+    assert res.status_code == 201, res.get_json()
+    res = client.patch(f"/api/v1/clients/{res.get_json()['id']}", json={"name": "Renamed"}, headers=h)
+    assert res.status_code == 200, res.get_json()
+    res = client.post("/api/v1/suppliers", json={"name": "Admin Steel", "typicalLeadTimeDays": 2}, headers=h)
+    assert res.status_code == 201, res.get_json()
+    res = client.patch(f"/api/v1/suppliers/{res.get_json()['id']}", json={"phone": "0917"}, headers=h)
+    assert res.status_code == 200, res.get_json()
+
+
+def test_admin_cannot_encode_job_orders(client, shop):
+    res = client.post(
+        "/api/v1/job-orders",
+        json={"clientId": shop["client"].id, "title": "Nope", "dueDate": "2031-01-10"},
+        headers=_headers(shop["admin"]),
+    )
+    assert res.status_code == 403

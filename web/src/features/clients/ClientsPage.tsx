@@ -25,7 +25,7 @@ function notifyLabel(r: Client) {
 
 export default function ClientsPage() {
   const navigate = useNavigate();
-  const { canOfficeWrite: canEdit } = useAuth();
+  const { canManageContacts: canEdit } = useAuth();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
