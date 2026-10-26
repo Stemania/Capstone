@@ -658,7 +658,10 @@ def _receive_consumable(p: MaterialPurchase, when: date, actor_id: str):
     with the RECEIVE event linked to the line (and so to its PO)."""
     from app.models.tool_event import ToolEvent, ToolEventType
 
-    tool = p.tool
+    from app.models.tool import Tool
+    from app.utils.row_locks import lock_row
+
+    tool = lock_row(Tool, p.tool_id)
     qty = Decimal(str(p.quantity))
     tool.quantity_on_hand = Decimal(str(tool.quantity_on_hand or 0)) + qty
     # Prefer latest received PO unit price for ABC; tools.unit_cost is fallback only.

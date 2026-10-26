@@ -636,6 +636,10 @@ def expected_delivery_history(order: SupplierOrder) -> list[dict]:
 def receive_order(order: SupplierOrder, received_date=None, *, actor_id=None):
     """Deliveries arrive complete: receive every open line on one date. Also
     completes an order partly received before this rule."""
+    from app.utils.row_locks import lock_row
+
+    # Two clicks or two people receiving at once: the second waits, then sees it received.
+    order = lock_row(SupplierOrder, order.id)
     if order.status == SupplierOrderStatus.RECEIVED:
         raise AppError(
             "Every line on this order is already received.", "ALREADY_RECEIVED", 409

@@ -551,3 +551,24 @@ def test_pin_unlock_is_for_production_workers_only(client, app):
     _db.session.commit()
     res = client.post("/api/v1/auth/pin/unlock", json={"deviceId": "dev-office-1", "pin": "482916"})
     assert res.status_code == 401
+
+
+def test_role_change_or_disable_signs_the_user_out(client):
+    from app.services.auth_service import update_user
+
+    _admin()
+    for i, payload in enumerate(({"role": UserRole.OFFICE_STAFF}, {"status": "DISABLED"})):
+        user = _active_user(f"signout{i}@test.local", f"+63917000009{i}")
+        register_device_after_password_login(user, f"dev-{i}", "Test phone")
+        update_user(user, payload)
+        devices = UserDevice.query.filter_by(user_id=user.id).all()
+        assert devices and all(d.revoked_at is not None for d in devices), payload
+
+
+def test_oversized_request_is_refused(client):
+    big = b"x" * (5 * 1024 * 1024)
+    res = client.post(
+        "/api/v1/auth/login", data=big, headers={"Content-Type": "application/json"}
+    )
+    assert res.status_code == 413
+    assert res.get_json()["error"]["code"] == "PAYLOAD_TOO_LARGE"

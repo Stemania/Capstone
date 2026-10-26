@@ -129,10 +129,9 @@ def submit_stocktake(counted_by_id, lines_data, counted_on=None, notes=None):
             raise AppError("countedQuantity cannot be negative", "VALIDATION_ERROR", 400)
         by_id[tool_id] = qty
 
-    tools = Tool.query.filter(
-        Tool.id.in_(list(by_id.keys())),
-        Tool.category == ToolCategory.CONSUMABLE,
-    ).all()
+    from app.utils.row_locks import lock_rows
+
+    tools = [t for t in lock_rows(Tool, by_id.keys()) if t.category == ToolCategory.CONSUMABLE]
     if len(tools) != len(by_id):
         raise AppError(
             "All lines must be consumable inventory items",

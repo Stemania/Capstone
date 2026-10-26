@@ -47,6 +47,13 @@ def register_error_handlers(app):
             404,
         )
 
+    @app.errorhandler(413)
+    def handle_too_large(error):
+        return (
+            jsonify({"error": {"code": "PAYLOAD_TOO_LARGE", "message": "The request is too large."}}),
+            413,
+        )
+
     @app.errorhandler(500)
     def handle_internal(error):
         return (

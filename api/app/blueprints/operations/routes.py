@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 
+from app.utils.row_locks import lock_row
 from app.middleware.rbac import get_current_user_id, get_current_user_role, require_roles
 from app.models.operation import JobOperation
 from app.models.operation_time import MachineDowntime
@@ -48,7 +49,9 @@ def _worker_action(operation_id, action, apply):
     action returns the operation as it is now instead of recording again.
     ``apply`` also gets the time the server received the action."""
     received_at = datetime.now(timezone.utc)
-    operation = JobOperation.query.get(operation_id)
+    # Two crew members acting on one operation at once: the second waits, then
+    # sees the first one's change (e.g. already completed).
+    operation = lock_row(JobOperation, operation_id)
     if not operation:
         raise AppError("Operation not found", "NOT_FOUND", 404)
     data = request.get_json() or {}

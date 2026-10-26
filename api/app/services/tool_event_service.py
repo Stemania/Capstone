@@ -14,6 +14,7 @@ from app.models.tool import Tool, ToolCategory
 from app.models.tool_event import ToolEvent, ToolEventType
 from app.models.tool_type import ToolUnit, ToolUnitStatus
 from app.utils.errors import AppError
+from app.utils.row_locks import lock_row
 
 
 def _dec(v, default="0") -> Decimal:
@@ -173,6 +174,8 @@ def scan_tool(code, worker_id, intent=None, quantity=None):
                 400,
             )
         raise AppError("Tool unit not found", "NOT_FOUND", 404)
+    # Two workers scanning the same unit: the second waits, then sees it is out.
+    unit = lock_row(ToolUnit, unit.id)
 
     if unit.status == ToolUnitStatus.RETIRED:
         raise AppError("This tool is retired", "CONFLICT", 409)
@@ -241,7 +244,7 @@ def scan_tool(code, worker_id, intent=None, quantity=None):
 
 def adjust_stock(tool_id, worker_id, quantity_delta, reason):
     """Admin/Office stock correction for consumables (not deliveries)."""
-    tool = Tool.query.get(tool_id)
+    tool = lock_row(Tool, tool_id)
     if not tool:
         raise AppError("Item not found", "NOT_FOUND", 404)
     if tool.category != ToolCategory.CONSUMABLE:
@@ -280,7 +283,7 @@ def adjust_stock(tool_id, worker_id, quantity_delta, reason):
 
 def correct_stock(tool_id, worker_id, actual_count, reason):
     """Office stock correction: set on-hand to an actual count with a required reason."""
-    tool = Tool.query.get(tool_id)
+    tool = lock_row(Tool, tool_id)
     if not tool:
         raise AppError("Item not found", "NOT_FOUND", 404)
     if tool.category != ToolCategory.CONSUMABLE:
@@ -321,7 +324,7 @@ def receive_stock(tool_id, worker_id, quantity, supplier, received_on=None, note
 
     from app.services.schedule_calendar import shop_now
 
-    tool = Tool.query.get(tool_id)
+    tool = lock_row(Tool, tool_id)
     if not tool:
         raise AppError("Item not found", "NOT_FOUND", 404)
     if tool.category != ToolCategory.CONSUMABLE:

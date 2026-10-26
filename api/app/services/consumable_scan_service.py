@@ -11,6 +11,7 @@ from app.models.tool import Tool, ToolCategory
 from app.models.tool_event import ToolEvent, ToolEventType
 from app.models.tool_type import ToolUnit
 from app.utils.errors import AppError
+from app.utils.row_locks import lock_row
 
 SCAN_DEBOUNCE_SECONDS = 10
 UNDO_WINDOW_MINUTES = 5
@@ -95,6 +96,8 @@ def scan_consumable(
     """Deduct one unit. Debounce: same worker+item within 10s needs confirm_repeat."""
     if tool.category != ToolCategory.CONSUMABLE:
         raise AppError("Only consumables can be scanned for usage", "VALIDATION_ERROR", 400)
+    # Simultaneous scans of one item: each waits its turn so no deduction is lost.
+    tool = lock_row(Tool, tool.id)
 
     if client_action_id:
         existing = ToolEvent.query.filter_by(client_action_id=client_action_id).first()
@@ -133,7 +136,7 @@ def scan_consumable(
 
 
 def undo_consumable_scan(event_id: str, worker_id: str) -> dict:
-    event = ToolEvent.query.get(event_id)
+    event = lock_row(ToolEvent, event_id)
     if not event or event.type != ToolEventType.SCAN:
         raise AppError("Scan not found", "NOT_FOUND", 404)
     if event.worker_id != worker_id:
@@ -149,7 +152,7 @@ def undo_consumable_scan(event_id: str, worker_id: str) -> dict:
             "UNDO_EXPIRED",
             409,
         )
-    tool = event.tool
+    tool = lock_row(Tool, event.tool_id)
     if not tool:
         raise AppError("Item not found", "NOT_FOUND", 404)
 

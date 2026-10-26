@@ -43,6 +43,8 @@ class Config:
         os.getenv("DATABASE_URL", "postgresql+psycopg://bmsc:bmsc_dev@localhost:5432/bmsc")
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # Largest request body accepted (the biggest is a 2 MB profile photo).
+    MAX_CONTENT_LENGTH = 4 * 1024 * 1024
     # Neon closes idle connections (and suspends the database); without these a
     # request or background check can wait forever on a dead connection.
     SQLALCHEMY_ENGINE_OPTIONS = {

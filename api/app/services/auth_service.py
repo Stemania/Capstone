@@ -136,7 +136,8 @@ def update_user(user, data):
         ensure_worker_profile(user)
 
     db.session.commit()
-    if role_changed:
+    # A new role, or an account switched off, ends every signed-in session at once.
+    if role_changed or user.status == UserStatus.DISABLED:
         revoke_all_devices_for_user(user.id)
     return user
 

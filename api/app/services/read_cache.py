@@ -57,11 +57,21 @@ def get(key):
         return hit[2]
 
 
+MAX_ENTRIES = 200
+
+
 def put(key, value, ttl=30):
     if not _enabled():
         return
+    now = time.monotonic()
     with _lock:
-        _store[key] = (_generation, time.monotonic() + ttl, value)
+        # Drop expired entries so many different date ranges cannot pile up
+        # between writes; past the cap, drop the oldest.
+        for k in [k for k, (_g, exp, _v) in _store.items() if exp < now]:
+            del _store[k]
+        while len(_store) >= MAX_ENTRIES:
+            del _store[next(iter(_store))]
+        _store[key] = (_generation, now + ttl, value)
 
 
 def invalidate():
