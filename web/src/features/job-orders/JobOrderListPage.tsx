@@ -485,7 +485,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
         onClick: () => navigate(`/job-orders/${record.id}`),
       },
     ];
-    items.push({
+    if (record.status !== 'CANCELLED') items.push({
       key: 'print',
       icon: <PrinterOutlined />,
       label: 'Print',

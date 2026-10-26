@@ -260,7 +260,7 @@ export default function JobInfoCard({ job, finish }: { job: JobOrder; finish?: P
             <InboxOutlined /> Materials
           </div>
           {job.materialStatus === 'NOT_REQUIRED' ? (
-            <p className="jo-brief__empty">None to buy: client-supplied or from stock.</p>
+            <p className="jo-brief__empty">Not required.</p>
           ) : rows.length ? (
             <ul className="jo-brief__mats">
               {rows.map((r) => (

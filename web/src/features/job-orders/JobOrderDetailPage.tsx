@@ -76,6 +76,7 @@ import RescheduleModal, {
   rescheduleReasonLabel,
 } from './RescheduleModal';
 import CancelJobModal, { cancelReasonLabel } from './CancelJobModal';
+import { jobOrderPrintBlockers } from '../reports/jobOrderPrintReadiness';
 
 const RESCHEDULE_REASON_CODES = new Set(
   RESCHEDULE_REASON_OPTIONS.map((o) => o.value as string)
@@ -649,6 +650,7 @@ function JobOrderDetailView() {
     job.status !== 'DRAFT' &&
     dayjs(job.dueDate).isBefore(shopToday(), 'day');
   const isDraft = job.status === 'DRAFT';
+  const printBlockers = jobOrderPrintBlockers(job);
   const isInvoicedOrDelivered = Boolean(job.salesInvoice) || job.status === 'DELIVERED';
   const materialRows = canManage
     ? rowsFromPurchases(purchases)
@@ -794,14 +796,28 @@ function JobOrderDetailView() {
               Locked after release
             </span>
           )}
-          <Button
-            icon={<PrinterOutlined />}
-            onClick={() =>
-              navigate(`/job-orders/${job.id}/print`, { state: { from: location.pathname + location.search } })
+          <Tooltip
+            title={
+              printBlockers.length ? (
+                <div>
+                  <div style={{ fontWeight: 600 }}>Can't print yet</div>
+                  {printBlockers.map((b) => (
+                    <div key={b}>{b}</div>
+                  ))}
+                </div>
+              ) : null
             }
           >
-            Print
-          </Button>
+            <Button
+              icon={<PrinterOutlined />}
+              disabled={printBlockers.length > 0}
+              onClick={() =>
+                navigate(`/job-orders/${job.id}/print`, { state: { from: location.pathname + location.search } })
+              }
+            >
+              Print
+            </Button>
+          </Tooltip>
           {canManage && job.salesInvoice && (
             <Button icon={<FileTextOutlined />} onClick={() => setInvoiceMode('view')}>
               Sales invoice {job.salesInvoice.invoiceNumber}
@@ -1023,7 +1039,7 @@ function JobOrderDetailView() {
               Materials needed:{' '}
               <strong style={{ color: NAVY }}>
                 {job.materialStatus === 'NOT_REQUIRED'
-                  ? 'Not required (client-supplied or from stock)'
+                  ? 'Not required'
                   : 'To order'}
               </strong>
             </div>

@@ -1,0 +1,33 @@
+/* Job order print: the floor copy. */
+.jo-print-blocked {
+  margin-bottom: 16px;
+}
+
+.jo-print-blocked ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+/* Not printable yet: show why, keep the page from looking like a finished JO. */
+.jo-print-hidden {
+  opacity: 0.35;
+  pointer-events: none;
+  user-select: none;
+}
+
+.jo-print-sub {
+  font-size: 8.5pt;
+  color: #333;
+}
+
+.jo-print-stamp {
+  margin-top: 0.25in;
+  font-size: 8pt;
+  color: #555;
+}
+
+@media print {
+  .jo-print-hidden {
+    display: none;
+  }
+}
