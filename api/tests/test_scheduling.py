@@ -74,6 +74,11 @@ def schedule_patches(monkeypatch):
         lambda: _lathe_units(lathe_id),
     )
     monkeypatch.setattr("app.services.schedule_service._open_downtimes", lambda: {})
+    # A late job looks for faster worker/unit pairs; the stubbed shop has none.
+    monkeypatch.setattr(
+        "app.services.schedule_service._alternative_pairs",
+        lambda op, units_by_type: [],
+    )
     return {"lathe_id": lathe_id, "schedule_by_dow": schedule_by_dow}
 
 
