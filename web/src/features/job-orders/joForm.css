@@ -198,3 +198,32 @@
 }
 
 
+
+/* Date-required gate: pairs that cannot finish in time. */
+.jo-ops .jo-op__pick.is-late {
+  background: var(--c-surface-muted);
+  border-style: dashed;
+}
+
+.jo-ops .jo-op__pick.is-late .jo-op__pick-name {
+  color: var(--c-text-muted);
+}
+
+.jo-ops .jo-op__pick-late {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tone-red-fg);
+}
+
+.jo-op__date-note {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--tone-red-fg);
+}
+
+.jo-op__date-note .anticon {
+  margin-top: 2px;
+}

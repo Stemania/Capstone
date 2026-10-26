@@ -15,6 +15,7 @@ import type {
   ScoringWeights,
   SuggestionMode,
   User,
+  SuggestionDateGate,
   WorkerSuggestion,
 } from '../types';
 
@@ -169,9 +170,17 @@ export const workersApi = {
       /** Machine leads as every (worker, unit) pair they could use, with next-free times. */
       pairs?: boolean;
       estimatedHours?: number | null;
+      /** Target hours of the steps before and after this one (date-required gate). */
+      hoursBefore?: number;
+      hoursAfter?: number;
     }
   ) =>
-    apiClient.post<{ suggestions: WorkerSuggestion[]; weights: ScoringWeights; mode?: SuggestionMode }>(
+    apiClient.post<{
+      suggestions: WorkerSuggestion[];
+      weights: ScoringWeights;
+      mode?: SuggestionMode;
+      dateGate?: SuggestionDateGate;
+    }>(
       '/workers/suggest',
       {
         operations,

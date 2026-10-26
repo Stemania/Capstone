@@ -47,6 +47,7 @@ import type {
   ScheduleProblem,
   ScheduleProposeResult,
   ScoringWeights,
+  SuggestionDateGate,
   User,
   WorkerSuggestion,
 } from '../../types';
@@ -190,9 +191,10 @@ function pickBestWorker(
   suggestions: WorkerSuggestion[],
   qualifiedWorkers?: User[],
 ): { workerId?: string; machineUnitId?: string } {
-  const fromSuggestion = suggestions.find(
-    (s) => s.qualified !== false && s.available !== false,
-  );
+  // Rows that can finish in time for the date required come first; when none
+  // can, the closest finish (the server lists it first).
+  const usable = suggestions.filter((s) => s.qualified !== false && s.available !== false);
+  const fromSuggestion = usable.find((s) => s.meetsDate !== false) ?? usable[0];
   if (fromSuggestion) {
     return {
       workerId: fromSuggestion.workerId,
@@ -236,6 +238,7 @@ export default function JobOrderPlanningPage() {
   const [operationTypes, setOperationTypes] = useState<OperationType[]>([]);
   const [rowSuggestions, setRowSuggestions] = useState<Record<number, WorkerSuggestion[]>>({});
   const [rowWeights, setRowWeights] = useState<Record<number, ScoringWeights>>({});
+  const [rowGates, setRowGates] = useState<Record<number, SuggestionDateGate | undefined>>({});
   const [helperSuggestions, setHelperSuggestions] = useState<Record<string, WorkerSuggestion[]>>({});
   const [allWorkers, setAllWorkers] = useState<User[]>([]);
   const [machineUnits, setMachineUnits] = useState<MachineUnitInfo[]>([]);
@@ -419,6 +422,12 @@ export default function JobOrderPlanningPage() {
       return;
     }
     try {
+      // Target hours of the other steps, so the date-required gate leaves
+      // room for them (outsourced steps count by their turnaround elsewhere).
+      const hoursOf = (rows: OpFormRow[]) =>
+        rows
+          .filter((r) => !isOutsourcedType(operationTypes.find((t) => t.id === r.operationTypeId)))
+          .reduce((sum, r) => sum + (Number(r.estimatedHours) || 0), 0);
       const { data } = await workersApi.suggest([], {
         excludeJobId: id,
         excludeOperationId: op.id,
@@ -427,10 +436,13 @@ export default function JobOrderPlanningPage() {
         operationName: op.operationName,
         pairs: Boolean(op.machineTypeId),
         estimatedHours: op.estimatedHours,
+        hoursBefore: hoursOf(operations.slice(0, rowIndex)),
+        hoursAfter: hoursOf(operations.slice(rowIndex + 1)),
       });
       if (suggestionFetchSeq.current[rowIndex] !== seq) return;
       const suggestions = data.suggestions || [];
       setRowSuggestions((prev) => ({ ...prev, [rowIndex]: suggestions }));
+      setRowGates((prev) => ({ ...prev, [rowIndex]: data.dateGate }));
       if (data.weights) setRowWeights((prev) => ({ ...prev, [rowIndex]: data.weights }));
       rowDataRef.current[rowIndex] = {
         workers: rowDataRef.current[rowIndex]?.workers || [],
@@ -661,6 +673,7 @@ export default function JobOrderPlanningPage() {
     setRowWorkers((prev) => remap(prev));
     setRowSuggestions((prev) => remap(prev));
     setRowWeights((prev) => remap(prev));
+    setRowGates((prev) => remap(prev));
     rowDataRef.current = remap(rowDataRef.current);
   };
 
@@ -1156,6 +1169,7 @@ export default function JobOrderPlanningPage() {
     const setHelpers = (next: string[]) => patchRow(index, { helperIds: next });
     const canAddHelper = !readOnly && Boolean(record.assignedWorkerId) && helpers.length < MAX_HELPERS;
     const suggestions = rowSuggestions[index] || [];
+    const gate = rowGates[index];
     const applyPair = (workerId?: string, unitId?: string) => {
       const resolvedUnit = record.machineTypeId
         ? record.machineUnitId ||
@@ -1178,12 +1192,17 @@ export default function JobOrderPlanningPage() {
           );
           const fromSuggestions = ranked
             .filter((s) => !seen.has(s.workerId) && seen.add(s.workerId))
-            .map((s) => ({
-              value: pairKey(s.workerId, unitId),
-              search: personLabel(s.fullName, s.nickname),
-              label: personLabel(s.fullName, s.nickname),
-              disabled: s.qualified === false,
-            }));
+            .map((s) => {
+              const late = s.meetsDate === false && gate?.anyMeetsDate;
+              return {
+                value: pairKey(s.workerId, unitId),
+                search: personLabel(s.fullName, s.nickname),
+                label: late
+                  ? `${personLabel(s.fullName, s.nickname)} · not free in time`
+                  : personLabel(s.fullName, s.nickname),
+                disabled: s.qualified === false || Boolean(late),
+              };
+            });
           const extras = qualifiedWorkers
             .filter((w) => !seen.has(w.id))
             .map((w) => ({
@@ -1202,6 +1221,19 @@ export default function JobOrderPlanningPage() {
     const leadValue = record.assignedWorkerId
       ? pairKey(record.assignedWorkerId, rowMachineId ? record.machineUnitId : undefined)
       : undefined;
+    const chosen = suggestions.find(
+      (sg) =>
+        sg.workerId === record.assignedWorkerId &&
+        (!record.machineUnitId || sg.machineUnitId === record.machineUnitId),
+    );
+    const dateNote =
+      gate?.applied && chosen?.meetsDate === false
+        ? gate.anyMeetsDate
+          ? `Can't finish this step in time for ${job?.dueDate ? formatShop(job.dueDate, 'MMM D') : 'the date required'}`
+          : `No one can finish this step in time${
+              job?.dueDate ? ` for ${formatShop(job.dueDate, 'MMM D')}` : ''
+            }; closest finish ${chosen.nextFreeEnd ? formatShop(chosen.nextFreeEnd, 'MMM D, h:mm A') : '—'}`
+        : null;
     return (
       <div className="jo-op__crew">
         <div className="jo-op__crew-line">
@@ -1256,6 +1288,11 @@ export default function JobOrderPlanningPage() {
             )}
           </div>
         ))}
+        {dateNote ? (
+          <div className="jo-op__date-note">
+            <WarningOutlined /> {dateNote}
+          </div>
+        ) : null}
       </div>
     );
   };
@@ -1353,7 +1390,9 @@ export default function JobOrderPlanningPage() {
       <div>
         <div className="jo-op__more-head">
           <Text type="secondary" style={{ fontSize: 12 }}>
-            Best match auto-selected — click another to override
+            {rowGates[index]?.applied && rowGates[index]?.anyMeetsDate === false
+              ? 'No one can finish this step in time for the date required — closest finish first'
+              : 'Best match that can finish in time, auto-selected — click another to override'}
           </Text>
           <InfoTip title="How suggestions are ranked" content={RANKING_HELP} />
         </div>
@@ -1365,11 +1404,13 @@ export default function JobOrderPlanningPage() {
               s.workerId === assignedId &&
               (!row?.machineTypeId || !row.machineUnitId || s.machineUnitId === row.machineUnitId);
             const tip = scoreBreakdown(s, rowWeights[index]);
+            const late = s.meetsDate === false;
+            const blocked = late && Boolean(rowGates[index]?.anyMeetsDate);
             return (
               <Tooltip key={pairKey(s.workerId, s.machineUnitId)} title={tip || undefined}>
                 <button
                   type="button"
-                  disabled={!inDropdown || readOnly}
+                  disabled={!inDropdown || readOnly || blocked}
                   onClick={() => {
                     if (!inDropdown || readOnly) return;
                     patchRow(index, {
@@ -1378,7 +1419,7 @@ export default function JobOrderPlanningPage() {
                       helperIds: rowHelpers.filter((h) => h !== s.workerId),
                     });
                   }}
-                  className={`jo-op__pick${isAssigned ? ' is-picked' : ''}`}
+                  className={`jo-op__pick${isAssigned ? ' is-picked' : ''}${late ? ' is-late' : ''}`}
                 >
                   <span className="jo-op__pick-head">
                     {(isTop || isAssigned) && <StarFilled style={{ color: '#c9a227', fontSize: 12 }} />}
@@ -1393,7 +1434,11 @@ export default function JobOrderPlanningPage() {
                       {(s.score * 100).toFixed(0)}%
                     </Tag>
                   </span>
-                  {s.nextFreeStart ? (
+                  {late ? (
+                    <span className="jo-op__pick-late">
+                      Not free in time · done {s.nextFreeEnd ? formatShop(s.nextFreeEnd, 'MMM D') : 'later'}
+                    </span>
+                  ) : s.nextFreeStart ? (
                     <span className="jo-op__pick-free">
                       Next free {formatShop(s.nextFreeStart, 'MMM D, h:mm A')}
                     </span>

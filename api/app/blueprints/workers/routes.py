@@ -74,5 +74,7 @@ def suggest():
         exclude_worker_ids=data.get("excludeWorkerIds") or [],
         pairs=bool(data.get("pairs")),
         estimated_hours=data.get("estimatedHours"),
+        hours_before=data.get("hoursBefore"),
+        hours_after=data.get("hoursAfter"),
     )
     return jsonify(result)

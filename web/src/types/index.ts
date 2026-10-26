@@ -1079,6 +1079,17 @@ export interface WorkerSuggestion {
   /** Earliest moment this worker (and unit, when set) can take the target hours. */
   nextFreeStart?: string | null;
   nextFreeEnd?: string | null;
+  /** While planning: can this worker (and unit) do the step in time for the date required. */
+  meetsDate?: boolean;
+  /** Latest finish for this step that still leaves the later steps time before the date required. */
+  latestFinish?: string | null;
+}
+
+/** Date-required gate on suggestions while planning a job. */
+export interface SuggestionDateGate {
+  applied: boolean;
+  anyMeetsDate: boolean | null;
+  latestFinish: string | null;
 }
 
 export type ToolCategory = 'RETURNABLE_TOOL' | 'CONSUMABLE';

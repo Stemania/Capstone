@@ -282,3 +282,81 @@ def test_jobs_due_the_same_day_are_listed_by_po_date_then_created(client, shop):
     items = payload if isinstance(payload, list) else payload.get("items") or payload.get("jobOrders")
     ids = [j["id"] for j in items if j["id"] in {r.id for r in rows.values()}]
     assert ids == [rows[k].id for k in ("po_early_a", "po_early_b", "po_late", "no_po")]
+
+
+# --- Date-required gate for suggestions while planning ------------------------
+
+def _gate_suggest(client, shop, job, **extra):
+    body = {"machineTypeId": shop["lathe"].id, "pairs": True, "estimatedHours": 2,
+            "excludeJobId": job.id, **extra}
+    res = client.post("/api/v1/workers/suggest", json=body, headers=_headers(shop["admin"]))
+    assert res.status_code == 200, res.get_json()
+    return res.get_json()
+
+
+def _busy_days(shop, worker, unit, days, start_day=None):
+    first = start_day or shop_now().date()
+    for d in range(days):
+        day = first + timedelta(days=d)
+        _booked(shop, worker, unit, _at(day, 6), _at(day, 23))
+
+
+def _due(job, day):
+    job.due_date = day
+    db.session.commit()
+    return job
+
+
+def test_equal_scores_go_to_the_unit_free_sooner(client, shop):
+    nine = MachineUnit(machine_type_id=shop["lathe"].id, label="Lathe #9", active=True)
+    db.session.add(nine)
+    db.session.commit()
+    _busy_days(shop, shop["ana"], shop["open"], 5)  # Lathe #8 busy all week
+    job = _due(_job(shop), shop_now().date() + timedelta(days=30))
+    rows = _gate_suggest(client, shop, job)["suggestions"]
+    ben = [s["machineUnitLabel"] for s in rows if s["fullName"] == "Ben Cruz"]
+    assert ben[:2] == ["Lathe #9", "Lathe #8"]
+
+
+def test_a_busy_operator_stays_first_when_the_job_can_still_make_its_date(client, shop):
+    _busy_days(shop, shop["gio"], shop["gios"], 3)
+    job = _due(_job(shop), shop_now().date() + timedelta(days=30))
+    rows = _gate_suggest(client, shop, job)["suggestions"]
+    assert (rows[0]["fullName"], rows[0]["machineUnitLabel"]) == ("Gio Reyes", "Lathe #2")
+    assert rows[0]["meetsDate"] is True
+
+
+def test_a_pair_that_would_miss_the_date_is_ranked_out(client, shop):
+    _busy_days(shop, shop["gio"], shop["gios"], 6)
+    job = _due(_job(shop), shop_now().date() + timedelta(days=3))
+    body = _gate_suggest(client, shop, job)
+    rows = body["suggestions"]
+    assert body["dateGate"]["anyMeetsDate"] is True
+    assert rows[0]["fullName"] != "Gio Reyes" and rows[0]["meetsDate"] is True
+    gio = next(s for s in rows if s["fullName"] == "Gio Reyes" and s["machineUnitLabel"] == "Lathe #2")
+    assert gio["meetsDate"] is False
+    # Every row that meets the date comes before every row that does not.
+    flags = [s["meetsDate"] for s in rows]
+    assert flags == sorted(flags, reverse=True)
+
+
+def test_when_nobody_can_make_the_date_the_closest_finish_comes_first(client, shop):
+    for person, unit in ((shop["gio"], shop["gios"]), (shop["ana"], shop["open"])):
+        _busy_days(shop, person, unit, 6)
+    _busy_days(shop, shop["ben"], shop["gios"], 2, start_day=shop_now().date() + timedelta(days=8))
+    job = _due(_job(shop), shop_now().date() + timedelta(days=2))
+    body = _gate_suggest(client, shop, job)
+    rows = body["suggestions"]
+    assert body["dateGate"]["anyMeetsDate"] is False
+    ends = [s["nextFreeEnd"] for s in rows]
+    assert ends == sorted(ends)
+
+
+def test_later_steps_leave_room_before_the_date(client, shop):
+    """A step that fits on its own but leaves no time for the later steps
+    does not meet the date."""
+    job = _due(_job(shop), shop_now().date() + timedelta(days=1))
+    loose = _gate_suggest(client, shop, job)["suggestions"]
+    tight = _gate_suggest(client, shop, job, hoursAfter=40)["suggestions"]
+    assert any(s["meetsDate"] for s in loose)
+    assert not any(s["meetsDate"] for s in tight)

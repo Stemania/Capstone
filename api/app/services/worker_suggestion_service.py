@@ -1,7 +1,12 @@
 """Rank people for an operation's crew with fixed weights.
 
 Availability is a filter, not a weight: people booked in the window, off
-shift, or on a holiday are left out. Three kinds of suggestion:
+shift, or on a holiday are left out. While planning a job (no times yet),
+the filter is the job's date required: a worker (and unit) that cannot do
+this step in time for the job to finish by its date required is marked
+``meetsDate: false`` and ranked after every one that can; when nobody can,
+the closest finish comes first. Equal scores go to the one free sooner.
+Three kinds of suggestion:
 
   Machine operation, lead: each (worker, machine unit) pair scores
       0.40 x assigned operator of that unit (1 or 0)
@@ -281,6 +286,103 @@ def _attach_next_free(suggestions, hours, exclude_job_id, needs_unit):
         s["nextFreeEnd"] = end.isoformat() if end else None
 
 
+def _move_working_hours(start, hours, *, backward=False):
+    """``start`` moved by ``hours`` of shop working time (forward, or back)."""
+    from datetime import timedelta
+
+    from app.services.schedule_calendar import ensure_utc, shop_working_intervals
+
+    left = timedelta(hours=max(float(hours or 0), 0))
+    if left <= timedelta(0):
+        return start
+    start = ensure_utc(start)
+    span = timedelta(days=120)
+    if backward:
+        intervals = shop_working_intervals(start - span, start)
+        for a, b in reversed(intervals):
+            if b - a >= left:
+                return b - left
+            left -= b - a
+        return start - span
+    for a, b in shop_working_intervals(start, start + span):
+        if b - a >= left:
+            return a + left
+        left -= b - a
+    return start + span
+
+
+def job_step_window(job_id, hours_before=0, hours_after=0):
+    """(earliest start, latest finish) for one step of a job being planned:
+    after the material is in and the earlier steps' target hours, and early
+    enough to leave the later steps' target hours before the date required.
+    (None, None) when the job is unknown."""
+    from datetime import timezone
+
+    from app.models.job_order import JobOrder
+    from app.services import material_purchase_service as mp_service
+    from app.services.schedule_calendar import ensure_utc, shop_local_to_utc, shop_now
+    from app.services.schedule_service import resolve_material_not_before_utc
+    from datetime import time, timedelta
+
+    job = JobOrder.query.get(job_id) if job_id else None
+    if job is None or job.due_date is None:
+        return None, None
+    now = shop_now().astimezone(timezone.utc)
+    earliest = now
+    try:
+        ready_date, _reason = mp_service.scheduling_material_floor(job)
+        floor = resolve_material_not_before_utc(job.material_status, None, ready_date)
+        if floor is not None:
+            earliest = max(earliest, ensure_utc(floor))
+    except Exception:  # material date unknown: planning shows that separately
+        pass
+    earliest = _move_working_hours(earliest, hours_before)
+    due_end = shop_local_to_utc(job.due_date + timedelta(days=1), time(0, 0))
+    latest = _move_working_hours(due_end, hours_after, backward=True)
+    return earliest, latest
+
+
+def _apply_date_gate(suggestions, hours, exclude_job_id, needs_unit, hours_before, hours_after):
+    """Mark each row meetsDate (can do this step in time) and its earliest
+    start/finish from the step's earliest start. Rows that cannot are not
+    removed: they go after every row that can (closest finish first)."""
+    from app.services.schedule_service import next_free_for_pairs
+
+    earliest, latest = job_step_window(exclude_job_id, hours_before, hours_after)
+    if earliest is None:
+        return False
+    keys = [(s["workerId"], s.get("machineUnitId")) for s in suggestions]
+    usable = [k for k in keys if k[1] or not needs_unit]
+    free = (
+        next_free_for_pairs(usable, hours, exclude_job_id=exclude_job_id, anchor_utc=earliest)
+        if usable
+        else {}
+    )
+    for s, key in zip(suggestions, keys):
+        start, end = free.get(key, (None, None))
+        s["nextFreeStart"] = start.isoformat() if start else None
+        s["nextFreeEnd"] = end.isoformat() if end else None
+        s["meetsDate"] = bool(end and end <= latest)
+        s["latestFinish"] = latest.isoformat()
+    return True
+
+
+def _gate_sort_key(s):
+    """Rows that meet the date first (best score, then free sooner); then the
+    rest by how soon they could finish."""
+    far = "9999"
+    if s.get("meetsDate") is False:
+        return (1, s.get("nextFreeEnd") or far, -s["score"], s["fullName"], s.get("machineUnitLabel") or "")
+    return (
+        0,
+        -round(s["score"], 6),
+        s.get("nextFreeStart") or far,
+        -(s.get("proficiency") or 0),
+        s["fullName"],
+        s.get("machineUnitLabel") or "",
+    )
+
+
 def _weighted_suggestions(workers, weights, perf):
     out = []
     for w in workers:
@@ -309,6 +411,8 @@ def suggest_workers(
     exclude_worker_ids=None,
     pairs=False,
     estimated_hours=None,
+    hours_before=None,
+    hours_after=None,
 ):
     """Suggestions for the lead, or for helpers when ``lead_id`` is given.
 
@@ -371,14 +475,38 @@ def suggest_workers(
     for s in suggestions:
         s["attendanceWarning"] = NOT_CLOCKED_IN if s["workerId"] in missing else None
 
-    suggestions.sort(
-        key=lambda s: (
-            -s["score"],
-            -(s.get("proficiency") or 0),
-            s["fullName"],
-            s.get("machineUnitLabel") or "",
+    gated = False
+    if mode != MODE_HELPER and exclude_job_id and not scheduled_start:
+        # Planning a job: the date required is the availability gate.
+        gated = _apply_date_gate(
+            suggestions,
+            estimated_hours,
+            exclude_job_id,
+            machine is not None,
+            hours_before,
+            hours_after,
         )
-    )
-    if pairs:
-        _attach_next_free(suggestions, estimated_hours, exclude_job_id, machine is not None)
-    return {"mode": mode, "weights": dict(weights), "suggestions": suggestions}
+    if gated:
+        suggestions.sort(key=_gate_sort_key)
+    else:
+        suggestions.sort(
+            key=lambda s: (
+                -s["score"],
+                -(s.get("proficiency") or 0),
+                s["fullName"],
+                s.get("machineUnitLabel") or "",
+            )
+        )
+        if pairs:
+            _attach_next_free(suggestions, estimated_hours, exclude_job_id, machine is not None)
+    meeting = [s for s in suggestions if s.get("meetsDate") is not False]
+    return {
+        "mode": mode,
+        "weights": dict(weights),
+        "suggestions": suggestions,
+        "dateGate": {
+            "applied": gated,
+            "anyMeetsDate": bool(meeting) if gated else None,
+            "latestFinish": suggestions[0].get("latestFinish") if gated and suggestions else None,
+        },
+    }
