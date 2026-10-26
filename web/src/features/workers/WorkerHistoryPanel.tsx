@@ -65,6 +65,8 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
   const s = data.summary;
   const pct = (v: number | null | undefined) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v}%`);
   const ranged = Boolean(range[0] || range[1]);
+  const total = s.operationsTotal ?? data.operations.total;
+  const firstTime = s.operationsCompleted;
   const hoursRatio =
     s.enoughHistory && s.totalEstimatedHours && s.totalActualHours != null
       ? Math.min(s.totalActualHours / s.totalEstimatedHours, 2)
@@ -84,7 +86,7 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
         <div className="wh-head__text">
           <h3 className="wh-head__title">Work history</h3>
           <span className="wh-head__sub">
-            {s.operationsCompleted} operation{s.operationsCompleted === 1 ? '' : 's'} completed
+            {total} operation{total === 1 ? '' : 's'} completed
             {ranged ? ' in this range' : ''}
           </span>
         </div>
@@ -103,8 +105,10 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
       <section className="wh-score" aria-label="Summary">
         <div className="wh-score__item">
           <span className="wh-score__label">Completed</span>
-          <span className="wh-score__value">{s.operationsCompleted}</span>
-          <span className="wh-score__hint">operations</span>
+          <span className="wh-score__value">{total}</span>
+          <span className="wh-score__hint">
+            {s.reworkCount ? `${firstTime} first-time · ${s.reworkCount} redo` : 'operations'}
+          </span>
         </div>
         <div className="wh-score__item wh-score__item--wide">
           <span className="wh-score__label">Hours · target → actual</span>
@@ -139,7 +143,7 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
           <span className={`wh-score__value${varianceTone}`}>
             {s.enoughHistory ? pct(s.averageVariancePct) : '—'}
           </span>
-          <span className="wh-score__hint">time per operation</span>
+          <span className="wh-score__hint">first-time operations</span>
         </div>
         <div className="wh-score__item">
           <span className="wh-score__label">Close to target</span>

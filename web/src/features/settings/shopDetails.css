@@ -16,17 +16,17 @@
   align-items: start;
 }
 
-/* Save bar: always reachable at the top of the form. */
+/* Save bar at the foot of the form; it sticks to the bottom while scrolling. */
 .sd-bar {
   position: sticky;
-  top: 0;
+  bottom: 0;
   z-index: 5;
   display: flex;
   flex-wrap: wrap;
   gap: 8px 12px;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-top: 12px;
   padding: 10px 12px 10px 16px;
   background: var(--c-surface, #fff);
   border: 1px solid var(--c-border);
@@ -305,7 +305,6 @@
   }
 
   .sd-bar {
-    top: 0;
     border-radius: var(--r-md);
   }
 

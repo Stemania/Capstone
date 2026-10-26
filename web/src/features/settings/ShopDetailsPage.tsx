@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Alert, Button, Drawer, Form, Grid, Input, Segmented, Spin, message } from 'antd';
-import { EyeOutlined, SaveOutlined, SendOutlined } from '@ant-design/icons';
+import { EyeOutlined, SaveOutlined } from '@ant-design/icons';
 import { shopDetailsApi, type ShopDetails } from '../../api/shopDetails.api';
-import { notificationsApi } from '../../api/notifications.api';
 import { getErrorMessage } from '../../api/client';
-import type { NotificationLog } from '../../types';
 import { invalidateShopDetails } from '../../hooks/useShopDetails';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { usePageHeaderActions } from '../../layouts/pageHeaderActions';
@@ -218,41 +216,6 @@ export default function ShopDetailsPage() {
           requiredMark="optional"
           className="sd-form"
         >
-          <div className={`sd-bar${dirty ? ' is-dirty' : ''}`}>
-            <span className="sd-bar__status">
-              {dirty ? (
-                <>
-                  <span className="sd-bar__dot" aria-hidden /> Unsaved changes
-                </>
-              ) : updatedAt ? (
-                `Saved ${formatShop(updatedAt, 'MMM D, YYYY h:mm A')}`
-              ) : (
-                'Not saved yet'
-              )}
-            </span>
-            <div className="sd-bar__actions">
-              {isNarrow ? (
-                <Button icon={<EyeOutlined />} onClick={() => setDrawerOpen(true)}>
-                  Preview letterhead
-                </Button>
-              ) : null}
-              {dirty && baseline ? (
-                <Button type="text" onClick={() => form.setFieldsValue(baseline)}>
-                  Discard
-                </Button>
-              ) : null}
-              <Button
-                type="primary"
-                htmlType="submit"
-                icon={<SaveOutlined />}
-                loading={saving}
-                disabled={!dirty}
-              >
-                Save
-              </Button>
-            </div>
-          </div>
-
           <div className="sd-card">
             <Section title="Letterhead" hint="The name and line under it, at the top of every printed page.">
               <Form.Item
@@ -313,11 +276,41 @@ export default function ShopDetailsPage() {
               </div>
             </Section>
 
-            <Section title="Test email" hint="Send one message to check that shop emails are delivered.">
-              <div className="sd-test">
-                <TestEmailFields />
-              </div>
-            </Section>
+          </div>
+
+          <div className={`sd-bar${dirty ? ' is-dirty' : ''}`}>
+            <span className="sd-bar__status">
+              {dirty ? (
+                <>
+                  <span className="sd-bar__dot" aria-hidden /> Unsaved changes
+                </>
+              ) : updatedAt ? (
+                `Saved ${formatShop(updatedAt, 'MMM D, YYYY h:mm A')}`
+              ) : (
+                'Not saved yet'
+              )}
+            </span>
+            <div className="sd-bar__actions">
+              {isNarrow ? (
+                <Button icon={<EyeOutlined />} onClick={() => setDrawerOpen(true)}>
+                  Preview letterhead
+                </Button>
+              ) : null}
+              {dirty && baseline ? (
+                <Button type="text" onClick={() => form.setFieldsValue(baseline)}>
+                  Discard
+                </Button>
+              ) : null}
+              <Button
+                type="primary"
+                htmlType="submit"
+                icon={<SaveOutlined />}
+                loading={saving}
+                disabled={!dirty}
+              >
+                Save
+              </Button>
+            </div>
           </div>
         </Form>
 
@@ -348,48 +341,5 @@ export default function ShopDetailsPage() {
         </div>
       </Drawer>
     </div>
-  );
-}
-
-function TestEmailFields() {
-  const [to, setTo] = useState('');
-  const [sending, setSending] = useState(false);
-  const [result, setResult] = useState<NotificationLog | null>(null);
-
-  const send = async () => {
-    try {
-      setSending(true);
-      setResult(null);
-      const { data } = await notificationsApi.sendTest('email', to.trim());
-      setResult(data);
-      message.success(data.status === 'SENT' ? 'Test email sent' : 'Logged (check status)');
-    } catch (err) {
-      message.error(getErrorMessage(err));
-    } finally {
-      setSending(false);
-    }
-  };
-
-  return (
-    <>
-      <Input
-        value={to}
-        onChange={(e) => setTo(e.target.value)}
-        placeholder="you@example.com"
-        onPressEnter={send}
-        aria-label="Test email recipient"
-      />
-      <Button type="default" icon={<SendOutlined />} loading={sending} onClick={send}>
-        Send test
-      </Button>
-      {result ? (
-        <Alert
-          className="sd-test__result"
-          type={result.status === 'SENT' ? 'success' : 'warning'}
-          showIcon
-          title={`${result.status}${result.errorMessage ? `: ${result.errorMessage}` : ''}`}
-        />
-      ) : null}
-    </>
   );
 }

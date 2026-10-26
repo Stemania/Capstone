@@ -62,7 +62,6 @@ describe('ShopDetailsPage', () => {
     expect(screen.getByText('Letterhead')).toBeTruthy();
     expect(screen.getByText('Contact')).toBeTruthy();
     expect(screen.getByText('Approvers')).toBeTruthy();
-    expect(screen.getByText('Test email')).toBeTruthy();
   });
 
   it('updates letterhead preview when the shop name changes', async () => {

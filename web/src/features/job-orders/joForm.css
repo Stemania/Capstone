@@ -117,3 +117,84 @@
     display: none;
   }
 }
+
+/* Operations step: the Suggested toggle sits with the crew picker, and the
+   tools column holds only note, order and delete. */
+@media (min-width: 1181px) {
+  .jo-ops__head,
+  .jo-ops .jo-op__grid {
+    grid-template-columns:
+      minmax(130px, 0.9fr) minmax(150px, 1.05fr) minmax(250px, 1.6fr)
+      96px 150px;
+  }
+}
+
+.jo-op__crew-wrap {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.jo-op__crew-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.jo-op__more-btn--crew.ant-btn {
+  flex: none;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+}
+
+.jo-op__more-btn--crew.ant-btn .anticon-star {
+  color: #c9a227;
+}
+
+/* Suggestions: cards fill the row in even columns; one line of reason. */
+.jo-ops .jo-op__picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 8px;
+}
+
+.jo-ops .jo-op__pick {
+  min-width: 0;
+  max-width: none;
+  padding: 8px 10px;
+}
+
+.jo-ops .jo-op__pick-head {
+  width: 100%;
+  min-width: 0;
+}
+
+.jo-ops .jo-op__pick-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jo-ops .jo-op__pick-head .ant-tag {
+  margin-left: auto !important;
+}
+
+.jo-ops .jo-op__pick-free {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-text-2);
+}
+
+.jo-ops .jo-op__pick-reason {
+  display: -webkit-box;
+  width: 100%;
+  overflow: hidden;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+
+

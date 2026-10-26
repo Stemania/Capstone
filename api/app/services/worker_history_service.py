@@ -98,7 +98,12 @@ def worker_work_history(worker_id, *, from_s=None, to_s=None, page=1, per_page=2
 
     enough = op_count >= SUMMARY_MIN_OPS
     summary = {
+        # First-time operations with a target and hours: the base for the
+        # averages. Redos are left out of the averages and counted separately.
         "operationsCompleted": op_count,
+        # Every completed operation in the range (first-time and redo), the
+        # same count as the table below.
+        "operationsTotal": len(all_completed),
         "reworkCount": rework_count,
         "enoughHistory": enough,
         "minimumForAverages": SUMMARY_MIN_OPS,

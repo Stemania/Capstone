@@ -100,8 +100,28 @@
   line-height: 1.4;
 }
 
+/* Exception days: a soft tint and a matching 1px border, no side bar.
+   The chip says what kind of day it is. */
+.work-calendar-page .work-calendar__cell--overtime,
+.work-calendar-page .work-calendar__cell--special_working_day,
+.work-calendar-page .work-calendar__cell--holiday_no_work {
+  border-width: 1px;
+  border-style: solid;
+}
+
 .work-calendar-page .work-calendar__cell--overtime {
-  border-left: 3px solid #2563eb;
+  background: #f5f9ff;
+  border-color: #cfe0fd;
+}
+
+.work-calendar-page .work-calendar__cell--special_working_day {
+  background: #f3fcfa;
+  border-color: #c4ece4;
+}
+
+.work-calendar-page .work-calendar__cell--holiday_no_work {
+  background: #fff6f6;
+  border-color: #f6d4d4;
 }
 
 .work-calendar-page .work-calendar__event {
@@ -274,10 +294,6 @@
     align-items: center;
     padding: 5px 2px;
     gap: 3px;
-  }
-
-  .work-calendar-page .work-calendar__cell--overtime {
-    border-left-width: 1px;
   }
 
   .work-calendar-page .work-calendar__cell--today .work-calendar__day-num {

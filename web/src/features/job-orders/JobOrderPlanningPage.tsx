@@ -1480,31 +1480,36 @@ export default function JobOrderPlanningPage() {
               {renderMachineCell(record, index)}
             </div>
             <div className="jo-op__field jo-op__field--crew" data-label="Crew">
-              {renderCrewCell(record, index)}
+              <div className="jo-op__crew-wrap">
+                <div className="jo-op__crew-main">{renderCrewCell(record, index)}</div>
+              {hasMore ? (
+                <Tooltip title={outsourced ? undefined : open ? 'Hide suggestions' : 'Suggested workers'}>
+                  <Button
+                    type="text"
+                    size="small"
+                    className={`jo-op__more-btn jo-op__more-btn--crew${open ? ' is-on' : ''}`}
+                    aria-expanded={open}
+                    aria-label={outsourced ? 'About' : `Suggested workers (${count})`}
+                    onClick={toggle}
+                  >
+                    {outsourced ? (
+                      'About'
+                    ) : (
+                      <>
+                        <StarOutlined /> <span className="jo-op__count">{count}</span>
+                      </>
+                    )}
+                    {open ? <UpOutlined /> : <DownOutlined />}
+                  </Button>
+                </Tooltip>
+              ) : null}
+              </div>
             </div>
             <div className="jo-op__field jo-op__field--target" data-label={outsourced ? 'Turnaround' : 'Target'}>
               {renderTargetCell(record, index)}
             </div>
             <div className="jo-op__tools">
               {renderNoteButton(record, index)}
-              {hasMore ? (
-                <Button
-                  type="text"
-                  size="small"
-                  className={`jo-op__more-btn${open ? ' is-on' : ''}`}
-                  aria-expanded={open}
-                  onClick={toggle}
-                >
-                  {outsourced ? (
-                    'About'
-                  ) : (
-                    <>
-                      <StarOutlined /> Suggested <span className="jo-op__count">{count}</span>
-                    </>
-                  )}
-                  {open ? <UpOutlined /> : <DownOutlined />}
-                </Button>
-              ) : null}
               {!readOnly ? (
                 <span className="jo-op__order">
                   <Tooltip title={canMoveRow(index, -1) ? 'Move earlier' : undefined}>

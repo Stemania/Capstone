@@ -461,7 +461,7 @@ function AppLayoutShell() {
             {pageHeaderActions ? (
               <div className="app-topbar__page-actions">{pageHeaderActions}</div>
             ) : null}
-            {showBell && <NotificationBell className="app-topbar__icon-btn" />}
+            {showBell && <NotificationBell className="app-topbar__icon-btn app-topbar__bell" />}
             {accountChip}
           </div>
         </Header>

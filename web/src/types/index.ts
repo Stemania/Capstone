@@ -1941,6 +1941,8 @@ export interface AnalyticsPurchasing {
 
 export interface WorkerWorkHistorySummary {
   operationsCompleted: number;
+  /** Every completed operation in the range, redos included (same as the table). */
+  operationsTotal?: number;
   reworkCount: number;
   enoughHistory: boolean;
   minimumForAverages: number;

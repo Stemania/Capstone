@@ -374,3 +374,24 @@ def test_helper_suggestions_exclude_the_lead_and_need_no_skill(client, shop):
     names = {s["fullName"] for s in result["suggestions"]}
     assert "Ana Crew" not in names
     assert "Cara Crew" in names
+
+
+def test_history_counts_redos_in_the_total_but_not_the_averages(shop):
+    """The summary's total matches the table (redos included); the averages
+    use first-time operations only."""
+    ana = shop["ana"]
+    job = _job(shop)
+    finished = datetime.now(timezone.utc) - timedelta(days=1)
+    first = _op(job, 1, shop["types"]["LAYOUT"], lead=ana, status=OperationStatus.COMPLETED)
+    redo = _op(job, 2, shop["types"]["LAYOUT"], lead=ana, status=OperationStatus.COMPLETED)
+    for op in (first, redo):
+        op.actual_start = finished - timedelta(hours=2)
+        op.actual_end = finished
+        op.actual_worked_hours = Decimal("2")
+    redo.rework_of_operation_id = first.id
+    db.session.commit()
+
+    hist = worker_work_history(ana.id)
+    assert hist["summary"]["operationsTotal"] == 2 == hist["operations"]["total"]
+    assert hist["summary"]["operationsCompleted"] == 1
+    assert hist["summary"]["reworkCount"] == 1
