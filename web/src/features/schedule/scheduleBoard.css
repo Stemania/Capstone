@@ -52,6 +52,11 @@
   position: absolute;
   top: 6px;
   height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
   border: 1px solid #cbd5e1;
   border-radius: 999px;
   background: #fff;
@@ -61,8 +66,206 @@
   cursor: pointer;
   z-index: 2;
   overflow: hidden;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sched-month-chip:hover,
+.sched-month-chip:focus-visible {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  outline: none;
+}
+
+.sched-month-chip.is-open {
+  background: #eff6ff;
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.sched-month-chip__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.sched-month-chip__caret {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: #64748b;
+  transition: transform 0.2s ease, color 0.15s ease;
+}
+
+.sched-month-chip.is-open .sched-month-chip__caret {
+  transform: rotate(180deg);
+  color: #1d4ed8;
+}
+
+/* The day's operations, grouped by job order. */
+.sched-day-pop .ant-popover-inner,
+.sched-day-pop .ant-popover-container {
+  padding: 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.sched-day-list {
+  width: 340px;
+  max-width: calc(100vw - 32px);
+}
+
+.sched-day-list__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.sched-day-list__head span {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.sched-day-list__body {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.sched-day-job {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: #0f172a;
+  animation: sched-day-in 0.18s ease both;
+  transition: background-color 0.12s ease;
+}
+
+.sched-day-job + .sched-day-job {
+  margin-top: 2px;
+}
+
+.sched-day-job:hover,
+.sched-day-job:focus-visible {
+  background: #f1f5f9;
+  outline: none;
+}
+
+.sched-day-job__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sched-day-job__no {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sched-day-job__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sched-day-job__late {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sched-day-job__go {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #94a3b8;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.sched-day-job:hover .sched-day-job__go {
+  transform: translateX(2px);
+  color: #2563eb;
+}
+
+.sched-day-job__client {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.sched-day-job__ops {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-left: 2px;
+}
+
+.sched-day-op {
+  display: grid;
+  grid-template-columns: 8px 1fr;
+  column-gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.sched-day-op__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.sched-day-op__name {
+  font-weight: 600;
+  color: #334155;
+}
+
+.sched-day-op__meta {
+  grid-column: 2;
+  font-size: 11px;
+  color: #64748b;
+}
+
+@keyframes sched-day-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sched-day-job,
+  .sched-month-chip__caret {
+    animation: none;
+    transition: none;
+  }
 }
 
 /* Soften the board while a deferred view/row mode catches up. */

@@ -67,6 +67,7 @@ import { formatShopDateTime, SHOP_TZ } from '../../utils/shopTime';
 import ScheduleExpandShell from './ScheduleExpandShell';
 import WorkerPersonalSchedule from './WorkerPersonalSchedule';
 import ScheduleAgenda from './ScheduleAgenda';
+import MonthDayChip from './MonthDayChip';
 import { capacityLine } from './capacityText';
 import { MOBILE_SHELL_QUERY, TOUCH_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import { PersonAvatar, crewNames } from '../../components/PersonAvatar';
@@ -1316,33 +1317,16 @@ const BoardRows = memo(function BoardRows({
                 ? dayColumns.map((col) => {
                     const hits = monthHits.get(col.key);
                     if (!hits?.length) return null;
-                    const n = hits.length;
                     return (
-                      <Tooltip
+                      <MonthDayChip
                         key={col.key}
-                        title={
-                          <div>
-                            {hits.slice(0, 12).map((op) => (
-                              <div key={op.id}>
-                                {op.jobNumber || 'Job'} · {op.operationName}
-                              </div>
-                            ))}
-                            {hits.length > 12 ? <div>+{hits.length - 12} more</div> : null}
-                          </div>
-                        }
-                      >
-                        <button
-                          type="button"
-                          className="sched-month-chip"
-                          style={{ left: col.left + 2, width: Math.max(24, col.width - 4) }}
-                          onClick={() => {
-                            const first = hits[0];
-                            if (first) onOpenJob(first.jobOrderId);
-                          }}
-                        >
-                          {n} operation{n === 1 ? '' : 's'}
-                        </button>
-                      </Tooltip>
+                        dayKey={col.key}
+                        ops={hits}
+                        left={col.left}
+                        width={col.width}
+                        rowMode={rowMode}
+                        onOpenJob={onOpenJob}
+                      />
                     );
                   })
                 : bars.flatMap((bar) => {
