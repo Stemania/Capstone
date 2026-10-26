@@ -24,7 +24,7 @@ from app.utils.errors import AppError
 CENT = Decimal("0.01")
 MAX_NUMBER_LENGTH = 64
 
-RECORDABLE_STATUSES = (JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED)
+RECORDABLE_STATUSES = (JobOrderStatus.COMPLETED, JobOrderStatus.FOR_DELIVERY, JobOrderStatus.DELIVERED)
 
 
 def _invoice_number(value) -> str:
@@ -136,9 +136,13 @@ def correct_invoice(job: JobOrder, data: dict) -> SalesInvoice:
     invoice = job.sales_invoice
     if invoice is None:
         raise AppError("No sales invoice has been recorded for this job", "NOT_FOUND", 404)
-    if job.status == JobOrderStatus.DELIVERED or job.delivered_at:
+    if (
+        job.status in (JobOrderStatus.FOR_DELIVERY, JobOrderStatus.DELIVERED)
+        or job.for_delivery_at
+        or job.delivered_at
+    ):
         raise AppError(
-            "The job is For Delivery, so its sales invoice is locked.",
+            "The job is set For Delivery, so its sales invoice is locked.",
             "INVOICE_LOCKED",
             409,
         )

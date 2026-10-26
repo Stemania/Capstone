@@ -427,6 +427,7 @@ def material_wait(job: JobOrder, *, for_worker: bool = False) -> dict | None:
     if job.status in (
         JobOrderStatus.DRAFT,
         JobOrderStatus.COMPLETED,
+        JobOrderStatus.FOR_DELIVERY,
         JobOrderStatus.DELIVERED,
     ):
         return None

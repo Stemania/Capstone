@@ -24,6 +24,9 @@ class JobOrderStatus(enum.Enum):
     SCHEDULED = "SCHEDULED"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
+    # Completed, invoice recorded, waiting to go out (set by the Admin).
+    FOR_DELIVERY = "FOR_DELIVERY"
+    # Handed over to the client; delivered_at is the date on-time is measured on.
     DELIVERED = "DELIVERED"
     CANCELLED = "CANCELLED"
     # Legacy labels — retained for Postgres enum compatibility only; never set in code.
@@ -48,6 +51,16 @@ PRODUCTION_STATUSES = frozenset(
         JobOrderStatus.SCHEDULED,
         JobOrderStatus.IN_PROGRESS,
         JobOrderStatus.COMPLETED,
+        JobOrderStatus.FOR_DELIVERY,
+        JobOrderStatus.DELIVERED,
+    }
+)
+
+# Production finished: Completed, For Delivery or Delivered.
+DONE_STATUSES = frozenset(
+    {
+        JobOrderStatus.COMPLETED,
+        JobOrderStatus.FOR_DELIVERY,
         JobOrderStatus.DELIVERED,
     }
 )
@@ -74,6 +87,7 @@ CANCEL_REASONS = frozenset(
 ARCHIVEABLE_STATUSES = frozenset(
     {
         JobOrderStatus.COMPLETED,
+        JobOrderStatus.FOR_DELIVERY,
         JobOrderStatus.DELIVERED,
         JobOrderStatus.CANCELLED,
     }
@@ -213,6 +227,8 @@ class JobOrder(db.Model):
         db.String(36), db.ForeignKey("users.id"), nullable=False
     )
     delivered_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # When the Admin set the job For Delivery.
+    for_delivery_at = db.Column(db.DateTime(timezone=True), nullable=True)
     # When the Admin confirmed the schedule; worker actions cannot predate it.
     released_at = db.Column(db.DateTime(timezone=True), nullable=True)
     cancelled_at = db.Column(db.DateTime(timezone=True), nullable=True)
@@ -518,6 +534,7 @@ class JobOrder(db.Model):
             "supplierReference": self.supplier_reference,
             "scheduleColor": self.schedule_color,
             "deliveredAt": self.delivered_at.isoformat() if self.delivered_at else None,
+            "forDeliveryAt": self.for_delivery_at.isoformat() if self.for_delivery_at else None,
             "cancelledAt": self.cancelled_at.isoformat() if self.cancelled_at else None,
             "cancelledById": self.cancelled_by_id,
             "cancelledByName": self.cancelled_by.full_name if self.cancelled_by else None,

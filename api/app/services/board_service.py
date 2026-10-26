@@ -457,6 +457,7 @@ def schedule_board(
             continue
         if row.get("isLate") and row.get("jobStatus") not in (
             JobOrderStatus.COMPLETED.value,
+            JobOrderStatus.FOR_DELIVERY.value,
             JobOrderStatus.DELIVERED.value,
         ):
             seen_jobs.add(jid)

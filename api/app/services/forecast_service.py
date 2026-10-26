@@ -254,10 +254,14 @@ def _job_received_date(job) -> date:
 
 
 def sales_forecast(today: date | None = None):
-    """Monthly income from completed and delivered jobs, by completion month."""
+    """Monthly income from finished jobs (Completed, For Delivery, Delivered), by completion month."""
     jobs = (
         JobOrder.query.options(joinedload(JobOrder.operations))
-        .filter(JobOrder.status.in_((JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED)))
+        .filter(
+            JobOrder.status.in_(
+                (JobOrderStatus.COMPLETED, JobOrderStatus.FOR_DELIVERY, JobOrderStatus.DELIVERED)
+            )
+        )
         .all()
     )
     dated = []
@@ -267,7 +271,7 @@ def sales_forecast(today: date | None = None):
             dated.append((done, float(job.amount or 0)))
     return {
         "label": "salesForecast",
-        "description": "Monthly income from Completed and For Delivery jobs, by completion month.",
+        "description": "Monthly income from finished jobs (Completed, For Delivery or Delivered), by completion month.",
         **monthly_forecast(dated, today),
     }
 

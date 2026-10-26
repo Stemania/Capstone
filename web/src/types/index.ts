@@ -446,6 +446,7 @@ export type JobOrderStatus =
   | 'SCHEDULED'
   | 'IN_PROGRESS'
   | 'COMPLETED'
+  | 'FOR_DELIVERY'
   | 'DELIVERED'
   | 'CANCELLED';
 export type JobPriority = 'HIGH' | 'MODERATE' | 'LOW';
@@ -916,6 +917,8 @@ export interface JobOrder extends MaterialWait {
   createdByRole?: UserRole | null;
   draftStage?: string | null;
   deliveredAt?: string | null;
+  /** When the Admin set it For Delivery. */
+  forDeliveryAt?: string | null;
   cancelledAt?: string | null;
   cancelledById?: string | null;
   cancelledByName?: string | null;

@@ -33,6 +33,7 @@ from app.services.job_order_service import (
     advance_part_condition,
     create_job_order,
     mark_job_delivered,
+    mark_job_for_delivery,
     update_job_order,
 )
 from app.utils.errors import AppError
@@ -529,14 +530,29 @@ def _invoice_data(job, **kw):
 def test_delivery_blocked_until_invoice_recorded(people):
     job = _completed_job(people)
     with pytest.raises(AppError) as exc:
-        mark_job_delivered(job)
+        mark_job_for_delivery(job)
     assert exc.value.code == "INVOICE_REQUIRED"
     assert job.status == JobOrderStatus.COMPLETED
 
     si_service.record_invoice(job, _invoice_data(job), people["office"].id)
+    mark_job_for_delivery(job)
+    assert job.status == JobOrderStatus.FOR_DELIVERY
+    assert job.for_delivery_at is not None
+    assert job.delivered_at is None
+
     mark_job_delivered(job)
     assert job.status == JobOrderStatus.DELIVERED
     assert job.delivered_at is not None
+
+
+def test_delivered_needs_for_delivery_first(people):
+    job = _completed_job(people)
+    si_service.record_invoice(job, _invoice_data(job), people["office"].id)
+    with pytest.raises(AppError) as exc:
+        mark_job_delivered(job)
+    assert exc.value.code == "INVALID_TRANSITION"
+    assert job.status == JobOrderStatus.COMPLETED
+    assert job.delivered_at is None
 
 
 @pytest.mark.parametrize("status", [JobOrderStatus.SCHEDULED, JobOrderStatus.IN_PROGRESS])
@@ -545,7 +561,7 @@ def test_for_delivery_needs_a_completed_job(people, status):
     _add_op(job, "TURNING", status=OperationStatus.COMPLETED)
     db.session.refresh(job)
     with pytest.raises(AppError) as exc:
-        mark_job_delivered(job)
+        mark_job_for_delivery(job)
     assert exc.value.code == "INVALID_TRANSITION"
     assert "Completed" in exc.value.message
     assert job.status == status

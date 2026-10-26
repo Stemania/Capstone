@@ -178,7 +178,7 @@ export function SalesForecastCard({
           <ForecastInfo
             f={f}
             format={fmtPeso}
-            what="Income from Completed and For Delivery jobs, by the month the job was finished."
+            what="Income from finished jobs (Completed, For Delivery or Delivered), by the month the job was finished."
           />
         ) : undefined
       }

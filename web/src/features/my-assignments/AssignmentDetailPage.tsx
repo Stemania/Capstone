@@ -18,6 +18,7 @@ import { SHOP_TZ, formatShop, shopToday } from '../../utils/shopTime';
 import type { JobOrder, Operation, OperationPauseReason, PartCondition } from '../../types';
 import { PageSkeleton } from '../../components/ui';
 import {
+import { isJobFinished } from '../job-orders/jobStage';
   announceRecorded,
   canStartOperation,
   operationActionLabel,
@@ -238,9 +239,10 @@ export default function AssignmentDetailPage() {
     );
   }
 
-  const overdue = job.status !== 'COMPLETED' && dayjs(job.dueDate).isBefore(shopToday(), 'day');
+  const finished = isJobFinished(job.status);
+  const overdue = !finished && dayjs(job.dueDate).isBefore(shopToday(), 'day');
   const statusLabel =
-    job.status === 'COMPLETED'
+    finished
       ? 'Completed'
       : job.status === 'IN_PROGRESS'
         ? 'In Progress'
@@ -248,7 +250,7 @@ export default function AssignmentDetailPage() {
           ? 'Overdue'
           : 'Assigned';
   const statusColor =
-    job.status === 'COMPLETED'
+    finished
       ? colors.green
       : job.status === 'IN_PROGRESS'
         ? colors.accent

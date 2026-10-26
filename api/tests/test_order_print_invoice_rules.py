@@ -292,7 +292,12 @@ def test_invoice_needs_a_completed_job_and_only_one_per_job(client, shop):
 
 
 def _deliver(client, job, user):
-    return client.post(f"/api/v1/job-orders/{job.id}/deliver", headers=_headers(user))
+    """Set For Delivery (the step that needs the invoice)."""
+    return client.post(f"/api/v1/job-orders/{job.id}/for-delivery", headers=_headers(user))
+
+
+def _delivered(client, job, user, **body):
+    return client.post(f"/api/v1/job-orders/{job.id}/deliver", headers=_headers(user), json=body)
 
 
 def test_for_delivery_requires_a_recorded_invoice(client, shop):
@@ -305,6 +310,37 @@ def test_for_delivery_requires_a_recorded_invoice(client, shop):
 
     assert _record(client, shop, job).status_code == 201
     res = _deliver(client, job, shop["admin"])
+    assert res.status_code == 200, res.get_json()
+    body = res.get_json()
+    assert body["status"] == "FOR_DELIVERY"
+    assert body["forDeliveryAt"]
+    assert body["deliveredAt"] is None
+
+
+def test_mark_delivered_after_for_delivery_with_a_date(client, shop):
+    from datetime import timedelta
+
+    from app.services.schedule_calendar import shop_now
+
+    job = _completed_job(shop)
+    assert _record(client, shop, job).status_code == 201
+
+    res = _delivered(client, job, shop["admin"])
+    assert res.status_code == 409
+    assert res.get_json()["error"]["code"] == "INVALID_TRANSITION"
+
+    assert _deliver(client, job, shop["admin"]).status_code == 200
+    assert _delivered(client, job, shop["office"]).status_code == 403
+
+    tomorrow = (shop_now().date() + timedelta(days=1)).isoformat()
+    res = _delivered(client, job, shop["admin"], deliveredDate=tomorrow)
+    assert res.status_code == 400
+
+    yesterday = (shop_now().date() - timedelta(days=1)).isoformat()
+    res = _delivered(client, job, shop["admin"], deliveredDate=yesterday)
+    assert res.status_code == 400, "cannot be before it was set For Delivery"
+
+    res = _delivered(client, job, shop["admin"], deliveredDate=shop_now().date().isoformat())
     assert res.status_code == 200, res.get_json()
     body = res.get_json()
     assert body["status"] == "DELIVERED"

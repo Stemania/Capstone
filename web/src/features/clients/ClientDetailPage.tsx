@@ -26,14 +26,15 @@ import { useAuth } from '../../hooks/useAuth';
 import ClientFormModal from './ClientFormModal';
 
 type Job = ClientDetail['jobs'][number];
-type JobFilter = 'all' | 'draft' | 'active' | 'completed' | 'delivered' | 'cancelled';
+type JobFilter = 'all' | 'draft' | 'active' | 'completed' | 'forDelivery' | 'delivered' | 'cancelled';
 
 const FILTERS: { value: JobFilter; label: string; match: (j: Job) => boolean }[] = [
   { value: 'all', label: 'All', match: () => true },
   { value: 'draft', label: 'To plan', match: (j) => j.status === 'DRAFT' },
   { value: 'active', label: 'Active', match: (j) => j.status === 'SCHEDULED' || j.status === 'IN_PROGRESS' },
   { value: 'completed', label: 'Completed', match: (j) => j.status === 'COMPLETED' },
-  { value: 'delivered', label: 'For Delivery', match: (j) => j.status === 'DELIVERED' },
+  { value: 'forDelivery', label: 'For Delivery', match: (j) => j.status === 'FOR_DELIVERY' },
+  { value: 'delivered', label: 'Delivered', match: (j) => j.status === 'DELIVERED' },
   { value: 'cancelled', label: 'Cancelled', match: (j) => j.status === 'CANCELLED' },
 ];
 
@@ -74,6 +75,7 @@ function isOverdue(j: Job) {
     !j.dueDate ||
     j.status === 'DRAFT' ||
     j.status === 'COMPLETED' ||
+    j.status === 'FOR_DELIVERY' ||
     j.status === 'DELIVERED' ||
     j.status === 'CANCELLED'
   )
@@ -389,7 +391,7 @@ export default function ClientDetailPage() {
                 {stats.onTimePct == null ? <None>No deliveries yet</None> : `${stats.onTimePct}%`}
               </span>
               <span className="cd-stat__hint">
-                {stats.judged ? `${stats.onTime} of ${stats.judged} by the date required` : 'Counted when set For Delivery'}
+                {stats.judged ? `${stats.onTime} of ${stats.judged} by the date required` : 'Counted when delivered'}
               </span>
             </div>
             <div className="cd-stat">

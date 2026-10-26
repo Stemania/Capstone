@@ -48,14 +48,15 @@ import {
 } from '../../theme/statuses';
 import { chart } from '../../theme/tokens';
 import { formatShop, shopNow, shopToday, SHOP_TZ } from '../../utils/shopTime';
+import { isJobFinished } from '../job-orders/jobStage';
 import { periodBounds } from '../schedule/scheduleTimelineUtils';
 
 type Load<T> = { data: T | null; failed: boolean };
 
 function isJobOverdue(job: JobOrder) {
   return (
-    job.status !== 'COMPLETED' &&
-    job.status !== 'DELIVERED' &&
+    !isJobFinished(job.status) &&
+    job.status !== 'CANCELLED' &&
     dayjs(job.dueDate).isBefore(shopToday(), 'day')
   );
 }
@@ -123,6 +124,7 @@ export default function DashboardPage() {
       inProgress: list.filter((j) => j.status === 'IN_PROGRESS').length,
       waiting: list.filter((j) => j.status === 'IN_PROGRESS' && j.waitingForMaterials).length,
       completed: list.filter((j) => j.status === 'COMPLETED').length,
+      forDelivery: list.filter((j) => j.status === 'FOR_DELIVERY').length,
       overdue: list.filter(isJobOverdue).length,
     };
   }, [jobs.data]);
@@ -201,10 +203,10 @@ export default function DashboardPage() {
         <StatCard
           icon={<CheckCircleOutlined />}
           tone="green"
-          label="Completed"
-          value={jobStats.completed}
+          label="Not yet delivered"
+          value={jobStats.completed + jobStats.forDelivery}
           loading={jobsLoading}
-          hint="Not yet marked For Delivery"
+          hint={`${jobStats.forDelivery} For Delivery · ${jobStats.completed} Completed`}
           onClick={() => navigate('/job-orders')}
         />
         <StatCard

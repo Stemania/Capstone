@@ -888,6 +888,7 @@ def _one_job(rng, shop, ledger, plan, counters, admin, office):
             counters["by_status"][JobOrderStatus.COMPLETED.value] += 1
         else:
             delivered = shop.next_working(last_day + timedelta(days=1))
+            job.for_delivery_at = last_end
             job.delivered_at = shop_local_to_utc(delivered, time(9, 0))
             job.updated_at = job.delivered_at
             _audit(

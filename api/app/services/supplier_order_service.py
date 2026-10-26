@@ -30,6 +30,7 @@ CENT = Decimal("0.01")
 # Materials are not ordered for jobs that are already finished.
 CLOSED_JOB_STATUSES = (
     JobOrderStatus.COMPLETED,
+    JobOrderStatus.FOR_DELIVERY,
     JobOrderStatus.DELIVERED,
     JobOrderStatus.CANCELLED,
 )

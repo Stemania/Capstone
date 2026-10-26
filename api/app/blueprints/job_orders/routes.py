@@ -227,13 +227,23 @@ def delete_material_purchase(job_id, purchase_id):
     return jsonify({"ok": True})
 
 
+@job_orders_bp.route("/<job_id>/for-delivery", methods=["POST"])
+@jwt_required()
+@require_roles(UserRole.ADMIN)
+def set_job_for_delivery(job_id):
+    role = get_current_user_role()
+    job = jo_service.get_job_order(job_id, get_current_user_id(), role)
+    job = jo_service.mark_job_for_delivery(job)
+    return jsonify(job.to_dict(include_operations=True, viewer_role=role))
+
+
 @job_orders_bp.route("/<job_id>/deliver", methods=["POST"])
 @jwt_required()
 @require_roles(UserRole.ADMIN)
 def deliver_job_order(job_id):
     role = get_current_user_role()
     job = jo_service.get_job_order(job_id, get_current_user_id(), role)
-    job = jo_service.mark_job_delivered(job)
+    job = jo_service.mark_job_delivered(job, request.get_json(silent=True) or {})
     return jsonify(job.to_dict(include_operations=True, viewer_role=role))
 
 

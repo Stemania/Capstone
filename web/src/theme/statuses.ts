@@ -11,8 +11,9 @@ export const JOB_STATUS: Record<string, StatusDef> = {
   DRAFT: { label: 'To plan', tone: 'slate' },
   SCHEDULED: { label: 'Scheduled', tone: 'blue' },
   IN_PROGRESS: { label: 'In progress', tone: 'indigo' },
-  COMPLETED: { label: 'Completed', tone: 'green' },
-  DELIVERED: { label: 'For Delivery', tone: 'teal' },
+  COMPLETED: { label: 'Completed', tone: 'teal' },
+  FOR_DELIVERY: { label: 'For Delivery', tone: 'amber' },
+  DELIVERED: { label: 'Delivered', tone: 'green' },
   CANCELLED: { label: 'Cancelled', tone: 'grey' },
 };
 

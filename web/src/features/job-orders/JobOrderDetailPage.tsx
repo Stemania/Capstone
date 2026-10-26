@@ -21,6 +21,7 @@ import {
 } from 'antd';
 import {
   CheckCircleFilled,
+  CarOutlined,
   CheckOutlined,
   EditOutlined,
   FileTextOutlined,
@@ -34,6 +35,9 @@ import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-route
 import dayjs, { type Dayjs } from 'dayjs';
 import { formatShop, shopToday } from '../../utils/shopTime';
 import './opCard.css';
+import { isJobFinished, isJobReleasedForDelivery, nextDeliveryStep } from './jobStage';
+import MarkDeliveredModal from './MarkDeliveredModal';
+import BookletGuide from './BookletGuide';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { operationsApi } from '../../api/operations.api';
 import { notificationsApi } from '../../api/notifications.api';
@@ -288,6 +292,7 @@ function JobOrderDetailView() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [pauseForOp, setPauseForOp] = useState<Operation | null>(null);
   const [delivering, setDelivering] = useState(false);
+  const [deliveredOpen, setDeliveredOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationLog[] | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
@@ -612,11 +617,11 @@ function JobOrderDetailView() {
     });
   };
 
-  const handleDeliver = async () => {
+  const handleForDelivery = async () => {
     if (!job) return;
     setDelivering(true);
     try {
-      await jobOrdersApi.deliver(job.id);
+      await jobOrdersApi.setForDelivery(job.id);
       message.success('Set For Delivery. The client is notified that it is ready for delivery.');
       await fetchJob();
     } catch (err) {
@@ -645,37 +650,34 @@ function JobOrderDetailView() {
 
   const status = STATUS_PILL[job.status] || STATUS_PILL.SCHEDULED;
   const overdue =
-    job.status !== 'COMPLETED' &&
-    job.status !== 'DELIVERED' &&
+    !isJobFinished(job.status) &&
     job.status !== 'DRAFT' &&
     dayjs(job.dueDate).isBefore(shopToday(), 'day');
   const isDraft = job.status === 'DRAFT';
   const printBlockers = jobOrderPrintBlockers(job);
-  const isInvoicedOrDelivered = Boolean(job.salesInvoice) || job.status === 'DELIVERED';
+  const isInvoicedOrDelivered = Boolean(job.salesInvoice) || isJobReleasedForDelivery(job);
+  const deliveryStep = isAdmin ? nextDeliveryStep(job.status) : null;
   const materialRows = canManage
     ? rowsFromPurchases(purchases)
     : rowsFromSummary(job.materialLines || []);
   const earlierPlanned = job.rawMaterials || [];
   const canCorrectInvoice =
-    canOfficeWrite && Boolean(job.salesInvoice) && job.status !== 'DELIVERED' && !job.deliveredAt;
+    canOfficeWrite && Boolean(job.salesInvoice) && !isJobReleasedForDelivery(job);
   const isNotStarted = (op: Operation) =>
     op.status !== 'IN_PROGRESS' && op.status !== 'COMPLETED' && !op.actualStart;
   const canReschedule =
     !isDraft &&
-    job.status !== 'DELIVERED' &&
+    !isJobFinished(job.status) &&
     job.status !== 'CANCELLED' &&
     (job.operations || []).some(isNotStarted);
   const canCancel =
     canManage &&
-    job.status !== 'COMPLETED' &&
-    job.status !== 'DELIVERED' &&
+    !isJobFinished(job.status) &&
     job.status !== 'CANCELLED' &&
     !job.salesInvoice;
   const canArchive =
     canManage &&
-    (job.status === 'COMPLETED' ||
-      job.status === 'DELIVERED' ||
-      job.status === 'CANCELLED') &&
+    (isJobFinished(job.status) || job.status === 'CANCELLED') &&
     !job.isArchived &&
     !job.archivedAt;
   const canUnarchive = canManage && Boolean(job.isArchived || job.archivedAt);
@@ -828,22 +830,29 @@ function JobOrderDetailView() {
               Record sales invoice
             </Button>
           )}
-          {isAdmin && job.status === 'COMPLETED' && (
+          {deliveryStep === 'FOR_DELIVERY' && (
             <Tooltip
               title={
                 job.salesInvoice
-                  ? 'The client is notified that the job is ready for delivery. On-time is measured on this date.'
+                  ? 'The client is told the job is ready for delivery, and the sales invoice locks.'
                   : 'Office Staff must record the sales invoice first'
               }
             >
               <Button
                 type={job.salesInvoice ? 'primary' : 'default'}
-                icon={<CheckOutlined />}
+                icon={<CarOutlined />}
                 loading={delivering}
                 disabled={!job.salesInvoice}
-                onClick={handleDeliver}
+                onClick={handleForDelivery}
               >
                 Set For Delivery
+              </Button>
+            </Tooltip>
+          )}
+          {deliveryStep === 'DELIVERED' && (
+            <Tooltip title="Confirm the client received it. On-time is measured on the delivery date.">
+              <Button type="primary" icon={<CheckOutlined />} loading={delivering} onClick={() => setDeliveredOpen(true)}>
+                Mark as Delivered
               </Button>
             </Tooltip>
           )}
@@ -1582,6 +1591,7 @@ function JobOrderDetailView() {
         open={invoiceMode !== null}
         onCancel={() => setInvoiceMode(null)}
         footer={null}
+        width={invoiceMode === 'record' ? 640 : undefined}
         title={
           invoiceMode === 'record'
             ? 'Record sales invoice'
@@ -1595,7 +1605,7 @@ function JobOrderDetailView() {
           <>
             <div style={{ ...DETAIL_GRID, marginBottom: 16 }}>
               <div>
-                <div style={SUBHEAD}>Invoice number</div>
+                <div style={SUBHEAD}>Sales Invoice No.</div>
                 <div style={{ fontWeight: 700, color: NAVY }}>{job.salesInvoice.invoiceNumber}</div>
               </div>
               <div>
@@ -1603,7 +1613,7 @@ function JobOrderDetailView() {
                 <div>{fmtDate(job.salesInvoice.invoiceDate)}</div>
               </div>
               <div>
-                <div style={SUBHEAD}>Amount</div>
+                <div style={SUBHEAD}>Total amount due</div>
                 <div>{fmtMoney(job.salesInvoice.amount)}</div>
               </div>
               <div>
@@ -1629,22 +1639,26 @@ function JobOrderDetailView() {
         ) : (
           <Form form={invoiceForm} layout="vertical" onFinish={onSaveInvoice}>
             {invoiceMode === 'record' ? (
-              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
-                Enter the details from the shop&apos;s official BIR-registered sales invoice. The
-                system does not issue invoices.
-              </Text>
+              <>
+                <BookletGuide job={job} />
+                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+                  Enter the details from the shop&apos;s official BIR-registered sales invoice. The
+                  system does not issue invoices.
+                </Text>
+              </>
             ) : null}
             <Form.Item
               name="invoiceNumber"
-              label="Invoice number"
+              label="Sales Invoice No."
+              extra="The red number printed on the booklet, e.g. 0850"
               rules={[
-                { required: true, whitespace: true, message: 'Enter the invoice number' },
+                { required: true, whitespace: true, message: 'Enter the sales invoice number' },
                 { max: 64, message: 'Use at most 64 characters' },
               ]}
             >
-              <Input placeholder="As printed on the BIR-registered invoice" />
+              <Input placeholder="e.g. 0850" />
             </Form.Item>
-            <Form.Item name="invoiceDate" label="Invoice date" rules={[{ required: true }]}>
+            <Form.Item name="invoiceDate" label="Date" rules={[{ required: true }]}>
               <DatePicker
                 style={{ width: '100%' }}
                 format="YYYY-MM-DD"
@@ -1654,9 +1668,13 @@ function JobOrderDetailView() {
             </Form.Item>
             <Form.Item
               name="amount"
-              label="Amount"
-              extra={invoiceMode === 'record' ? 'Defaults to the job order amount.' : undefined}
-              rules={[{ required: true, message: 'Enter the invoice amount' }]}
+              label="Total amount due"
+              extra={
+                invoiceMode === 'record'
+                  ? 'The TOTAL AMOUNT DUE line on the booklet. Starts at the job order amount.'
+                  : undefined
+              }
+              rules={[{ required: true, message: 'Enter the total amount due' }]}
             >
               <InputNumber min={0} precision={2} prefix="₱" style={{ width: '100%' }} />
             </Form.Item>
@@ -1765,6 +1783,8 @@ function JobOrderDetailView() {
         </Space>
       </Modal>
 
+      <MarkDeliveredModal job={deliveredOpen ? job : null} onClose={() => setDeliveredOpen(false)} onDone={fetchJob} />
+
     </div>
   );
 }
@@ -1810,6 +1830,29 @@ function FinishCard({ job }: { job: JobOrder }) {
         </div>
         <div style={{ color: MUTED }}>Date required</div>
         <div style={{ color: NAVY, fontWeight: 600, textAlign: 'right' }}>{fmtDate(job.dueDate)}</div>
+        {job.forDeliveryAt ? (
+          <>
+            <div style={{ color: MUTED }}>Set For Delivery</div>
+            <div style={{ color: NAVY, fontWeight: 600, textAlign: 'right' }}>{fmtDate(job.forDeliveryAt)}</div>
+          </>
+        ) : null}
+        {job.deliveredAt ? (
+          <>
+            <div style={{ color: MUTED }}>Delivered</div>
+            <div
+              style={{
+                fontWeight: 700,
+                textAlign: 'right',
+                color:
+                  job.dueDate && dayjs(formatShop(job.deliveredAt, 'YYYY-MM-DD')).isAfter(dayjs(job.dueDate), 'day')
+                    ? '#b91c1c'
+                    : '#15803d',
+              }}
+            >
+              {fmtDate(job.deliveredAt)}
+            </div>
+          </>
+        ) : null}
       </div>
       {est ? (
         <div style={{ marginTop: 12, fontSize: 12, color: MUTED }}>

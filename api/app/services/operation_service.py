@@ -635,7 +635,12 @@ def create_rework_operation(operation, user_id, user_role, reason, category=None
         )
 
     job = operation.job_order
-    if job.sales_invoice is not None or job.status == JobOrderStatus.DELIVERED or job.delivered_at:
+    if (
+        job.sales_invoice is not None
+        or job.status in (JobOrderStatus.FOR_DELIVERY, JobOrderStatus.DELIVERED)
+        or job.for_delivery_at
+        or job.delivered_at
+    ):
         raise AppError(
             "This job has been invoiced or set For Delivery, so it can no longer be sent for redo.",
             "INVALID_TRANSITION",

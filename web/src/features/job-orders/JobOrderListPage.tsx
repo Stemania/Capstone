@@ -4,6 +4,7 @@ import type { MenuProps, TableColumnsType } from 'antd';
 import {
   PlusOutlined,
   EditOutlined,
+  CarOutlined,
   CheckOutlined,
   PrinterOutlined,
   EyeOutlined,
@@ -38,6 +39,8 @@ import { compareByDue } from './jobOrderSort';
 import { isJobOrderListTab } from './jobOrderListTabs';
 import AdminAssignedTab, { fetchAssignedActiveCount } from './AdminAssignedTab';
 import CancelJobModal from './CancelJobModal';
+import MarkDeliveredModal from './MarkDeliveredModal';
+import { isJobFinished, nextDeliveryStep } from './jobStage';
 
 type ListTab = 'production' | 'drafts' | 'assigned' | 'archived';
 
@@ -56,14 +59,14 @@ const PRODUCTION_STATUS_OPTIONS: { value: JobOrderStatus; label: string }[] = [
   { value: 'SCHEDULED', label: 'Scheduled' },
   { value: 'IN_PROGRESS', label: 'In Progress' },
   { value: 'COMPLETED', label: 'Completed' },
-  { value: 'DELIVERED', label: 'For Delivery' },
+  { value: 'FOR_DELIVERY', label: 'For Delivery' },
+  { value: 'DELIVERED', label: 'Delivered' },
   { value: 'CANCELLED', label: 'Cancelled' },
 ];
 
 function isJobOverdue(job: JobOrder) {
   return (
-    job.status !== 'COMPLETED' &&
-    job.status !== 'DELIVERED' &&
+    !isJobFinished(job.status) &&
     job.status !== 'CANCELLED' &&
     dayjs(job.dueDate).isBefore(shopToday(), 'day')
   );
@@ -251,6 +254,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [error, setError] = useState('');
   const [delivering, setDelivering] = useState(false);
+  const [deliverJob, setDeliverJob] = useState<JobOrder | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(readViewMode);
   const navigate = useNavigate();
   const location = useLocation();
@@ -373,7 +377,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
     (clientFilter.length ? 1 : 0) +
     (awaitingMaterialOnly ? 1 : 0);
   const overdueCount = filtered.filter(isJobOverdue).length;
-  const doneCount = filtered.filter((j) => j.status === 'COMPLETED' || j.status === 'DELIVERED').length;
+  const doneCount = filtered.filter((j) => isJobFinished(j.status)).length;
 
   const clearJobFilters = () => {
     setStatusFilter([]);
@@ -398,7 +402,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
     setDelivering(true);
     try {
       for (const job of selectedCompletable) {
-        await jobOrdersApi.deliver(job.id);
+        await jobOrdersApi.setForDelivery(job.id);
       }
       message.success(
         selectedCompletable.length === 1
@@ -425,8 +429,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
 
   const canCancelJob = (record: JobOrder) =>
     (canOfficeWrite || isAdmin) &&
-    record.status !== 'COMPLETED' &&
-    record.status !== 'DELIVERED' &&
+    !isJobFinished(record.status) &&
     record.status !== 'CANCELLED' &&
     !record.salesInvoice;
 
@@ -486,20 +489,28 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
       onClick: () =>
         navigate(`/job-orders/${record.id}/print`, { state: { from: location.pathname + location.search } }),
     });
-    if (record.status === 'COMPLETED' && isAdmin) {
+    const step = isAdmin ? nextDeliveryStep(record.status) : null;
+    if (step === 'FOR_DELIVERY') {
       items.push({
-        key: 'deliver',
-        icon: <CheckOutlined />,
+        key: 'for-delivery',
+        icon: <CarOutlined />,
         label: 'Set For Delivery',
         onClick: async () => {
           try {
-            await jobOrdersApi.deliver(record.id);
-            message.success('Set For Delivery');
+            await jobOrdersApi.setForDelivery(record.id);
+            message.success('Set For Delivery. The client is notified that it is ready for delivery.');
             fetchJobs();
           } catch (err) {
             message.error(getErrorMessage(err));
           }
         },
+      });
+    } else if (step === 'DELIVERED') {
+      items.push({
+        key: 'delivered',
+        icon: <CheckOutlined />,
+        label: 'Mark as Delivered',
+        onClick: () => setDeliverJob(record),
       });
     }
     if (canCancelJob(record)) {
@@ -513,9 +524,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
     }
     if (
       (canOfficeWrite || isAdmin) &&
-      (record.status === 'COMPLETED' ||
-        record.status === 'DELIVERED' ||
-        record.status === 'CANCELLED')
+      (isJobFinished(record.status) || record.status === 'CANCELLED')
     ) {
       if (record.isArchived || record.archivedAt) {
         items.push({
@@ -848,7 +857,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
                   {isAdmin ? (
                     <Button
                       size="small"
-                      icon={<CheckOutlined />}
+                      icon={<CarOutlined />}
                       loading={delivering}
                       disabled={!selectedCompletable.length}
                       onClick={handleBulkDeliver}
@@ -985,7 +994,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
                 {isAdmin ? (
                   <Button
                     size="small"
-                    icon={<CheckOutlined />}
+                    icon={<CarOutlined />}
                     loading={delivering}
                     disabled={!selectedCompletable.length}
                     onClick={handleBulkDeliver}
@@ -1223,6 +1232,8 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
           </div>
         </Drawer>
       ) : null}
+
+      <MarkDeliveredModal job={deliverJob} onClose={() => setDeliverJob(null)} onDone={fetchJobs} />
 
       {cancelJob ? (
         <CancelJobModal

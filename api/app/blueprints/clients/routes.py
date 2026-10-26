@@ -109,7 +109,7 @@ def get_client(client_id):
         if job.delivered_at and job.due_date:
             done = job.delivered_at.astimezone(SHOP_TZ).date()
             on_time = done <= job.due_date
-        elif job.status == JobOrderStatus.COMPLETED:
+        elif job.status in (JobOrderStatus.COMPLETED, JobOrderStatus.FOR_DELIVERY):
             on_time = None  # awaiting delivery
 
         job_rows.append(

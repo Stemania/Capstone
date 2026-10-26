@@ -191,6 +191,8 @@ def derive_job_status(job: JobOrder) -> JobOrderStatus:
         return JobOrderStatus.CANCELLED
     if job.status == JobOrderStatus.DELIVERED or job.delivered_at:
         return JobOrderStatus.DELIVERED
+    if job.status == JobOrderStatus.FOR_DELIVERY or job.for_delivery_at:
+        return JobOrderStatus.FOR_DELIVERY
     # Draft is sticky until release — stage is derived from data, not stored.
     if job.status == JobOrderStatus.DRAFT:
         return JobOrderStatus.DRAFT
@@ -646,28 +648,28 @@ def create_job_order(data, created_by_id, actor_role=None):
         raise
 
 
-def mark_job_delivered(job):
-    """Admin sets the job For Delivery (stored as DELIVERED) once it is
-    Completed and Office Staff have recorded the sales invoice. delivered_at is
-    the date on-time and lateness are measured on. Fires JOB_DELIVERED."""
+def _all_operations_done(job) -> bool:
+    ops = list(job.operations or [])
+    return bool(ops) and all(op.status == OperationStatus.COMPLETED for op in ops)
+
+
+def mark_job_for_delivery(job):
+    """Admin sets a Completed job For Delivery once Office Staff have recorded
+    the sales invoice. Locks the invoice and tells the client the job is ready
+    for delivery (JOB_DELIVERED milestone)."""
+    from datetime import datetime, timezone
+
     from app.models.notification import NotificationMilestone
     from app.services.notification_service import safe_notify_job_milestone
 
-    if job.status == JobOrderStatus.DELIVERED or job.delivered_at:
+    if job.status in (JobOrderStatus.FOR_DELIVERY, JobOrderStatus.DELIVERED):
         return job
-
-    ops = list(job.operations or [])
-    if (
-        job.status != JobOrderStatus.COMPLETED
-        or not ops
-        or not all(op.status == OperationStatus.COMPLETED for op in ops)
-    ):
+    if job.status != JobOrderStatus.COMPLETED or not _all_operations_done(job):
         raise AppError(
             "The job must be Completed before it can be set For Delivery.",
             "INVALID_TRANSITION",
             409,
         )
-
     if job.sales_invoice is None:
         raise AppError(
             "Office Staff must record the sales invoice before the job can be set "
@@ -677,16 +679,66 @@ def mark_job_delivered(job):
         )
 
     try:
-        from datetime import datetime, timezone
-
-        job.status = JobOrderStatus.DELIVERED
-        job.delivered_at = datetime.now(timezone.utc)
+        job.status = JobOrderStatus.FOR_DELIVERY
+        job.for_delivery_at = datetime.now(timezone.utc)
         db.session.commit()
         safe_notify_job_milestone(job.id, NotificationMilestone.JOB_DELIVERED)
         return job
-    except AppError:
+    except Exception:
         db.session.rollback()
         raise
+
+
+def _delivery_moment(value, for_delivery_at):
+    """The delivery date as a timestamp: now for today, else 5:00 PM shop time.
+
+    Not in the future and not before the job was set For Delivery."""
+    from datetime import date, datetime, time, timezone
+
+    from app.services.schedule_calendar import SHOP_TZ, shop_local_to_utc, shop_now
+
+    today = shop_now().date()
+    if value in (None, ""):
+        on = today
+    else:
+        try:
+            on = date.fromisoformat(str(value)[:10])
+        except ValueError as exc:
+            raise AppError("Invalid deliveredDate (YYYY-MM-DD)", "VALIDATION_ERROR", 400) from exc
+    if on > today:
+        raise AppError("The delivery date cannot be in the future.", "VALIDATION_ERROR", 400)
+    if for_delivery_at is not None:
+        ready = for_delivery_at.astimezone(SHOP_TZ).date()
+        if on < ready:
+            raise AppError(
+                f"The delivery date cannot be before the job was set For Delivery ({ready:%b} {ready.day}).",
+                "VALIDATION_ERROR",
+                400,
+            )
+    if on == today:
+        return datetime.now(timezone.utc)
+    return shop_local_to_utc(on, time(17, 0))
+
+
+def mark_job_delivered(job, data: dict | None = None):
+    """Admin confirms the job was handed over to the client. delivered_at is
+    the date on-time and lateness are measured on (default today)."""
+    data = data or {}
+    if job.status == JobOrderStatus.DELIVERED:
+        return job
+    if job.status != JobOrderStatus.FOR_DELIVERY:
+        raise AppError(
+            "Set the job For Delivery before marking it delivered.",
+            "INVALID_TRANSITION",
+            409,
+        )
+
+    moment = _delivery_moment(data.get("deliveredDate"), job.for_delivery_at)
+    try:
+        job.status = JobOrderStatus.DELIVERED
+        job.delivered_at = moment
+        db.session.commit()
+        return job
     except Exception:
         db.session.rollback()
         raise
@@ -1197,6 +1249,7 @@ def cancel_job_order(job, actor_id: str, data: dict | None = None):
     data = data or {}
     if job.status in (
         JobOrderStatus.COMPLETED,
+        JobOrderStatus.FOR_DELIVERY,
         JobOrderStatus.DELIVERED,
         JobOrderStatus.CANCELLED,
     ):
@@ -1403,7 +1456,12 @@ def apply_released_schedule(
     from app.models.schedule_move import DelayKind
     from app.services.material_delay_service import record_move
 
-    if job.status in (JobOrderStatus.DRAFT, JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED):
+    if job.status in (
+        JobOrderStatus.DRAFT,
+        JobOrderStatus.COMPLETED,
+        JobOrderStatus.FOR_DELIVERY,
+        JobOrderStatus.DELIVERED,
+    ):
         raise AppError(
             "Only released jobs with work still to do can be re-scheduled.",
             "INVALID_TRANSITION",

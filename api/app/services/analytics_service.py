@@ -133,7 +133,7 @@ def _finished_jobs(start_utc, end_utc):
         .join(job_complete_subq, JobOrder.id == job_complete_subq.c.jid)
         .filter(
             JobOrder.status.in_(
-                (JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED)
+                (JobOrderStatus.COMPLETED, JobOrderStatus.FOR_DELIVERY, JobOrderStatus.DELIVERED)
             ),
             job_complete_subq.c.completed_at >= start_utc,
             job_complete_subq.c.completed_at < end_utc,
@@ -200,6 +200,7 @@ def job_orders_summary(from_s=None, to_s=None):
         JobOrderStatus.SCHEDULED,
         JobOrderStatus.IN_PROGRESS,
         JobOrderStatus.COMPLETED,
+        JobOrderStatus.FOR_DELIVERY,
     )
     open_jobs = JobOrder.query.filter(
         JobOrder.status.in_(open_statuses),
@@ -1200,7 +1201,7 @@ def _expected_completion_shop_date(job: JobOrder) -> date:
     return job.due_date
 
 
-SALES_STATUSES = (JobOrderStatus.COMPLETED, JobOrderStatus.DELIVERED)
+SALES_STATUSES = (JobOrderStatus.COMPLETED, JobOrderStatus.FOR_DELIVERY, JobOrderStatus.DELIVERED)
 PIPELINE_STATUSES = (JobOrderStatus.SCHEDULED, JobOrderStatus.IN_PROGRESS)
 
 
@@ -1323,7 +1324,7 @@ def sales_forecast(from_s=None, to_s=None):
     committed = {
         "label": "committedPipeline",
         "description": (
-            "Released jobs not yet completed or For Delivery; pending jobs are "
+            "Released jobs not yet finished; pending jobs are "
             "left out (fact, not a forecast). "
             "Grouped by expected completion from scheduled_end when present, "
             "otherwise due_date."

@@ -104,7 +104,11 @@ export const jobOrdersApi = {
   unarchive: (id: string) => apiClient.post<JobOrder>(`/job-orders/${id}/unarchive`),
   confirmSchedule: (id: string, body: Record<string, unknown>) =>
     apiClient.post<JobOrder>(`/job-orders/${id}/schedule/confirm`, body),
-  deliver: (id: string) => apiClient.post<JobOrder>(`/job-orders/${id}/deliver`),
+  /** Completed → For Delivery (needs the sales invoice). */
+  setForDelivery: (id: string) => apiClient.post<JobOrder>(`/job-orders/${id}/for-delivery`),
+  /** For Delivery → Delivered, on the date it was handed over (default today). */
+  markDelivered: (id: string, deliveredDate?: string) =>
+    apiClient.post<JobOrder>(`/job-orders/${id}/deliver`, deliveredDate ? { deliveredDate } : {}),
   listBreakdowns: (jobId: string) =>
     apiClient.get<MachineDowntimeRecord[]>(`/job-orders/${jobId}/breakdowns`),
   listMaterialPurchases: (jobId: string) =>

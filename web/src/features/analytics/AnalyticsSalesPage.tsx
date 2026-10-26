@@ -34,7 +34,7 @@ export default function AnalyticsSalesPage() {
           label="Sales"
           value={fmtPesoCompact(sales.totalAmount)}
           delta={salesPrev ? pctChange(sales.totalAmount, salesPrev.totalAmount) : undefined}
-          info="Amount of jobs finished in the period (Completed or For Delivery), by the day the last operation ended."
+          info="Amount of jobs finished in the period (Completed, For Delivery or Delivered), by the day the last operation ended."
         />
         <Kpi
           label="Jobs finished"
@@ -73,7 +73,7 @@ export default function AnalyticsSalesPage() {
               'No released jobs waiting'
             ) : undefined
           }
-          info="Released jobs not yet Completed or For Delivery, by the month they are expected to finish (scheduled end, else date required)."
+          info="Released jobs not yet finished, by the month they are expected to finish (scheduled end, else date required)."
           onExport={
             pipelineMonths.length
               ? () =>
