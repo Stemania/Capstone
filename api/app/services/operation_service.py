@@ -638,7 +638,7 @@ def create_rework_operation(operation, user_id, user_role, reason, category=None
     if (
         job.sales_invoice is not None
         or job.status in (JobOrderStatus.FOR_DELIVERY, JobOrderStatus.DELIVERED)
-        or job.for_delivery_at
+        or getattr(job, "for_delivery_at", None)
         or job.delivered_at
     ):
         raise AppError(

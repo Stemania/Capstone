@@ -191,7 +191,7 @@ def derive_job_status(job: JobOrder) -> JobOrderStatus:
         return JobOrderStatus.CANCELLED
     if job.status == JobOrderStatus.DELIVERED or job.delivered_at:
         return JobOrderStatus.DELIVERED
-    if job.status == JobOrderStatus.FOR_DELIVERY or job.for_delivery_at:
+    if job.status == JobOrderStatus.FOR_DELIVERY or getattr(job, "for_delivery_at", None):
         return JobOrderStatus.FOR_DELIVERY
     # Draft is sticky until release — stage is derived from data, not stored.
     if job.status == JobOrderStatus.DRAFT:
