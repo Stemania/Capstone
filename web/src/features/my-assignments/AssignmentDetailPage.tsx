@@ -17,8 +17,8 @@ import { DOWNTIME_REASONS, type DowntimeCategory } from '../../constants/downtim
 import { SHOP_TZ, formatShop, shopToday } from '../../utils/shopTime';
 import type { JobOrder, Operation, OperationPauseReason, PartCondition } from '../../types';
 import { PageSkeleton } from '../../components/ui';
-import {
 import { isJobFinished } from '../job-orders/jobStage';
+import {
   announceRecorded,
   canStartOperation,
   operationActionLabel,
