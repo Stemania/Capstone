@@ -322,7 +322,7 @@ export default function UsersPage() {
       width: 170,
       render: (r: string) => {
         const st = roleStyle[r] || { label: r.replace('_', ' '), color: 'gray' as PillColor };
-        return <StatusPill color={st.color} compact>{st.label}</StatusPill>;
+        return <StatusPill color={st.color} plain>{st.label}</StatusPill>;
       },
     },
     {

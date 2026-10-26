@@ -699,3 +699,41 @@ a.ana-list__row:hover .ana-list__title { color: var(--c-primary); text-decoratio
   font-size: var(--fs-sm);
   color: var(--c-text-muted);
 }
+
+/* Bar lists fill their card: rows spread over the height the card is given
+   (e.g. by a taller chart beside it) instead of bunching at the top. */
+.ana-card__body:has(> .ana-bars),
+.ana-card__body:has(> .ana-div) {
+  display: flex;
+  flex-direction: column;
+}
+
+.ana-card__body > .ana-bars,
+.ana-card__body > .ana-div {
+  flex: 1 1 auto;
+  justify-content: space-evenly;
+  min-height: 0;
+}
+
+/* Fewer rows get thicker bars so they read as bars, not dots. */
+.ana-bars:not(:has(> .ana-bar:nth-child(7))) .ana-bar__track {
+  height: 24px;
+}
+
+.ana-bars:not(:has(> .ana-bar:nth-child(7))) .ana-bar__fill {
+  height: 20px;
+  border-radius: 4px;
+}
+
+.ana-inv__switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 14px;
+}
+
+.ana-inv__switch-sub {
+  font-size: var(--fs-sm);
+  color: var(--c-text-muted);
+}

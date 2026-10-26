@@ -22,6 +22,8 @@ type Props = {
   compact?: boolean;
   /** Small dot before the label. */
   dot?: boolean;
+  /** Coloured text only, no container: for labels in table rows other than Status. */
+  plain?: boolean;
   title?: string;
 } & (
   | { tone: Tone; color?: never; status?: never; map?: never }
@@ -30,7 +32,7 @@ type Props = {
 );
 
 export default function StatusPill(props: Props) {
-  const { compact = false, dot = false, title } = props;
+  const { compact = false, dot = false, plain = false, title } = props;
   let tone: Tone;
   let label: ReactNode = props.children;
   if ('map' in props && props.map) {
@@ -41,6 +43,13 @@ export default function StatusPill(props: Props) {
     tone = props.tone;
   } else {
     tone = LEGACY_TONE[(props as { color: PillColor }).color] ?? 'slate';
+  }
+  if (plain) {
+    return (
+      <span className={`ui-tone-text ui-tone-text--${tone}`} title={title}>
+        {label}
+      </span>
+    );
   }
   return (
     <span className={`ui-pill ui-pill--${tone}${compact ? ' ui-pill--compact' : ''}`} title={title}>

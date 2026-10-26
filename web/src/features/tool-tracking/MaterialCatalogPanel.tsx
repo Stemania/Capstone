@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Col, Form, Input, Modal, Row, Select, Segmented, Switch, Tag, message } from 'antd';
+import { Button, Col, Form, Input, Modal, Row, Select, Segmented, Switch, message } from 'antd';
 import { ChipOverflow, FilterBar, FilterSelect, TwoLineCell, rowOpenProps } from '../../components/ui';
 import { MOBILE_SHELL_QUERY, NARROW_QUERY, PHONE_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import type { TableColumnsType } from 'antd';
@@ -222,7 +222,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
       key: 'grades',
       render: (_: unknown, r) => {
         const list = gradesOf(r);
-        return list.length ? <ChipOverflow items={list} max={4} /> : null;
+        return list.length ? <ChipOverflow items={list} max={4} plain /> : null;
       },
     },
     { title: 'Status', key: 'status', render: (_: unknown, r) => statusCell(r) },
@@ -254,16 +254,20 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
       width: 120,
       render: (kind: CatalogKind) =>
         kind === 'MATERIAL' ? (
-          <Tag color="blue">Material</Tag>
+          <StatusPill tone="blue" plain>
+            Material
+          </StatusPill>
         ) : (
-          <Tag color="purple">Consumable</Tag>
+          <StatusPill tone="indigo" plain>
+            Consumable
+          </StatusPill>
         ),
     },
     {
       title: 'Grades / sizes',
       key: 'grades',
       ellipsis: true,
-      render: (_: unknown, r) => <ChipOverflow items={gradesOf(r)} max={2} />,
+      render: (_: unknown, r) => <ChipOverflow items={gradesOf(r)} max={2} plain />,
     },
     { title: 'Unit', dataIndex: 'unit', width: 80 },
     {

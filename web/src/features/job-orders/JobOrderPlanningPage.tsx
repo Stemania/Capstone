@@ -1246,6 +1246,25 @@ export default function JobOrderPlanningPage() {
             value={leadValue}
             disabled={readOnly}
             options={pairOptions}
+            prefix={
+              dateNote ? (
+                <Tooltip title={dateNote} trigger={['hover', 'click']}>
+                  <span
+                    className="jo-op__date-flag"
+                    role="img"
+                    aria-label={dateNote}
+                    tabIndex={0}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <WarningOutlined />
+                  </span>
+                </Tooltip>
+              ) : undefined
+            }
             onChange={(v) => {
               const parsed = parsePairKey(v);
               applyPair(parsed.workerId, parsed.machineUnitId);
@@ -1288,11 +1307,6 @@ export default function JobOrderPlanningPage() {
             )}
           </div>
         ))}
-        {dateNote ? (
-          <div className="jo-op__date-note">
-            <WarningOutlined /> {dateNote}
-          </div>
-        ) : null}
       </div>
     );
   };

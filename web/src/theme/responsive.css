@@ -2228,6 +2228,19 @@
   letter-spacing: 0.02em;
 }
 
+.supplier-code-text {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--c-primary);
+  letter-spacing: 0.02em;
+}
+
+.supplier-code-text--muted {
+  color: #64748b;
+  font-weight: 600;
+}
+
 .app-shell--m .ant-checkbox-wrapper,
 .ui-mbar__sheet .ant-checkbox-wrapper {
   align-items: center;

@@ -44,12 +44,29 @@ export function ChipOverflow({
   items,
   max = 2,
   renderChip,
+  plain = false,
 }: {
   items: string[];
   max?: number;
   renderChip?: (item: string) => ReactNode;
+  /** Comma-separated text instead of chips. */
+  plain?: boolean;
 }) {
   if (!items.length) return <span>—</span>;
+  if (plain) {
+    const shownText = items.slice(0, max).join(', ');
+    const restText = items.slice(max);
+    return (
+      <span className="ui-chip-text">
+        {shownText}
+        {restText.length > 0 ? (
+          <Tooltip title={restText.join(', ')} mouseEnterDelay={0.2}>
+            <span className="ui-chip-text__more"> +{restText.length}</span>
+          </Tooltip>
+        ) : null}
+      </span>
+    );
+  }
   const shown = items.slice(0, max);
   const rest = items.slice(max);
   const chip = renderChip ?? ((g: string) => <Tag key={g}>{g}</Tag>);

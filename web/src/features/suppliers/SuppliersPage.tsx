@@ -9,7 +9,6 @@ import {
   Row,
   Col,
   message,
-  Tag,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { PlusOutlined, EditOutlined, ShopOutlined } from '@ant-design/icons';
@@ -135,12 +134,8 @@ export default function SuppliersPage() {
 
   const nameTags = (r: Supplier) => (
     <>
-      {r.code ? (
-        <Tag color="blue" style={{ marginLeft: 4 }}>
-          {r.code}
-        </Tag>
-      ) : null}
-      {r.isSeed ? <Tag style={{ marginLeft: 4 }}>Seed</Tag> : null}
+      {r.code ? <span className="supplier-code-text">{r.code}</span> : null}
+      {r.isSeed ? <span className="supplier-code-text supplier-code-text--muted">Seed</span> : null}
     </>
   );
 
@@ -205,7 +200,7 @@ export default function SuppliersPage() {
           return s?.dueDeliveries ? <span style={{ fontSize: 12, color: '#94a3b8' }}>Too few deliveries</span> : '—';
         }
         return (
-          <StatusPill color={GRADE_COLOR[s.grade] ?? 'gray'} compact>
+          <StatusPill color={GRADE_COLOR[s.grade] ?? 'gray'} plain>
             {s.grade} · {Math.round(s.score)}
           </StatusPill>
         );

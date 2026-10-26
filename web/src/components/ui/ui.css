@@ -1054,3 +1054,26 @@ td.ant-table-cell-row-hover.tabular-nums {
   min-height: 0 !important;
   max-height: none !important;
 }
+
+/* Coloured label text without a container (table rows other than Status). */
+.ui-tone-text {
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ui-tone-text--slate { color: var(--tone-slate-fg); }
+.ui-tone-text--blue { color: var(--tone-blue-fg); }
+.ui-tone-text--indigo { color: var(--tone-indigo-fg); }
+.ui-tone-text--green { color: var(--tone-green-fg); }
+.ui-tone-text--teal { color: var(--tone-teal-fg); }
+.ui-tone-text--amber { color: var(--tone-amber-fg); }
+.ui-tone-text--red { color: var(--tone-red-fg); }
+.ui-tone-text--grey { color: var(--tone-grey-fg); }
+
+.ui-chip-text {
+  color: #334155;
+}
+.ui-chip-text__more {
+  color: #64748b;
+  font-weight: 600;
+  cursor: help;
+}

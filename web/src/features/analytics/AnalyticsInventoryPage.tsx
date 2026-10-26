@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import StatusPill from '../../components/StatusPill';
-import { PageSkeleton } from '../../components/ui';
+import { PageSkeleton, TabBar } from '../../components/ui';
 import { tones } from '../../theme/tokens';
 import { exportCsv } from '../../utils/csvExport';
 import type { ConsumableRunOutRow } from '../../types';
@@ -47,17 +47,22 @@ const statusColor = (status?: string | null) =>
     : tones[STOCK_TONE[status ?? 'NO_DATA'] ?? 'grey'].solid;
 const lines = (n: number) => `${fmtNum(n)} line${n === 1 ? '' : 's'}`;
 
-function SectionTitle({ title, sub }: { title: string; sub: string }) {
-  return (
-    <div className="ana-inv__section">
-      <h2>{title}</h2>
-      <span>{sub}</span>
-    </div>
-  );
-}
+type InvView = 'consumables' | 'materials';
 
 export default function AnalyticsInventoryPage() {
   const { period } = usePeriods();
+  const [params, setParams] = useSearchParams();
+  const view: InvView = params.get('view') === 'materials' ? 'materials' : 'consumables';
+  const setView = (next: InvView) =>
+    setParams(
+      (prev) => {
+        const out = new URLSearchParams(prev);
+        if (next === 'consumables') out.delete('view');
+        else out.set('view', next);
+        return out;
+      },
+      { replace: true },
+    );
   const stock = useConsumables().data;
   const inv = useInventory(period).data;
 
@@ -149,9 +154,180 @@ export default function AnalyticsInventoryPage() {
   }));
   const oldAge = mats.ageBuckets.filter((b) => b.key === '15-30' || b.key === '31+');
   const oldLines = oldAge.reduce((s, b) => s + b.lines, 0);
+  const oldValue = oldAge.reduce((s, b) => s + b.value, 0);
+
+  const materialsGrid = (
+      <Grid>
+        <Card
+          title="Stock movement"
+          span={7}
+          takeaway={`${fmtPesoCompact(mats.receivedValue)} received · ${fmtPesoCompact(mats.consumedValue)} used by jobs in this period`}
+          info={
+            <div style={{ maxWidth: 360 }}>
+              Received: job-material lines delivered in the month. Used: lines taken from stock
+              when their job's first operation started. Value = quantity × PO unit cost.
+            </div>
+          }
+        >
+          {mats.receivedValue || mats.consumedValue ? (
+            <LineTrend
+              rows={monthRows}
+              series={[
+                { key: 'received', label: 'Received (₱)', color: PALETTE.primary },
+                { key: 'consumed', label: 'Used by jobs (₱)', color: PALETTE.second },
+              ]}
+              yFormat={(v) => fmtPesoCompact(v)}
+              tipFormat={(_k, v) => fmtPeso(v)}
+              height={220}
+            />
+          ) : (
+            <ChartEmpty title="No material moved in this period" />
+          )}
+        </Card>
+
+        <Card
+          title="Time in stock"
+          span={5}
+          takeaway={
+            mats.avgDaysInStock != null
+              ? `Materials waited ${fmtNum(mats.avgDaysInStock, 1)} days on average before their job started (${mats.daysInStockSamples} lines)`
+              : 'No material was used in this period'
+          }
+          takeawayTone={oldLines ? 'bad' : undefined}
+          info={
+            <div style={{ maxWidth: 340 }}>
+              Bars: what is in stock now, by days since it was received. Material waiting more than
+              two weeks ties up money and floor space; check whether its job can start.
+            </div>
+          }
+        >
+          {mats.onHandLines ? (
+            <SortedBars rows={ageRows} sort={false} />
+          ) : (
+            <ChartEmpty title="No job material in stock" />
+          )}
+        </Card>
+
+        <Card
+          title="Waiting longest"
+          span={12}
+          takeaway={
+            mats.oldestOnHand.length
+              ? `${mats.onHandLines} line${mats.onHandLines === 1 ? '' : 's'} in stock · the ${mats.oldestOnHand.length} received longest ago`
+              : undefined
+          }
+          controls={
+            <Link to="/tools?tab=raw-materials" className="ana-muted" style={{ fontSize: 12 }}>
+              All raw materials
+            </Link>
+          }
+        >
+          {mats.oldestOnHand.length ? (
+            <div className="ana-table__wrap">
+              <table className="ana-table">
+                <thead>
+                  <tr>
+                    <th>Material</th>
+                    <th>For job</th>
+                    <th className="num">Qty</th>
+                    <th>Received</th>
+                    <th className="num">Days in stock</th>
+                    <th className="num">Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mats.oldestOnHand.map((r) => (
+                    <tr key={r.id}>
+                      <td className="strong">
+                        {r.materialName}
+                        {[r.gradeOrSpec, r.sizeSpec].filter(Boolean).length ? (
+                          <span className="ana-muted" style={{ fontWeight: 400 }}>
+                            {' '}
+                            · {[...new Set([r.gradeOrSpec, r.sizeSpec].filter(Boolean))].join(' · ')}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td>
+                        {r.jobOrderId ? <Link to={`/job-orders/${r.jobOrderId}`}>{r.jobNumber}</Link> : '—'}
+                      </td>
+                      <td className="num">
+                        {fmtNum(r.quantity)} <span className="ana-muted">{r.unit}</span>
+                      </td>
+                      <td>{fmtDay(r.dateReceived)}</td>
+                      <td className="num" style={r.daysInStock > 14 ? { color: tones.red.fg, fontWeight: 600 } : undefined}>
+                        {fmtNum(r.daysInStock)}
+                      </td>
+                      <td className="num">{fmtPeso(r.value)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <ChartEmpty title="No job material in stock" />
+          )}
+        </Card>
+      </Grid>
+  );
+
+  const switcher = (
+    <div className="ana-inv__switch">
+      <TabBar<InvView>
+        value={view}
+        onChange={setView}
+        items={[
+          { value: 'consumables', label: 'Consumables', count: reorderNow || null, countTone: 'red' },
+          { value: 'materials', label: 'Job materials', count: mats.onHandLines || null },
+        ]}
+      />
+      <span className="ana-inv__switch-sub">
+        {view === 'consumables'
+          ? `Stock as of ${fmtDay(stock.today)} · consumable stock worth about ${fmtPesoCompact(stockValue)}`
+          : 'Raw materials bought for job orders: in stock from receipt until their job starts'}
+      </span>
+    </div>
+  );
+
+  if (view === 'materials') {
+    return (
+      <div className="ana-inv">
+        {switcher}
+        <Kpis>
+          <Kpi
+            label="Materials in stock"
+            value={fmtPesoCompact(mats.onHandValue)}
+            sub={`${lines(mats.onHandLines)} waiting for their jobs`}
+          />
+          <Kpi
+            label="Materials on order"
+            value={fmtPesoCompact(mats.incomingValue)}
+            valueTone={mats.incomingOverdueLines ? 'amber' : undefined}
+            sub={
+              mats.incomingOverdueLines
+                ? `${lines(mats.incomingLines)} · ${fmtNum(mats.incomingOverdueLines)} overdue`
+                : lines(mats.incomingLines)
+            }
+          />
+          <Kpi
+            label="Received in this period"
+            value={fmtPesoCompact(mats.receivedValue)}
+            sub={`${fmtPesoCompact(mats.consumedValue)} used by jobs`}
+          />
+          <Kpi
+            label="In stock over 2 weeks"
+            value={fmtPesoCompact(oldValue)}
+            valueTone={oldLines ? 'amber' : 'green'}
+            sub={`${lines(oldLines)} of ${lines(mats.onHandLines)} in stock`}
+          />
+        </Kpis>
+        {materialsGrid}
+      </div>
+    );
+  }
 
   return (
     <div className="ana-inv">
+      {switcher}
       <Kpis>
         <Kpi
           label="Consumables to reorder"
@@ -165,26 +341,16 @@ export default function AnalyticsInventoryPage() {
           sub={`${fmtNum(cons.useQty)} scans · ${fmtNum(cons.itemsUsed)} items`}
         />
         <Kpi
-          label="Materials in stock"
-          value={fmtPesoCompact(mats.onHandValue)}
-          sub={`${lines(mats.onHandLines)} waiting for their jobs`}
+          label="Stock on hand"
+          value={fmtPesoCompact(stockValue)}
+          sub={`${fmtNum(items.length)} consumables in the catalog`}
         />
         <Kpi
-          label="Materials on order"
-          value={fmtPesoCompact(mats.incomingValue)}
-          valueTone={mats.incomingOverdueLines ? 'amber' : undefined}
-          sub={
-            mats.incomingOverdueLines
-              ? `${lines(mats.incomingLines)} · ${fmtNum(mats.incomingOverdueLines)} overdue`
-              : lines(mats.incomingLines)
-          }
+          label="Class A items"
+          value={fmtNum(pareto.classA)}
+          sub="80% of the usage value · last 90 days"
         />
       </Kpis>
-
-      <SectionTitle
-        title="Consumables"
-        sub={`Stock as of ${fmtDay(stock.today)} · consumable stock worth about ${fmtPesoCompact(stockValue)}`}
-      />
       <Grid>
         <Card
           title="Days of cover"
@@ -374,121 +540,6 @@ export default function AnalyticsInventoryPage() {
         </Card>
       </Grid>
 
-      <SectionTitle
-        title="Job materials"
-        sub="Raw materials bought for job orders: in stock from receipt until their job starts"
-      />
-      <Grid>
-        <Card
-          title="Stock movement"
-          span={7}
-          takeaway={`${fmtPesoCompact(mats.receivedValue)} received · ${fmtPesoCompact(mats.consumedValue)} used by jobs in this period`}
-          info={
-            <div style={{ maxWidth: 360 }}>
-              Received: job-material lines delivered in the month. Used: lines taken from stock
-              when their job's first operation started. Value = quantity × PO unit cost.
-            </div>
-          }
-        >
-          {mats.receivedValue || mats.consumedValue ? (
-            <LineTrend
-              rows={monthRows}
-              series={[
-                { key: 'received', label: 'Received (₱)', color: PALETTE.primary },
-                { key: 'consumed', label: 'Used by jobs (₱)', color: PALETTE.second },
-              ]}
-              yFormat={(v) => fmtPesoCompact(v)}
-              tipFormat={(_k, v) => fmtPeso(v)}
-              height={220}
-            />
-          ) : (
-            <ChartEmpty title="No material moved in this period" />
-          )}
-        </Card>
-
-        <Card
-          title="Time in stock"
-          span={5}
-          takeaway={
-            mats.avgDaysInStock != null
-              ? `Materials waited ${fmtNum(mats.avgDaysInStock, 1)} days on average before their job started (${mats.daysInStockSamples} lines)`
-              : 'No material was used in this period'
-          }
-          takeawayTone={oldLines ? 'bad' : undefined}
-          info={
-            <div style={{ maxWidth: 340 }}>
-              Bars: what is in stock now, by days since it was received. Material waiting more than
-              two weeks ties up money and floor space; check whether its job can start.
-            </div>
-          }
-        >
-          {mats.onHandLines ? (
-            <SortedBars rows={ageRows} sort={false} />
-          ) : (
-            <ChartEmpty title="No job material in stock" />
-          )}
-        </Card>
-
-        <Card
-          title="Waiting longest"
-          span={12}
-          takeaway={
-            mats.oldestOnHand.length
-              ? `${mats.onHandLines} line${mats.onHandLines === 1 ? '' : 's'} in stock · the ${mats.oldestOnHand.length} received longest ago`
-              : undefined
-          }
-          controls={
-            <Link to="/tools?tab=raw-materials" className="ana-muted" style={{ fontSize: 12 }}>
-              All raw materials
-            </Link>
-          }
-        >
-          {mats.oldestOnHand.length ? (
-            <div className="ana-table__wrap">
-              <table className="ana-table">
-                <thead>
-                  <tr>
-                    <th>Material</th>
-                    <th>For job</th>
-                    <th className="num">Qty</th>
-                    <th>Received</th>
-                    <th className="num">Days in stock</th>
-                    <th className="num">Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {mats.oldestOnHand.map((r) => (
-                    <tr key={r.id}>
-                      <td className="strong">
-                        {r.materialName}
-                        {[r.gradeOrSpec, r.sizeSpec].filter(Boolean).length ? (
-                          <span className="ana-muted" style={{ fontWeight: 400 }}>
-                            {' '}
-                            · {[...new Set([r.gradeOrSpec, r.sizeSpec].filter(Boolean))].join(' · ')}
-                          </span>
-                        ) : null}
-                      </td>
-                      <td>
-                        {r.jobOrderId ? <Link to={`/job-orders/${r.jobOrderId}`}>{r.jobNumber}</Link> : '—'}
-                      </td>
-                      <td className="num">
-                        {fmtNum(r.quantity)} <span className="ana-muted">{r.unit}</span>
-                      </td>
-                      <td>{fmtDay(r.dateReceived)}</td>
-                      <td className="num" style={r.daysInStock > 14 ? { color: tones.red.fg, fontWeight: 600 } : undefined}>
-                        {fmtNum(r.daysInStock)}
-                      </td>
-                      <td className="num">{fmtPeso(r.value)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <ChartEmpty title="No job material in stock" />
-          )}
-        </Card>
-      </Grid>
     </div>
   );
 }

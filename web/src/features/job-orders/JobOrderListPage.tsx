@@ -93,16 +93,10 @@ function DuePill({ job }: { job: JobOrder }) {
   const pill = (
     <span
       style={{
-        display: 'inline-block',
-        fontSize: 12,
-        fontWeight: 600,
-        padding: '3px 8px',
-        borderRadius: 6,
+        fontSize: 13,
+        fontWeight: st ? 700 : 500,
         whiteSpace: 'nowrap',
-        lineHeight: 1.25,
-        color: st ? st.color : '#475569',
-        background: st ? st.bg : '#f1f5f9',
-        border: st ? `1px solid ${st.border}` : '1px solid #e2e8f0',
+        color: st ? st.color : '#334155',
       }}
     >
       {formatShop(job.dueDate, 'MMM D, YYYY')}
