@@ -7,19 +7,32 @@ SHOP_NAME = "Brothers Machine Shop"
 MILESTONE_LABELS = {
     NotificationMilestone.JOB_RECEIVED: "received",
     NotificationMilestone.JOB_STARTED: "started",
+    NotificationMilestone.JOB_HALFWAY: "progress update",
+    NotificationMilestone.JOB_FINAL_STAGE: "in its final stage",
     NotificationMilestone.JOB_COMPLETED: "completed",
-    NotificationMilestone.JOB_DELIVERED: "ready for delivery",
+    NotificationMilestone.JOB_DELIVERED: "completed and ready for delivery",
+    NotificationMilestone.JOB_DELAYED: "delayed",
 }
 
 # No portal links: clients have no account.
 TEMPLATES = {
     NotificationMilestone.JOB_RECEIVED: "Your job {job_number} ({title}) has been received and scheduled.",
     NotificationMilestone.JOB_STARTED: "Work on your job {job_number} ({title}) has started.",
+    NotificationMilestone.JOB_HALFWAY: (
+        "Here is an update on your job {job_number} ({title}). It is about halfway done."
+    ),
+    NotificationMilestone.JOB_FINAL_STAGE: "Your job {job_number} ({title}) is in its final stage.",
+    # No longer sent (Ready for delivery says the job is done); kept for older logs.
     NotificationMilestone.JOB_COMPLETED: (
         "Your job {job_number} ({title}) is complete. "
         "We will let you know when it is ready for delivery."
     ),
-    NotificationMilestone.JOB_DELIVERED: "Your job {job_number} ({title}) is ready for delivery.",
+    NotificationMilestone.JOB_DELIVERED: (
+        "Your job {job_number} ({title}) has been completed and is ready for delivery."
+    ),
+    NotificationMilestone.JOB_DELAYED: (
+        "We are sorry: your job {job_number} ({title}) will be finished later than planned."
+    ),
 }
 
 SHOWS_TARGET_DATE = (NotificationMilestone.JOB_RECEIVED, NotificationMilestone.JOB_STARTED)

@@ -132,8 +132,11 @@ const JOB_TYPE_LABEL: Record<string, string> = {
 const NOTIF_UPDATE_LABEL: Record<string, string> = {
   JOB_RECEIVED: 'Job received',
   JOB_STARTED: 'Job started',
+  JOB_HALFWAY: 'Halfway update',
+  JOB_FINAL_STAGE: 'Final stage',
   JOB_COMPLETED: 'Job finished',
   JOB_DELIVERED: 'Ready for delivery',
+  JOB_DELAYED: 'Delayed',
 };
 
 const NOTIF_STATUS_LABEL: Record<string, string> = {

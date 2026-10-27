@@ -327,6 +327,8 @@ def reschedule_job_schedule(job_id):
     job = jo_service.get_job_order(job_id, actor_id, role)
     data = request.get_json() or {}
     job = jo_service.reschedule_released_job(job, data, actor_id)
+    # At-risk alert for staff, Delayed email for the client when the date slipped.
+    estimate_service.sync_jobs([job])
     return jsonify(job.to_dict(include_operations=True, viewer_role=role))
 
 

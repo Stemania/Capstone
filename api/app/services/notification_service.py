@@ -187,9 +187,42 @@ def _already_logged(job_id: str, milestone: NotificationMilestone, channel: Noti
     )
 
 
-def _send_job_update(job, client, milestone, *, opted_in, recipient):
+def _sent_today(job_id: str) -> bool:
+    """A job update for this job already went out today (shop time)."""
+    from app.services.job_update_service import shop_day_start_utc
+
+    return (
+        NotificationLog.query.filter(
+            NotificationLog.job_order_id == job_id,
+            NotificationLog.milestone.isnot(None),
+            NotificationLog.status == NotificationStatus.SENT,
+            NotificationLog.created_at >= shop_day_start_utc(),
+        ).first()
+        is not None
+    )
+
+
+def _progress_skip_reason(job, client, milestone, progress) -> str | None:
+    """Why a Started / Halfway / Final stage email is not sent, or None."""
+    from app.services import job_update_service as ju
+
+    if milestone not in ju.PROGRESS_MILESTONES:
+        return None
+    if (getattr(client, "update_level", None) or "DETAILED") == "KEY":
+        return ju.KEY_UPDATES_ONLY
+    if ju.is_short_job(progress):
+        return ju.SHORT_JOB
+    try:
+        if _sent_today(job.id):
+            return ju.ALREADY_TODAY
+    except Exception:  # noqa: BLE001 - if the check fails, send (still once per milestone)
+        logger.exception("Same-day check failed job=%s", job.id)
+    return None
+
+
+def _send_job_update(job, client, milestone, *, opted_in, recipient, progress=None, skip_reason=None, delay=None):
     content = job_update_email_content(
-        milestone, job.job_number, job.title or "", job.due_date
+        milestone, job.job_number, job.title or "", job.due_date, progress=progress, delay=delay
     )
     return send_notification(
         channel=NotificationChannel.EMAIL,
@@ -201,17 +234,24 @@ def _send_job_update(job, client, milestone, *, opted_in, recipient):
         job_order_id=job.id,
         client_id=client.id,
         milestone=milestone,
-        skip_reason=None if opted_in else OPTED_OUT,
+        skip_reason=(None if opted_in else OPTED_OUT) or skip_reason,
     )
 
 
 def notify_job_milestone(job_id: str, milestone: NotificationMilestone) -> list[NotificationLog]:
     """Email the client once per job and milestone when they opted in and have an email.
 
-    Never raises.
+    Progress emails (Started, Halfway, Final stage) follow the client's update
+    level and are skipped for short jobs or when the client already got an
+    update about the job today; the skip is logged so it is not retried.
+    Delayed emails go through ``notify_client_if_delayed``. Never raises.
     """
+    from app.services import job_update_service as ju
+
     logs: list[NotificationLog] = []
     try:
+        if milestone == NotificationMilestone.JOB_DELAYED:
+            return logs
         job = JobOrder.query.get(job_id)
         if not job or not job.client:
             logger.warning("notify_job_milestone: job/client missing id=%s", job_id)
@@ -219,15 +259,26 @@ def notify_job_milestone(job_id: str, milestone: NotificationMilestone) -> list[
         client = job.client
         if _already_logged(job.id, milestone, NotificationChannel.EMAIL):
             return logs
+        # Halfway after the final stage would be old news.
+        if milestone == NotificationMilestone.JOB_HALFWAY and _already_logged(
+            job.id, NotificationMilestone.JOB_FINAL_STAGE, NotificationChannel.EMAIL
+        ):
+            return logs
+        progress = ju.job_progress(job)
         log = _send_job_update(
             job,
             client,
             milestone,
             opted_in=bool(client.notify_by_email),
             recipient=client.email,
+            progress=progress,
+            skip_reason=_progress_skip_reason(job, client, milestone, progress),
         )
         if log is not None:
             logs.append(log)
+        if milestone == NotificationMilestone.JOB_RECEIVED and progress.get("finish"):
+            # The client now knows this finish date; Delayed is sent only past it.
+            _remember_finish(job, max(progress["finish"], job.due_date or progress["finish"]))
     except Exception:  # noqa: BLE001
         logger.exception("notify_job_milestone unexpected error job=%s", job_id)
         try:
@@ -235,6 +286,68 @@ def notify_job_milestone(job_id: str, milestone: NotificationMilestone) -> list[
         except Exception:  # noqa: BLE001
             pass
     return logs
+
+
+def _remember_finish(job, finish) -> None:
+    try:
+        job.client_notified_finish = finish
+        db.session.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("Could not record the finish date told to the client job=%s", job.id)
+        db.session.rollback()
+
+
+def _delayed_today(job_id: str) -> bool:
+    from app.services.job_update_service import shop_day_start_utc
+
+    return (
+        NotificationLog.query.filter(
+            NotificationLog.job_order_id == job_id,
+            NotificationLog.milestone == NotificationMilestone.JOB_DELAYED,
+            NotificationLog.created_at >= shop_day_start_utc(),
+        ).first()
+        is not None
+    )
+
+
+def notify_client_if_delayed(job) -> NotificationLog | None:
+    """Email the client when the scheduled finish moves past the date required
+    and past the latest date they were told. At most one Delayed email per job
+    a day; sent for every update level. Never raises."""
+    from app.models.job_order import JobOrderStatus
+    from app.services import job_update_service as ju
+
+    try:
+        if job is None or job.status not in (JobOrderStatus.SCHEDULED, JobOrderStatus.IN_PROGRESS):
+            return None
+        client = job.client
+        if client is None or not job.due_date:
+            return None
+        progress = ju.job_progress(job)
+        finish = progress.get("finish")
+        told = job.client_notified_finish or job.due_date
+        if not finish or finish <= job.due_date or finish <= told:
+            return None
+        if _delayed_today(job.id):
+            return None
+        log = _send_job_update(
+            job,
+            client,
+            NotificationMilestone.JOB_DELAYED,
+            opted_in=bool(client.notify_by_email),
+            recipient=client.email,
+            progress=progress,
+            delay={"reason": ju.delay_reason(job), "days": (finish - job.due_date).days},
+        )
+        _remember_finish(job, finish)
+        return log
+    except Exception:  # noqa: BLE001
+        logger.exception("notify_client_if_delayed failed job=%s", getattr(job, "id", None))
+        try:
+            db.session.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return None
 
 
 def safe_notify_job_milestone(job_id: str, milestone: NotificationMilestone) -> None:
@@ -288,12 +401,23 @@ def resend_notification(log_id: str) -> NotificationLog:
     # Always use the client's current email. When consent is off, still log a
     # skipped attempt with the FR-047 message, then surface it to the UI.
     if opted_in:
+        from app.services import job_update_service as ju
+
+        progress = ju.job_progress(job)
+        delay = None
+        if original.milestone == NotificationMilestone.JOB_DELAYED and progress.get("finish") and job.due_date:
+            delay = {
+                "reason": ju.delay_reason(job),
+                "days": max((progress["finish"] - job.due_date).days, 0),
+            }
         log = _send_job_update(
             job,
             client,
             original.milestone,
             opted_in=True,
             recipient=client.email,
+            progress=progress,
+            delay=delay,
         )
     else:
         log = send_notification(

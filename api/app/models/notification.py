@@ -14,10 +14,17 @@ def _uuid():
 
 
 class NotificationMilestone(enum.Enum):
+    """Client job updates. JOB_DELIVERED is the "ready for delivery" email.
+    JOB_COMPLETED is no longer sent (Ready for delivery says the job is done);
+    it stays for older log rows."""
+
     JOB_RECEIVED = "JOB_RECEIVED"
     JOB_STARTED = "JOB_STARTED"
     JOB_COMPLETED = "JOB_COMPLETED"
     JOB_DELIVERED = "JOB_DELIVERED"
+    JOB_HALFWAY = "JOB_HALFWAY"
+    JOB_FINAL_STAGE = "JOB_FINAL_STAGE"
+    JOB_DELAYED = "JOB_DELAYED"
 
 
 class NotificationChannel(enum.Enum):

@@ -364,6 +364,13 @@ def sync_jobs(jobs) -> int:
         db.session.rollback()
         log.exception("At-risk check failed")
         return 0
+    # Client: a Delayed email when the scheduled finish moved past the date
+    # required and past what they were told (never raises).
+    from app.services.notification_service import notify_client_if_delayed
+
+    for job in jobs:
+        if job is not None:
+            notify_client_if_delayed(job)
     return raised
 
 

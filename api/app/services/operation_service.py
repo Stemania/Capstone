@@ -24,6 +24,36 @@ from app.services.job_order_service import (
 from app.utils.errors import AppError
 
 
+
+def _notify_after_start(job, operation, before_status):
+    """Client email: Started on the job's first operation, Final stage when the
+    last one starts. Sent after the commit; never raises."""
+    from app.models.notification import NotificationMilestone
+    from app.services.job_update_service import is_final_stage_start
+    from app.services.notification_service import safe_notify_job_milestone
+
+    try:
+        if before_status != JobOrderStatus.IN_PROGRESS and job.status == JobOrderStatus.IN_PROGRESS:
+            safe_notify_job_milestone(job.id, NotificationMilestone.JOB_STARTED)
+        elif is_final_stage_start(job, operation):
+            safe_notify_job_milestone(job.id, NotificationMilestone.JOB_FINAL_STAGE)
+    except Exception:  # noqa: BLE001 - an email must never fail the action
+        pass
+
+
+def _notify_after_complete(job):
+    """Client email: Halfway once about half the target hours are done. The
+    finished job is announced by Ready for delivery, not here."""
+    from app.models.notification import NotificationMilestone
+    from app.services.job_update_service import halfway_reached
+    from app.services.notification_service import safe_notify_job_milestone
+
+    try:
+        if job.status != JobOrderStatus.COMPLETED and halfway_reached(job):
+            safe_notify_job_milestone(job.id, NotificationMilestone.JOB_HALFWAY)
+    except Exception:  # noqa: BLE001
+        pass
+
 def _parse_timestamp(value):
     if value is None or value == "":
         return datetime.now(timezone.utc)
@@ -264,14 +294,7 @@ def start_operation(operation, user_id, user_role, timestamp, received_at=None):
         )
         job.status = derive_job_status(job)
         db.session.commit()
-        if (
-            before_status != JobOrderStatus.IN_PROGRESS
-            and job.status == JobOrderStatus.IN_PROGRESS
-        ):
-            from app.models.notification import NotificationMilestone
-            from app.services.notification_service import safe_notify_job_milestone
-
-            safe_notify_job_milestone(job.id, NotificationMilestone.JOB_STARTED)
+        _notify_after_start(job, operation, before_status)
         return operation
     except Exception:
         db.session.rollback()
@@ -425,14 +448,7 @@ def complete_operation(operation, user_id, user_role, timestamp, received_at=Non
         job.status = derive_job_status(job)
         advance_part_condition(job)
         db.session.commit()
-        if (
-            before_status != JobOrderStatus.COMPLETED
-            and job.status == JobOrderStatus.COMPLETED
-        ):
-            from app.models.notification import NotificationMilestone
-            from app.services.notification_service import safe_notify_job_milestone
-
-            safe_notify_job_milestone(job.id, NotificationMilestone.JOB_COMPLETED)
+        _notify_after_complete(job)
         return operation
     except Exception:
         db.session.rollback()
@@ -540,14 +556,7 @@ def send_out_operation(operation, user_role, sent_out_date, sent_to):
         operation.machine_unit_id = None
         job.status = derive_job_status(job)
         db.session.commit()
-        if (
-            before_status != JobOrderStatus.IN_PROGRESS
-            and job.status == JobOrderStatus.IN_PROGRESS
-        ):
-            from app.models.notification import NotificationMilestone
-            from app.services.notification_service import safe_notify_job_milestone
-
-            safe_notify_job_milestone(job.id, NotificationMilestone.JOB_STARTED)
+        _notify_after_start(job, operation, before_status)
         return operation
     except Exception:
         db.session.rollback()
@@ -588,14 +597,7 @@ def return_operation(operation, returned_date):
         job.status = derive_job_status(job)
         advance_part_condition(job)
         db.session.commit()
-        if (
-            before_status != JobOrderStatus.COMPLETED
-            and job.status == JobOrderStatus.COMPLETED
-        ):
-            from app.models.notification import NotificationMilestone
-            from app.services.notification_service import safe_notify_job_milestone
-
-            safe_notify_job_milestone(job.id, NotificationMilestone.JOB_COMPLETED)
+        _notify_after_complete(job)
         return operation
     except Exception:
         db.session.rollback()

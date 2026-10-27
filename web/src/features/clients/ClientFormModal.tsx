@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Button, Col, Form, Input, Modal, Row, Switch, message } from 'antd';
+import { Button, Col, Form, Input, Modal, Row, Segmented, Switch, message } from 'antd';
 import { ContactsOutlined } from '@ant-design/icons';
 import { clientsApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import type { Client } from '../../types';
+import './clientForm.css';
 
 function sectionLabel(text: string) {
   return <div className="app-form-section">{text}</div>;
@@ -25,6 +26,7 @@ export default function ClientFormModal({
   const [saving, setSaving] = useState(false);
   const notifyByEmail = Form.useWatch('notifyByEmail', form);
   const email = Form.useWatch('email', form);
+  const updateLevel = Form.useWatch('updateLevel', form);
 
   useEffect(() => {
     if (!open) return;
@@ -35,10 +37,11 @@ export default function ClientFormModal({
         email: client.email,
         mobileNumber: client.mobileNumber,
         notifyByEmail: !!client.notifyByEmail,
+        updateLevel: client.updateLevel || 'DETAILED',
       });
     } else {
       form.resetFields();
-      form.setFieldsValue({ notifyByEmail: false });
+      form.setFieldsValue({ notifyByEmail: false, updateLevel: 'DETAILED' });
     }
   }, [open, client, form]);
 
@@ -52,6 +55,7 @@ export default function ClientFormModal({
         email: values.email || undefined,
         mobileNumber: values.mobileNumber || undefined,
         notifyByEmail: !!values.notifyByEmail,
+        updateLevel: values.updateLevel || 'DETAILED',
       };
       if (client) {
         const { data } = await clientsApi.update(client.id, payload);
@@ -142,13 +146,31 @@ export default function ClientFormModal({
             <div className="client-notify__copy">
               <div className="client-notify__title">Send job updates by email</div>
               <div className="client-notify__hint">
-                Status updates when a job is received, started, completed, or ready for delivery
+                Emails when a job is received, as it progresses, if it is delayed, and when it is
+                ready for delivery
               </div>
             </div>
             <Form.Item name="notifyByEmail" valuePropName="checked" style={{ marginBottom: 0 }}>
               <Switch />
             </Form.Item>
           </div>
+          {notifyByEmail ? (
+            <div className="client-notify__level">
+              <Form.Item name="updateLevel" style={{ marginBottom: 4 }}>
+                <Segmented
+                  options={[
+                    { value: 'DETAILED', label: 'Detailed progress' },
+                    { value: 'KEY', label: 'Key updates only' },
+                  ]}
+                />
+              </Form.Item>
+              <div className="client-notify__hint">
+                {updateLevel === 'KEY'
+                  ? 'Received, ready for delivery, and delays: about 2 emails per job.'
+                  : 'Also when work starts, at about halfway, and at the final stage: up to 5 emails per job, never more than one progress email a day.'}
+              </div>
+            </div>
+          ) : null}
           {emailMissing && (
             <div style={{ fontSize: 12, color: '#b45309', marginTop: 8 }}>
               Add an email address above — updates cannot be sent without one.

@@ -279,12 +279,13 @@ def move_down_unit_work(unit_id):
     """action: MOVE_UNIT (another free unit of the type), AFTER_REPAIR or LEAVE."""
     from app.services.shop_floor_check_service import resolve_breakdown
 
+    from app.services.completion_estimate_service import check_released_jobs
+
     data = request.get_json() or {}
-    return jsonify(
-        resolve_breakdown(
-            unit_id, data.get("action"), actor_id=get_current_user_id()
-        )
-    )
+    result = resolve_breakdown(unit_id, data.get("action"), actor_id=get_current_user_id())
+    # Moved work can push jobs late: staff alerts and client Delayed emails.
+    check_released_jobs()
+    return jsonify(result)
 
 
 @operations_bp.route("/machine-units/downtime/<downtime_id>/close", methods=["POST"])

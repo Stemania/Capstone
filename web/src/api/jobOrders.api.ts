@@ -29,6 +29,7 @@ export const clientsApi = {
     email?: string;
     mobileNumber?: string;
     notifyByEmail?: boolean;
+    updateLevel?: 'DETAILED' | 'KEY';
   }) => apiClient.post<Client>('/clients', data),
   update: (
     id: string,
@@ -38,6 +39,7 @@ export const clientsApi = {
       email?: string;
       mobileNumber?: string;
       notifyByEmail?: boolean;
+      updateLevel?: 'DETAILED' | 'KEY';
     }
   ) => apiClient.patch<Client>(`/clients/${id}`, data),
 };

@@ -22,6 +22,10 @@ class Client(db.Model):
     mobile_number = db.Column(db.String(32), nullable=True)
     notify_by_email = db.Column(db.Boolean, nullable=False, default=False)
     notify_by_sms = db.Column(db.Boolean, nullable=False, default=False)
+    # DETAILED: every job update; KEY: received, ready for delivery and delays only.
+    update_level = db.Column(
+        db.String(10), nullable=False, default="DETAILED", server_default="DETAILED"
+    )
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
 
     job_orders = db.relationship("JobOrder", back_populates="client")
@@ -35,6 +39,7 @@ class Client(db.Model):
             "email": self.email,
             "mobileNumber": self.mobile_number,
             "notifyByEmail": bool(self.notify_by_email),
+            "updateLevel": self.update_level or "DETAILED",
             # SMS channel retired — column kept; not exposed in API responses.
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }

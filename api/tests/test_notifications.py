@@ -138,7 +138,7 @@ def test_templates_have_no_links():
 
 def test_for_delivery_message_reads_ready_for_delivery():
     body = render_message(NotificationMilestone.JOB_DELIVERED, "JO-2026-ABCD", "Cyclodrive base")
-    assert body == "Your job JO-2026-ABCD (Cyclodrive base) is ready for delivery."
+    assert body == "Your job JO-2026-ABCD (Cyclodrive base) has been completed and is ready for delivery."
     completed = render_message(NotificationMilestone.JOB_COMPLETED, "JO-2026-ABCD", "Cyclodrive base")
     assert "ready for delivery" in completed
     assert "delivered" not in (body + completed).lower()
@@ -149,6 +149,11 @@ def test_each_milestone_fires_once_per_job(monkeypatch, flask_app):
     set_job, logs_store, existing = _patch_notify(monkeypatch, sends)
     job = _job(_client())
 
+    import app.services.notification_service as svc
+
+    monkeypatch.setattr(svc, "_sent_today", lambda job_id: False)
+    # Delayed has its own rule (notify_client_if_delayed), not once per job.
+    once = [m for m in NotificationMilestone if m != NotificationMilestone.JOB_DELAYED]
     with flask_app.app_context():
         set_job(job)
         for m in NotificationMilestone:
@@ -156,11 +161,11 @@ def test_each_milestone_fires_once_per_job(monkeypatch, flask_app):
                 notify_job_milestone(job.id, m)
                 existing.add((job.id, m, NotificationChannel.EMAIL))
 
-    assert len(sends) == 4
-    assert len(logs_store) == 4
+    assert len(sends) == len(once)
+    assert len(logs_store) == len(once)
     assert all(log.status == NotificationStatus.SENT for log in logs_store)
     assert all(log.provider_reference == "ref-1" for log in logs_store)
-    assert {log.event for log in logs_store} == {m.value for m in NotificationMilestone}
+    assert {log.event for log in logs_store} == {m.value for m in once}
 
 
 def test_email_goes_to_normalized_client_email(monkeypatch, flask_app):
@@ -176,7 +181,7 @@ def test_email_goes_to_normalized_client_email(monkeypatch, flask_app):
     email = sends[0]
     assert email["to"] == "a@example.com"
     assert email["parts"][0] == "Job JO-2026-ABCD received - Brothers Machine Shop"
-    assert "Target date: Oct 28, 2026." in email["parts"][1]
+    assert "Your target date: Oct 28, 2026" in email["parts"][1]
 
 
 def test_no_contact_produces_skipped(monkeypatch, flask_app):

@@ -229,6 +229,9 @@ class JobOrder(db.Model):
     delivered_at = db.Column(db.DateTime(timezone=True), nullable=True)
     # When the Admin set the job For Delivery.
     for_delivery_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # The latest finish date the client was told (Received or Delayed email);
+    # a Delayed email goes out only when the scheduled finish moves past it.
+    client_notified_finish = db.Column(db.Date, nullable=True)
     # When the Admin confirmed the schedule; worker actions cannot predate it.
     released_at = db.Column(db.DateTime(timezone=True), nullable=True)
     cancelled_at = db.Column(db.DateTime(timezone=True), nullable=True)

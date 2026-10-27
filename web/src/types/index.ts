@@ -91,6 +91,8 @@ export interface Client {
   email?: string | null;
   mobileNumber?: string | null;
   notifyByEmail?: boolean;
+  /** DETAILED: every job update (default); KEY: received, ready for delivery and delays only. */
+  updateLevel?: 'DETAILED' | 'KEY';
   /** @deprecated SMS channel retired — kept optional for prototype/legacy only. */
   notifyBySms?: boolean;
   createdAt?: string;
@@ -1029,7 +1031,10 @@ export type NotificationMilestone =
   | 'JOB_RECEIVED'
   | 'JOB_STARTED'
   | 'JOB_COMPLETED'
-  | 'JOB_DELIVERED';
+  | 'JOB_DELIVERED'
+  | 'JOB_HALFWAY'
+  | 'JOB_FINAL_STAGE'
+  | 'JOB_DELAYED';
 
 /** Historical rows may still be SMS; new sends are email only. */
 export type NotificationChannel = 'EMAIL' | 'SMS' | string;

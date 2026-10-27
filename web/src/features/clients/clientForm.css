@@ -1,0 +1,7 @@
+/* Detailed / Key updates choice under "Send job updates by email";
+   indented like the row above it. */
+.client-notify__level {
+  margin-top: 12px;
+  padding: 12px 18px 14px;
+  border-top: 1px dashed var(--c-border);
+}

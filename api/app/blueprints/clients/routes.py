@@ -44,6 +44,11 @@ def _apply_client_fields(client: Client, data: dict, *, creating: bool = False):
                 "VALIDATION_ERROR",
                 400,
             )
+    if "updateLevel" in data:
+        level = str(data.get("updateLevel") or "").strip().upper()
+        if level not in ("DETAILED", "KEY"):
+            raise AppError("updateLevel must be DETAILED or KEY", "VALIDATION_ERROR", 400)
+        client.update_level = level
     # SMS delivery is retired; keep the column but always leave it off.
     client.notify_by_sms = False
 

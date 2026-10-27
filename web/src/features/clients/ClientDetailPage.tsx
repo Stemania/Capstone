@@ -338,7 +338,7 @@ export default function ClientDetailPage() {
                     <span className="client-contact__value">
                       {notify.length ? (
                         <StatusPill tone="blue" compact>
-                          By email
+                          {data.updateLevel === 'KEY' ? 'By email · key updates' : 'By email · detailed'}
                         </StatusPill>
                       ) : (
                         <StatusPill tone="grey" compact>
