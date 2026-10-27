@@ -69,9 +69,9 @@ import { jobOrdersListPath } from './jobOrderListPaths';
 import OutsourcedOperationPanel from './OutsourcedOperationPanel';
 import OrderMaterialsModal from '../supplier-orders/OrderMaterialsModal';
 import {
-  EarlierPlannedMaterials,
   JobMaterialsTable,
   materialArrivalText,
+  rowsFromPlanned,
   rowsFromPurchases,
   rowsFromSummary,
 } from './MaterialOrdersSummary';
@@ -657,10 +657,10 @@ function JobOrderDetailView() {
   const printBlockers = jobOrderPrintBlockers(job);
   const isInvoicedOrDelivered = Boolean(job.salesInvoice) || isJobReleasedForDelivery(job);
   const deliveryStep = isAdmin ? nextDeliveryStep(job.status) : null;
-  const materialRows = canManage
-    ? rowsFromPurchases(purchases)
-    : rowsFromSummary(job.materialLines || []);
-  const earlierPlanned = job.rawMaterials || [];
+  const materialRows = [
+    ...rowsFromPlanned(job.plannedMaterials),
+    ...(canManage ? rowsFromPurchases(purchases) : rowsFromSummary(job.materialLines || [])),
+  ];
   const canCorrectInvoice =
     canOfficeWrite && Boolean(job.salesInvoice) && !isJobReleasedForDelivery(job);
   const isNotStarted = (op: Operation) =>
@@ -1066,7 +1066,6 @@ function JobOrderDetailView() {
                 }
               />
             ) : null}
-            <EarlierPlannedMaterials materials={earlierPlanned} />
           </div>
 
           <div className="jo-dcard" style={cardStyle({ marginBottom: 16 })}>
@@ -1367,7 +1366,6 @@ function JobOrderDetailView() {
             </div>
             <div style={DETAIL_GRID}>
               <DetailRow label="Client PO #" value={dash(job.clientPoNumber)} />
-              <DetailRow label="PO date" value={fmtDate(job.poDate)} />
               <DetailRow label="Job type" value={friendlyEnum(job.jobType, JOB_TYPE_LABEL)} />
               <DetailRow
                 label="Material"
@@ -1702,6 +1700,7 @@ function JobOrderDetailView() {
         onClose={() => setPurchaseOpen(false)}
         jobId={job.id}
         defaultSupplierId={job.supplierId}
+        planned={job.plannedMaterials}
         onSaved={async (order) => {
           setPurchaseOpen(false);
           await fetchPurchases();

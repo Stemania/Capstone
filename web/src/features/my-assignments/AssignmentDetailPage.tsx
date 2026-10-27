@@ -386,10 +386,11 @@ export default function AssignmentDetailPage() {
               boxShadow: colors.shadow,
             }}
           >
-            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>Planned (earlier record)</div>
+            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>Materials needed</div>
             {job.rawMaterials.map((m, i) => (
               <div key={`${m.name}-${i}`} style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 4 }}>
                 {m.name}
+                {[m.gradeOrSpec, m.sizeSpec].filter(Boolean).length ? ` (${[m.gradeOrSpec, m.sizeSpec].filter(Boolean).join(', ')})` : ''}
                 {(m.quantity != null || m.unit) && (
                   <> — {[m.quantity, m.unit].filter((x) => x != null && x !== '').join(' ')}</>
                 )}

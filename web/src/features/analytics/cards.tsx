@@ -231,7 +231,7 @@ export function DemandForecastCard({
           <ForecastInfo
             f={series}
             format={(v) => fmtNum(v, 1)}
-            what="Job orders received per month, by PO date (creation date when there is none)."
+            what="Job orders received per month, by the date they were entered (the client PO date on older records)."
           />
         ) : undefined
       }

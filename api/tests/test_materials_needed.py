@@ -143,12 +143,106 @@ def test_form_can_choose_materials_needed(client, shop):
     assert res.status_code == 400
 
 
-def test_raw_materials_list_is_no_longer_saved(client, shop):
-    job = _create_job(client, shop, rawMaterials=[{"name": "Plate", "quantity": 1}])
-    assert job["rawMaterials"] == []
-    res = _patch(client, shop["office"], job["id"], {"rawMaterials": [{"name": "Plate"}]})
+def _plan(name="Round bar 50mm", **extra):
+    return {"materialCatalogId": ensure_material(name), "quantity": 4, "unit": "pcs", **extra}
+
+
+def test_planned_materials_are_saved_from_the_form(client, shop):
+    job = _create_job(client, shop, rawMaterials=[_plan(gradeOrSpec="AISI 1045", sizeSpec="Ø50 × 200 mm")])
+    [line] = job["rawMaterials"]
+    assert line["name"] == "Round bar 50mm"
+    assert line["gradeOrSpec"] == "AISI 1045"
+    assert line["sizeSpec"] == "Ø50 × 200 mm"
+    assert line["quantity"] == 4 and line["unit"] == "pcs"
+    assert line["id"]
+    [summary] = _get(client, shop, job["id"])["plannedMaterials"]
+    assert summary["status"] == "TO_ORDER"
+    assert summary["remainingQuantity"] == 4
+    assert summary["materialCatalogId"] == line["materialCatalogId"]
+
+    # Edited while pending: the kept line keeps its id.
+    res = _patch(
+        client, shop["office"], job["id"],
+        {"rawMaterials": [{**line, "quantity": 6}, _plan("Plate 10mm", quantity=1, unit="sheet")]},
+    )
     assert res.status_code == 200, res.get_json()
-    assert res.get_json()["rawMaterials"] == []
+    kept, added = res.get_json()["rawMaterials"]
+    assert kept["id"] == line["id"] and kept["quantity"] == 6
+    assert added["name"] == "Plate 10mm" and added["id"] != line["id"]
+
+
+def test_planned_materials_need_a_catalog_material_and_quantity(client, shop):
+    for bad in (
+        [{"name": "Free text plate", "quantity": 1}],
+        [_plan(quantity=0)],
+        [_plan(quantity=None)],
+        [_plan(unit="bucket")],
+    ):
+        res = client.post(
+            "/api/v1/job-orders",
+            json={"clientId": shop["client"].id, "title": "X", "dueDate": "2031-06-01",
+                  "jobType": "FABRICATION", "rawMaterials": bad},
+            headers=_headers(shop["office"]),
+        )
+        assert res.status_code == 400, bad
+
+
+def test_not_required_job_lists_no_materials(client, shop):
+    res = client.post(
+        "/api/v1/job-orders",
+        json={"clientId": shop["client"].id, "title": "X", "dueDate": "2031-06-01",
+              "jobType": "REPAIR", "materialStatus": "NOT_REQUIRED", "rawMaterials": [_plan()]},
+        headers=_headers(shop["office"]),
+    )
+    assert res.status_code == 400
+    job = _create_job(client, shop, "REPAIR", materialStatus="NOT_REQUIRED", rawMaterials=[])
+    assert job["rawMaterials"] == []
+
+
+def test_order_line_counts_against_its_planned_material(client, shop):
+    job = _create_job(client, shop, rawMaterials=[_plan()])
+    planned_id = job["rawMaterials"][0]["id"]
+    res = _add_line(client, shop, job["id"], quantity=3, plannedMaterialId=planned_id)
+    assert res.status_code == 201, res.get_json()
+    assert res.get_json()["plannedMaterialId"] == planned_id
+    [summary] = _get(client, shop, job["id"])["plannedMaterials"]
+    assert summary["draftQuantity"] == 3 and summary["remainingQuantity"] == 1
+    assert summary["status"] == "PARTLY_ORDERED"
+
+    # A planned line from another job, or a different material, is refused.
+    assert _add_line(client, shop, job["id"], plannedMaterialId="not-on-this-job").status_code == 400
+    other = ensure_material("Plate 10mm")
+    res = _add_line(client, shop, job["id"], materialCatalogId=other, plannedMaterialId=planned_id)
+    assert res.status_code == 400
+
+
+def test_ordered_planned_line_cannot_be_removed_or_cut_below_the_order(client, shop):
+    job = _create_job(client, shop, rawMaterials=[_plan()])
+    line = job["rawMaterials"][0]
+    _add_line(client, shop, job["id"], quantity=3, plannedMaterialId=line["id"])
+
+    res = _patch(client, shop["office"], job["id"], {"rawMaterials": []})
+    assert res.status_code == 409 and res.get_json()["error"]["code"] == "PLANNED_MATERIAL_ORDERED"
+    res = _patch(client, shop["office"], job["id"], {"rawMaterials": [{**line, "quantity": 2}]})
+    assert res.status_code == 409
+    res = _patch(
+        client, shop["office"], job["id"],
+        {"rawMaterials": [{**line, "materialCatalogId": ensure_material("Plate 10mm")}]},
+    )
+    assert res.status_code == 409
+    res = _patch(client, shop["office"], job["id"], {"rawMaterials": [{**line, "quantity": 3}]})
+    assert res.status_code == 200, res.get_json()
+
+
+def test_planned_materials_lock_with_the_job_after_release(client, shop):
+    job = _create_job(client, shop, rawMaterials=[_plan()])
+    row = db.session.get(JobOrder, job["id"])
+    row.status = JobOrderStatus.SCHEDULED
+    db.session.commit()
+    res = _patch(client, shop["office"], job["id"], {"rawMaterials": []})
+    assert res.status_code == 409 and res.get_json()["error"]["code"] == "JOB_INFO_LOCKED"
+    res = _patch(client, shop["admin"], job["id"], {"rawMaterials": []})
+    assert res.status_code == 403
 
 
 def test_only_admin_sets_not_required_after_release(client, shop):

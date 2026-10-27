@@ -132,6 +132,10 @@ export default function JobOrderPrintPage() {
   }
 
   const materials = job.materialLines || [];
+  // Materials needed that are not on a supplier order yet.
+  const toOrder = (job.plannedMaterials || []).filter(
+    (p) => (p.status === 'TO_ORDER' || p.status === 'PARTLY_ORDERED') && (p.remainingQuantity ?? 1) > 0,
+  );
   const quantity =
     job.quantity != null ? `${job.quantity}${job.unitOfMeasure ? ` ${job.unitOfMeasure}` : ''}` : '—';
   const blockers = jobOrderPrintBlockers(job);
@@ -280,7 +284,7 @@ export default function JobOrderPrintPage() {
       </table>
 
       <div className="shop-print-section">Materials</div>
-      {materials.length === 0 ? (
+      {materials.length === 0 && toOrder.length === 0 ? (
         <div>{job.materialStatus === 'NOT_REQUIRED' ? 'Not required.' : 'Not ordered yet.'}</div>
       ) : (
         <table className="shop-print-table shop-print-table--compact">
@@ -313,6 +317,24 @@ export default function JobOrderPrintPage() {
                 <td>{orDash(m.supplierName)}</td>
                 <td>{m.poNumber || (m.status === 'DRAFT' ? 'Not issued' : '—')}</td>
                 <td>{materialStatus(m)}</td>
+              </tr>
+            ))}
+            {toOrder.map((p) => (
+              <tr key={`plan-${p.id}`}>
+                <td>
+                  {orDash(p.name)}
+                  {p.gradeOrSpec || p.sizeSpec ? (
+                    <div className="jo-print-sub">{[p.gradeOrSpec, p.sizeSpec].filter(Boolean).join(' · ')}</div>
+                  ) : null}
+                </td>
+                <td className="num">
+                  {(p.remainingQuantity ?? p.plannedQuantity) != null
+                    ? `${p.remainingQuantity ?? p.plannedQuantity}${p.unit ? ` ${p.unit}` : ''}`
+                    : '—'}
+                </td>
+                <td>—</td>
+                <td>Not issued</td>
+                <td>To order</td>
               </tr>
             ))}
           </tbody>

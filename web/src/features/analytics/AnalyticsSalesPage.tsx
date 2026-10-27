@@ -45,7 +45,7 @@ export default function AnalyticsSalesPage() {
           label="Job orders in"
           value={fmtNum(jobs?.received.count)}
           delta={jobs && jobsPrev ? pctChange(jobs.received.count, jobsPrev.received.count) : undefined}
-          info="By PO date (creation date when there is none)."
+          info="By the date the job order was entered (the client PO date on older records)."
         />
         <Kpi label="Avg job value" value={fmtPesoCompact(avg)} delta={avgPrev != null ? pctChange(avg, avgPrev) : undefined} />
         <Kpi

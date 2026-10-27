@@ -11,16 +11,19 @@ import {
   Col,
   Segmented,
 } from 'antd';
+import { CheckOutlined } from '@ant-design/icons';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { clientsApi, jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
-import { isFutureShopDay, isPastShopDay } from '../../utils/shopTime';
+import { isPastShopDay } from '../../utils/shopTime';
 import type { Client, JobOrderStatus } from '../../types';
 import { jobOrdersDraftsListPath } from './jobOrderListPaths';
 import { MATERIALS_NEEDED_OPTIONS } from './jobOrderListTabs';
 import { IdChip, Page, SectionCard, PageSkeleton } from '../../components/ui';
+import PlannedMaterialsEditor from './PlannedMaterialsEditor';
+import { blankPlannedRow, plannedPayload, rowsFromJob, type PlannedRow } from './plannedMaterials';
 import './joForm.css';
 
 const { TextArea } = Input;
@@ -47,6 +50,9 @@ export default function JobOrderFormPage() {
   const [jobStatus, setJobStatus] = useState<JobOrderStatus | null>(null);
   const [materialsTouched, setMaterialsTouched] = useState(false);
   const [loadedValues, setLoadedValues] = useState<Record<string, unknown> | null>(null);
+  const [materials, setMaterials] = useState<PlannedRow[]>(() => (isEdit ? [] : [blankPlannedRow()]));
+  const [materialErrorKey, setMaterialErrorKey] = useState<number | null>(null);
+  const materialsNeeded = Form.useWatch('materialsNeeded', form) as MaterialsNeeded | undefined;
   const { isAdmin, canOfficeWrite } = useAuth();
   const released = jobStatus != null && jobStatus !== 'DRAFT';
   /** Edit job info: Office Staff only, and only before release. */
@@ -86,13 +92,13 @@ export default function JobOrderFormPage() {
         setJobNumber(data.jobNumber || data.id.slice(0, 8).toUpperCase());
         setJobStatus(data.status);
         setMaterialsTouched(true);
+        setMaterials(rowsFromJob(data.rawMaterials, data.plannedMaterials));
         setLoadedValues({
           clientId: data.clientId,
           title: data.title,
           description: data.description,
           dueDate: data.dueDate ? dayjs(data.dueDate) : undefined,
           clientPoNumber: data.clientPoNumber,
-          poDate: data.poDate ? dayjs(data.poDate) : undefined,
           jobType: data.jobType || 'FABRICATION',
           quantity: data.quantity,
           unitOfMeasure: data.unitOfMeasure,
@@ -129,7 +135,6 @@ export default function JobOrderFormPage() {
       description?: string;
       dueDate: dayjs.Dayjs;
       clientPoNumber?: string;
-      poDate?: dayjs.Dayjs;
       jobType: string;
       quantity?: number;
       unitOfMeasure?: string;
@@ -142,6 +147,15 @@ export default function JobOrderFormPage() {
       return;
     }
 
+    const planned =
+      values.materialsNeeded === 'TO_ORDER' ? plannedPayload(materials) : { lines: [] };
+    if (planned.error) {
+      setMaterialErrorKey(planned.error.key);
+      setError(planned.error.message);
+      return;
+    }
+    setMaterialErrorKey(null);
+
     setSubmitting(true);
     setError('');
     const payload = {
@@ -150,12 +164,12 @@ export default function JobOrderFormPage() {
       description: values.description,
       dueDate: values.dueDate.format('YYYY-MM-DD'),
       clientPoNumber: values.clientPoNumber || null,
-      poDate: values.poDate ? values.poDate.format('YYYY-MM-DD') : null,
       jobType: values.jobType,
       quantity: values.quantity ?? null,
       unitOfMeasure: values.unitOfMeasure || null,
       amount: values.amount ?? null,
       materialStatus: values.materialsNeeded,
+      rawMaterials: planned.lines,
     };
 
     try {
@@ -187,9 +201,12 @@ export default function JobOrderFormPage() {
     return <Navigate to={jobOrdersDraftsListPath()} replace />;
   }
 
+  const needsMaterials = (materialsNeeded ?? 'TO_ORDER') === 'TO_ORDER';
+
   return (
-    <Page className="jo-form-page">
+    <Page className="jo-form-page jo-form-page--split">
       <SectionCard
+        className="jo-form-card"
         title={
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
             {pageHeading}
@@ -208,7 +225,9 @@ export default function JobOrderFormPage() {
           </span>
         }
       >
-        {error && <Alert type="error" title={error} style={{ marginBottom: 12 }} showIcon />}
+        {error && (
+          <Alert type="error" title={error} style={{ marginBottom: 12 }} showIcon closable onClose={() => setError('')} />
+        )}
 
         <Form
           form={form}
@@ -226,113 +245,126 @@ export default function JobOrderFormPage() {
             }
           }}
         >
-          <div className="ui-form-section">Client information</div>
-          <Row gutter={[16, 0]}>
-            <Col xs={24} md={8}>
-              <Form.Item name="clientId" label="Client" rules={[{ required: true }]}>
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  options={clients.map((c) => ({ value: c.id, label: c.name }))}
-                  placeholder="Select client"
-                />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={8}>
-              <Form.Item name="clientPoNumber" label="Client PO #">
-                <Input placeholder="PO number" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={8}>
-              <Form.Item name="poDate" label="PO Date">
-                <DatePicker style={{ width: '100%' }} format="MMM D, YYYY" disabledDate={isFutureShopDay} />
-              </Form.Item>
-            </Col>
-          </Row>
+          <div className="jo-form__split">
+            <section className="jo-form__panel" aria-label="Job details">
+              <div className="ui-form-section">Job details</div>
+              <Row gutter={[16, 0]}>
+                <Col xs={24} md={15}>
+                  <Form.Item name="clientId" label="Client" rules={[{ required: true, message: 'Choose the client' }]}>
+                    <Select
+                      showSearch
+                      optionFilterProp="label"
+                      options={clients.map((c) => ({ value: c.id, label: c.name }))}
+                      placeholder="Select client"
+                    />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={9}>
+                  <Form.Item name="clientPoNumber" label="Client PO #">
+                    <Input placeholder="From the client's purchase order" />
+                  </Form.Item>
+                </Col>
+              </Row>
 
-          <div className="ui-form-section">Job details</div>
-          <Row gutter={[16, 0]}>
-            <Col xs={24} md={12}>
-              <Form.Item name="title" label="Title" rules={[{ required: true }]}>
+              <Form.Item name="title" label="Title" rules={[{ required: true, message: 'Enter a title' }]}>
                 <Input placeholder="e.g. Modification of Cyclodrive Base" />
               </Form.Item>
-            </Col>
-            <Col xs={24} md={6}>
-              <Form.Item name="jobType" label="Job Type" rules={[{ required: true }]}>
-                <Select
-                  options={[
-                    { value: 'FABRICATION', label: 'Fabrication' },
-                    { value: 'MODIFICATION', label: 'Modification' },
-                    { value: 'REPAIR', label: 'Repair' },
-                  ]}
+              <Row gutter={[16, 0]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="jobType" label="Job type" rules={[{ required: true }]}>
+                    <Select
+                      options={[
+                        { value: 'FABRICATION', label: 'Fabrication' },
+                        { value: 'MODIFICATION', label: 'Modification' },
+                        { value: 'REPAIR', label: 'Repair' },
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="dueDate" label="Date required" rules={[{ required: true, message: 'Pick the date required' }]}>
+                    <DatePicker style={{ width: '100%' }} format="MMM D, YYYY" disabledDate={isPastShopDay} />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Row gutter={[16, 0]}>
+                <Col xs={12} sm={8}>
+                  <Form.Item name="quantity" label="Quantity">
+                    <InputNumber style={{ width: '100%' }} min={0} step={1} placeholder="1" />
+                  </Form.Item>
+                </Col>
+                <Col xs={12} sm={8}>
+                  <Form.Item name="unitOfMeasure" label="Unit">
+                    <Select
+                      allowClear
+                      placeholder="pcs"
+                      options={[
+                        { value: 'pcs', label: 'pcs' },
+                        { value: 'lot', label: 'lot' },
+                        { value: 'set', label: 'set' },
+                        { value: 'kg', label: 'kg' },
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="amount" label="Amount (PHP)">
+                    <InputNumber style={{ width: '100%' }} min={0} step={0.01} placeholder="0.00" />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Form.Item name="description" label="Description" className="jo-form__notes">
+                <TextArea
+                  autoSize={{ minRows: 2, maxRows: 4 }}
+                  placeholder="Notes from the PO or special instructions (optional)"
                 />
               </Form.Item>
-            </Col>
-            <Col xs={24} md={6}>
-              <Form.Item name="dueDate" label="Date Required" rules={[{ required: true }]}>
-                <DatePicker style={{ width: '100%' }} format="MMM D, YYYY" disabledDate={isPastShopDay} />
-              </Form.Item>
-            </Col>
-          </Row>
+            </section>
 
-          <div className="ui-form-section">Quantity and amount</div>
-          <Row gutter={[16, 0]} className="jo-form__qty-row">
-            <Col xs={12} md={8}>
-              <Form.Item name="quantity" label="Quantity">
-                <InputNumber style={{ width: '100%' }} min={0} step={0.01} placeholder="1.00" />
-              </Form.Item>
-            </Col>
-            <Col xs={12} md={8}>
-              <Form.Item name="unitOfMeasure" label="Unit">
-                <Select
-                  allowClear
-                  placeholder="UM"
-                  options={[
-                    { value: 'pcs', label: 'pcs' },
-                    { value: 'lot', label: 'lot' },
-                    { value: 'set', label: 'set' },
-                    { value: 'kg', label: 'kg' },
-                  ]}
+            <section className="jo-form__panel jo-form__panel--mats" aria-label="Materials needed">
+              <div className="ui-form-section">Materials needed</div>
+              <Form.Item
+                name="materialsNeeded"
+                label="Does this job need materials bought?"
+                rules={[{ required: true }]}
+                className="jo-form__materials-item"
+              >
+                <Segmented
+                  className="jo-form__materials-radios"
+                  options={MATERIALS_NEEDED_OPTIONS.map((opt) => ({
+                    value: opt.value,
+                    label: opt.label,
+                    disabled: opt.value === 'NOT_REQUIRED' && released && !isAdmin,
+                  }))}
                 />
               </Form.Item>
-            </Col>
-            <Col xs={24} md={8}>
-              <Form.Item name="amount" label="Amount (PHP)">
-                <InputNumber style={{ width: '100%' }} min={0} step={0.01} placeholder="0.00" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <div className="ui-form-section">Description and materials</div>
-          <Form.Item name="description" label="Description" className="jo-form__desc-item">
-            <TextArea rows={4} placeholder="Notes from PO / special instructions (optional)" />
-          </Form.Item>
-          <Form.Item
-            name="materialsNeeded"
-            label="Materials needed"
-            rules={[{ required: true }]}
-            className="jo-form__materials-item"
-            style={{ marginBottom: 4 }}
-          >
-            <Segmented
-              className="jo-form__materials-radios"
-              options={MATERIALS_NEEDED_OPTIONS.map((opt) => ({
-                value: opt.value,
-                label: opt.label,
-                disabled: opt.value === 'NOT_REQUIRED' && released && !isAdmin,
-              }))}
-            />
-          </Form.Item>
-          <div className="ui-muted-note jo-form__materials-note">
-            Materials are entered when ordering (Order materials on the job), not here.
-            {released && !isAdmin ? ' After release only the Admin can set Not required.' : ''}
+              {needsMaterials ? (
+                <>
+                  <div className="ui-muted-note jo-form__materials-note">
+                    List what the job needs. The job page orders from this list, so it is only typed once.
+                  </div>
+                  <PlannedMaterialsEditor
+                    rows={materials}
+                    errorKey={materialErrorKey}
+                    onChange={(next) => {
+                      setMaterials(next);
+                      if (materialErrorKey != null) setMaterialErrorKey(null);
+                    }}
+                  />
+                </>
+              ) : (
+                <div className="jo-mats__none">
+                  <CheckOutlined /> Nothing will be ordered for this job.
+                </div>
+              )}
+            </section>
           </div>
 
           <div className="jo-form__footer m-action-bar">
             <span className="m-action-bar__spacer" aria-hidden />
             <Button onClick={() => navigate(backTo)}>Cancel</Button>
-            <Button type="primary" loading={submitting} onClick={saveJob} style={{ minWidth: 140 }}>
-              Save
+            <Button type="primary" loading={submitting} onClick={saveJob} className="jo-form__save">
+              {isEdit ? 'Save changes' : 'Create job order'}
             </Button>
           </div>
         </Form>

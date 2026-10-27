@@ -622,7 +622,7 @@ def create_job_order(data, created_by_id, actor_role=None):
             quantity=_parse_decimal(data.get("quantity"), "quantity"),
             unit_of_measure=(data.get("unitOfMeasure") or None),
             amount=_parse_decimal(data.get("amount"), "amount"),
-            raw_materials=[],
+            raw_materials=_planned_materials_for(data, material_status),
             material_status=material_status,
             material_expected_date=_parse_date(data.get("materialExpectedDate")),
             material_received_date=_parse_date(data.get("materialReceivedDate")),
@@ -744,6 +744,22 @@ def mark_job_delivered(job, data: dict | None = None):
         raise
 
 
+def _planned_materials_for(data, material_status, job=None):
+    """The planned materials to store; a job whose materials are Not required has none."""
+    from app.services.planned_materials import parse_planned_materials
+
+    items = data.get("rawMaterials")
+    if material_status == MaterialStatus.NOT_REQUIRED:
+        if items:
+            raise AppError(
+                "Materials needed is Not required, so no materials can be listed.",
+                "VALIDATION_ERROR",
+                400,
+            )
+        return parse_planned_materials([], job)
+    return parse_planned_materials(items, job)
+
+
 # Job header fields Office may edit only while DRAFT. Admin is view-only for these
 # (except materials Not required after release — see _assert_can_edit_job_info).
 _JOB_INFO_KEYS = (
@@ -758,6 +774,7 @@ _JOB_INFO_KEYS = (
     "unitOfMeasure",
     "amount",
     "materialStatus",
+    "rawMaterials",
 )
 
 
@@ -867,6 +884,8 @@ def _apply_job_update(job, data, role):
         job.amount = _parse_decimal(data.get("amount"), "amount")
     if data.get("materialStatus"):
         _apply_materials_needed(job, data["materialStatus"], role)
+    if "rawMaterials" in data:
+        job.raw_materials = _planned_materials_for(data, job.material_status, job)
     if "materialExpectedDate" in data:
         job.material_expected_date = _parse_date(data.get("materialExpectedDate"))
     if "materialReceivedDate" in data:

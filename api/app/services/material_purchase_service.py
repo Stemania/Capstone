@@ -531,9 +531,18 @@ def build_draft_line(job: JobOrder, supplier: Supplier, data: dict) -> MaterialP
             "MATERIALS_NOT_REQUIRED",
             409,
         )
+    from app.services.planned_materials import require_planned_line
+
+    planned = require_planned_line(job, data.get("plannedMaterialId"))
     item = require_active_catalog_item(
         data.get("materialCatalogId") or data.get("material_catalog_id")
     )
+    if planned is not None and planned.get("materialCatalogId") not in (None, item.id):
+        raise AppError(
+            f"This line is for the planned {planned.get('name')}; pick that material.",
+            "VALIDATION_ERROR",
+            400,
+        )
 
     qty = _parse_decimal(data.get("quantity"), "quantity")
     if qty <= 0:
@@ -562,6 +571,7 @@ def build_draft_line(job: JobOrder, supplier: Supplier, data: dict) -> MaterialP
         unit=unit,
         unit_cost=unit_cost,
         supplier_id=supplier.id,
+        planned_material_id=planned.get("id") if planned is not None else None,
     )
 
 

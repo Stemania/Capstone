@@ -353,6 +353,8 @@ export interface SupplierOrderLineInput {
   jobOrderId?: string;
   toolId?: string;
   materialCatalogId?: string;
+  /** The job's planned material this line orders. */
+  plannedMaterialId?: string | null;
   materialName?: string;
   gradeOrSpec?: string | null;
   sizeSpec?: string | null;
@@ -491,7 +493,11 @@ export interface MachineInfo {
 
 export interface RawMaterial {
   id?: string;
+  /** Catalog material it was picked from (older records may lack it). */
+  materialCatalogId?: string | null;
   name: string;
+  gradeOrSpec?: string | null;
+  sizeSpec?: string | null;
   quantity?: number;
   unit?: string;
   /** Earlier records only: the shop already had it. */
@@ -896,7 +902,7 @@ export interface JobOrder extends MaterialWait {
   quantity?: number | null;
   unitOfMeasure?: string | null;
   amount?: number | null;
-  /** Planned materials from before materials were entered when ordering (read-only). */
+  /** Materials needed, listed by Office Staff on the job order form. */
   rawMaterials?: RawMaterial[];
   /** Detail view: the job's ordered material lines, without costs. */
   materialLines?: JobMaterialLine[];
@@ -972,6 +978,9 @@ export interface PlannedMaterialSummary {
   draftQuantity: number;
   remainingQuantity: number | null;
   fromStock: boolean;
+  materialCatalogId?: string | null;
+  gradeOrSpec?: string | null;
+  sizeSpec?: string | null;
   status: 'TO_ORDER' | 'PARTLY_ORDERED' | 'ON_DRAFT_ORDER' | 'PURCHASED' | 'FROM_STOCK';
 }
 

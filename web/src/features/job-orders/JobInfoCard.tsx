@@ -105,6 +105,7 @@ function materialRows(job: JobOrder): MaterialRow[] {
       rows.push({
         key: m.id || m.name,
         name: m.name,
+        spec: [m.gradeOrSpec, m.sizeSpec].filter(Boolean).join(' · ') || undefined,
         qty: fmtQty(s.remainingQuantity ?? m.quantity, m.unit),
         state: { label: 'To order', tone: 'amber' },
         detail: s.status === 'PARTLY_ORDERED' ? 'Rest still to order' : undefined,
@@ -235,11 +236,10 @@ export default function JobInfoCard({ job, finish }: { job: JobOrder; finish?: P
             </span>
           </span>
         ) : null}
-        <span className="jo-brief__fact" title={job.poDate ? `PO date ${fmtDate(job.poDate)}` : undefined}>
+        <span className="jo-brief__fact">
           <FileTextOutlined />
           <span>
             Client PO <strong>{job.clientPoNumber || '—'}</strong>
-            {job.poDate ? <span className="jo-brief__fact-sub"> · {formatShop(job.poDate, 'MMM D')}</span> : null}
           </span>
         </span>
       </div>

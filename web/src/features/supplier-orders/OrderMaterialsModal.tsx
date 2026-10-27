@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Input, InputNumber, Modal, Select, Typography, message } from 'antd';
 import { DeleteOutlined, PlusOutlined, ShoppingCartOutlined } from '@ant-design/icons';
 import { catalogApi, type CatalogItem } from '../../api/catalog.api';
@@ -9,6 +9,7 @@ import { getErrorMessage } from '../../api/client';
 import type {
   LowStockConsumable,
   OutstandingMaterials,
+  PlannedMaterialSummary,
   Supplier,
   SupplierOrder,
   SupplierOrderLineInput,
@@ -16,6 +17,7 @@ import type {
 } from '../../types';
 import { fmtDay, fmtQty } from './supplierOrderUi';
 import { GradeSelect, MaterialCatalogPicker } from '../../components/MaterialInputs';
+import { useMaterialCatalog } from '../../hooks/useMaterialCatalog';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const { Text } = Typography;
@@ -50,9 +52,13 @@ type PlannedEdit = { quantity: number | null; unitCost: number | null; gradeOrSp
 type MaterialLineDraft = {
   key: number;
   jobOrderId?: string;
+  /** The job's planned material this line orders (filled in from the job). */
+  plannedMaterialId?: string | null;
+  plannedCatalogId?: string | null;
   materialCatalogId: string | null;
   materialName: string;
-  grades: string[];
+  /** Undefined: look the grades up from the catalog by name. */
+  grades?: string[];
   gradeOrSpec: string;
   sizeSpec: string;
   quantity: number | null;
@@ -73,6 +79,32 @@ const blankLine = (jobOrderId?: string): MaterialLineDraft => ({
   unit: 'pcs',
   unitCost: null,
 });
+
+/** Planned materials still to order become ready-filled lines (cost and supplier still to enter). */
+export function linesFromPlanned(
+  jobOrderId: string,
+  planned: PlannedMaterialSummary[] = []
+): MaterialLineDraft[] {
+  return planned
+    .filter(
+      (p) =>
+        p.materialCatalogId &&
+        (p.status === 'TO_ORDER' || p.status === 'PARTLY_ORDERED') &&
+        (p.remainingQuantity == null || p.remainingQuantity > 0)
+    )
+    .map((p) => ({
+      ...blankLine(jobOrderId),
+      plannedMaterialId: p.id,
+      plannedCatalogId: p.materialCatalogId,
+      materialCatalogId: p.materialCatalogId ?? null,
+      materialName: p.name,
+      grades: undefined,
+      gradeOrSpec: p.gradeOrSpec || '',
+      sizeSpec: p.sizeSpec || '',
+      quantity: p.remainingQuantity ?? p.plannedQuantity ?? null,
+      unit: p.unit || 'pcs',
+    }));
+}
 
 const isBlank = (l: MaterialLineDraft) =>
   !l.materialCatalogId &&
@@ -130,13 +162,20 @@ export default function OrderMaterialsModal({
   onSaved,
   jobId,
   defaultSupplierId,
+  planned,
 }: {
   open: boolean;
   onClose: () => void;
   onSaved: (order: SupplierOrder) => void;
   jobId?: string;
   defaultSupplierId?: string | null;
+  /** The job's materials needed; what is still to order starts the list. */
+  planned?: PlannedMaterialSummary[];
 }) {
+  const catalog = useMaterialCatalog();
+  const plannedRef = useRef(planned);
+  plannedRef.current = planned;
+  const [fromPlan, setFromPlan] = useState(0);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [reliability, setReliability] = useState<Record<string, SupplierReliability>>({});
   const [supplierId, setSupplierId] = useState<string | undefined>();
@@ -153,7 +192,9 @@ export default function OrderMaterialsModal({
   useEffect(() => {
     if (!open) return;
     setSupplierId(defaultSupplierId || undefined);
-    setLines([blankLine(jobId)]);
+    const prefilled = jobId ? linesFromPlanned(jobId, plannedRef.current) : [];
+    setFromPlan(prefilled.length);
+    setLines(prefilled.length ? prefilled : [blankLine(jobId)]);
     setSelectedConsumables([]);
     setConsumableEdits({});
     setConsumableRows([]);
@@ -241,6 +282,8 @@ export default function OrderMaterialsModal({
       }
       payload.push({
         jobOrderId: l.jobOrderId,
+        plannedMaterialId:
+          l.plannedMaterialId && l.materialCatalogId === l.plannedCatalogId ? l.plannedMaterialId : null,
         materialCatalogId: l.materialCatalogId,
         materialName: name,
         gradeOrSpec: l.gradeOrSpec.trim() || null,
@@ -313,7 +356,9 @@ export default function OrderMaterialsModal({
           <div className="app-form-modal__sub">
             {offerConsumables
               ? 'Pick a supplier, then pick catalog materials and tick consumables to add to its draft order.'
-              : 'Pick a supplier, then pick catalog materials to add to its draft order.'}
+              : fromPlan
+                ? `Pick a supplier. The ${fromPlan} material${fromPlan === 1 ? '' : 's'} still to order ${fromPlan === 1 ? 'is' : 'are'} filled in from the job; enter the unit costs. Remove any you'll buy from another supplier.`
+                : 'Pick a supplier, then pick catalog materials to add to its draft order.'}
           </div>
         </div>
         <button type="button" className="app-form-modal__close" onClick={onClose} aria-label="Close">
@@ -470,7 +515,7 @@ export default function OrderMaterialsModal({
                   render: (_: unknown, l) => (
                     <GradeSelect
                       size="small"
-                      grades={l.grades}
+                      grades={l.grades ?? catalog.find((c) => c.id === l.materialCatalogId)?.grades}
                       materialName={l.materialName}
                       value={l.gradeOrSpec}
                       onChange={(v) => setLine(l.key, { gradeOrSpec: v })}

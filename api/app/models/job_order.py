@@ -392,6 +392,9 @@ class JobOrder(db.Model):
                     "draftQuantity": float(draft),
                     "remainingQuantity": float(remaining) if remaining is not None else None,
                     "fromStock": bool(item.get("fromStock")),
+                    "materialCatalogId": item.get("materialCatalogId"),
+                    "gradeOrSpec": item.get("gradeOrSpec"),
+                    "sizeSpec": item.get("sizeSpec"),
                     "status": status,
                 }
             )

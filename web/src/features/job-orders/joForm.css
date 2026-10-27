@@ -5,20 +5,48 @@
   padding-bottom: 64px;
 }
 
-.jo-form-page .jo-form__qty-row {
-  display: flex;
-  flex-wrap: wrap;
+/* Two panels on wide screens (job details | materials) so the whole form fits
+   a 1920×1080 screen without scrolling; one column on smaller screens. */
+.ui-page.jo-form-page--split {
+  max-width: 1480px;
+  margin: 0 auto;
 }
 
-.jo-form-page .jo-form__materials-radios {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 24px;
+.jo-form-page--split .jo-form-card > .ui-card__body {
+  padding-bottom: 12px;
+}
+
+.jo-form__split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px 32px;
+}
+
+@media (min-width: 1200px) {
+  .jo-form__split {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  }
+
+  .jo-form__panel--mats {
+    padding-left: 32px;
+    border-left: 1px solid var(--c-border);
+  }
+}
+
+.jo-form__panel {
+  min-width: 0;
+}
+
+.jo-form-page .jo-form__notes {
+  margin-bottom: 4px;
+}
+
+.jo-form-page .jo-form__materials-item {
+  margin-bottom: 8px;
 }
 
 .jo-form-page .jo-form__materials-note {
-  margin: 0 0 20px;
-  max-width: 40rem;
+  margin: 0 0 10px;
 }
 
 .jo-form-page .jo-form__footer {
@@ -26,13 +54,181 @@
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--c-border, #e2e8f0);
 }
 
 .jo-form-page .jo-form__footer .m-action-bar__spacer {
   flex: 1;
+}
+
+/* Materials needed rows */
+.jo-mats {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jo-mats__grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jo-mats__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* A long list scrolls inside the panel instead of the page. */
+  max-height: max(150px, min(372px, calc(100vh - 490px)));
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 2px 2px 0;
+}
+
+.jo-mats__row {
+  display: grid;
+  grid-template-columns: minmax(170px, 2.2fr) minmax(88px, 0.7fr) minmax(110px, 1.1fr) 72px 80px 32px;
+  gap: 8px;
+  align-items: center;
+}
+
+.jo-mats__row--head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+}
+
+.jo-mats__cell {
+  min-width: 0;
+}
+
+.jo-mats__row.is-invalid .jo-mats__cell--material .ant-select-selector,
+.jo-mats__row.is-invalid .jo-mats__cell--material .ant-select,
+.jo-mats__row.is-invalid .jo-mats__cell--material .ant-input {
+  border-color: var(--tone-red-fg, #b91c1c) !important;
+}
+
+.jo-mats__empty,
+.jo-mats__none {
+  padding: 14px 16px;
+  border: 1px dashed var(--c-border);
+  border-radius: var(--r-md, 8px);
+  font-size: 13px;
+  color: var(--c-text-muted);
+  background: var(--c-surface-muted, #f8fafc);
+}
+
+.jo-mats__none {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.jo-mats__add.ant-btn {
+  align-self: flex-start;
+}
+
+/* The rows follow the width of the materials panel, not the window. */
+.jo-form__panel--mats {
+  container-type: inline-size;
+}
+
+.jo-mats__row {
+  grid-template-areas: 'material grade size qty unit remove';
+}
+
+.jo-mats__h--material,
+.jo-mats__cell--material {
+  grid-area: material;
+}
+
+.jo-mats__h--grade,
+.jo-mats__cell--grade {
+  grid-area: grade;
+}
+
+.jo-mats__h--size,
+.jo-mats__cell--size {
+  grid-area: size;
+}
+
+.jo-mats__h--qty,
+.jo-mats__cell--qty {
+  grid-area: qty;
+}
+
+.jo-mats__h--unit,
+.jo-mats__cell--unit {
+  grid-area: unit;
+}
+
+.jo-mats__h--remove,
+.jo-mats__cell--remove {
+  grid-area: remove;
+}
+
+/* Narrower panel (e.g. a 1366 px laptop): two lines per material. */
+@container (max-width: 640px) {
+  .jo-mats__row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) 72px 80px 32px;
+    grid-template-areas:
+      'material material qty unit remove'
+      'grade size size size .';
+    row-gap: 6px;
+  }
+
+  .jo-mats__rows > .jo-mats__row + .jo-mats__row {
+    padding-top: 8px;
+    border-top: 1px solid var(--c-border);
+  }
+
+  .jo-mats__row--head {
+    grid-template-areas: 'material material qty unit remove';
+  }
+
+  .jo-mats__h--grade,
+  .jo-mats__h--size {
+    display: none;
+  }
+}
+
+/* Phones: each material becomes a small card with its own labels. */
+@container (max-width: 440px) {
+  .jo-mats__rows {
+    max-height: none;
+  }
+
+  .jo-mats__row--head {
+    display: none;
+  }
+
+  .jo-mats__row,
+  .jo-mats__rows > .jo-mats__row + .jo-mats__row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px;
+    grid-template-areas:
+      'material material remove'
+      'grade size size'
+      'qty unit unit';
+    padding: 10px;
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-md, 8px);
+  }
+
+  .jo-mats__cell[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 2px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--c-text-muted);
+  }
+
+  .jo-mats__cell--remove {
+    align-self: end;
+    justify-self: end;
+  }
 }
 
 .jo-op__pick-free {
@@ -233,4 +429,15 @@
 .jo-op__date-flag:focus-visible {
   background: var(--tone-red-bg, #fef2f2);
   outline: none;
+}
+
+.jo-form-page .jo-form__save.ant-btn {
+  min-width: 160px;
+}
+
+@media (max-width: 720px) {
+  .jo-form-page .jo-form__save.ant-btn {
+    min-width: 0;
+    flex: 1.4;
+  }
 }
