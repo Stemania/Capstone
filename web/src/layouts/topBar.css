@@ -19,7 +19,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  min-height: 44px;
+  min-height: 48px;
 }
 
 .w-top__titles {
@@ -47,8 +47,8 @@
 }
 
 .w-iconbtn {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;

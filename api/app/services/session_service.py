@@ -17,7 +17,7 @@ from flask import jsonify
 from flask_jwt_extended import create_access_token, create_refresh_token
 
 from app.extensions import db
-from app.models.user import User
+from app.models.user import User, UserStatus
 from app.models.user_security import UserDevice
 from app.utils.errors import AppError
 
@@ -38,6 +38,16 @@ def issue_tokens(user: User, device: UserDevice | None = None) -> dict:
         "refreshToken": create_refresh_token(identity=user.id, additional_claims=claims),
         "user": user.to_dict(include_profile=True),
     }
+
+
+def account_session_ended(payload: dict) -> bool:
+    """A disabled account, or one whose role changed, ends every token it holds,
+    including tokens that are not bound to a device."""
+    user = db.session.get(User, payload.get("sub"))
+    if user is None or user.status == UserStatus.DISABLED:
+        return True
+    role = payload.get("role")
+    return role is not None and role != user.role.value
 
 
 def device_session_ended(payload: dict) -> bool:
@@ -78,7 +88,7 @@ def refresh_session(user: User, payload: dict, device_id: str | None) -> dict:
 def register_jwt_callbacks(jwt_manager) -> None:
     @jwt_manager.token_in_blocklist_loader
     def _ended(_header, payload):
-        return device_session_ended(payload)
+        return account_session_ended(payload) or device_session_ended(payload)
 
     @jwt_manager.revoked_token_loader
     def _ended_response(_header, _payload):

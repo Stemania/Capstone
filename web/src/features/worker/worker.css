@@ -314,8 +314,9 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  min-height: 36px;
-  margin: -8px -6px -8px 0;
+  /* 48px tap target; the negative margin keeps the card header 20px tall. */
+  min-height: 48px;
+  margin: -14px -6px -14px 0;
   padding: 0 6px;
   border: 0;
   background: none;

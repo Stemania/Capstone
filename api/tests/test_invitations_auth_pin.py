@@ -565,6 +565,24 @@ def test_role_change_or_disable_signs_the_user_out(client):
         assert devices and all(d.revoked_at is not None for d in devices), payload
 
 
+def test_disable_or_role_change_ends_tokens_without_a_device(client):
+    """A token from a login that sent no device id still stops at once."""
+    from app.services.auth_service import update_user
+
+    _admin()
+    for i, payload in enumerate(({"status": "DISABLED"}, {"role": UserRole.OFFICE_STAFF})):
+        _active_user(f"nodev{i}@test.local", f"+63917000008{i}")
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"identifier": f"nodev{i}@test.local", "password": "Worker123!"},
+        )
+        assert login.status_code == 200
+        headers = {"Authorization": f"Bearer {login.get_json()['accessToken']}"}
+        assert client.get("/api/v1/auth/me", headers=headers).status_code == 200
+        update_user(User.query.filter_by(email=f"nodev{i}@test.local").one(), payload)
+        assert client.get("/api/v1/auth/me", headers=headers).status_code == 401, payload
+
+
 def test_oversized_request_is_refused(client):
     big = b"x" * (5 * 1024 * 1024)
     res = client.post(
