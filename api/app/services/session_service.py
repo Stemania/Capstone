@@ -40,22 +40,31 @@ def issue_tokens(user: User, device: UserDevice | None = None) -> dict:
     }
 
 
-def account_session_ended(payload: dict) -> bool:
-    """A disabled account, or one whose role changed, ends every token it holds,
-    including tokens that are not bound to a device."""
-    user = db.session.get(User, payload.get("sub"))
-    if user is None or user.status == UserStatus.DISABLED:
+def session_ended(payload: dict) -> bool:
+    """True when the token must stop working. One query per request:
+
+    - the account is gone, disabled, or no longer has the token's role
+      (this also covers tokens from a login that sent no device id);
+    - the token's device was signed out, deleted, or belongs to someone else.
+    """
+    sub = payload.get("sub")
+    did = payload.get(DEVICE_CLAIM)
+    cols = [User.status, User.role]
+    if did:
+        cols += [UserDevice.user_id, UserDevice.revoked_at]
+    query = db.session.query(*cols).select_from(User)
+    if did:
+        query = query.outerjoin(UserDevice, UserDevice.id == did)
+    row = query.filter(User.id == sub).one_or_none()
+
+    if row is None or row.status == UserStatus.DISABLED:
         return True
     role = payload.get("role")
-    return role is not None and role != user.role.value
-
-
-def device_session_ended(payload: dict) -> bool:
-    did = payload.get(DEVICE_CLAIM)
-    if not did:
-        return False
-    device = db.session.get(UserDevice, did)
-    return device is None or device.revoked_at is not None or device.user_id != payload.get("sub")
+    if role is not None and role != row.role.value:
+        return True
+    if did:
+        return row.user_id != sub or row.revoked_at is not None
+    return False
 
 
 def refresh_session(user: User, payload: dict, device_id: str | None) -> dict:
@@ -88,7 +97,7 @@ def refresh_session(user: User, payload: dict, device_id: str | None) -> dict:
 def register_jwt_callbacks(jwt_manager) -> None:
     @jwt_manager.token_in_blocklist_loader
     def _ended(_header, payload):
-        return account_session_ended(payload) or device_session_ended(payload)
+        return session_ended(payload)
 
     @jwt_manager.revoked_token_loader
     def _ended_response(_header, _payload):

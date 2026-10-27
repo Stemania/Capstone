@@ -131,7 +131,8 @@ def test_job_list_query_count_does_not_grow_with_jobs(app, client, shop):
     assert len(body) == 8
 
     assert many == few
-    assert many <= 12
+    # 12 for the list itself + 1 for the per-request session check (account and device).
+    assert many <= 13
     assert all(job["predictedCompletion"] for job in body)
     assert all(job["supplierName"] for job in body)
 
