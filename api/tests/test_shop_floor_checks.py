@@ -189,7 +189,12 @@ def test_overrun_moves_clashing_unstarted_work_later_with_history_and_an_alert(a
 
 
 def test_overrun_within_the_slack_is_not_a_clash(app, shop):
-    now = _now()
+    # 9 AM shop time on a working day, so the overrun stays inside working hours
+    # whatever time the test runs (late in the day it would fall after closing).
+    day = shop_now().date()
+    if day.weekday() == 6:
+        day += timedelta(days=1)
+    now = datetime(day.year, day.month, day.day, 1, tzinfo=timezone.utc)
     running = _running(shop, shop["juan"], shop["m2"], started=now - timedelta(hours=1), hours=4,
                        planned_end=now)
     finish = _operation_booking_envelope(running, now)[1]

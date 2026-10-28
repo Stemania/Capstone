@@ -15,6 +15,7 @@ function alertPath(a: StaffAlert): string | null {
   if (a.kind === 'SINGLE_UNIT_DOWN' || a.kind === 'REPAIR_DATE_PASSED' || a.kind === 'WORK_ON_DOWN_UNIT') {
     return '/machines';
   }
+  if (a.kind === 'LOW_STOCK') return '/tools';
   return null;
 }
 

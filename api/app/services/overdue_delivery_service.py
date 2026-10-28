@@ -12,7 +12,8 @@ background when the job orders, supplier orders or schedule pages are opened
 is safe to run repeatedly: jobs already placed after the material date do not
 move, and each overdue order raises one Office Staff alert per expected date.
 The same runs also sweep released jobs for at-risk alerts
-(``completion_estimate_service``).
+(``completion_estimate_service``) and consumables for low stock
+(``low_stock_service``).
 """
 
 from __future__ import annotations
@@ -149,6 +150,13 @@ def run_checks(app) -> bool:
                 app.logger.info("shop_floor_check %s", shop_floor_checks())
         except Exception:
             app.logger.exception("Shop floor check failed")
+        try:
+            with app.app_context():
+                from app.services.low_stock_service import check_low_stock
+
+                app.logger.info("low_stock_check alerts=%s", check_low_stock())
+        except Exception:
+            app.logger.exception("Low stock check failed")
         return True
     finally:
         _run_lock.release()
