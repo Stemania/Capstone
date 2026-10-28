@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Button, Modal, Form, Input, Select, Dropdown, message, Tooltip, QRCode, Space,
+  Button, Modal, Form, Input, Select, Dropdown, message, Tooltip, QRCode, Space, Row, Col,
 } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
@@ -18,12 +18,8 @@ import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
 import { EllipsisText, ResponsiveTable, rowOpenProps, FormModal } from '../../components/ui';
-import { PersonAvatar } from '../../components/PersonAvatar';
 import UserIdentity from '../../components/UserIdentity';
-import PhotoUploadControl from '../../components/PhotoUploadControl';
 import type { User, UserRole } from '../../types';
-
-const NAVY = '#0f1c2e';
 
 const roleStyle: Record<string, { label: string; color: PillColor }> = {
   ADMIN: { label: 'Administrator', color: 'blue' },
@@ -543,126 +539,77 @@ export default function UsersPage() {
         }
       />
 
-      <Modal
+      <FormModal
         open={modalOpen}
+        icon={<UserAddOutlined />}
+        title="Add User"
+        subtitle="Create an account. Set worker skills and hours under Worker setup."
+        size="lg"
+        width={640}
         onCancel={closeModal}
-        footer={null}
-        width={560}
-        centered
+        onOk={() => form.submit()}
+        okText="Create User"
+        confirmLoading={submitting}
         destroyOnHidden
-        className="add-user-modal"
-        styles={{
-          container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
-          body: { padding: 0 },
-        }}
-        closable={false}
       >
-        <div
-          style={{
-            background: NAVY,
-            color: '#fff',
-            padding: '18px 24px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-          }}
-        >
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: '50%',
-              background: '#2563eb',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 18,
-              flexShrink: 0,
-            }}
-          >
-            <UserAddOutlined />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 17, fontWeight: 800 }}>Add User</div>
-            <div style={{ fontSize: 12, opacity: 0.65, marginTop: 2 }}>
-              Create an account. Set worker skills and hours under Worker setup.
-            </div>
-          </div>
-          <button
-            onClick={closeModal}
-            style={{
-              background: 'rgba(255,255,255,0.1)',
-              border: 'none',
-              color: '#fff',
-              width: 32,
-              height: 32,
-              borderRadius: '50%',
-              cursor: 'pointer',
-              fontSize: 16,
-              lineHeight: 1,
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-            aria-label="Close"
-          >
-            ×
-          </button>
-        </div>
-
         <Form
           form={form}
           layout="vertical"
           onFinish={onCreate}
           requiredMark="optional"
-          style={{ padding: '20px 24px 8px' }}
           initialValues={{ role: 'PRODUCTION_WORKER' }}
         >
           {sectionLabel('Account details')}
-
-          <Form.Item
-            name="fullName"
-            label="Full Name"
-            rules={[{ required: true, message: 'Full name is required' }]}
-            style={{ marginBottom: 14 }}
-          >
-            <Input size="large" placeholder="e.g. Juan Dela Cruz" />
-          </Form.Item>
-
-          <Form.Item name="nickname" label="Nickname" style={{ marginBottom: 14 }}>
-            <Input size="large" maxLength={40} placeholder="e.g. JD" />
-          </Form.Item>
-
-          <Form.Item
-            name="email"
-            label="Email"
-            rules={[{ required: true, type: 'email', message: 'Valid email required' }]}
-            style={{ marginBottom: 14 }}
-          >
-            <Input size="large" placeholder="name@bmsc.local" />
-          </Form.Item>
-
-          <Form.Item
-            name="mobileNumber"
-            label="Mobile number"
-            rules={[{ required: true, message: 'Mobile number is required' }]}
-            style={{ marginBottom: 14 }}
-            extra="Used for sign-in. The invitation is always sent by email (a setup link is also shown on screen)."
-          >
-            <Input size="large" placeholder="09XX XXX XXXX" />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col xs={24} sm={15}>
+              <Form.Item
+                name="fullName"
+                label="Full Name"
+                rules={[{ required: true, whitespace: true, message: 'Full name is required' }]}
+                style={{ marginBottom: 14 }}
+              >
+                <Input placeholder="e.g. Juan Dela Cruz" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={9}>
+              <Form.Item
+                name="nickname"
+                label="Nickname"
+                tooltip="Shown under the full name."
+                style={{ marginBottom: 14 }}
+              >
+                <Input maxLength={40} placeholder="e.g. JD" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="email"
+                label="Email"
+                rules={[{ required: true, type: 'email', message: 'Valid email required' }]}
+                style={{ marginBottom: 14 }}
+              >
+                <Input placeholder="name@bmsc.local" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="mobileNumber"
+                label="Mobile number"
+                rules={[{ required: true, message: 'Mobile number is required' }]}
+                style={{ marginBottom: 14 }}
+              >
+                <Input placeholder="09XX XXX XXXX" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <div style={{ fontSize: 12, color: '#64748b', margin: '-4px 0 12px' }}>
+            Email or mobile number is used for sign-in. The invitation is sent by email, and a
+            setup link is also shown on screen.
+          </div>
 
           {sectionLabel('Role & access')}
-
-          <Form.Item
-            name="role"
-            label="Role"
-            rules={[{ required: true }]}
-            style={{ marginBottom: 4 }}
-          >
+          <Form.Item name="role" label="Role" rules={[{ required: true }]} style={{ marginBottom: 4 }}>
             <Select
-              size="large"
               options={[
                 { value: 'ADMIN', label: 'Administrator' },
                 { value: 'OFFICE_STAFF', label: 'Office Staff' },
@@ -671,101 +618,68 @@ export default function UsersPage() {
             />
           </Form.Item>
         </Form>
-
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 10,
-            padding: '14px 24px 20px',
-            borderTop: '1px solid #e2e8f0',
-            background: '#f8fafc',
-          }}
-        >
-          <Button onClick={closeModal} style={{ minWidth: 96 }}>
-            Cancel
-          </Button>
-          <Button
-            type="primary"
-            loading={submitting}
-            onClick={() => form.submit()}
-            style={{ fontWeight: 700, minWidth: 120 }}
-          >
-            Create User
-          </Button>
-        </div>
-      </Modal>
+      </FormModal>
 
       <FormModal
         open={!!editUser}
         icon={<EditOutlined />}
         title={editUser ? `Edit ${editUser.fullName}` : 'Edit user'}
-        subtitle="Name, contact details, photo, and role."
+        subtitle="Name, contact details, and role."
+        size="lg"
+        width={640}
         onCancel={() => setEditUser(null)}
         onOk={() => editForm.submit()}
         okText="Save"
         confirmLoading={editSaving}
         forceRender
       >
-        <Form
-          form={editForm}
-          layout="vertical"
-          onFinish={onEditSave}
-          requiredMark="optional"
-          style={{ marginTop: 12 }}
-        >
-          {editUser ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-              <PersonAvatar
-                userId={editUser.id}
-                fullName={editUser.fullName}
-                photoVersion={editUser.photoVersion}
-                size={56}
-              />
-              <PhotoUploadControl
-                user={editUser}
-                onChange={(updated) => {
-                  setEditUser((prev) => (prev ? { ...prev, photoVersion: updated.photoVersion } : prev));
-                  setUsers((prev) =>
-                    prev.map((x) => (x.id === updated.id ? { ...x, photoVersion: updated.photoVersion } : x))
-                  );
-                }}
-              />
+        <Form form={editForm} layout="vertical" onFinish={onEditSave} requiredMark="optional">
+          {sectionLabel('Account details')}
+          <Row gutter={16}>
+            <Col xs={24} sm={15}>
+              <Form.Item
+                name="fullName"
+                label="Full Name"
+                rules={[{ required: true, whitespace: true, message: 'Full name is required' }]}
+                style={{ marginBottom: 14 }}
+              >
+                <Input placeholder="e.g. Juan Dela Cruz" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={9}>
+              <Form.Item
+                name="nickname"
+                label="Nickname"
+                tooltip="Shown under the full name."
+                style={{ marginBottom: 14 }}
+              >
+                <Input maxLength={40} placeholder="e.g. JD" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="email"
+                label="Email"
+                rules={[{ type: 'email', message: 'Valid email required' }]}
+                style={{ marginBottom: 14 }}
+              >
+                <Input placeholder="name@bmsc.local" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item name="mobileNumber" label="Mobile number" style={{ marginBottom: 14 }}>
+                <Input placeholder="09XX XXX XXXX" />
+              </Form.Item>
+            </Col>
+          </Row>
+          {editUser?.status === 'INVITED' ? (
+            <div style={{ fontSize: 12, color: '#64748b', margin: '-4px 0 12px' }}>
+              Add an email or mobile number, save, then send the invite from the row menu.
             </div>
           ) : null}
-          <Form.Item
-            name="fullName"
-            label="Full Name"
-            rules={[{ required: true, whitespace: true, message: 'Full name is required' }]}
-          >
-            <Input />
-          </Form.Item>
-          <Form.Item
-            name="nickname"
-            label="Nickname"
-            extra='Shown under the full name, e.g. “JD”.'
-          >
-            <Input maxLength={40} />
-          </Form.Item>
-          <Form.Item
-            name="email"
-            label="Email"
-            rules={[{ type: 'email', message: 'Valid email required' }]}
-          >
-            <Input />
-          </Form.Item>
-          <Form.Item
-            name="mobileNumber"
-            label="Mobile number"
-            extra={
-              editUser?.status === 'INVITED'
-                ? 'Add an email or mobile number, save, then send the invite from the row menu.'
-                : undefined
-            }
-          >
-            <Input placeholder="09XX XXX XXXX" />
-          </Form.Item>
-          <Form.Item name="role" label="Role" rules={[{ required: true }]} style={{ marginBottom: 8 }}>
+
+          {sectionLabel('Role & access')}
+          <Form.Item name="role" label="Role" rules={[{ required: true }]} style={{ marginBottom: 4 }}>
             <Select
               options={[
                 { value: 'ADMIN', label: 'Administrator' },
@@ -775,7 +689,7 @@ export default function UsersPage() {
             />
           </Form.Item>
           {editUser && editRole && editRole !== editUser.role ? (
-            <div style={{ fontSize: 12, color: '#b45309' }}>
+            <div style={{ fontSize: 12, color: '#b45309', marginTop: 8 }}>
               Changing the role revokes this user&apos;s device PINs. They must sign in with their
               password next time, and the new role applies from then.
             </div>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Form, Input, Select, Spin, message } from 'antd';
+import { Alert, Button, Col, Form, Input, Row, Select, Spin, message } from 'antd';
 import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
@@ -155,28 +155,33 @@ export default function RescheduleModal({
       ) : (
         <>
           <Form layout="vertical" style={{ marginBottom: 12 }}>
-            <Form.Item label="Reason" required style={{ marginBottom: 8 }}>
-              <Select
-                placeholder="Why is this being rescheduled?"
-                options={RESCHEDULE_REASON_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-                value={reason}
-                onChange={(v) => setReason(v)}
-                style={{ maxWidth: 360 }}
-              />
-            </Form.Item>
-            <Form.Item
-              label={noteRequired ? 'Note (required)' : 'Note (optional)'}
-              required={noteRequired}
-              style={{ marginBottom: 0 }}
-            >
-              <Input.TextArea
-                rows={2}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder={noteRequired ? 'Describe the Other reason' : 'Optional detail'}
-                maxLength={500}
-              />
-            </Form.Item>
+            <Row gutter={16}>
+              <Col xs={24} md={9}>
+                <Form.Item label="Reason" required style={{ marginBottom: 0 }}>
+                  <Select
+                    placeholder="Why is this being rescheduled?"
+                    options={RESCHEDULE_REASON_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                    value={reason}
+                    onChange={(v) => setReason(v)}
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={15}>
+                <Form.Item
+                  label={noteRequired ? 'Note (required)' : 'Note (optional)'}
+                  required={noteRequired}
+                  style={{ marginBottom: 0 }}
+                >
+                  <Input.TextArea
+                    autoSize={{ minRows: 1, maxRows: 4 }}
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder={noteRequired ? 'Describe the Other reason' : 'Optional detail'}
+                    maxLength={500}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
           </Form>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 10, fontSize: 13 }}>
             <span>
