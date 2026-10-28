@@ -271,14 +271,19 @@
   background: currentColor;
 }
 
-.ui-pill--slate { color: var(--tone-slate-fg); background: var(--tone-slate-bg); border-color: var(--tone-slate-bd); }
-.ui-pill--blue { color: var(--tone-blue-fg); background: var(--tone-blue-bg); border-color: var(--tone-blue-bd); }
-.ui-pill--indigo { color: var(--tone-indigo-fg); background: var(--tone-indigo-bg); border-color: var(--tone-indigo-bd); }
-.ui-pill--green { color: var(--tone-green-fg); background: var(--tone-green-bg); border-color: var(--tone-green-bd); }
-.ui-pill--teal { color: var(--tone-teal-fg); background: var(--tone-teal-bg); border-color: var(--tone-teal-bd); }
-.ui-pill--amber { color: var(--tone-amber-fg); background: var(--tone-amber-bg); border-color: var(--tone-amber-bd); }
-.ui-pill--red { color: var(--tone-red-fg); background: var(--tone-red-bg); border-color: var(--tone-red-bd); }
-.ui-pill--grey { color: var(--tone-grey-fg); background: var(--tone-grey-bg); border-color: var(--tone-grey-bd); }
+.ui-pill--slate { color: var(--tone-slate-fg); background: var(--tone-slate-bg); }
+.ui-pill--blue { color: var(--tone-blue-fg); background: var(--tone-blue-bg); }
+.ui-pill--indigo { color: var(--tone-indigo-fg); background: var(--tone-indigo-bg); }
+.ui-pill--green { color: var(--tone-green-fg); background: var(--tone-green-bg); }
+.ui-pill--teal { color: var(--tone-teal-fg); background: var(--tone-teal-bg); }
+.ui-pill--amber { color: var(--tone-amber-fg); background: var(--tone-amber-bg); }
+.ui-pill--red { color: var(--tone-red-fg); background: var(--tone-red-bg); }
+.ui-pill--grey { color: var(--tone-grey-fg); background: var(--tone-grey-bg); }
+
+/* Ant Design tags read the same as the pills: colour and fill, no outline. */
+.ant-tag.ant-tag {
+  border-color: transparent;
+}
 
 /* ---------- ID chip ---------- */
 .ui-id {

@@ -79,7 +79,7 @@ function statusLabel(s: string) {
 
 const BAR_GAP = 2;
 const MIN_BAR_W = adminPx(16);
-const CLASH_COLOR = '#DC2626';
+const CLASH_COLOR = '#7A1528';
 const DOWN_OVERLAY_IMAGE =
   'repeating-linear-gradient(-45deg, rgba(196,90,106,0.75) 0 3px, transparent 3px 9px)';
 

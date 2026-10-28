@@ -242,7 +242,7 @@ export function StockBar({
         style={{
           width: `${pct}%`,
           height: '100%',
-          background: low ? '#dc2626' : '#16a34a',
+          background: low ? '#7a1528' : '#16a34a',
         }}
       />
     </div>

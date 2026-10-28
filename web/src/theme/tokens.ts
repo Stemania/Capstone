@@ -41,7 +41,7 @@ export const tones: Record<Tone, { fg: string; bg: string; border: string; solid
   green: { fg: '#15803d', bg: '#eafaf0', border: '#c2ecd1', solid: '#16a34a' },
   teal: { fg: '#0f766e', bg: '#e7f8f6', border: '#bfe9e3', solid: '#0d9488' },
   amber: { fg: '#a16207', bg: '#fdf6e3', border: '#f3e1a8', solid: '#f59e0b' },
-  red: { fg: '#b91c1c', bg: '#fdeeee', border: '#f7caca', solid: '#dc2626' },
+  red: { fg: '#b91c1c', bg: '#fdeeee', border: '#f7caca', solid: '#7a1528' },
   grey: { fg: '#52525b', bg: '#f1f1f3', border: '#dcdce0', solid: '#a1a1aa' },
 };
 
@@ -85,7 +85,7 @@ export const chartPalette = [
   '#0d9488',
   '#d97706',
   '#6366f1',
-  '#dc2626',
+  '#7a1528',
   '#0284c7',
   '#65a30d',
   '#64748b',

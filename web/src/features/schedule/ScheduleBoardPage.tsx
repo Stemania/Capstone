@@ -78,7 +78,7 @@ type ViewMode = TimelineViewMode;
 type RowMode = 'machine' | 'worker';
 
 const STATUS_COLOR = OPERATION_BAR_COLOR;
-const CLASH_COLOR = '#DC2626';
+const CLASH_COLOR = '#7A1528';
 const DOWN_COLOR = '#C45A6A';
 const STALLED_COLOR = '#D97706';
 const DOWN_OVERLAY_IMAGE =
