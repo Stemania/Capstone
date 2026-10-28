@@ -151,6 +151,18 @@ apiClient.interceptors.response.use(
 
 export default apiClient;
 
+/**
+ * Tell the server this person signed out, for the Admin's audit log. Sent with
+ * the token read now, before it is cleared; failures (offline) are ignored.
+ */
+export function recordSignOut(): void {
+  const token = localStorage.getItem('accessToken');
+  if (!token) return;
+  axios
+    .post(`${API_BASE}/auth/logout`, {}, { headers: { Authorization: `Bearer ${token}` }, timeout: 5000 })
+    .catch(() => undefined);
+}
+
 export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
     if (!error.response && (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT')) {

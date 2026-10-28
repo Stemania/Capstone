@@ -22,6 +22,7 @@ import {
   BankOutlined,
   LeftOutlined,
   CloseOutlined,
+  AuditOutlined,
 } from '@ant-design/icons';
 import { useState, type ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -80,6 +81,7 @@ const NAV: NavGroup[] = [
       { key: '/users', icon: <TeamOutlined />, label: 'Users & Roles', adminOnly: true },
       { key: '/worker-setup', icon: <SettingOutlined />, label: 'Worker setup', adminOnly: true },
       { key: '/attendance', icon: <ClockCircleOutlined />, label: 'Attendance', adminOnly: true },
+      { key: '/audit-log', icon: <AuditOutlined />, label: 'Audit log', adminOnly: true },
       { key: '/settings/shop', icon: <BankOutlined />, label: 'Shop details', adminOnly: true },
     ],
   },
@@ -101,6 +103,7 @@ const SECTION_META: Record<string, { title: string; subtitle: string }> = {
   '/worker-setup': { title: 'Worker setup', subtitle: 'Skills, weekly hours, and work history' },
   '/attendance': { title: 'Attendance', subtitle: 'Each worker\u2019s clock-in and clock-out' },
   '/analytics': { title: 'Analytics', subtitle: 'How the shop is doing, and printable reports' },
+  '/audit-log': { title: 'Audit log', subtitle: 'Who signed in, and who changed what, when, and from where' },
   '/settings/shop': { title: 'Shop details', subtitle: 'Printed on purchase orders and job orders' },
   '/account': { title: 'Account security', subtitle: 'Password and your devices' },
 };

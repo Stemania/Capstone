@@ -70,7 +70,7 @@ from app.services.audit_service import (
     _COLUMN_SNAPSHOT_MODELS,
     _after_delete,
     _after_insert,
-    _after_update,
+    _before_update,
 )
 from app.services.schedule_calendar import (
     build_worker_working_windows,
@@ -2621,7 +2621,7 @@ def _quiet_audit():
     out of the ledger. Job audits are written explicitly at the event time."""
     hooks = (
         ("after_insert", _after_insert),
-        ("after_update", _after_update),
+        ("before_update", _before_update),
         ("after_delete", _after_delete),
     )
     removed = []

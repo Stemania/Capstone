@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { authApi } from '../api/auth.api';
+import { recordSignOut } from '../api/client';
 import type { LoginResponse, User } from '../types';
 
 interface AuthContextType {
@@ -90,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    recordSignOut();
     authApi.logout();
     setUser(null);
   };

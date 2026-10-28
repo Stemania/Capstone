@@ -11,6 +11,7 @@ import ClientsPage from '../features/clients/ClientsPage';
 import UsersPage from '../features/users/UsersPage';
 import MachinesPage from '../features/machines/MachinesPage';
 import AttendancePage from '../features/attendance/AttendancePage';
+import AuditLogPage from '../features/audit/AuditLogPage';
 import WorkerSetupPage from '../features/workers/WorkerSetupPage';
 import SuppliersAndOrdersPage from '../features/suppliers/SuppliersAndOrdersPage';
 import AccountSecurityPage from '../features/auth/AccountSecurityPage';
@@ -54,6 +55,7 @@ export const ROUTE_SMOKES: RouteSmoke[] = [
   { path: '/users', roles: ['ADMIN'], Page: UsersPage },
   { path: '/worker-setup', roles: ['ADMIN'], Page: WorkerSetupPage },
   { path: '/attendance', roles: ['ADMIN'], Page: AttendancePage },
+  { path: '/audit-log', roles: ['ADMIN'], Page: AuditLogPage },
   { path: '/settings/shop', roles: ['ADMIN'], Page: ShopDetailsPage },
   { path: '/home', roles: ['PRODUCTION_WORKER'], Page: WorkerHomePage },
   { path: '/inventory', roles: ['PRODUCTION_WORKER'], Page: InventoryPage },

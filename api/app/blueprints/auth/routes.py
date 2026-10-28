@@ -4,6 +4,8 @@ from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required
 from app.middleware.rbac import get_current_user_id
 from app.models.machine import MachineUnit
 from app.models.user import User, UserRole
+from app.extensions import db
+from app.services.audit_service import write_audit_event
 from app.services.auth_service import (
     authenticate_user,
     change_own_password,
@@ -36,14 +38,48 @@ def _current_device_row_id() -> str | None:
     return get_jwt().get(DEVICE_CLAIM)
 
 
-def _signed_in(user: User, data: dict) -> dict:
+def _signed_in(user: User, data: dict, via: str = "PASSWORD") -> dict:
     """Register this browser's device and issue tokens bound to it."""
     device_id = data.get("deviceId")
     device = register_device_after_password_login(user, device_id, data.get("deviceLabel"))
     payload = issue_tokens(user, device)
     if device_id:
         payload["device"] = device_pin_status(user.id, device_id)
+    write_audit_event(
+        "LOGIN_SUCCEEDED",
+        "User",
+        user.id,
+        after={"via": via, "device": (data.get("deviceLabel") or None)},
+        actor=user,
+    )
+    db.session.commit()
     return payload
+
+
+def _record_blocked_login():
+    """One row per address per minute, so a flood cannot fill the log."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.audit_log import AuditLog
+
+    ip = request.remote_addr
+    since = datetime.now(timezone.utc) - timedelta(minutes=1)
+    recent = AuditLog.query.filter(
+        AuditLog.action == "LOGIN_BLOCKED",
+        AuditLog.ip_address == ip,
+        AuditLog.created_at >= since,
+    ).first()
+    if recent:
+        return
+    data = request.get_json(silent=True) or {}
+    identifier = data.get("identifier") or data.get("email") or data.get("mobile") or ""
+    write_audit_event(
+        "LOGIN_BLOCKED",
+        "User",
+        None,
+        after={"identifier": str(identifier).strip()[:120], "reason": "TOO_MANY_ATTEMPTS"},
+    )
+    db.session.commit()
 
 
 def _limit_login():
@@ -79,6 +115,7 @@ def _limit_reset_confirm():
     _limit_login,
     prefix="auth.login",
     error_message="Too many login attempts. Please wait a minute and try again.",
+    on_block=_record_blocked_login,
 )
 def login():
     data = request.get_json() or {}
@@ -156,8 +193,17 @@ def invitation_accept():
     identifier = data.get("identifier") or data.get("email") or data.get("mobile")
     result = accept_invitation(token or "", password or "", confirm or "", identifier)
     user = get_user_by_id(result["user"]["id"])
-    result.update(_signed_in(user, data))
+    result.update(_signed_in(user, data, via="INVITATION"))
     return jsonify(result)
+
+
+@auth_bp.route("/logout", methods=["POST"])
+@jwt_required()
+def logout():
+    """Tokens live in the browser; this only notes the sign-out for the audit log."""
+    write_audit_event("LOGOUT", "User", get_current_user_id())
+    db.session.commit()
+    return jsonify({"message": "Signed out"})
 
 
 @auth_bp.route("/password", methods=["POST"])
@@ -227,7 +273,7 @@ def password_reset_confirm():
     identifier = data.get("identifier") or data.get("email") or data.get("mobile")
     result = complete_password_reset(token or "", password or "", confirm or "", identifier)
     user = get_user_by_id(result["user"]["id"])
-    result.update(_signed_in(user, data))
+    result.update(_signed_in(user, data, via="PASSWORD_RESET"))
     return jsonify(result)
 
 

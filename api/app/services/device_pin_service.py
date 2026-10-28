@@ -157,10 +157,17 @@ def unlock_with_pin(device_id: str, pin: str) -> dict:
         if bcrypt.check_password_hash(device.pin_hash, pin):
             device.pin_failed_attempts = 0
             device.last_used_at = _utcnow()
+            write_audit_event(
+                "LOGIN_SUCCEEDED",
+                "User",
+                user.id,
+                after={"via": "PIN", "device": device.device_label},
+                actor=user,
+            )
             db.session.commit()
             return issue_tokens(user, device)
 
-    device, _user = active[0]
+    device, owner = active[0]
     device.pin_failed_attempts = (device.pin_failed_attempts or 0) + 1
     write_audit_event(
         "PIN_FAILED",
@@ -171,6 +178,7 @@ def unlock_with_pin(device_id: str, pin: str) -> dict:
             "deviceId": device_id,
             "attempts": device.pin_failed_attempts,
         },
+        actor=owner,
     )
     if device.pin_failed_attempts >= MAX_PIN_FAILURES:
         device.pin_hash = None
@@ -181,6 +189,7 @@ def unlock_with_pin(device_id: str, pin: str) -> dict:
             "UserDevice",
             device.id,
             after={"userId": device.user_id, "reason": "pin_lockout"},
+            actor=owner,
         )
         db.session.commit()
         raise AppError(

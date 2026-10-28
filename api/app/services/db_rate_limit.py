@@ -89,8 +89,12 @@ def client_key(prefix: str) -> str:
     return f"{prefix}:{ip}"
 
 
-def db_limit(limit_factory, *, prefix: str, error_message: str | None = None):
-    """Decorator: enforce a DB-backed limit (callable or string limit spec)."""
+def db_limit(limit_factory, *, prefix: str, error_message: str | None = None, on_block=None):
+    """Decorator: enforce a DB-backed limit (callable or string limit spec).
+
+    ``on_block`` runs when a request is refused (for example, to note it in
+    the audit log); its own errors never change the 429 answer.
+    """
 
     def decorator(fn):
         @wraps(fn)
@@ -107,6 +111,11 @@ def db_limit(limit_factory, *, prefix: str, error_message: str | None = None):
             try:
                 hit(client_key(prefix), limit, window)
             except AppError as exc:
+                if on_block is not None:
+                    try:
+                        on_block()
+                    except Exception:  # noqa: BLE001 - logging must not break the 429
+                        db.session.rollback()
                 if error_message:
                     raise AppError(error_message, exc.code, exc.status_code) from exc
                 raise

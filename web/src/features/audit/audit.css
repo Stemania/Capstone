@@ -1,0 +1,93 @@
+.audit-details {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.audit-details__row {
+  display: grid;
+  grid-template-columns: minmax(120px, 200px) 1fr;
+  gap: 12px;
+  align-items: baseline;
+}
+.audit-details__row dt {
+  color: #64748b;
+  font-weight: 600;
+}
+.audit-details__row dd {
+  margin: 0;
+  color: #0f172a;
+  overflow-wrap: anywhere;
+}
+.audit-details__old {
+  color: #64748b;
+  text-decoration: line-through;
+  text-decoration-color: #cbd5e1;
+}
+.audit-details__arrow {
+  margin: 0 6px;
+  color: #94a3b8;
+}
+.audit-details__new {
+  font-weight: 600;
+}
+.audit-details__none {
+  font-size: 12px;
+  color: #64748b;
+}
+.audit-who__name {
+  font-weight: 600;
+  color: #0f172a;
+}
+.audit-who__role,
+.audit-when__time,
+.audit-ip {
+  font-size: 12px;
+  color: #64748b;
+}
+.audit-what__summary {
+  color: #0f172a;
+}
+.audit-what__record {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.audit-note {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0 0 12px;
+}
+.audit-history__row {
+  padding: 8px 0;
+  border-bottom: 1px solid #eef2f6;
+  font-size: 13px;
+}
+.audit-history__row:last-child {
+  border-bottom: none;
+}
+.audit-history__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: #64748b;
+}
+.audit-history__summary {
+  margin-top: 4px;
+  color: #0f172a;
+}
+.audit-history__details {
+  margin-top: 6px;
+}
+/* The job page puts history in a narrow column: label above value. */
+.audit-history__details .audit-details__row {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+@media (max-width: 767px) {
+  .audit-details__row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}

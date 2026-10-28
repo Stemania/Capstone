@@ -25,6 +25,7 @@ const AssignmentDetailPage = lazy(() => import('../features/my-assignments/Assig
 const UsersPage = lazy(() => import('../features/users/UsersPage'));
 const WorkerSetupPage = lazy(() => import('../features/workers/WorkerSetupPage'));
 const AttendancePage = lazy(() => import('../features/attendance/AttendancePage'));
+const AuditLogPage = lazy(() => import('../features/audit/AuditLogPage'));
 const ShopDetailsPage = lazy(() => import('../features/settings/ShopDetailsPage'));
 const ToolsPage = lazy(() => import('../features/tool-tracking/ToolsPage'));
 const ScanToolPage = lazy(() => import('../features/tool-tracking/ScanToolPage'));
@@ -312,6 +313,14 @@ export default function AppRoutes() {
                       element={
                         <RouteSuspense>
                           <AttendancePage />
+                        </RouteSuspense>
+                      }
+                    />
+                    <Route
+                      path="/audit-log"
+                      element={
+                        <RouteSuspense>
+                          <AuditLogPage />
                         </RouteSuspense>
                       }
                     />

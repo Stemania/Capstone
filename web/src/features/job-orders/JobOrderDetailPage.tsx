@@ -80,6 +80,7 @@ import RescheduleModal, {
 } from './RescheduleModal';
 import CancelJobModal, { cancelReasonLabel } from './CancelJobModal';
 import { jobOrderPrintBlockers } from '../reports/jobOrderPrintReadiness';
+import JobAuditHistory from '../audit/JobAuditHistory';
 
 const RESCHEDULE_REASON_CODES = new Set(
   RESCHEDULE_REASON_OPTIONS.map((o) => o.value as string)
@@ -1467,6 +1468,15 @@ function JobOrderDetailView() {
                         </Text>
                       ),
                   },
+                  ...(isAdmin
+                    ? [
+                        {
+                          key: 'audit-history',
+                          label: <ActivityLabel title="Change history" />,
+                          children: <JobAuditHistory jobId={job.id} />,
+                        },
+                      ]
+                    : []),
                 ]}
               />
             </div>
@@ -1761,11 +1771,11 @@ function FinishCard({ job }: { job: JobOrder }) {
   );
 }
 
-function ActivityLabel({ title, count, alert }: { title: string; count: number; alert?: string }) {
+function ActivityLabel({ title, count, alert }: { title: string; count?: number; alert?: string }) {
   return (
     <span style={{ fontSize: 13, fontWeight: 600, color: NAVY }}>
       {title}
-      <span style={{ color: MUTED, fontWeight: 400 }}> · {count}</span>
+      {count != null ? <span style={{ color: MUTED, fontWeight: 400 }}> · {count}</span> : null}
       {alert ? <span style={{ color: '#b91c1c', fontWeight: 600 }}> · {alert}</span> : null}
     </span>
   );

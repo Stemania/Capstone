@@ -2059,3 +2059,42 @@ export interface OfficeSummary {
   lowStock: OfficeLowStockItem[];
   failedEmails: OfficeFailedEmail[];
 }
+
+// ---- Audit trail (Admin only) ----
+
+export type AuditCategory = 'SIGN_IN' | 'CHANGES' | 'ACTIONS';
+
+/** One line of a change: old → new, or a single value for anything else. */
+export type AuditDetail =
+  | { label: string; from: unknown; to: unknown; value?: never }
+  | { label: string; value: unknown; from?: never; to?: never };
+
+export interface AuditEntry {
+  id: string;
+  createdAt: string | null;
+  action: string;
+  actionLabel: string;
+  category: AuditCategory;
+  user: { id: string; name: string; role: UserRole | string } | null;
+  entityType: string;
+  entityLabel: string;
+  entityId: string | null;
+  recordLabel: string | null;
+  link: string | null;
+  summary: string;
+  details: AuditDetail[];
+  ipAddress: string | null;
+}
+
+export interface AuditLogPage {
+  items: AuditEntry[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface AuditLogOptions {
+  users: { id: string; name: string; role: UserRole | string }[];
+  entityTypes: { value: string; label: string }[];
+  categories: { value: AuditCategory; label: string }[];
+}

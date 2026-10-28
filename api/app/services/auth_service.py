@@ -33,15 +33,32 @@ def _find_user_by_identifier(identifier: str) -> User | None:
     return User.query.filter_by(mobile_number=mobile).first()
 
 
+def _failed_login_reason(user: User | None, password: str) -> str | None:
+    if not user:
+        return "UNKNOWN_ACCOUNT"
+    if user.status != UserStatus.ACTIVE:
+        return "ACCOUNT_NOT_ACTIVE"
+    if not user.password_hash:
+        return "NO_PASSWORD_SET"
+    if not password or not bcrypt.check_password_hash(user.password_hash, password):
+        return "WRONG_PASSWORD"
+    return None
+
+
 def authenticate_user(identifier: str, password: str) -> User:
     user = _find_user_by_identifier(identifier)
-    if (
-        not user
-        or user.status != UserStatus.ACTIVE
-        or not user.password_hash
-        or not password
-        or not bcrypt.check_password_hash(user.password_hash, password)
-    ):
+    reason = _failed_login_reason(user, password)
+    if reason:
+        # Kept for the Admin's audit log; the person signing in still only
+        # sees the generic message.
+        write_audit_event(
+            "LOGIN_FAILED",
+            "User",
+            user.id if user else None,
+            after={"identifier": str(identifier or "").strip()[:120], "reason": reason},
+            actor=user,
+        )
+        db.session.commit()
         raise GENERIC_LOGIN_ERROR
     return user
 
