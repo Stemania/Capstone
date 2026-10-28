@@ -145,7 +145,6 @@ export default function ScheduleProposalPanel({
       .filter((op) => dueDate && op.scheduled && (shopDate(op.scheduledEnd) || '') > dueDate)
       .map((op) => op.sequenceNo),
   );
-  const firstLate = Math.min(...lateSeqs);
   const finishDate = shopDate(projectedCompletion);
   const daysLate =
     finishDate && dueDate ? Math.max(0, dayjs(finishDate).diff(dayjs(dueDate), 'day')) : 0;
@@ -236,22 +235,19 @@ export default function ScheduleProposalPanel({
                 <span className="jo-sched__seq">{op.sequenceNo}</span>
                 <div className="jo-sched__op-main">
                   <span className="jo-sched__op-name">{op.operationName}</span>
-                  <div className="jo-sched__tags">
-                    {op.isOutsourced ? (
-                      <StatusPill tone="indigo" compact>
-                        Outsourced · {plural(op.turnaroundDays ?? 0, 'day')}
-                      </StatusPill>
-                    ) : op.estimatedHoursDefaulted ? (
-                      <StatusPill tone="slate" compact>
-                        1.0h assumed
-                      </StatusPill>
-                    ) : null}
-                    {late && op.sequenceNo === firstLate ? (
-                      <StatusPill tone="red" compact>
-                        <WarningFilled /> Pushes past {formatShop(dueDate, 'MMM D')}
-                      </StatusPill>
-                    ) : null}
-                  </div>
+                  {op.isOutsourced || op.estimatedHoursDefaulted ? (
+                    <div className="jo-sched__tags">
+                      {op.isOutsourced ? (
+                        <StatusPill tone="indigo" compact>
+                          Outsourced · {plural(op.turnaroundDays ?? 0, 'day')}
+                        </StatusPill>
+                      ) : (
+                        <StatusPill tone="slate" compact>
+                          1.0h assumed
+                        </StatusPill>
+                      )}
+                    </div>
+                  ) : null}
                   {op.message ? (
                     <div className={`jo-sched__msg${op.scheduled ? '' : ' is-error'}`}>{op.message}</div>
                   ) : null}
@@ -376,6 +372,16 @@ export default function ScheduleProposalPanel({
                             h === h0 ? Array.from({ length: m0 }, (_, i) => i) : [],
                         };
                       }}
+                      renderExtraFooter={
+                        earliestStart
+                          ? () => (
+                              <span className="jo-sched__earliest">
+                                Earliest start: {earliestStart.format(DATE_TIME)} (after operation{' '}
+                                {prevOp?.sequenceNo} ends)
+                              </span>
+                            )
+                          : undefined
+                      }
                       onChange={(v) => {
                         if (!v) return;
                         const next =
@@ -383,21 +389,24 @@ export default function ScheduleProposalPanel({
                         onChangeOp(op.sequenceNo, { scheduledStart: shopLocalToIso(next) });
                       }}
                     />
-                    {earliestStart ? (
-                      <div className="jo-sched__muted" style={{ fontSize: 11, marginTop: 2 }}>
-                        Earliest: {earliestStart.format(DATE_TIME)}
-                      </div>
-                    ) : null}
                   </div>
                   <div className="jo-sched__field" data-label="End">
                     <Tooltip
                       title={
-                        op.isOutsourced
-                          ? 'Start plus the turnaround in calendar days. The next operation waits until it is returned.'
-                          : 'Worked out from Start and the target hours, across working hours, overtime and holidays. Change the target hours in the Operations step.'
+                        <>
+                          {late ? (
+                            <div style={{ fontWeight: 700 }}>
+                              Ends after the date required ({formatShop(dueDate, 'MMM D')}).
+                            </div>
+                          ) : null}
+                          {op.isOutsourced
+                            ? 'Start plus the turnaround in calendar days. The next operation waits until it is returned.'
+                            : 'Worked out from Start and the target hours, across working hours, overtime and holidays. Change the target hours in the Operations step.'}
+                        </>
                       }
                     >
                       <span className={`jo-sched__end${late ? ' is-late' : ''}`}>
+                        {late ? <WarningFilled aria-label="Past the date required" /> : null}
                         {op.scheduledEnd ? formatShop(op.scheduledEnd, DATE_TIME) : '—'}
                       </span>
                     </Tooltip>

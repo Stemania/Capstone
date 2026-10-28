@@ -30,6 +30,7 @@ import {
   StopOutlined,
   InboxOutlined,
   LockOutlined,
+  RedoOutlined,
 } from '@ant-design/icons';
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -44,7 +45,7 @@ import { notificationsApi } from '../../api/notifications.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import StatusPill from '../../components/StatusPill';
-import { IdChip, PageSkeleton } from '../../components/ui';
+import { IdChip, PageSkeleton, FormModal } from '../../components/ui';
 import { JOB_FLAG, JOB_STATUS, OPERATION_STATUS, type StatusDef } from '../../theme/statuses';
 import { colors, tones } from '../../theme/tokens';
 import MaterialWaitTag from '../../components/MaterialWaitTag';
@@ -444,58 +445,44 @@ function JobOrderDetailView() {
     }
   };
 
+  const [reworkOp, setReworkOp] = useState<Operation | null>(null);
+  const [reworkCategory, setReworkCategory] = useState<ReworkReasonCategory | undefined>();
+  const [reworkNote, setReworkNote] = useState('');
+  const [reworkSaving, setReworkSaving] = useState(false);
+
   const handleRework = (op: Operation) => {
-    let category: ReworkReasonCategory | undefined;
-    let note = '';
-    Modal.confirm({
-      title: `Send “${op.operationName}” for redo`,
-      content: (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ marginBottom: 8, fontSize: 13, color: '#475569' }}>Category</div>
-          <Select
-            style={{ width: '100%', marginBottom: 12 }}
-            placeholder="Select reason category"
-            options={REWORK_CATEGORY_OPTIONS}
-            onChange={(v: ReworkReasonCategory) => {
-              category = v;
-            }}
-          />
-          <div style={{ marginBottom: 8, fontSize: 13, color: '#475569' }}>Note (optional)</div>
-          <Input.TextArea
-            rows={3}
-            placeholder="Extra detail"
-            onChange={(e) => {
-              note = e.target.value;
-            }}
-          />
-        </div>
-      ),
-      okText: 'Create redo operation',
-      onOk: async () => {
-        if (!category) {
-          message.error('Category is required');
-          return Promise.reject();
-        }
-        if (category === 'OTHER' && !note.trim()) {
-          message.error('Note is required when category is Other');
-          return Promise.reject();
-        }
-        setReworkLoading(op.id);
-        try {
-          await operationsApi.rework(op.id, {
-            category,
-            reason: note.trim() || undefined,
-          });
-          message.success('Redo operation created');
-          await fetchJob();
-        } catch (err) {
-          message.error(getErrorMessage(err));
-          return Promise.reject();
-        } finally {
-          setReworkLoading(null);
-        }
-      },
-    });
+    setReworkCategory(undefined);
+    setReworkNote('');
+    setReworkOp(op);
+  };
+
+  const submitRework = async () => {
+    const op = reworkOp;
+    if (!op) return;
+    if (!reworkCategory) {
+      message.error('Category is required');
+      return;
+    }
+    if (reworkCategory === 'OTHER' && !reworkNote.trim()) {
+      message.error('Note is required when category is Other');
+      return;
+    }
+    setReworkSaving(true);
+    setReworkLoading(op.id);
+    try {
+      await operationsApi.rework(op.id, {
+        category: reworkCategory,
+        reason: reworkNote.trim() || undefined,
+      });
+      message.success('Redo operation created');
+      setReworkOp(null);
+      await fetchJob();
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setReworkSaving(false);
+      setReworkLoading(null);
+    }
   };
 
   const openRecordInvoice = () => {
@@ -1484,17 +1471,82 @@ function JobOrderDetailView() {
         </Col>
       </Row>
 
-      <Modal
+      <FormModal
+        open={!!reworkOp}
+        icon={<RedoOutlined />}
+        title="Send for redo"
+        subtitle={
+          reworkOp
+            ? `${reworkOp.operationName} failed inspection. A redo operation is added to this job.`
+            : undefined
+        }
+        onCancel={() => setReworkOp(null)}
+        onOk={submitRework}
+        okText="Create redo operation"
+        confirmLoading={reworkSaving}
+        destroyOnHidden
+      >
+        <Form layout="vertical">
+          <Form.Item label="Category" required>
+            <Select
+              placeholder="Why does it need to be redone?"
+              options={REWORK_CATEGORY_OPTIONS}
+              value={reworkCategory}
+              onChange={(v: ReworkReasonCategory) => setReworkCategory(v)}
+            />
+          </Form.Item>
+          <Form.Item label={reworkCategory === 'OTHER' ? 'Note' : 'Note (optional)'} required={reworkCategory === 'OTHER'}>
+            <Input.TextArea
+              rows={3}
+              placeholder="Extra detail"
+              value={reworkNote}
+              onChange={(e) => setReworkNote(e.target.value)}
+            />
+          </Form.Item>
+        </Form>
+      </FormModal>
+
+      <FormModal
         open={invoiceMode !== null}
         onCancel={() => setInvoiceMode(null)}
-        footer={null}
-        width={invoiceMode === 'record' ? 640 : undefined}
+        size={invoiceMode === 'record' ? 'lg' : 'md'}
+        width={invoiceMode === 'record' ? 680 : undefined}
+        icon={<FileTextOutlined />}
         title={
           invoiceMode === 'record'
             ? 'Record sales invoice'
             : invoiceMode === 'correct'
               ? 'Correct sales invoice'
               : 'Sales invoice'
+        }
+        subtitle={[job.jobNumber, job.clientName].filter(Boolean).join(' · ')}
+        footer={
+          invoiceMode === 'view' ? (
+            <>
+              <Button onClick={() => setInvoiceMode(null)} style={{ minWidth: 96 }}>
+                Close
+              </Button>
+              {canCorrectInvoice ? (
+                <Button type="primary" onClick={openCorrectInvoice} style={{ fontWeight: 700, minWidth: 120 }}>
+                  Correct
+                </Button>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <Button onClick={() => setInvoiceMode(null)} style={{ minWidth: 96 }}>
+                Cancel
+              </Button>
+              <Button
+                type="primary"
+                loading={invoiceSaving}
+                onClick={() => invoiceForm.submit()}
+                style={{ fontWeight: 700, minWidth: 120 }}
+              >
+                {invoiceMode === 'correct' ? 'Save correction' : 'Record invoice'}
+              </Button>
+            </>
+          )
         }
         destroyOnHidden
       >
@@ -1518,20 +1570,12 @@ function JobOrderDetailView() {
                 <div>{dash(job.salesInvoice.preparedByName)}</div>
               </div>
             </div>
-            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 16 }}>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 0 }}>
               Reference to the shop&apos;s BIR-registered sales invoice.{' '}
               {canCorrectInvoice
                 ? 'It can be corrected until the Admin sets the job For Delivery.'
                 : 'It is locked once the job is set For Delivery.'}
             </Text>
-            <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-              <Button onClick={() => setInvoiceMode(null)}>Close</Button>
-              {canCorrectInvoice ? (
-                <Button type="primary" onClick={openCorrectInvoice}>
-                  Correct
-                </Button>
-              ) : null}
-            </Space>
           </>
         ) : (
           <Form form={invoiceForm} layout="vertical" onFinish={onSaveInvoice}>
@@ -1584,15 +1628,9 @@ function JobOrderDetailView() {
                 <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} />
               </Form.Item>
             ) : null}
-            <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-              <Button onClick={() => setInvoiceMode(null)}>Cancel</Button>
-              <Button type="primary" htmlType="submit" loading={invoiceSaving}>
-                {invoiceMode === 'correct' ? 'Save correction' : 'Record invoice'}
-              </Button>
-            </Space>
           </Form>
         )}
-      </Modal>
+      </FormModal>
 
       <OrderMaterialsModal
         open={purchaseOpen}

@@ -441,3 +441,18 @@
     flex: 1.4;
   }
 }
+
+/* Schedule table: a late finish carries its own warning, the Start picker
+   shows the earliest allowed start in its calendar instead of under the field. */
+.jo-sched__end {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jo-sched__earliest {
+  display: block;
+  padding: 2px 0;
+  font-size: 12px;
+  color: var(--c-text-muted);
+}

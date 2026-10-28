@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Form, Input, Modal, Select, Spin, message } from 'antd';
+import { Alert, Button, Form, Input, Select, Spin, message } from 'antd';
 import dayjs from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
@@ -7,6 +7,8 @@ import type { JobOrder, MachineUnitInfo, ProposedOperation, ScheduleProposeResul
 import { SHOP_TZ, scheduleFlagStyle, formatShop } from '../../utils/shopTime';
 import ScheduleWeekView from './ScheduleWeekView';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
+import { FormModal } from '../../components/ui';
+import { CalendarOutlined } from '@ant-design/icons';
 
 function fmtWindow(start?: string | null, end?: string | null): string {
   if (!start || !end) return '—';
@@ -119,27 +121,30 @@ export default function RescheduleModal({
   };
 
   return (
-    <Modal
+    <FormModal
       open
       onCancel={onClose}
+      size="lg"
       width={1100}
-      centered
-      title={job ? `Reschedule · ${job.jobNumber || ''} ${job.title}` : 'Reschedule'}
-      footer={[
-        <Button key="cancel" onClick={onClose} style={{ minWidth: 96 }}>
-          Cancel
-        </Button>,
-        <Button
-          key="confirm"
-          type="primary"
-          loading={saving}
-          disabled={!canConfirm}
-          onClick={confirm}
-          style={{ fontWeight: 700, minWidth: 140 }}
-        >
-          Confirm reschedule
-        </Button>,
-      ]}
+      icon={<CalendarOutlined />}
+      title="Reschedule"
+      subtitle={job ? [job.jobNumber, job.title].filter(Boolean).join(' · ') : undefined}
+      footer={
+        <>
+          <Button onClick={onClose} style={{ minWidth: 96 }}>
+            Cancel
+          </Button>
+          <Button
+            type="primary"
+            loading={saving}
+            disabled={!canConfirm}
+            onClick={confirm}
+            style={{ fontWeight: 700, minWidth: 140 }}
+          >
+            Confirm reschedule
+          </Button>
+        </>
+      }
     >
       {loading ? (
         <div style={{ padding: 40, textAlign: 'center' }}>
@@ -273,6 +278,6 @@ export default function RescheduleModal({
           ) : null}
         </>
       )}
-    </Modal>
+    </FormModal>
   );
 }

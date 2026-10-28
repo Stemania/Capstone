@@ -21,6 +21,9 @@ import {
   ClusterOutlined,
   LeftOutlined,
   RightOutlined,
+  CalendarOutlined,
+  CheckCircleOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -42,6 +45,7 @@ import {
   Page,
   StatCard,
   StatGrid,
+  FormModal,
 } from '../../components/ui';
 import MachineCard from './MachineCard';
 import MachineDetailsDrawer from './MachineDetailsDrawer';
@@ -791,8 +795,11 @@ export default function MachinesPage() {
         </div>
       </Modal>
 
-      <Modal
-        title={reportFor ? `Report breakdown — ${reportFor.label}` : 'Report breakdown'}
+      <FormModal
+        size="sm"
+        icon={<WarningOutlined />}
+        title="Report breakdown"
+        subtitle={reportFor ? `${reportFor.label}` : undefined}
         open={!!reportFor}
         onCancel={() => setReportFor(null)}
         onOk={submitReport}
@@ -837,7 +844,7 @@ export default function MachinesPage() {
             />
           </Form.Item>
         </Form>
-      </Modal>
+      </FormModal>
 
       <BreakdownWorkModal
         work={breakdownWork}
@@ -850,8 +857,11 @@ export default function MachinesPage() {
         onOpenSchedule={() => navigate('/schedule')}
       />
 
-      <Modal
-        title={repairFor ? `Expected repair date — ${repairFor.label}` : 'Expected repair date'}
+      <FormModal
+        size="sm"
+        icon={<CalendarOutlined />}
+        title="Expected repair date"
+        subtitle={repairFor ? `${repairFor.label}` : undefined}
         open={!!repairFor}
         onCancel={() => setRepairFor(null)}
         onOk={submitRepairDate}
@@ -873,10 +883,13 @@ export default function MachinesPage() {
             />
           </Form.Item>
         </Form>
-      </Modal>
+      </FormModal>
 
-      <Modal
-        title={closeFor ? `Close breakdown — ${closeFor.label}` : 'Close breakdown'}
+      <FormModal
+        size="sm"
+        icon={<CheckCircleOutlined />}
+        title="Close breakdown"
+        subtitle={closeFor ? `${closeFor.label}` : undefined}
         open={!!closeFor}
         onCancel={() => setCloseFor(null)}
         onOk={submitClose}
@@ -900,10 +913,13 @@ export default function MachinesPage() {
             <Input.TextArea rows={3} placeholder="What fixed it, parts used…" />
           </Form.Item>
         </Form>
-      </Modal>
+      </FormModal>
 
-      <Modal
-        title={operatorFor ? `Assigned operator — ${operatorFor.label}` : 'Assigned operator'}
+      <FormModal
+        size="sm"
+        icon={<UserOutlined />}
+        title="Assigned operator"
+        subtitle={operatorFor ? `${operatorFor.label}` : undefined}
         open={!!operatorFor}
         onCancel={() => setOperatorFor(null)}
         onOk={submitDefaultOperator}
@@ -937,7 +953,7 @@ export default function MachinesPage() {
             />
           </Form.Item>
         </Form>
-      </Modal>
+      </FormModal>
     </Page>
   );
 }

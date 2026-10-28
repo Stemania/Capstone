@@ -14,7 +14,7 @@ type Props = {
   width: number;
   /** Worker rows show the machine; machine rows show the worker. */
   rowMode: 'machine' | 'worker';
-  onOpenJob: (jobOrderId: string) => void;
+  onOpenJob?: (jobOrderId: string) => void;
 };
 
 function statusLabel(s: string) {
@@ -97,7 +97,7 @@ function MonthDayChip({ dayKey, ops, left, width, rowMode, onOpenJob }: Props) {
             style={{ animationDelay: `${Math.min(i, 8) * 30}ms` }}
             onClick={() => {
               setOpen(false);
-              onOpenJob(g.jobOrderId);
+              onOpenJob?.(g.jobOrderId);
             }}
           >
             <span className="sched-day-job__top">

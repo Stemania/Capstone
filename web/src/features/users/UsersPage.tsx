@@ -17,7 +17,7 @@ import { usersApi, type InviteDelivery } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill, { type PillColor } from '../../components/StatusPill';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
-import { EllipsisText, ResponsiveTable, rowOpenProps } from '../../components/ui';
+import { EllipsisText, ResponsiveTable, rowOpenProps, FormModal } from '../../components/ui';
 import { PersonAvatar } from '../../components/PersonAvatar';
 import UserIdentity from '../../components/UserIdentity';
 import PhotoUploadControl from '../../components/PhotoUploadControl';
@@ -696,9 +696,11 @@ export default function UsersPage() {
         </div>
       </Modal>
 
-      <Modal
+      <FormModal
         open={!!editUser}
+        icon={<EditOutlined />}
         title={editUser ? `Edit ${editUser.fullName}` : 'Edit user'}
+        subtitle="Name, contact details, photo, and role."
         onCancel={() => setEditUser(null)}
         onOk={() => editForm.submit()}
         okText="Save"
@@ -779,7 +781,7 @@ export default function UsersPage() {
             </div>
           ) : null}
         </Form>
-      </Modal>
+      </FormModal>
     </div>
   );
 }

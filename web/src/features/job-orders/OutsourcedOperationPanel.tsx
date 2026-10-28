@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { Button, DatePicker, Form, Input, Modal, Space, Tag, message } from 'antd';
+import { Button, DatePicker, Form, Input, Space, Tag, message } from 'antd';
 import type { Dayjs } from 'dayjs';
 import { operationsApi } from '../../api/operations.api';
 import { getErrorMessage } from '../../api/client';
 import { formatShop, shopToday } from '../../utils/shopTime';
 import type { Operation } from '../../types';
+import { FormModal } from '../../components/ui';
+import { ExportOutlined, ImportOutlined } from '@ant-design/icons';
 
 const MUTED = '#64748b';
 
@@ -127,9 +129,12 @@ export default function OutsourcedOperationPanel({
         </Space>
       ) : null}
 
-      <Modal
+      <FormModal
+        size="sm"
         open={mode !== null}
-        title={mode === 'send' ? `Sent out: ${op.operationName}` : `Returned: ${op.operationName}`}
+        icon={mode === 'send' ? <ExportOutlined /> : <ImportOutlined />}
+        title={mode === 'send' ? 'Sent out' : 'Returned'}
+        subtitle={`${op.operationName} · done by an outside shop`}
         okText="Save"
         confirmLoading={saving}
         onOk={save}
@@ -162,7 +167,7 @@ export default function OutsourcedOperationPanel({
             </Form.Item>
           ) : null}
         </Form>
-      </Modal>
+      </FormModal>
     </>
   );
 }

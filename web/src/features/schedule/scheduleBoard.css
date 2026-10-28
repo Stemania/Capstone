@@ -290,3 +290,25 @@
 .sched-seg.ant-segmented .ant-segmented-item-selected {
   border-radius: 999px;
 }
+
+/* Schedule proposals (Plan job order, Reschedule, Re-propose) use the Schedule page board. */
+.jo-proposal-board {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.jo-proposal-board__switches,
+.jo-proposal-board__trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.jo-proposal-board__error {
+  font-size: 12px;
+  color: var(--tone-red-fg);
+  margin-bottom: 8px;
+}

@@ -12,7 +12,7 @@ import {
   message,
   DatePicker,
 } from 'antd';
-import { CalendarOutlined, DeleteOutlined, WarningOutlined } from '@ant-design/icons';
+import { CalendarOutlined, DeleteOutlined, WarningOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { Link } from 'react-router-dom';
 import {
@@ -26,7 +26,7 @@ import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import PeriodNavigator from '../../components/PeriodNavigator';
 import RescheduleAffectedJobs from './RescheduleAffectedJobs';
-import { Legend, PageSkeleton } from '../../components/ui';
+import { Legend, PageSkeleton, FormModal } from '../../components/ui';
 import './workCalendar.css';
 
 const TYPE_LABEL: Record<CalendarExceptionType, string> = {
@@ -764,7 +764,10 @@ export default function WorkCalendarPage() {
         </div>
       </Modal>
 
-      <Modal
+      <FormModal
+        size="sm"
+        icon={<ClockCircleOutlined />}
+        subtitle="Applies to every working day."
         open={breakOpen}
         title="Daily break"
         onCancel={() => setBreakOpen(false)}
@@ -809,7 +812,7 @@ export default function WorkCalendarPage() {
             </Col>
           </Row>
         </Form>
-      </Modal>
+      </FormModal>
 
       {affected ? (
         <RescheduleAffectedJobs

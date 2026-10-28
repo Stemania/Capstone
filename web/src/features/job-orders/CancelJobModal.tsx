@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { Form, Input, Modal, Select, message } from 'antd';
+import { Form, Input, Select, message } from 'antd';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import type { JobOrder } from '../../types';
+import { FormModal } from '../../components/ui';
+import { StopOutlined } from '@ant-design/icons';
 
 export const CANCEL_REASON_OPTIONS = [
   { value: 'CLIENT_CANCELLED', label: 'Client cancelled' },
@@ -49,15 +51,17 @@ export default function CancelJobModal({ job, open, onClose, onCancelled }: Prop
   };
 
   return (
-    <Modal
+    <FormModal
       open={open}
-      title={`Cancel job order · ${job.jobNumber || ''}`}
+      icon={<StopOutlined />}
+      title="Cancel job order"
+      subtitle={[job.jobNumber, job.title].filter(Boolean).join(' · ')}
       onCancel={onClose}
+      cancelText="Keep job"
       okText="Cancel job order"
       okButtonProps={{ danger: true, disabled: !canSubmit, loading: saving }}
       onOk={submit}
       destroyOnHidden
-      centered
     >
       <p style={{ marginBottom: 12, color: '#64748b' }}>
         The job stays in history. Unstarted work leaves the schedule and frees workers and
@@ -83,6 +87,6 @@ export default function CancelJobModal({ job, open, onClose, onCancelled }: Prop
           />
         </Form.Item>
       </Form>
-    </Modal>
+    </FormModal>
   );
 }

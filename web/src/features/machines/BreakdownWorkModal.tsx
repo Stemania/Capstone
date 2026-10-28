@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Alert, Modal, Radio, Space, Typography, message } from 'antd';
+import { Alert, Radio, Space, Typography, message } from 'antd';
 import { operationsApi } from '../../api/operations.api';
 import { getErrorMessage } from '../../api/client';
 import { personLabel } from '../../utils/people';
 import { formatShop, formatShopDateTime } from '../../utils/shopTime';
 import type { BreakdownAction, BreakdownWork } from '../../types';
+import { FormModal } from '../../components/ui';
+import { WarningOutlined } from '@ant-design/icons';
 
 type Props = {
   work: BreakdownWork | null;
@@ -60,9 +62,11 @@ export default function BreakdownWorkModal({ work, canDecide, onClose, onDone, o
   };
 
   return (
-    <Modal
+    <FormModal
       open
-      title={`${count} operation${count === 1 ? '' : 's'} affected on ${work.machineUnitLabel}`}
+      icon={<WarningOutlined />}
+      title={`${count} operation${count === 1 ? '' : 's'} affected`}
+      subtitle={`Booked on ${work.machineUnitLabel}, which is down. Choose what happens to this work.`}
       onCancel={onClose}
       onOk={canDecide ? submit : onOpenSchedule}
       okText={canDecide ? 'Apply' : 'Open Schedule'}
@@ -70,7 +74,7 @@ export default function BreakdownWorkModal({ work, canDecide, onClose, onDone, o
       confirmLoading={saving}
       destroyOnHidden
     >
-      <ul style={{ margin: '8px 0 12px', paddingLeft: 18 }}>
+      <ul style={{ margin: '0 0 12px', paddingLeft: 18 }}>
         {work.operations.map((op) => (
           <li key={op.id}>
             <Typography.Text strong>{op.jobNumber || 'Job'}</Typography.Text> · {op.operationName}
@@ -131,6 +135,6 @@ export default function BreakdownWorkModal({ work, canDecide, onClose, onDone, o
           An Admin decides whether to move this work. Until then the board shows it on a down machine.
         </Typography.Paragraph>
       )}
-    </Modal>
+    </FormModal>
   );
 }

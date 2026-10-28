@@ -27,7 +27,6 @@ import { MACHINE_OPTIONS } from '../../types';
 import { formatShopDateTime, formatShop } from '../../utils/shopTime';
 import ScheduleProposalPanel from './ScheduleProposalPanel';
 import ScheduleWeekView from './ScheduleWeekView';
-import ScheduleExpandShell from '../schedule/ScheduleExpandShell';
 import JobOrderFlowSteps, {
   resolveJobFlowStep,
   type JobFlowStepId,
@@ -1751,35 +1750,35 @@ export default function JobOrderPlanningPage() {
                 refreshing={proposing}
                 readOnly={readOnly}
               />
-              <ScheduleExpandShell title="Schedule view" className="jo-plan__week-wrap" expandInBody>
-                {({ expandButton }) => (
-                  <ScheduleWeekView
-                    jobId={job.id}
-                    jobNumber={job.jobNumber}
-                    jobTitle={job.title}
-                    operations={scheduleOps}
-                    machineUnits={machineUnits}
-                    expandButton={expandButton}
-                    scheduleColor={job.scheduleColor}
-                    colorPickerDisabled={readOnly}
-                    onScheduleColorChange={async (hex) => {
-                      const prev = job.scheduleColor;
-                      setJob({ ...job, scheduleColor: hex });
-                      try {
-                        const { data } = await jobOrdersApi.update(job.id, {
-                          scheduleColor: hex,
-                        });
-                        setJob((j) =>
-                          j ? { ...j, scheduleColor: data.scheduleColor ?? hex } : j
-                        );
-                      } catch (err) {
-                        setJob((j) => (j ? { ...j, scheduleColor: prev } : j));
-                        message.error(getErrorMessage(err));
-                      }
-                    }}
-                  />
-                )}
-              </ScheduleExpandShell>
+              <div className="jo-plan__week-wrap">
+                <div className="sched-expand__title" style={{ marginBottom: 10 }}>
+                  Schedule view
+                </div>
+                <ScheduleWeekView
+                  jobId={job.id}
+                  jobNumber={job.jobNumber}
+                  jobTitle={job.title}
+                  operations={scheduleOps}
+                  machineUnits={machineUnits}
+                  scheduleColor={job.scheduleColor}
+                  colorPickerDisabled={readOnly}
+                  onScheduleColorChange={async (hex) => {
+                    const prev = job.scheduleColor;
+                    setJob({ ...job, scheduleColor: hex });
+                    try {
+                      const { data } = await jobOrdersApi.update(job.id, {
+                        scheduleColor: hex,
+                      });
+                      setJob((j) =>
+                        j ? { ...j, scheduleColor: data.scheduleColor ?? hex } : j
+                      );
+                    } catch (err) {
+                      setJob((j) => (j ? { ...j, scheduleColor: prev } : j));
+                      message.error(getErrorMessage(err));
+                    }
+                  }}
+                />
+              </div>
             </>
           ) : (
             <Alert

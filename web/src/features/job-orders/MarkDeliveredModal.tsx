@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { DatePicker, Modal, message } from 'antd';
+import { DatePicker, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import { formatShop, shopToday } from '../../utils/shopTime';
 import type { JobOrder } from '../../types';
+import { FormModal } from '../../components/ui';
+import { CheckCircleOutlined } from '@ant-design/icons';
 
 type Props = {
   /** The job to mark delivered; null closes the box. */
@@ -41,9 +43,12 @@ export default function MarkDeliveredModal({ job, onClose, onDone }: Props) {
   };
 
   return (
-    <Modal
+    <FormModal
+      size="sm"
       open={Boolean(job)}
+      icon={<CheckCircleOutlined />}
       title="Mark as Delivered"
+      subtitle={job?.jobNumber || undefined}
       okText="Mark as Delivered"
       confirmLoading={saving}
       okButtonProps={{ disabled: !on }}
@@ -70,6 +75,6 @@ export default function MarkDeliveredModal({ job, onClose, onDone }: Props) {
           After the date required: this job counts as late.
         </div>
       ) : null}
-    </Modal>
+    </FormModal>
   );
 }

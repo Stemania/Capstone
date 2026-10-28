@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Button, DatePicker, Segmented, Spin } from 'antd';
-import { LeftOutlined, RightOutlined } from '@ant-design/icons';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Grid, Skeleton } from 'antd';
+import { AimOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import {
   scheduleApi,
@@ -9,19 +9,37 @@ import {
   type ShopDayWindow,
 } from '../../api/schedule.api';
 import { getErrorMessage } from '../../api/client';
-import ScheduleTimelineBoard, { type TimelineRow } from '../schedule/ScheduleTimelineBoard';
+import InfoTip from '../../components/InfoTip';
+import PeriodNavigator from '../../components/PeriodNavigator';
+import { Legend, type LegendItem } from '../../components/ui';
+import { TOUCH_QUERY, useMediaQuery } from '../../hooks/useViewport';
+import { adminPx } from '../../theme/adminTheme';
+import type { MachineUnitInfo, ProposedOperation } from '../../types';
+import { personLabel } from '../../utils/people';
+import { SHOP_TZ } from '../../utils/shopTime';
+import {
+  BoardGrid,
+  CLASH_COLOR,
+  DOWN_COLOR,
+  NO_DOWNTIMES,
+  OTHER_JOB_COLOR,
+  PressGroup,
+  THIS_JOB_COLOR,
+  groupBy,
+  groupByMany,
+  opGroupKeys,
+  type RowDef,
+  type RowMode,
+} from '../schedule/BoardGrid';
+import ScheduleExpandShell from '../schedule/ScheduleExpandShell';
 import {
   periodBounds,
   weekStartFromIsoDates,
-  WORKING_HOURS_NOTE,
   type TimelineViewMode,
 } from '../schedule/scheduleTimelineUtils';
-import type { MachineUnitInfo, ProposedOperation } from '../../types';
-import { SHOP_TZ } from '../../utils/shopTime';
-import { personLabel } from '../../utils/people';
 import JobScheduleColorPicker from './JobScheduleColorPicker';
+import '../schedule/scheduleBoard.css';
 
-type RowMode = 'machine' | 'worker';
 type BoardWorker = {
   id: string;
   fullName: string;
@@ -29,10 +47,15 @@ type BoardWorker = {
   photoVersion?: number | null;
 };
 
-const NO_DOWNTIMES: ScheduleBoardDowntime[] = [];
+type BoardData = {
+  operations: ScheduleBoardOperation[];
+  workers: BoardWorker[];
+  downtimes: ScheduleBoardDowntime[];
+  shopDayWindows: ShopDayWindow[];
+};
 
-function buildMachineRows(units: MachineUnitInfo[]): TimelineRow[] {
-  const rows: TimelineRow[] = [];
+function buildMachineRows(units: MachineUnitInfo[]): RowDef[] {
+  const rows: RowDef[] = [];
   let lastType = '';
   const sorted = [...units].sort((a, b) => {
     const ta = a.machineTypeName || '';
@@ -54,11 +77,9 @@ function buildMachineRows(units: MachineUnitInfo[]): TimelineRow[] {
   return rows;
 }
 
-function buildWorkerRows(workers: BoardWorker[], ops: ScheduleBoardOperation[]): TimelineRow[] {
+function buildWorkerRows(workers: BoardWorker[], ops: ScheduleBoardOperation[]): RowDef[] {
   const byId = new Map<string, BoardWorker>();
-  for (const w of workers) {
-    byId.set(w.id, w);
-  }
+  for (const w of workers) byId.set(w.id, w);
   for (const op of ops) {
     if (op.assignedWorkerId && !byId.has(op.assignedWorkerId)) {
       byId.set(op.assignedWorkerId, {
@@ -86,8 +107,7 @@ function buildWorkerRows(workers: BoardWorker[], ops: ScheduleBoardOperation[]):
 }
 
 function segmentsForOp(op: ProposedOperation) {
-  // Prefer scheduler working segments (already split across days). Fall back to
-  // the overnight envelope — ScheduleTimelineBoard splits that for week view.
+  // Prefer the scheduler's working segments (already split across days).
   if (op.segments && op.segments.length > 0) return op.segments;
   if (op.scheduledStart && op.scheduledEnd) {
     return [{ start: op.scheduledStart, end: op.scheduledEnd }];
@@ -125,96 +145,100 @@ function proposedToBoardOp(
   };
 }
 
+const PERIODS: { label: string; value: TimelineViewMode }[] = [
+  { label: 'Day', value: 'day' },
+  { label: 'Week', value: 'week' },
+  { label: 'Month', value: 'month' },
+];
+
+const ROW_MODES: { label: string; value: RowMode }[] = [
+  { label: 'By machine', value: 'machine' },
+  { label: 'By worker', value: 'worker' },
+];
+
 type Props = {
   jobId: string;
   jobNumber?: string | null;
   jobTitle: string;
   operations: ProposedOperation[];
   machineUnits: MachineUnitInfo[];
-  expandButton?: ReactNode;
   scheduleColor?: string | null;
   onScheduleColorChange?: (hex: string) => void;
   colorPickerDisabled?: boolean;
 };
 
+/**
+ * The proposed schedule drawn on the same board as the Schedule page: the same
+ * Day / Week / Month and machine / worker switches, period navigator, Today,
+ * "Now" line and bars. This job stands out; other booked work is greyed.
+ */
 export default function ScheduleWeekView({
   jobId,
   jobNumber,
   jobTitle,
   operations,
   machineUnits,
-  expandButton,
   scheduleColor,
   onScheduleColorChange,
   colorPickerDisabled,
 }: Props) {
-  const [loading, setLoading] = useState(true);
-  const [boardOps, setBoardOps] = useState<ScheduleBoardOperation[]>([]);
-  const [boardWorkers, setBoardWorkers] = useState<BoardWorker[]>([]);
-  const [downtimes, setDowntimes] = useState<ScheduleBoardDowntime[]>([]);
-  const [shopDayWindows, setShopDayWindows] = useState<ShopDayWindow[]>([]);
-  const [fetchError, setFetchError] = useState('');
-  const [rowMode, setRowMode] = useState<RowMode>('machine');
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
+  const isTouch = useMediaQuery(TOUCH_QUERY);
+  const rowH = isTouch ? 52 : isMobile ? adminPx(40) : adminPx(44);
   const [viewMode, setViewMode] = useState<TimelineViewMode>('week');
+  const [rowMode, setRowMode] = useState<RowMode>('machine');
+  // Keep the pills snappy; rebuild the board at lower priority, as on the Schedule page.
+  const boardViewMode = useDeferredValue(viewMode);
+  const boardRowMode = useDeferredValue(rowMode);
+  const boardPending = boardViewMode !== viewMode || boardRowMode !== rowMode;
+  const labelW = isMobile ? adminPx(96) : boardViewMode === 'month' ? adminPx(220) : adminPx(168);
+
   const proposed = useMemo(
     () => operations.filter((o) => o.scheduled && o.scheduledStart && o.scheduledEnd),
     [operations]
   );
 
-  const defaultWeekStart = useMemo(() => {
+  // Open on the week the proposal starts in.
+  const defaultWeekKey = useMemo(() => {
     const dates = proposed.flatMap((o) => segmentsForOp(o).map((s) => s.start));
-    return weekStartFromIsoDates(dates);
+    return weekStartFromIsoDates(dates).format('YYYY-MM-DD');
   }, [proposed]);
-
-  const defaultWeekKey = defaultWeekStart.format('YYYY-MM-DD');
-  const [anchor, setAnchor] = useState<Dayjs>(defaultWeekStart);
-
-  // When the proposal’s earliest week changes (new draft / big time edits), snap back.
+  const [anchor, setAnchor] = useState<Dayjs>(() => dayjs.tz(defaultWeekKey, SHOP_TZ).startOf('day'));
   useEffect(() => {
     setAnchor(dayjs.tz(defaultWeekKey, SHOP_TZ).startOf('day'));
   }, [defaultWeekKey]);
 
-  const { from, to } = useMemo(() => periodBounds(anchor, viewMode), [anchor, viewMode]);
+  const { from, to } = useMemo(() => periodBounds(anchor, boardViewMode), [anchor, boardViewMode]);
   const fromKey = from.format('YYYY-MM-DD');
   const toKey = to.format('YYYY-MM-DD');
-  const periodLabel =
-    viewMode === 'day'
-      ? from.format('ddd, MMM D, YYYY')
-      : viewMode === 'month'
-        ? from.format('MMMM YYYY')
-        : `${from.format('MMM D')} – ${to.format('MMM D, YYYY')}`;
 
-  const periodHint =
-    viewMode === 'day' ? 'day' : viewMode === 'month' ? 'month' : 'week';
+  const [data, setData] = useState<BoardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState('');
 
-  const shiftPeriod = (dir: 1 | -1) => {
-    if (viewMode === 'day') setAnchor((a) => a.add(dir, 'day'));
-    else if (viewMode === 'week') setAnchor((a) => a.add(dir * 7, 'day'));
-    else setAnchor((a) => a.add(dir, 'month'));
-  };
-
-  const workerNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const w of boardWorkers) map.set(w.id, personLabel(w.fullName, w.nickname));
-    return map;
-  }, [boardWorkers]);
-
+  // Periods already seen show at once while they refresh.
+  const cache = useRef(new Map<string, BoardData>());
   useEffect(() => {
     let cancelled = false;
+    const key = `${jobId}|${fromKey}|${toKey}`;
+    const cached = cache.current.get(key);
+    if (cached) setData(cached);
+    setLoading(!cached);
+    setFetchError('');
     (async () => {
-      setLoading(true);
-      setFetchError('');
       try {
-        const { data } = await scheduleApi.board({
-          from: fromKey,
-          to: toKey,
-          includeCompleted: false,
-        });
-        if (cancelled) return;
-        setBoardOps(data.operations.filter((op) => op.jobOrderId !== jobId));
-        setBoardWorkers(data.workers || []);
-        setDowntimes(data.downtimes || []);
-        setShopDayWindows(data.shopDayWindows || []);
+        const { data: res } = await scheduleApi.board({ from: fromKey, to: toKey, includeCompleted: false });
+        const next: BoardData = {
+          // This job's saved operations are replaced by the proposal.
+          operations: res.operations.filter((op) => op.jobOrderId !== jobId),
+          workers: res.workers || [],
+          downtimes: res.downtimes || [],
+          shopDayWindows: res.shopDayWindows || [],
+        };
+        if (cache.current.size > 30) cache.current.clear();
+        cache.current.set(key, next);
+        if (!cancelled) setData(next);
       } catch (err) {
         if (!cancelled) setFetchError(getErrorMessage(err));
       } finally {
@@ -226,8 +250,14 @@ export default function ScheduleWeekView({
     };
   }, [jobId, fromKey, toKey]);
 
+  const workerNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const w of data?.workers || []) map.set(w.id, personLabel(w.fullName, w.nickname));
+    return map;
+  }, [data]);
+
   const mergedOps = useMemo(() => {
-    const thisJobOps = proposed.map((op) =>
+    const thisJob = proposed.map((op) =>
       proposedToBoardOp(
         op,
         jobId,
@@ -237,123 +267,118 @@ export default function ScheduleWeekView({
         op.assignedWorkerId ? workerNameById.get(op.assignedWorkerId) : null
       )
     );
-    return [...boardOps, ...thisJobOps];
-  }, [proposed, boardOps, jobId, jobNumber, jobTitle, scheduleColor, workerNameById]);
+    return [...(data?.operations || []), ...thisJob];
+  }, [proposed, data, jobId, jobNumber, jobTitle, scheduleColor, workerNameById]);
 
-  const rows = useMemo(() => {
-    if (rowMode === 'worker') return buildWorkerRows(boardWorkers, mergedOps);
-    return buildMachineRows(machineUnits);
-  }, [rowMode, boardWorkers, mergedOps, machineUnits]);
+  const rows = useMemo(
+    () =>
+      boardRowMode === 'worker'
+        ? buildWorkerRows(data?.workers || [], mergedOps)
+        : buildMachineRows(machineUnits),
+    [boardRowMode, data, mergedOps, machineUnits]
+  );
+  const opsByRowKey = useMemo(
+    () => groupByMany(mergedOps, (o) => opGroupKeys(o, boardRowMode)),
+    [mergedOps, boardRowMode]
+  );
+  const downtimesByUnit = useMemo(
+    () => groupBy(data?.downtimes ?? NO_DOWNTIMES, (d) => d.machineUnitId),
+    [data]
+  ) as Map<string, ScheduleBoardDowntime[]>;
+
+  const legend: LegendItem[] = useMemo(
+    () => [
+      { label: 'This job (proposed)', color: scheduleColor || THIS_JOB_COLOR },
+      { label: 'Other booked work', color: OTHER_JOB_COLOR, border: '1px solid #cbd5e1' },
+      {
+        label: 'Machine breakdown',
+        pattern: 'repeating-linear-gradient(-45deg, #E8C5CB, #E8C5CB 3px, #F5E6E9 3px, #F5E6E9 6px)',
+        border: '1px solid #C45A6A',
+      },
+      { label: 'Clash (double-booked)', color: '#fff', border: `2px solid ${CLASH_COLOR}` },
+      { label: 'Booked on a down machine', color: '#fff', border: `2px dashed ${DOWN_COLOR}` },
+    ],
+    [scheduleColor]
+  );
 
   if (!proposed.length) return null;
 
-  const navTrailing =
-    expandButton || onScheduleColorChange ? (
-      <span className="jo-week-view__nav-expand">
-        {onScheduleColorChange ? (
-          <JobScheduleColorPicker
-            value={scheduleColor}
-            onChange={onScheduleColorChange}
-            disabled={colorPickerDisabled}
-          />
-        ) : null}
-        {expandButton}
-      </span>
-    ) : null;
+  const shiftPeriod = (dir: -1 | 1) => {
+    if (viewMode === 'day') setAnchor((a) => a.add(dir, 'day'));
+    else if (viewMode === 'week') setAnchor((a) => a.add(dir * 7, 'day'));
+    else setAnchor((a) => a.add(dir, 'month'));
+  };
 
-  if (loading && boardOps.length === 0) {
-    return (
-      <div className="sched-expand__slot">
-        {navTrailing ? <div className="jo-week-view__nav">{navTrailing}</div> : null}
-        <div style={{ padding: 32, textAlign: 'center' }}>
-          <Spin />
-        </div>
-      </div>
-    );
-  }
+  const goToToday = () => {
+    setViewMode('day');
+    setAnchor(dayjs().tz(SHOP_TZ));
+  };
 
   return (
-    <div className="sched-expand__slot">
-      <div className="jo-week-view__nav">
-        <div className="jo-week-view__nav-left">
-          <Segmented
-            value={rowMode}
-            onChange={(v) => setRowMode(v as RowMode)}
-            options={[
-              { label: 'By machine', value: 'machine' },
-              { label: 'By worker', value: 'worker' },
-            ]}
-          />
-          <Segmented
-            value={viewMode}
-            onChange={(v) => setViewMode(v as TimelineViewMode)}
-            options={[
-              { label: 'Day', value: 'day' },
-              { label: 'Week', value: 'week' },
-              { label: 'Month', value: 'month' },
-            ]}
-          />
-        </div>
-        <div className="jo-week-view__nav-center">
-          <Button
-            type="text"
-            size="small"
-            className="sched-expand__btn"
-            icon={<LeftOutlined />}
-            aria-label={`Previous ${periodHint}`}
-            onClick={() => shiftPeriod(-1)}
-          />
-          <DatePicker
-            size="small"
-            variant="borderless"
-            allowClear={false}
-            picker={viewMode === 'day' ? 'date' : viewMode}
-            value={anchor}
-            format={() => periodLabel}
-            onChange={(v) => {
-              if (v) setAnchor(dayjs.tz(v.format('YYYY-MM-DD'), SHOP_TZ).startOf('day'));
-            }}
-            className="jo-week-view__nav-label"
-            aria-label={`Pick a ${periodHint}`}
-          />
-          <Button
-            type="text"
-            size="small"
-            className="sched-expand__btn"
-            icon={<RightOutlined />}
-            aria-label={`Next ${periodHint}`}
-            onClick={() => shiftPeriod(1)}
-          />
-        </div>
-        <div className="jo-week-view__nav-right">
-          {navTrailing}
-        </div>
-      </div>
-      {fetchError ? (
-        <div style={{ fontSize: 12, color: '#7A1528', marginBottom: 8 }}>
-          Could not load shop schedule: {fetchError}
-        </div>
-      ) : null}
-      <ScheduleTimelineBoard
-        from={from}
-        to={to}
-        viewMode={viewMode}
-        rowMode={rowMode}
-        rows={rows}
-        operations={mergedOps}
-        downtimes={rowMode === 'machine' ? downtimes : NO_DOWNTIMES}
-        highlightJobId={jobId}
-        highlightColor={scheduleColor}
-        shopDayWindows={shopDayWindows}
-        showLegend
-        footerNote={
-          viewMode === 'week'
-            ? `${WORKING_HOURS_NOTE} Week of ${from.format('MMM D')} – ${to.format('MMM D')}.`
-            : viewMode === 'day'
-              ? `${WORKING_HOURS_NOTE} ${from.format('ddd, MMM D')}.`
-              : `${WORKING_HOURS_NOTE} ${from.format('MMMM YYYY')}.`
+    <div className="jo-proposal-board">
+      <ScheduleExpandShell
+        title={
+          <span className="jo-proposal-board__switches">
+            <PressGroup label="Rows" value={rowMode} onChange={setRowMode} options={ROW_MODES} />
+            <PressGroup label="Period" value={viewMode} onChange={setViewMode} options={PERIODS} />
+          </span>
         }
-      />
+        center={
+          <PeriodNavigator
+            mode={viewMode}
+            value={anchor}
+            onChange={(d) => setAnchor(d.tz(SHOP_TZ))}
+            onStep={shiftPeriod}
+          />
+        }
+        trailing={
+          <span className="jo-proposal-board__trailing">
+            {onScheduleColorChange ? (
+              <JobScheduleColorPicker
+                value={scheduleColor}
+                onChange={onScheduleColorChange}
+                disabled={colorPickerDisabled}
+              />
+            ) : null}
+            <Button icon={<AimOutlined />} onClick={goToToday}>
+              Today
+            </Button>
+          </span>
+        }
+      >
+        {fetchError ? (
+          <div className="jo-proposal-board__error">Could not load the shop schedule: {fetchError}</div>
+        ) : null}
+        {loading && !data ? (
+          <div className="sched-page__loading" aria-busy>
+            <Skeleton active paragraph={{ rows: 6 }} title={false} />
+          </div>
+        ) : (
+          <BoardGrid
+            rows={rows}
+            rowMode={boardRowMode}
+            opsByRowKey={opsByRowKey}
+            downtimesByUnit={downtimesByUnit}
+            from={from}
+            to={to}
+            viewMode={boardViewMode}
+            isMobile={isMobile}
+            rowH={rowH}
+            labelW={labelW}
+            shopDayWindows={data?.shopDayWindows}
+            pending={boardPending}
+            highlightJobId={jobId}
+            highlightColor={scheduleColor}
+          />
+        )}
+      </ScheduleExpandShell>
+      <div className="sched-page__legend jo-proposal-board__legend">
+        <Legend items={legend} />
+        <InfoTip
+          label="About this view"
+          content="Bars for this job show the proposed times; nothing is saved until you confirm. Other booked work is greyed so this job stands out."
+        />
+      </div>
     </div>
   );
 }

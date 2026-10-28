@@ -9,6 +9,7 @@ import {
   PlusOutlined,
   PrinterOutlined,
   StopOutlined,
+  CalendarOutlined,
 } from '@ant-design/icons';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -18,7 +19,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { PHONE_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import OverdueTag from '../../components/OverdueTag';
 import StatusPill from '../../components/StatusPill';
-import { Page, PageSkeleton, SectionCard } from '../../components/ui';
+import { Page, PageSkeleton, SectionCard, FormModal } from '../../components/ui';
 import { GradeInput, formatPoMaterialLabel } from '../../components/MaterialInputs';
 import type { DeliveryMode, MaterialPurchase, SupplierOrder } from '../../types';
 import OrderMaterialsModal from './OrderMaterialsModal';
@@ -822,7 +823,10 @@ export default function SupplierOrderDetailPage() {
         }}
       />
 
-      <Modal
+      <FormModal
+        size="sm"
+        icon={<CalendarOutlined />}
+        subtitle={order.poNumber || undefined}
         open={dateOpen}
         onCancel={() => setDateOpen(false)}
         onOk={saveDateChange}
@@ -864,19 +868,18 @@ export default function SupplierOrderDetailPage() {
             />
           </div>
         </div>
-      </Modal>
+      </FormModal>
 
-      <Modal
+      <FormModal
+        size="sm"
+        icon={<EditOutlined />}
         open={!!editLine}
         onCancel={() => setEditLine(null)}
         onOk={saveEdit}
         okText="Save"
         confirmLoading={busy}
-        title={
-          editLine
-            ? `Edit ${editLine.materialName}${editLine.jobNumber ? ` (${editLine.jobNumber})` : ''}`
-            : ''
-        }
+        title={editLine ? `Edit ${editLine.materialName}` : 'Edit line'}
+        subtitle={editLine?.jobNumber ? `For ${editLine.jobNumber}` : undefined}
         destroyOnHidden
       >
         <div style={{ display: 'grid', gap: 12 }}>
@@ -919,7 +922,7 @@ export default function SupplierOrderDetailPage() {
             />
           </div>
         </div>
-      </Modal>
+      </FormModal>
     </Page>
   );
 }

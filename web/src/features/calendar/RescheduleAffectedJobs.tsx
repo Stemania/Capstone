@@ -10,6 +10,7 @@ import type { JobOrder, MachineUnitInfo, ProposedOperation, ScheduleProposeResul
 import { SHOP_TZ, scheduleFlagStyle, formatShop } from '../../utils/shopTime';
 import ScheduleWeekView from '../job-orders/ScheduleWeekView';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
+import { FormModal } from '../../components/ui';
 
 function fmtWindow(start?: string | null, end?: string | null): string {
   if (!start || !end) return '—';
@@ -190,27 +191,30 @@ export function ReproposeModal({
   };
 
   return (
-    <Modal
+    <FormModal
       open
       onCancel={onClose}
+      size="lg"
       width={1100}
-      centered
-      title={job ? `Re-propose schedule · ${job.jobNumber || ''} ${job.title}` : 'Re-propose schedule'}
-      footer={[
-        <Button key="cancel" onClick={onClose} style={{ minWidth: 96 }}>
-          Cancel
-        </Button>,
-        <Button
-          key="confirm"
-          type="primary"
-          loading={saving}
-          disabled={loading || !!error || !ops.length || problems.length > 0}
-          onClick={confirm}
-          style={{ fontWeight: 700, minWidth: 140 }}
-        >
-          Confirm schedule
-        </Button>,
-      ]}
+      icon={<ReloadOutlined />}
+      title="Re-propose schedule"
+      subtitle={job ? [job.jobNumber, job.title].filter(Boolean).join(' · ') : undefined}
+      footer={
+        <>
+          <Button onClick={onClose} style={{ minWidth: 96 }}>
+            Cancel
+          </Button>
+          <Button
+            type="primary"
+            loading={saving}
+            disabled={loading || !!error || !ops.length || problems.length > 0}
+            onClick={confirm}
+            style={{ fontWeight: 700, minWidth: 140 }}
+          >
+            Confirm schedule
+          </Button>
+        </>
+      }
     >
       {loading ? (
         <div style={{ padding: 40, textAlign: 'center' }}>
@@ -320,6 +324,6 @@ export function ReproposeModal({
           ) : null}
         </>
       )}
-    </Modal>
+    </FormModal>
   );
 }
