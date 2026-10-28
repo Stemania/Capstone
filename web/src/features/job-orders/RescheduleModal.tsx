@@ -193,7 +193,7 @@ export default function RescheduleModal({
                 style={{
                   color: flag.color,
                   background: flag.bg,
-                  border: `1px solid ${flag.border}`,
+                  border: '1px solid transparent',
                   borderRadius: 999,
                   padding: '0 10px',
                   fontWeight: 600,
