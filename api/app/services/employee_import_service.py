@@ -189,7 +189,7 @@ def import_employees(path: Path, dry_run: bool = False) -> ImportReport:
                     f"{name}{f' ({nickname})' if nickname else ''}, {ROLE_LABEL[role]}, not activated"
                 )
 
-            if user.role in (UserRole.PRODUCTION_WORKER, UserRole.ADMIN):
+            if user.role == UserRole.PRODUCTION_WORKER:
                 if not WorkerProfile.query.filter_by(user_id=user.id).first():
                     db.session.add(WorkerProfile(user_id=user.id))
                 if add_default_hours(user.id):
@@ -225,6 +225,11 @@ def import_employees(path: Path, dry_run: bool = False) -> ImportReport:
                         continue
                     unit.default_operator_id = user.id
                     row_changes.append(f"default operator of {unit.label}")
+            elif wanted_types or wanted_units:
+                report.problems.append(
+                    f"{where}: machine skills and units are only for production workers; "
+                    f"skipped. Give {name} a separate production worker account for shop-floor work"
+                )
             db.session.flush()
 
             if row_changes:

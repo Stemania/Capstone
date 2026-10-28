@@ -15,7 +15,7 @@ workers_bp = Blueprint("workers", __name__)
 
 @workers_bp.route("", methods=["GET"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def list_workers():
     exclude_operation_id = request.args.get("excludeOperationId")
     scheduled_start = request.args.get("scheduledStart")
@@ -48,7 +48,7 @@ def list_workers():
 
 @workers_bp.route("/suggest", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def suggest():
     data = request.get_json() or {}
     operations = data.get("operations", [])

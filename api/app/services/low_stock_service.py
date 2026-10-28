@@ -25,36 +25,53 @@ def _qty(value) -> str:
     return f"{v:g}"
 
 
-def check_low_stock(today=None) -> int:
-    """Raise LOW_STOCK alerts for consumables at their reorder level. Returns the count."""
+def reorder_now_items(today=None) -> tuple[list[dict], list[str]]:
+    """Consumables at or below their computed reorder level, and the ids of the rest."""
     tools = Tool.query.filter(
         Tool.category == ToolCategory.CONSUMABLE, Tool.active.is_(True)
-    ).all()
+    ).order_by(Tool.name).all()
     snaps = forecast_service.stock_snapshot_for_tools(tools, today)
-    raised = 0
-    released = []
+    low, other = [], []
     for tool in tools:
         snap = snaps.get(tool.id) or {}
         if snap.get("status") == forecast_service.STOCK_REORDER and snap.get("reorderPoint") is not None:
-            unit = tool.unit or "pcs"
-            order = snap.get("suggestedOrderQty")
-            message = (
-                f"{_qty(tool.quantity_on_hand)} {unit} on hand, reorder level "
-                f"{_qty(snap['reorderPoint'])} {unit}."
-            )
-            if order:
-                message += f" Suggested order: {_qty(order)} {unit}."
-            raised += len(
-                staff_alert_service.raise_alert(
-                    roles=[UserRole.OFFICE_STAFF],
-                    kind=StaffAlertKind.LOW_STOCK,
-                    title=f"{tool.name} has reached its reorder level",
-                    message=message,
-                    dedupe_key=_key(tool.id),
-                )
+            low.append(
+                {
+                    "id": tool.id,
+                    "name": tool.name,
+                    "unit": tool.unit or "pcs",
+                    "onHand": float(tool.quantity_on_hand or 0),
+                    "reorderLevel": snap["reorderPoint"],
+                    "suggestedOrderQty": snap.get("suggestedOrderQty"),
+                }
             )
         else:
-            released.append(_key(tool.id))
+            other.append(tool.id)
+    return low, other
+
+
+def check_low_stock(today=None) -> int:
+    """Raise LOW_STOCK alerts for consumables at their reorder level. Returns the count."""
+    low, other = reorder_now_items(today)
+    raised = 0
+    for item in low:
+        unit = item["unit"]
+        message = (
+            f"{_qty(item['onHand'])} {unit} on hand, reorder level "
+            f"{_qty(item['reorderLevel'])} {unit}."
+        )
+        if item["suggestedOrderQty"]:
+            message += f" Suggested order: {_qty(item['suggestedOrderQty'])} {unit}."
+        raised += len(
+            staff_alert_service.raise_alert(
+                roles=[UserRole.OFFICE_STAFF],
+                kind=StaffAlertKind.LOW_STOCK,
+                title=f"{item['name']} has reached its reorder level",
+                message=message,
+                dedupe_key=_key(item["id"]),
+            )
+        )
+    released = [_key(tool_id) for tool_id in other]
     if released:
         StaffAlert.query.filter(StaffAlert.dedupe_key.in_(released)).update(
             {StaffAlert.dedupe_key: None}, synchronize_session=False

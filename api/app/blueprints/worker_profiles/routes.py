@@ -11,7 +11,7 @@ worker_profiles_bp = Blueprint("worker_profiles", __name__)
 
 @worker_profiles_bp.route("/<worker_id>/skills", methods=["GET"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def get_skills(worker_id):
     skills = wp_service.list_worker_skills(worker_id)
     return jsonify([s.to_dict() for s in skills])
@@ -29,7 +29,7 @@ def put_skills(worker_id):
 
 @worker_profiles_bp.route("/<worker_id>/schedule", methods=["GET"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def get_schedule(worker_id):
     rows = wp_service.list_worker_schedules(worker_id)
     return jsonify([s.to_dict() for s in rows])
@@ -106,7 +106,7 @@ def update_exception(exc_id):
 
 @calendar_bp.route("/exceptions/<exc_id>/delete-impact", methods=["GET"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def exception_delete_impact(exc_id):
     return jsonify(wp_service.calendar_exception_delete_impact(exc_id))
 

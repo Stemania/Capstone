@@ -1,5 +1,6 @@
 import apiClient from './client';
 import type {
+  OfficeSummary,
   AnalyticsByMachine,
   AnalyticsByOperationType,
   AnalyticsByWorker,
@@ -58,4 +59,5 @@ export const analyticsApi = {
     apiClient.get<AnalyticsUtilizationWeekly>('/analytics/utilization/weekly', { params }),
   completionEstimates: () => apiClient.get<CompletionEstimates>('/analytics/completion-estimates'),
   mySummary: () => apiClient.get<MyWorkSummary>('/analytics/me'),
+  officeSummary: () => apiClient.get<OfficeSummary>('/analytics/office-summary'),
 };

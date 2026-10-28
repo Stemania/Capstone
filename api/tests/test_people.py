@@ -186,8 +186,10 @@ def test_dry_run_saves_nothing(shop, tmp_path):
         "Dan Diaz, WORKER, not activated",
         "Olga Ortiz (OO), OFFICE, not activated",
     ]
-    assert any(c.startswith("Pia Admin:") for c in report.changes)
-    assert report.problems == []
+    assert report.problems == [
+        "line 4 (Pia Admin): machine skills and units are only for production workers; skipped. "
+        "Give Pia Admin a separate production worker account for shop-floor work"
+    ]
     db.session.expire_all()
     assert User.query.count() == users_before
     assert WorkerSkill.query.count() == skills_before
@@ -214,10 +216,12 @@ def test_import_creates_unactivated_accounts_and_is_idempotent(shop, tmp_path):
     dan = User.query.filter_by(full_name="Dan Diaz").one()
     assert WorkerSkill.query.filter_by(worker_id=dan.id).count() == 3
 
+    # Machine skills and units are for production workers only: the Admin row's
+    # are skipped (a separate worker account is used for shop-floor work).
     admin = shop["admin"]
     assert admin.nickname == "PIA"
-    assert WorkerSkill.query.filter_by(worker_id=admin.id, machine_type_id=shop["laser"].id).count() == 1
-    assert db.session.get(MachineUnit, shop["units"]["Laser L-1"].id).default_operator_id == admin.id
+    assert WorkerSkill.query.filter_by(worker_id=admin.id).count() == 0
+    assert db.session.get(MachineUnit, shop["units"]["Laser L-1"].id).default_operator_id is None
 
     olga = User.query.filter_by(full_name="Olga Ortiz").one()
     assert olga.role == UserRole.OFFICE_STAFF
@@ -230,7 +234,11 @@ def test_import_creates_unactivated_accounts_and_is_idempotent(shop, tmp_path):
     users_before = User.query.count()
 
     again = import_employees(path)
-    assert again.created == [] and again.changes == [] and again.problems == []
+    assert again.created == [] and again.changes == []
+    assert again.problems == [
+        "line 4 (Pia Admin): machine skills and units are only for production workers; skipped. "
+        "Give Pia Admin a separate production worker account for shop-floor work"
+    ]
     assert again.unchanged == 4
     assert User.query.count() == users_before
     db.session.expire_all()
@@ -404,24 +412,23 @@ def test_workers_only_see_photos_of_people_on_their_jobs(client, shop):
 # 4. Skills are for machines only
 
 
-def test_admins_count_in_the_machine_skill_fallback(client, shop):
+def test_admins_do_not_count_in_the_machine_skill_fallback(client, shop):
     job = _job(shop)
     # Nobody has Laser or Bending yet: open to everyone.
     assert _assign(client, shop, _op(job, 1, shop["types"]["LASER_CUT"]), shop["ben"]).status_code == 200
     assert _assign(client, shop, _op(job, 2, shop["types"]["BEND"]), shop["ben"]).status_code == 200
 
-    # An Admin's Laser skill counts like a worker's: Laser is now limited to them.
+    # A Laser skill left on an Admin account does not count: only production
+    # workers are assigned, so Laser stays open to every worker.
     db.session.add(WorkerSkill(worker_id=shop["admin"].id, machine_type_id=shop["laser"].id, proficiency=3))
     db.session.commit()
     laser_op = _op(job, 3, shop["types"]["LASER_CUT"])
-    res = _assign(client, shop, laser_op, shop["ben"])
-    assert res.status_code == 400
-    assert res.get_json()["error"]["code"] == "WORKER_NOT_QUALIFIED"
-    assert _assign(client, shop, laser_op, shop["admin"]).status_code == 200
+    assert _assign(client, shop, laser_op, shop["ben"]).status_code == 200
+    assert _assign(client, shop, laser_op, shop["admin"]).status_code == 400
 
     body = {"operationTypeId": shop["types"]["LASER_CUT"].id, "machineTypeId": shop["laser"].id}
     res = client.post("/api/v1/workers/suggest", json=body, headers=_headers(shop["admin"]))
-    assert [s["fullName"] for s in res.get_json()["suggestions"]] == ["Pia Admin"]
+    assert "Pia Admin" not in [s["fullName"] for s in res.get_json()["suggestions"]]
 
     # Bending is still open to all.
     assert _assign(client, shop, _op(job, 4, shop["types"]["BEND"]), shop["ana"]).status_code == 200
@@ -470,52 +477,40 @@ def test_checking_is_retired(client, shop):
     assert res.get_json()["error"]["code"] == "OPERATION_TYPE_INACTIVE"
 
 
-def test_imported_admin_can_be_assigned(client, shop, tmp_path):
+def test_imported_admin_cannot_be_assigned(client, shop, tmp_path):
     import_employees(_csv(tmp_path, "Ivy Inspector,II,ADMIN,,\n"))
     ivy = User.query.filter_by(full_name="Ivy Inspector").one()
     op = _op(_job(shop), 1, shop["types"]["LAYOUT"])
-    assert _assign(client, shop, op, ivy).status_code == 200
+    assert _assign(client, shop, op, ivy).status_code == 400
 
 
-def test_admin_is_suggested_and_on_the_board(client, shop):
+def test_admin_is_not_suggested_or_on_the_board(client, shop):
     body = {"operationTypeId": shop["types"]["LAYOUT"].id, "operationName": "Layout"}
     res = client.post("/api/v1/workers/suggest", json=body, headers=_headers(shop["admin"]))
-    by_name = {s["fullName"]: s for s in res.get_json()["suggestions"]}
-    assert by_name["Pia Admin"]["role"] == "ADMIN"
+    assert "Pia Admin" not in {s["fullName"] for s in res.get_json()["suggestions"]}
 
     res = client.get(
         "/api/v1/schedule/board?from=2031-03-10&to=2031-03-16", headers=_headers(shop["office"])
     )
     assert res.status_code == 200, res.get_json()
-    assert "Pia Admin" in {w["fullName"] for w in res.get_json()["workers"]}
+    assert "Pia Admin" not in {w["fullName"] for w in res.get_json()["workers"]}
 
 
-def test_admin_records_their_own_assignment(client, shop):
+def test_admin_has_no_worker_functions(client, shop):
+    # Shop-floor work is recorded on a production worker account, never the Admin's.
     admin = shop["admin"]
-    db.session.add(WorkerSkill(worker_id=admin.id, machine_type_id=shop["lathe"].id, proficiency=3))
-    db.session.commit()
     job = _job(shop)
-    op = _op(job, 1, shop["types"]["TURNING"])
-    assert _assign(client, shop, op, admin).status_code == 200
+    op = _op(job, 1, shop["types"]["LAYOUT"])
+    assert _assign(client, shop, op, admin).status_code == 400
 
     headers = _headers(admin)
-    mine = client.get("/api/v1/operations/mine", headers=headers)
-    assert mine.status_code == 200
-    assert [o["id"] for o in mine.get_json()] == [op.id]
+    assert client.get("/api/v1/operations/mine", headers=headers).status_code == 403
     assert client.get("/api/v1/operations/mine", headers=_headers(shop["office"])).status_code == 403
-
     url = f"/api/v1/operations/{op.id}"
-    res = client.post(f"{url}/start", json={}, headers=headers)
-    assert res.status_code == 200, res.get_json()
-    res = client.post(f"{url}/pause", json={"reason": "BREAK"}, headers=headers)
-    assert res.status_code == 200, res.get_json()
-    res = client.post(f"{url}/resume", json={}, headers=headers)
-    assert res.status_code == 200, res.get_json()
-    res = client.post(f"{url}/complete", json={}, headers=headers)
-    assert res.status_code == 200, res.get_json()
-    assert res.get_json()["status"] == "COMPLETED"
+    for action, body in (("start", {}), ("pause", {"reason": "BREAK"}), ("resume", {}), ("complete", {})):
+        assert client.post(f"{url}/{action}", json=body, headers=headers).status_code == 403, action
 
-    # Someone else's operation stays theirs.
+    # Nor on a worker's operation.
     other = _op(job, 2, shop["types"]["LAYOUT"], worker=shop["ben"])
     assert client.post(f"/api/v1/operations/{other.id}/start", json={}, headers=headers).status_code == 403
 

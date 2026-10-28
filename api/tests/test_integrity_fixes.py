@@ -294,13 +294,24 @@ def test_other_worker_cannot_close_downtime(app, people):
     assert db.session.get(MachineDowntime, row.id).ended_at is None
 
 
-@pytest.mark.parametrize("closer", ["worker", "office", "admin"])
-def test_reporter_office_and_admin_can_close_downtime(app, people, closer):
+@pytest.mark.parametrize("closer", ["worker", "office"])
+def test_only_the_admin_puts_a_machine_back_in_service(app, people, closer):
     row = _open_downtime(people["worker"])
     res = app.test_client().post(
         f"/api/v1/operations/machine-units/downtime/{row.id}/close",
         json={},
         headers=_headers(people[closer]),
+    )
+    assert res.status_code == 403
+    assert db.session.get(MachineDowntime, row.id).ended_at is None
+
+
+def test_admin_can_close_downtime(app, people):
+    row = _open_downtime(people["worker"])
+    res = app.test_client().post(
+        f"/api/v1/operations/machine-units/downtime/{row.id}/close",
+        json={},
+        headers=_headers(people["admin"]),
     )
     assert res.status_code == 200, res.get_json()
     assert res.get_json()["endedAt"] is not None

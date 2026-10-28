@@ -57,7 +57,7 @@ export const ROUTE_SMOKES: RouteSmoke[] = [
   { path: '/settings/shop', roles: ['ADMIN'], Page: ShopDetailsPage },
   { path: '/home', roles: ['PRODUCTION_WORKER'], Page: WorkerHomePage },
   { path: '/inventory', roles: ['PRODUCTION_WORKER'], Page: InventoryPage },
-  { path: '/my-assignments', roles: ['PRODUCTION_WORKER', 'ADMIN'], Page: MyAssignmentsPage },
+  { path: '/my-assignments', roles: ['PRODUCTION_WORKER'], Page: MyAssignmentsPage },
   { path: '/scan', roles: ['PRODUCTION_WORKER'], Page: ScanToolPage },
   { path: '/account/profile', roles: ['PRODUCTION_WORKER'], Page: WorkerProfilePage },
 ];

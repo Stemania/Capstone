@@ -123,14 +123,17 @@ def test_worker_cannot_set_expected_repair_date(client, shop):
     assert MachineDowntime.query.count() == 0
 
 
-def test_office_updates_and_clears_the_repair_date(client, shop):
+def test_admin_updates_and_clears_the_repair_date(client, shop):
     res = _report(client, shop["worker"], shop["shaper_1"])
     assert res.status_code == 201
     dt_id = res.get_json()["id"]
     url = f"/api/v1/operations/machine-units/downtime/{dt_id}"
     repair = shop_now().date() + timedelta(days=5)
 
+    # Repairs are the Admin's call; the Office Staff only view machines.
     res = client.patch(url, json={"expectedRepairDate": repair.isoformat()}, headers=_headers(shop["office"]))
+    assert res.status_code == 403
+    res = client.patch(url, json={"expectedRepairDate": repair.isoformat()}, headers=_headers(shop["admin"]))
     assert res.status_code == 200
     assert res.get_json()["expectedRepairDate"] == repair.isoformat()
 
@@ -187,7 +190,9 @@ def test_one_lathe_down_still_schedules_on_the_other(client, shop):
 def test_single_unit_breakdown_alerts_admin_once(client, shop):
     from app.services.operation_service import _alert_single_unit_breakdown
 
-    res = _report(client, shop["office"], shop["shaper_1"])
+    # The Office Staff cannot report a breakdown; a worker does.
+    assert _report(client, shop["office"], shop["shaper_1"]).status_code == 403
+    res = _report(client, shop["worker"], shop["shaper_1"])
     assert res.status_code == 201
     alerts = StaffAlert.query.filter_by(kind=StaffAlertKind.SINGLE_UNIT_DOWN).all()
     assert [a.recipient_id for a in alerts] == [shop["admin"].id]

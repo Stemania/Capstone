@@ -37,12 +37,11 @@ import { NARROW_QUERY } from '../../hooks/useViewport';
 import type { JobOrder, JobOrderStatus } from '../../types';
 import { compareByDue } from './jobOrderSort';
 import { isJobOrderListTab } from './jobOrderListTabs';
-import AdminAssignedTab, { fetchAssignedActiveCount } from './AdminAssignedTab';
 import CancelJobModal from './CancelJobModal';
 import MarkDeliveredModal from './MarkDeliveredModal';
 import { isJobFinished, nextDeliveryStep } from './jobStage';
 
-type ListTab = 'production' | 'drafts' | 'assigned' | 'archived';
+type ListTab = 'production' | 'drafts' | 'archived';
 
 function tabFromSearch(param: string | null): ListTab {
   // Legacy ?tab=archived → handled by redirect to /job-orders/archived
@@ -245,7 +244,6 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
   const [draftCount, setDraftCount] = useState(0);
   const [archivedCount, setArchivedCount] = useState(0);
   const [releasedCount, setReleasedCount] = useState<number | null>(null);
-  const [assignedCount, setAssignedCount] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<JobOrderStatus[]>([]);
   const [clientFilter, setClientFilter] = useState<string[]>([]);
   const [awaitingMaterialOnly, setAwaitingMaterialOnly] = useState(false);
@@ -292,20 +290,10 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
     setAwaitingMaterialOnly(false);
     setSelectedKeys([]);
     if (tab === 'drafts') setSearchParams({ tab: 'drafts' }, { replace: true });
-    else if (tab === 'assigned') setSearchParams({ tab: 'assigned' }, { replace: true });
     else setSearchParams({}, { replace: true });
   };
 
   const fetchJobs = async (tab: ListTab = listTab) => {
-    if (tab === 'assigned') {
-      setLoading(false);
-      setJobs([]);
-      setError('');
-      if (isAdmin) {
-        fetchAssignedActiveCount().then(setAssignedCount).catch(() => undefined);
-      }
-      return;
-    }
     setLoading(true);
     setError('');
     try {
@@ -336,9 +324,6 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
           .list({ scope: 'archived' })
           .then((archived) => setArchivedCount(archived.data.length))
           .catch(() => undefined);
-      }
-      if (isAdmin) {
-        fetchAssignedActiveCount().then(setAssignedCount).catch(() => undefined);
       }
     }
   };
@@ -427,8 +412,9 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
 
   const [cancelJob, setCancelJob] = useState<JobOrder | null>(null);
 
+  // Office Staff cancel only a job still to be planned; after release only the Admin.
   const canCancelJob = (record: JobOrder) =>
-    (canOfficeWrite || isAdmin) &&
+    (isAdmin || (canOfficeWrite && record.status === 'DRAFT')) &&
     !isJobFinished(record.status) &&
     record.status !== 'CANCELLED' &&
     !record.salesInvoice;
@@ -753,15 +739,6 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
               count: draftCount,
               countTone: draftCount > 0 ? 'red' : undefined,
             },
-            ...(isAdmin
-              ? [
-                  {
-                    label: 'Assigned',
-                    value: 'assigned' as const,
-                    count: assignedCount,
-                  },
-                ]
-              : []),
           ]}
         />
       </div>
@@ -771,15 +748,6 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
     if (job.status === 'DRAFT' && isAdmin) navigate(`/job-orders/${job.id}/plan`);
     else navigate(`/job-orders/${job.id}`);
   };
-
-  if (listTab === 'assigned' && isAdmin && !archivedOnly) {
-    return (
-      <div className="jo-list-page">
-        {listTabs}
-        <AdminAssignedTab onCount={setAssignedCount} />
-      </div>
-    );
-  }
 
   return (
     <div className="jo-list-page">

@@ -327,7 +327,9 @@ def test_draft_supplier_order_does_not_count_as_ordered(client, shop):
     orders = body["materialReadiness"]["supplierOrders"]
     assert [(o["supplierName"], o["status"]) for o in orders] == [("Fast Steel", "DRAFT")]
 
-    res = client.post(f"/api/v1/job-orders/{job.id}/schedule/propose", json={}, headers=headers)
+    res = client.post(
+        f"/api/v1/job-orders/{job.id}/schedule/propose", json={}, headers=_headers(shop["admin"])
+    )
     assert res.status_code == 200, res.get_json()
     assert "longest supplier lead time" in res.get_json()["materialConstraintReason"]
 

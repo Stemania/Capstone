@@ -119,7 +119,7 @@ def test_redo_goes_right_after_original_with_original_worker(client, shop):
     res = client.post(
         f"/api/v1/operations/{cutting.id}/rework",
         json={"category": "OPERATOR_ERROR"},
-        headers=_headers(shop["office"]),
+        headers=_headers(shop["admin"]),
     )
     assert res.status_code == 201, res.get_json()
     redo = res.get_json()
@@ -182,7 +182,7 @@ def test_redo_unassigned_when_original_worker_gone(client, shop):
     res = client.post(
         f"/api/v1/operations/{cutting.id}/rework",
         json={"category": "OPERATOR_ERROR"},
-        headers=_headers(shop["office"]),
+        headers=_headers(shop["admin"]),
     )
     assert res.status_code == 201, res.get_json()
     assert res.get_json()["assignedWorkerId"] is None
@@ -197,7 +197,7 @@ def test_redo_refused_once_delivered(client, shop):
     res = client.post(
         f"/api/v1/operations/{cutting.id}/rework",
         json={"category": "OPERATOR_ERROR"},
-        headers=_headers(shop["office"]),
+        headers=_headers(shop["admin"]),
     )
     assert res.status_code == 409
     assert len(_ops_by_seq(job.id)) == 1
@@ -257,7 +257,9 @@ def test_apply_schedule_refuses_window_outside_working_hours(client, shop):
     assert "outside working hours" in res.get_json()["error"]["message"]
 
 
-def test_apply_schedule_accepts_admin_on_a_machine_operation(client, shop):
+def test_apply_schedule_rejects_an_admin_in_the_crew(client, shop):
+    # Only production workers are assigned work; an Admin who also works on
+    # the floor has a separate worker account.
     job = _job(shop, status=JobOrderStatus.SCHEDULED)
     op = _op(job, 1, "Welding", worker=shop["worker"])
     lathe = MachineType(code="LATHE_PT", name="Lathe PT")
@@ -284,9 +286,9 @@ def test_apply_schedule_accepts_admin_on_a_machine_operation(client, shop):
         },
         headers=_headers(shop["admin"]),
     )
-    assert res.status_code == 200, res.get_json()
+    assert res.status_code == 400
     db.session.refresh(op)
-    assert op.assigned_worker_id == shop["admin"].id
+    assert op.assigned_worker_id == shop["worker"].id
 
 
 # ---- Item 3: confirm checks the material floor -----------------------------
@@ -364,7 +366,7 @@ def test_breakdown_pauses_running_operation(client, shop):
     res = client.post(
         f"/api/v1/operations/machine-units/{unit.id}/downtime",
         json={"category": "MECHANICAL_FAILURE"},
-        headers=_headers(shop["office"]),
+        headers=_headers(shop["admin"]),
     )
     assert res.status_code == 201, res.get_json()
 

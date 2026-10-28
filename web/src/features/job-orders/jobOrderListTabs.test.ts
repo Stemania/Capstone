@@ -7,14 +7,15 @@ import {
 
 describe('Job Orders list tabs', () => {
   it('has no Archive tab in the day-to-day list', () => {
-    expect(JOB_ORDER_LIST_TABS).toEqual(['production', 'drafts', 'assigned']);
+    expect(JOB_ORDER_LIST_TABS).toEqual(['production', 'drafts']);
     expect(JOB_ORDER_LIST_TABS.includes('archived' as never)).toBe(false);
   });
 
-  it('treats production, drafts, and assigned as list tabs', () => {
+  it('treats production and drafts as list tabs', () => {
     expect(isJobOrderListTab('production')).toBe(true);
     expect(isJobOrderListTab('drafts')).toBe(true);
-    expect(isJobOrderListTab('assigned')).toBe(true);
+    // The Admin no longer has an Assigned tab: worker work is on worker accounts.
+    expect(isJobOrderListTab('assigned')).toBe(false);
     expect(isJobOrderListTab('archived')).toBe(false);
     expect(isJobOrderListTab(null)).toBe(false);
   });

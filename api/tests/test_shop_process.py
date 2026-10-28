@@ -276,7 +276,8 @@ def test_every_worker_qualifies_for_operations_without_a_machine(client, shop):
     res = client.post("/api/v1/workers/suggest", json=body, headers=_headers(shop["admin"]))
     assert res.status_code == 200
     names = {s["fullName"] for s in res.get_json()["suggestions"]}
-    assert {"Ana Fitter", "Ben Helper", "SP Admin"} <= names
+    assert {"Ana Fitter", "Ben Helper"} <= names
+    assert "SP Admin" not in names  # only production workers are suggested
 
 
 def _laser(shop):
@@ -424,11 +425,16 @@ def _released_with_heat_treatment(shop, turnaround=3):
 def test_send_out_and_return_gate_the_next_operation(client, shop):
     job, _first, ht, nxt = _released_with_heat_treatment(shop)
     today = shop_now().date()
-    office = _headers(shop["office"])
-
-    res = client.post(f"/api/v1/operations/{ht.id}/start", json={}, headers=_headers(shop["admin"]))
+    office = _headers(shop["admin"])  # sending out and returning is the Admin's
+    res = client.post(f"/api/v1/operations/{ht.id}/start", json={}, headers=_headers(shop["ana"]))
     assert res.status_code == 409
     assert res.get_json()["error"]["code"] == "OPERATION_OUTSOURCED"
+    res = client.post(
+        f"/api/v1/operations/{ht.id}/send-out",
+        json={"sentOutDate": today.isoformat(), "sentTo": "Metro Heat"},
+        headers=_headers(shop["office"]),
+    )
+    assert res.status_code == 403
 
     res = client.post(f"/api/v1/operations/{ht.id}/return", json={"returnedDate": today.isoformat()}, headers=office)
     assert res.status_code == 409

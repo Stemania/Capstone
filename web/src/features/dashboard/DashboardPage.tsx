@@ -50,6 +50,8 @@ import { chart } from '../../theme/tokens';
 import { formatShop, shopNow, shopToday, SHOP_TZ } from '../../utils/shopTime';
 import { isJobFinished } from '../job-orders/jobStage';
 import { periodBounds } from '../schedule/scheduleTimelineUtils';
+import { useAuth } from '../../hooks/useAuth';
+import OfficeDashboard from './OfficeDashboard';
 
 type Load<T> = { data: T | null; failed: boolean };
 
@@ -82,7 +84,13 @@ function CardError({ what }: { what: string }) {
   );
 }
 
+/** Each role gets its own dashboard (objective 4.1). */
 export default function DashboardPage() {
+  const { isOfficeStaff } = useAuth();
+  return isOfficeStaff ? <OfficeDashboard /> : <AdminDashboard />;
+}
+
+function AdminDashboard() {
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<Load<JobOrder[]>>({ data: null, failed: false });
   const [toPlan, setToPlan] = useState<number | null>(null);

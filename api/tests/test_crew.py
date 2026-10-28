@@ -365,7 +365,8 @@ def test_no_machine_operations_take_everyone(client, shop):
     assert result["mode"] == "NO_MACHINE"
     assert result["weights"] == {"efficiency": 0.6, "workload": 0.4}
     names = {s["fullName"] for s in result["suggestions"]}
-    assert {"Ana Crew", "Ben Crew", "Cara Crew", "Gio Crew", "Ada Admin"} <= names
+    assert {"Ana Crew", "Ben Crew", "Cara Crew", "Gio Crew"} <= names
+    assert "Ada Admin" not in names  # only production workers are suggested
 
 
 def test_helper_suggestions_exclude_the_lead_and_need_no_skill(client, shop):

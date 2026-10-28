@@ -559,16 +559,18 @@ export default function MachinesPage() {
             </>
           }
           actions={
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                addForm.resetFields();
-                setAddOpen(true);
-              }}
-            >
-              Add machine
-            </Button>
+            isAdmin ? (
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  addForm.resetFields();
+                  setAddOpen(true);
+                }}
+              >
+                Add machine
+              </Button>
+            ) : undefined
           }
         />
         {allGroups.length > 0 && (
@@ -711,6 +713,7 @@ export default function MachinesPage() {
         nowMs={nowMs}
         actions={actions}
         onClose={() => setDetailsId(null)}
+        canEdit={isAdmin}
       />
 
       <Modal

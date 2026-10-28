@@ -171,3 +171,13 @@ def inventory():
 @require_roles(UserRole.PRODUCTION_WORKER)
 def my_summary():
     return jsonify(analytics.my_summary(get_current_user_id()))
+
+
+@analytics_bp.route("/office-summary", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.OFFICE_STAFF)
+def office_summary():
+    """The Office Staff dashboard: office work waiting to be done."""
+    from app.services.office_dashboard_service import office_summary as build
+
+    return jsonify(build())

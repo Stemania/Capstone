@@ -58,7 +58,6 @@ import type {
   MaterialPurchase,
   NotificationLog,
   Operation,
-  OperationPauseReason,
   OperationStatus,
   ReworkReasonCategory,
   ScheduleMove,
@@ -146,15 +145,6 @@ const NOTIF_STATUS_LABEL: Record<string, string> = {
   FAILED: 'Failed',
   SKIPPED: 'Skipped',
 };
-
-const PAUSE_REASONS: { value: OperationPauseReason; label: string }[] = [
-  { value: 'END_OF_SHIFT', label: 'End of shift' },
-  { value: 'BREAK', label: 'Break' },
-  { value: 'MACHINE_DOWN', label: 'Machine breakdown' },
-  { value: 'WAITING_MATERIAL', label: 'Waiting for material' },
-  { value: 'WAITING_PRIOR_OPERATION', label: 'Waiting on prior operation' },
-  { value: 'OTHER', label: 'Other' },
-];
 
 const NOTIF_CHANNEL_LABEL: Record<string, string> = {
   EMAIL: 'Email',
@@ -286,14 +276,12 @@ function JobOrderDetailView() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, isAdmin, canOfficeWrite, isWorker } = useAuth();
+  const { isAdmin, canOfficeWrite, isWorker } = useAuth();
   const canManage = isAdmin || canOfficeWrite;
 
   const [job, setJob] = useState<JobOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [reworkLoading, setReworkLoading] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [pauseForOp, setPauseForOp] = useState<Operation | null>(null);
   const [delivering, setDelivering] = useState(false);
   const [deliveredOpen, setDeliveredOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationLog[] | null>(null);
@@ -509,43 +497,6 @@ function JobOrderDetailView() {
     });
   };
 
-  const runOpAction = async (op: Operation, action: 'start' | 'resume' | 'complete') => {
-    setActionLoading(op.id);
-    try {
-      const ts = new Date().toISOString();
-      if (action === 'start') await operationsApi.start(op.id, ts);
-      else if (action === 'resume') await operationsApi.resume(op.id, ts);
-      else await operationsApi.complete(op.id, ts);
-      message.success(
-        action === 'start'
-          ? 'Operation started'
-          : action === 'resume'
-            ? 'Operation resumed'
-            : 'Operation completed',
-      );
-      await fetchJob();
-    } catch (err) {
-      message.error(getErrorMessage(err));
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const confirmPause = async (reason: OperationPauseReason) => {
-    if (!pauseForOp) return;
-    setActionLoading(pauseForOp.id);
-    try {
-      await operationsApi.pause(pauseForOp.id, reason, undefined, new Date().toISOString());
-      message.success('Operation paused');
-      setPauseForOp(null);
-      await fetchJob();
-    } catch (err) {
-      message.error(getErrorMessage(err));
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
   const openRecordInvoice = () => {
     if (!job) return;
     invoiceForm.resetFields();
@@ -673,8 +624,9 @@ function JobOrderDetailView() {
     !isJobFinished(job.status) &&
     job.status !== 'CANCELLED' &&
     (job.operations || []).some(isNotStarted);
+  // Office Staff cancel only a job still to be planned; after release only the Admin.
   const canCancel =
-    canManage &&
+    (isAdmin || (canOfficeWrite && isDraft)) &&
     !isJobFinished(job.status) &&
     job.status !== 'CANCELLED' &&
     !job.salesInvoice;
@@ -928,7 +880,7 @@ function JobOrderDetailView() {
         />
       ) : null}
 
-      {canManage && job.needsReplan ? (
+      {isAdmin && job.needsReplan ? (
         <Alert
           type="warning"
           showIcon
@@ -1097,15 +1049,6 @@ function JobOrderDetailView() {
                   const active = op.status === 'IN_PROGRESS';
                   const isLast = index === ops.length - 1;
                   const opSt = OP_STATUS[op.status] || OP_STATUS.PENDING;
-                  const isMine = Boolean(
-                    user?.id &&
-                      (op.assignedWorkerId === user.id || (op.helperIds || []).includes(user.id))
-                  );
-                  const canStart =
-                    !isDraft &&
-                    isMine &&
-                    (op.status === 'PENDING' || op.status === 'SCHEDULED' || op.status === 'REWORK') &&
-                    ops.slice(0, index).every((o) => o.status === 'COMPLETED');
                   const machine =
                     op.machineUnitLabel ||
                     op.machineTypeName ||
@@ -1183,7 +1126,7 @@ function JobOrderDetailView() {
                         {op.isOutsourced ? (
                           <OutsourcedOperationPanel
                             op={op}
-                            canRecord={canManage && !isDraft && !isInvoicedOrDelivered}
+                            canRecord={isAdmin && !isDraft && !isInvoicedOrDelivered}
                             waitingOnEarlier={!ops.slice(0, index).every((o) => o.status === 'COMPLETED')}
                             onChanged={fetchJob}
                           />
@@ -1284,65 +1227,8 @@ function JobOrderDetailView() {
                         />
                         )}
 
-                        {!isDraft && isMine && (canStart || active) && (
-                          <Space wrap style={{ marginTop: 10 }}>
-                            {canStart && (
-                              <Tooltip
-                                title={
-                                  job.waitingForMaterials
-                                    ? job.materialWaitReason
-                                    : undefined
-                                }
-                              >
-                                <Button
-                                  type="primary"
-                                  size="small"
-                                  loading={actionLoading === op.id}
-                                  disabled={!!job.waitingForMaterials}
-                                  onClick={() => runOpAction(op, 'start')}
-                                >
-                                  Start
-                                </Button>
-                              </Tooltip>
-                            )}
-                            {canStart && job.waitingForMaterials && (
-                              <span style={{ fontSize: 12, color: '#d97706', fontWeight: 600 }}>
-                                Waiting for materials
-                              </span>
-                            )}
-                            {active && !op.isPaused && (
-                              <>
-                                <Button
-                                  size="small"
-                                  loading={actionLoading === op.id}
-                                  onClick={() => setPauseForOp(op)}
-                                >
-                                  Pause
-                                </Button>
-                                <Button
-                                  type="primary"
-                                  size="small"
-                                  loading={actionLoading === op.id}
-                                  onClick={() => runOpAction(op, 'complete')}
-                                >
-                                  Complete
-                                </Button>
-                              </>
-                            )}
-                            {active && op.isPaused && (
-                              <Button
-                                type="primary"
-                                size="small"
-                                loading={actionLoading === op.id}
-                                onClick={() => runOpAction(op, 'resume')}
-                              >
-                                Resume
-                              </Button>
-                            )}
-                          </Space>
-                        )}
 
-                        {canManage && !isDraft && !isInvoicedOrDelivered && op.status === 'COMPLETED' && (
+                        {isAdmin && !isDraft && !isInvoicedOrDelivered && op.status === 'COMPLETED' && (
                           <Button
                             size="small"
                             style={{ marginTop: 8 }}
@@ -1760,30 +1646,6 @@ function JobOrderDetailView() {
         />
       )}
 
-      <Modal
-        open={Boolean(pauseForOp)}
-        title="Pause operation"
-        onCancel={() => setPauseForOp(null)}
-        footer={null}
-        destroyOnHidden
-        centered
-      >
-        <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-          Why are you pausing {pauseForOp?.operationName || 'this operation'}?
-        </Text>
-        <Space direction="vertical" style={{ width: '100%' }} size={8}>
-          {PAUSE_REASONS.map((r) => (
-            <Button
-              key={r.value}
-              block
-              loading={actionLoading === pauseForOp?.id}
-              onClick={() => confirmPause(r.value)}
-            >
-              {r.label}
-            </Button>
-          ))}
-        </Space>
-      </Modal>
 
       <MarkDeliveredModal job={deliveredOpen ? job : null} onClose={() => setDeliveredOpen(false)} onDone={fetchJob} />
 

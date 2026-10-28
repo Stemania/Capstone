@@ -1263,9 +1263,18 @@ def _flag_open_material_lines(job: JobOrder) -> None:
         line.review_after_job_cancel = True
 
 
-def cancel_job_order(job, actor_id: str, data: dict | None = None):
-    """Cancel a job before COMPLETED. Keeps history; frees schedule; no client notify."""
+def cancel_job_order(job, actor_id: str, data: dict | None = None, actor_role: str | None = None):
+    """Cancel a job before COMPLETED. Keeps history; frees schedule; no client notify.
+
+    Office Staff cancel only a job still to be planned (the client withdrew the PO);
+    once released it has crews and bookings, so only the Admin cancels it."""
     data = data or {}
+    if actor_role == UserRole.OFFICE_STAFF.value and job.status != JobOrderStatus.DRAFT:
+        raise AppError(
+            "This job is already released to production. Ask the Admin to cancel it.",
+            "FORBIDDEN",
+            403,
+        )
     if job.status in (
         JobOrderStatus.COMPLETED,
         JobOrderStatus.FOR_DELIVERY,

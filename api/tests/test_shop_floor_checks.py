@@ -376,10 +376,14 @@ def test_breakdown_endpoints(client, shop):
     _scheduled(shop, shop["juan"], shop["la"], _soon(), 3)
     res = client.post(f"/api/v1/operations/machine-units/{shop['la'].id}/downtime",
                       json={"category": "MECHANICAL_FAILURE"}, headers=_headers(shop["office"]))
+    assert res.status_code == 403
+    res = client.post(f"/api/v1/operations/machine-units/{shop['la'].id}/downtime",
+                      json={"category": "MECHANICAL_FAILURE"}, headers=_headers(shop["admin"]))
     assert res.status_code == 201, res.get_json()
     assert len(res.get_json()["work"]["operations"]) == 1
     url = f"/api/v1/operations/machine-units/{shop['la'].id}/downtime/work"
-    assert client.get(url, headers=_headers(shop["office"])).status_code == 200
+    assert client.get(url, headers=_headers(shop["office"])).status_code == 403
+    assert client.get(url, headers=_headers(shop["admin"])).status_code == 200
     assert client.post(url, json={"action": "MOVE_UNIT"}, headers=_headers(shop["office"])).status_code == 403
     res = client.post(url, json={"action": "MOVE_UNIT"}, headers=_headers(shop["admin"]))
     assert res.status_code == 200, res.get_json()

@@ -2013,3 +2013,49 @@ export interface WorkerWorkHistory {
   toolsHeld: ToolUnit[];
   toolEvents: ToolEvent[];
 }
+
+/** Office Staff dashboard: office work waiting to be done. */
+export interface OfficeJobRef {
+  id: string;
+  jobNumber: string | null;
+  title: string;
+  clientName: string | null;
+  dueDate: string | null;
+  status: JobOrderStatus;
+}
+
+export interface OfficeDeliveryRef {
+  id: string;
+  poNumber: string | null;
+  supplierName: string | null;
+  expectedDeliveryDate: string;
+  daysOverdue: number;
+}
+
+export interface OfficeLowStockItem {
+  id: string;
+  name: string;
+  unit: string;
+  onHand: number;
+  reorderLevel: number;
+  suggestedOrderQty: number | null;
+}
+
+export interface OfficeFailedEmail {
+  id: string;
+  jobOrderId: string;
+  jobNumber: string | null;
+  clientName: string | null;
+  milestone: string;
+  createdAt: string;
+}
+
+export interface OfficeSummary {
+  pendingJobs: number;
+  materialsToOrder: OfficeJobRef[];
+  invoicesToRecord: OfficeJobRef[];
+  lateDeliveries: OfficeDeliveryRef[];
+  deliveriesDueSoon: OfficeDeliveryRef[];
+  lowStock: OfficeLowStockItem[];
+  failedEmails: OfficeFailedEmail[];
+}

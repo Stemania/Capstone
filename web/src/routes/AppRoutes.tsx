@@ -1,7 +1,6 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet, useParams } from 'react-router-dom';
-import { OfflineProvider } from '../offline/OfflineProvider';
-import { AuthProvider, useAuth } from '../hooks/useAuth';
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { AuthProvider } from '../hooks/useAuth';
 import IdleSessionWatcher from '../auth/IdleSessionWatcher';
 import { ProtectedRoute } from './ProtectedRoute';
 import RoleAwareLayout from './RoleAwareLayout';
@@ -70,22 +69,6 @@ function WorkerSetupFromUser() {
 }
 
 /** Workers already get the offline queue from their layout; an Admin recording work needs it here. */
-function AssignmentsShell() {
-  const { isWorker } = useAuth();
-  if (isWorker) return <Outlet />;
-  return (
-    <OfflineProvider>
-      <Outlet />
-    </OfflineProvider>
-  );
-}
-
-/** Admin list lives on Job Orders → Assigned; workers keep the mobile page. */
-function AdminAssignmentsRedirect() {
-  const { isAdmin } = useAuth();
-  if (isAdmin) return <Navigate to="/job-orders?tab=assigned" replace />;
-  return <MyAssignmentsPage />;
-}
 
 function RouteSuspense({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PageSkeleton variant="cards" />}>{children}</Suspense>;
@@ -355,25 +338,25 @@ export default function AppRoutes() {
                     }
                   />
 
-                  <Route element={<ProtectedRoute roles={['PRODUCTION_WORKER', 'ADMIN']} />}>
-                    <Route element={<AssignmentsShell />}>
-                      <Route
-                        path="/my-assignments"
-                        element={
-                          <RouteSuspense>
-                            <AdminAssignmentsRedirect />
-                          </RouteSuspense>
-                        }
-                      />
-                      <Route
-                        path="/my-assignments/:id"
-                        element={
-                          <RouteSuspense>
-                            <AssignmentDetailPage />
-                          </RouteSuspense>
-                        }
-                      />
-                    </Route>
+                  {/* Assigned work is for production workers only; the Admin does
+                      shop-floor work, if any, on a separate worker account. */}
+                  <Route element={<ProtectedRoute roles={['PRODUCTION_WORKER']} />}>
+                    <Route
+                      path="/my-assignments"
+                      element={
+                        <RouteSuspense>
+                          <MyAssignmentsPage />
+                        </RouteSuspense>
+                      }
+                    />
+                    <Route
+                      path="/my-assignments/:id"
+                      element={
+                        <RouteSuspense>
+                          <AssignmentDetailPage />
+                        </RouteSuspense>
+                      }
+                    />
                   </Route>
 
                   <Route element={<ProtectedRoute roles={['PRODUCTION_WORKER']} />}>

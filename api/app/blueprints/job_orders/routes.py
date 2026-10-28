@@ -112,7 +112,7 @@ def cancel_job_order(job_id):
     actor_id = get_current_user_id()
     job = jo_service.get_job_order(job_id, actor_id, role)
     data = request.get_json(silent=True) or {}
-    job = jo_service.cancel_job_order(job, actor_id, data)
+    job = jo_service.cancel_job_order(job, actor_id, data, actor_role=role)
     return jsonify(job.to_dict(include_operations=True, viewer_role=role))
 
 
@@ -293,7 +293,7 @@ def list_operations(job_id):
 
 @job_orders_bp.route("/<job_id>/schedule/propose", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def propose_job_schedule(job_id):
     job = jo_service.get_job_order(job_id, get_current_user_id(), get_current_user_role())
     return jsonify(jo_service.propose_for_job(job, request.get_json() or {}))
@@ -342,7 +342,7 @@ def list_job_schedule_moves(job_id):
 
 @job_orders_bp.route("/schedule/propose", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def propose_draft_schedule():
     data = request.get_json() or {}
     if not data.get("operations"):
@@ -378,7 +378,7 @@ def propose_draft_schedule():
 
 @job_orders_bp.route("/schedule/validate", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def validate_job_schedule():
     data = request.get_json() or {}
     if not data.get("operations"):

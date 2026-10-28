@@ -83,6 +83,7 @@ export default function MachineDetailsDrawer({
   nowMs,
   actions,
   onClose,
+  canEdit,
 }: {
   unit: MachineUnitStatus | null;
   kind: MachineKind;
@@ -90,6 +91,8 @@ export default function MachineDetailsDrawer({
   nowMs: number;
   actions: MachineActions;
   onClose: () => void;
+  /** Admin only: machine setup, breakdowns, and repairs. Office Staff view. */
+  canEdit: boolean;
 }) {
   const { isPhone } = useViewport();
   const [history, setHistory] = useState<MachineDowntimeRecord[] | null>(null);
@@ -157,12 +160,16 @@ export default function MachineDetailsDrawer({
                   </Row>
                 )}
                 <div className="mdrawer__actions">
-                  <Button onClick={() => actions.onSetRepairDate(unit)}>
-                    {down.expectedRepairDate ? 'Change repair date' : 'Set repair date'}
-                  </Button>
-                  <Button type="primary" onClick={() => actions.onClose(unit)}>
-                    Close breakdown
-                  </Button>
+                  {canEdit && (
+                    <>
+                      <Button onClick={() => actions.onSetRepairDate(unit)}>
+                        {down.expectedRepairDate ? 'Change repair date' : 'Set repair date'}
+                      </Button>
+                      <Button type="primary" onClick={() => actions.onClose(unit)}>
+                        Close breakdown
+                      </Button>
+                    </>
+                  )}
                   {unit.affectedCount > 0 && <Button onClick={actions.onOpenSchedule}>Open schedule</Button>}
                 </div>
               </Section>
@@ -188,7 +195,7 @@ export default function MachineDetailsDrawer({
               <p className="mdrawer__muted mdrawer__hint">
                 Scheduling prefers this person for the unit; it does not block other workers.
               </p>
-              {status !== 'retired' && (
+              {canEdit && status !== 'retired' && (
                 <div className="mdrawer__actions">
                   <Button onClick={() => actions.onSetDefaultOperator(unit)}>
                     {unit.defaultOperatorId ? 'Change' : 'Assign operator'}
@@ -242,6 +249,7 @@ export default function MachineDetailsDrawer({
               )}
             </Section>
 
+            {canEdit && (
             <div className="mdrawer__footer">
               {status === 'retired' ? (
                 <Button type="primary" onClick={() => actions.onRestore(unit)}>
@@ -260,6 +268,7 @@ export default function MachineDetailsDrawer({
                 </>
               )}
             </div>
+            )}
           </div>
         </div>
       )}

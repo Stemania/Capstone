@@ -499,7 +499,7 @@ def _reload_job_with_types(job_id):
 
 
 def send_out_operation(operation, user_role, sent_out_date, sent_to):
-    """Admin or Office records an outsourced operation leaving the shop."""
+    """The Admin records an outsourced operation leaving the shop."""
     from datetime import timedelta
 
     from app.services.schedule_calendar import shop_now
@@ -609,11 +609,8 @@ def create_rework_operation(operation, user_id, user_role, reason, category=None
     from app.models.operation import ReworkReasonCategory
 
     check_job_access(operation.job_order, user_id, user_role)
-    if user_role not in (
-        UserRole.ADMIN.value,
-        UserRole.OFFICE_STAFF.value,
-    ):
-        raise AppError("Only Admin or Office Staff can send for rework", "FORBIDDEN", 403)
+    if user_role != UserRole.ADMIN.value:
+        raise AppError("Only the Admin can send an operation for redo", "FORBIDDEN", 403)
 
     if operation.status != OperationStatus.COMPLETED:
         raise AppError(
@@ -801,7 +798,7 @@ def _pause_running_operations_on_unit(machine_unit_id, reported_by_id, ts, recei
         )
 
 
-_REPAIR_DATE_ROLES = (UserRole.ADMIN.value, UserRole.OFFICE_STAFF.value)
+_REPAIR_DATE_ROLES = (UserRole.ADMIN.value,)
 
 
 def _parse_expected_repair_date(raw, started_at):
@@ -871,7 +868,7 @@ def open_machine_downtime(
 
     if expected_repair_date not in (None, "") and reporter_role not in _REPAIR_DATE_ROLES:
         raise AppError(
-            "Only the Admin or Office Staff can set an expected repair date.",
+            "Only the Admin can set an expected repair date.",
             "FORBIDDEN",
             403,
         )
@@ -943,11 +940,9 @@ def close_machine_downtime(downtime_id, ended_at=None, note=None, *, actor_id, a
     row = MachineDowntime.query.get(downtime_id)
     if not row:
         raise AppError("Downtime record not found", "NOT_FOUND", 404)
-    if actor_role not in (UserRole.ADMIN.value, UserRole.OFFICE_STAFF.value) and (
-        row.reported_by_id != actor_id
-    ):
+    if actor_role != UserRole.ADMIN.value:
         raise AppError(
-            "Only the Admin, Office Staff, or the worker who reported this breakdown can close it.",
+            "Only the Admin can put a machine back in service.",
             "FORBIDDEN",
             403,
         )

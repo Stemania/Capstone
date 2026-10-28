@@ -141,7 +141,7 @@ def test_cancel_without_reason_rejected(client, shop):
 
 
 def test_cancel_other_requires_note(client, shop):
-    job = _job(shop)
+    job = _job(shop, status=JobOrderStatus.DRAFT)
     db.session.flush()
     res = client.post(
         f"/api/v1/job-orders/{job.id}/cancel",
@@ -167,16 +167,23 @@ def test_cancel_scheduled_frees_slots_and_keeps_row(client, shop):
     db.session.add(op)
     db.session.flush()
 
+    # Released: the Office Staff cannot cancel it; the Admin can.
     res = client.post(
         f"/api/v1/job-orders/{job.id}/cancel",
         headers=_headers(shop["office_token"]),
+        json={"reason": "CLIENT_CANCELLED", "note": "Client pulled the PO"},
+    )
+    assert res.status_code == 403
+    res = client.post(
+        f"/api/v1/job-orders/{job.id}/cancel",
+        headers=_headers(shop["admin_token"]),
         json={"reason": "CLIENT_CANCELLED", "note": "Client pulled the PO"},
     )
     assert res.status_code == 200, res.get_json()
     body = res.get_json()
     assert body["status"] == "CANCELLED"
     assert body["cancelReason"] == "CLIENT_CANCELLED"
-    assert body["cancelledById"] == shop["office"].id
+    assert body["cancelledById"] == shop["admin"].id
 
     db.session.refresh(job)
     db.session.refresh(op)
@@ -209,3 +216,15 @@ def test_draft_cancel_works(client, shop):
     assert res.status_code == 200, res.get_json()
     assert res.get_json()["status"] == "CANCELLED"
     assert db.session.get(JobOrder, job.id) is not None
+
+
+def test_office_cancels_a_job_still_to_be_planned(client, shop):
+    job = _job(shop, status=JobOrderStatus.DRAFT)
+    db.session.flush()
+    res = client.post(
+        f"/api/v1/job-orders/{job.id}/cancel",
+        headers=_headers(shop["office_token"]),
+        json={"reason": "CLIENT_CANCELLED", "note": "Client withdrew the PO"},
+    )
+    assert res.status_code == 200, res.get_json()
+    assert res.get_json()["status"] == "CANCELLED"

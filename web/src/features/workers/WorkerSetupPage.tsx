@@ -85,12 +85,9 @@ export default function WorkerSetupPage() {
       setListLoading(true);
       try {
         const { data } = await usersApi.list();
-        // Workers and Admins can both be assigned work.
+        // Only production workers are assigned work.
         const production = data
-          .filter(
-            (u) =>
-              (u.role === 'PRODUCTION_WORKER' || u.role === 'ADMIN') && u.status !== 'DISABLED'
-          )
+          .filter((u) => u.role === 'PRODUCTION_WORKER' && u.status !== 'DISABLED')
           .sort((a, b) => a.fullName.localeCompare(b.fullName));
         setWorkers(production);
         if (!workerId && production[0] && !window.matchMedia(NARROW_QUERY).matches) {

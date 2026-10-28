@@ -19,7 +19,7 @@ operations_bp = Blueprint("operations", __name__)
 
 @operations_bp.route("/mine", methods=["GET"])
 @jwt_required()
-@require_roles(UserRole.PRODUCTION_WORKER, UserRole.ADMIN)
+@require_roles(UserRole.PRODUCTION_WORKER)
 def my_operations():
     ops = op_service.list_my_operations(get_current_user_id())
     return jsonify(
@@ -67,7 +67,7 @@ def _worker_action(operation_id, action, apply):
 
 @operations_bp.route("/<operation_id>/start", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.PRODUCTION_WORKER)
+@require_roles(UserRole.PRODUCTION_WORKER)
 def start_operation(operation_id):
     return _worker_action(
         operation_id,
@@ -80,7 +80,7 @@ def start_operation(operation_id):
 
 @operations_bp.route("/<operation_id>/pause", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.PRODUCTION_WORKER)
+@require_roles(UserRole.PRODUCTION_WORKER)
 def pause_operation(operation_id):
     data = request.get_json() or {}
     if not data.get("reason"):
@@ -97,7 +97,7 @@ def pause_operation(operation_id):
 
 @operations_bp.route("/<operation_id>/resume", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.PRODUCTION_WORKER)
+@require_roles(UserRole.PRODUCTION_WORKER)
 def resume_operation(operation_id):
     return _worker_action(
         operation_id,
@@ -111,7 +111,7 @@ def resume_operation(operation_id):
 
 @operations_bp.route("/<operation_id>/complete", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.PRODUCTION_WORKER)
+@require_roles(UserRole.PRODUCTION_WORKER)
 def complete_operation(operation_id):
     return _worker_action(
         operation_id,
@@ -124,7 +124,7 @@ def complete_operation(operation_id):
 
 @operations_bp.route("/<operation_id>/send-out", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def send_out_operation(operation_id):
     operation = JobOperation.query.get(operation_id)
     if not operation:
@@ -142,7 +142,7 @@ def send_out_operation(operation_id):
 
 @operations_bp.route("/<operation_id>/return", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def return_operation(operation_id):
     operation = JobOperation.query.get(operation_id)
     if not operation:
@@ -155,7 +155,7 @@ def return_operation(operation_id):
 
 @operations_bp.route("/<operation_id>/rework", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def rework_operation(operation_id):
     operation = JobOperation.query.get(operation_id)
     if not operation:
@@ -186,7 +186,7 @@ def list_machine_unit_status():
 
 @operations_bp.route("/machine-units", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def create_machine_unit():
     data = request.get_json() or {}
     unit = op_service.create_machine_unit(
@@ -198,7 +198,7 @@ def create_machine_unit():
 
 @operations_bp.route("/machine-units/<unit_id>", methods=["PATCH"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def patch_machine_unit(unit_id):
     data = request.get_json() or {}
     if "active" in data:
@@ -225,7 +225,7 @@ def patch_machine_unit(unit_id):
 
 @operations_bp.route("/machine-units/<unit_id>/downtime", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF, UserRole.PRODUCTION_WORKER)
+@require_roles(UserRole.ADMIN, UserRole.PRODUCTION_WORKER)
 def open_downtime(unit_id):
     received_at = datetime.now(timezone.utc)
     data = request.get_json() or {}
@@ -255,7 +255,7 @@ def open_downtime(unit_id):
     affected = op_service.list_affected_operations(unit_id)
     payload["affectedCount"] = len(affected)
     payload["affectedOperations"] = affected
-    if get_current_user_role() in (UserRole.ADMIN.value, UserRole.OFFICE_STAFF.value):
+    if get_current_user_role() == UserRole.ADMIN.value:
         from app.services.shop_floor_check_service import breakdown_options
 
         payload["work"] = breakdown_options(unit_id)
@@ -264,7 +264,7 @@ def open_downtime(unit_id):
 
 @operations_bp.route("/machine-units/<unit_id>/downtime/work", methods=["GET"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def down_unit_work(unit_id):
     """Unstarted work booked on the unit while it is down, and what can be done with it."""
     from app.services.shop_floor_check_service import breakdown_options
@@ -290,7 +290,7 @@ def move_down_unit_work(unit_id):
 
 @operations_bp.route("/machine-units/downtime/<downtime_id>/close", methods=["POST"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF, UserRole.PRODUCTION_WORKER)
+@require_roles(UserRole.ADMIN)
 def close_downtime(downtime_id):
     data = request.get_json() or {}
     row = op_service.close_machine_downtime(
@@ -305,7 +305,7 @@ def close_downtime(downtime_id):
 
 @operations_bp.route("/machine-units/downtime/<downtime_id>", methods=["PATCH"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def update_downtime(downtime_id):
     data = request.get_json() or {}
     if "expectedRepairDate" not in data:

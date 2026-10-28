@@ -214,19 +214,21 @@ def test_breakdowns_listed_on_their_job_only(client, shop):
     ],
 )
 def test_breakdown_category_is_server_validated(client, shop, body, code):
-    res = _report(client, shop["office"], shop["unit_a"], body)
+    res = _report(client, shop["worker"], shop["unit_a"], body)
     assert res.status_code == 400
     assert res.get_json()["error"]["code"] == code
     assert MachineDowntime.query.count() == 0
 
 
 def test_breakdown_accepts_label_and_other_with_note(client, shop):
-    res = _report(client, shop["office"], shop["unit_a"], {"reason": "Waiting for parts"})
+    # Workers and the Admin report breakdowns; the Office Staff only view machines.
+    assert _report(client, shop["office"], shop["unit_a"], {"reason": "Waiting for parts"}).status_code == 403
+    res = _report(client, shop["worker"], shop["unit_a"], {"reason": "Waiting for parts"})
     assert res.status_code == 201
     assert res.get_json()["category"] == "WAITING_FOR_PARTS"
 
     res = _report(
-        client, shop["office"], shop["unit_b"], {"category": "OTHER", "note": "Chuck key missing"}
+        client, shop["admin"], shop["unit_b"], {"category": "OTHER", "note": "Chuck key missing"}
     )
     assert res.status_code == 201
     row = db.session.get(MachineDowntime, res.get_json()["id"])

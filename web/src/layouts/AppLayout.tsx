@@ -91,7 +91,6 @@ const NAV: NavGroup[] = [
 
 const SECTION_META: Record<string, { title: string; subtitle: string }> = {
   '/schedule': { title: 'Schedule', subtitle: 'Shop-wide production schedule by machine and worker' },
-  '/my-assignments': { title: 'My assignments', subtitle: 'Operations assigned to you' },
   '/job-orders': { title: 'Job Orders', subtitle: 'Create and track production job orders' },
   '/machines': { title: 'Machines', subtitle: 'Machine units, breakdowns, and who reported them' },
   '/work-calendar': { title: 'Work calendar', subtitle: 'Shop-wide overtime, special days, and holidays' },
@@ -140,9 +139,6 @@ function routeMeta(pathname: string, section: string | null): Meta {
       subtitle: 'Lines, issuing, receiving, and the printed PO',
       crumbs: [{ label: 'Suppliers and Orders', to: '/supplier-orders' }, { label: 'Supplier order' }],
     };
-  }
-  if (/^\/my-assignments\/[^/]+$/.test(pathname)) {
-    return { title: 'Assignment', crumbs: [{ label: 'My assignments', to: '/my-assignments' }, { label: 'Assignment' }] };
   }
   const report = pathname.match(/^\/analytics\/reports\/([^/]+)/);
   if (report) {

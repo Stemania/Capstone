@@ -715,18 +715,19 @@ def test_every_new_worker_profile_gets_the_shop_default_hours(app, shop):
     from app.models.user_security import InvitationChannel
     from app.services.invitation_service import create_invited_user
 
+    # Admins are not assigned work, so they get no worker profile or hours.
     admin2 = _user("sc_admin2@test.local", UserRole.ADMIN, "Second Admin")
     ensure_worker_profile(admin2)
     db.session.commit()
-    assert _hours(admin2.id) == DEFAULT_HOURS
+    assert _hours(admin2.id) == []
 
     office = shop["office"]
     update_user(office, {"role": UserRole.PRODUCTION_WORKER})
     assert _hours(office.id) == DEFAULT_HOURS
 
     invited, _inv, _secret = create_invited_user(
-        full_name="Invited Admin", email="sc_invited@test.local", mobile_number="09171234567",
-        role=UserRole.ADMIN, channel=InvitationChannel.EMAIL, created_by_id=shop["admin"].id,
+        full_name="Invited Worker", email="sc_invited@test.local", mobile_number="09171234567",
+        role=UserRole.PRODUCTION_WORKER, channel=InvitationChannel.EMAIL, created_by_id=shop["admin"].id,
     )
     assert _hours(invited.id) == DEFAULT_HOURS
 

@@ -15,9 +15,10 @@ from app.models.worker_skill import (
 )
 from app.utils.errors import AppError
 
-# Production workers and Admins can be assigned, including people not yet
-# activated (they activate before recording work on a phone).
-ASSIGNABLE_ROLES = (UserRole.PRODUCTION_WORKER, UserRole.ADMIN)
+# Only production workers are assigned work, including people not yet
+# activated (they activate before recording work on a phone). An Admin who also
+# works on the floor uses a separate production worker account.
+ASSIGNABLE_ROLES = (UserRole.PRODUCTION_WORKER,)
 
 
 def _parse_time(value):
@@ -47,7 +48,7 @@ def _assignable_filter():
 
 
 def machine_skill_holders(machine_type_id):
-    """{worker_id: WorkerSkill} for assignable people (workers and Admins) with
+    """{worker_id: WorkerSkill} for production workers with
     the machine skill; None when nobody has it recorded, so everyone qualifies
     until the skill is set up (e.g. Laser, Bending)."""
     if not machine_type_id:
@@ -68,7 +69,7 @@ def is_assignable_worker(user: User | None) -> bool:
 
 
 def query_assignable_workers():
-    """Production workers and Admins who are not disabled, by name."""
+    """Production workers who are not disabled, by name."""
     query = User.query.options(joinedload(User.worker_profile)).filter(_assignable_filter())
     return query.order_by(User.full_name)
 
