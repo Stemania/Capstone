@@ -89,6 +89,14 @@ from app.services.schedule_calendar import (
 )
 
 HOLIDAYS = (
+    (date(2025, 11, 1), "All Saints' Day"),
+    (date(2025, 12, 8), "Feast of the Immaculate Conception"),
+    (date(2025, 12, 24), "Christmas Eve"),
+    (date(2025, 12, 25), "Christmas Day"),
+    (date(2025, 12, 30), "Rizal Day"),
+    (date(2025, 12, 31), "Last Day of the Year"),
+    (date(2026, 1, 1), "New Year's Day"),
+    (date(2026, 2, 17), "Chinese New Year"),
     (date(2026, 4, 2), "Maundy Thursday"),
     (date(2026, 4, 3), "Good Friday"),
     (date(2026, 4, 9), "Araw ng Kagitingan"),
@@ -624,7 +632,9 @@ def _generate(start, end, seed):
     plans = _plan_jobs(rng, shop, start, end)
     ops_guess = max(1, len(plans) * 2.2)
     capacity = max(1, len(shop.workers)) * 7.5 * max(1, len(shop.working_days))
-    shop.hours_per_op = min(1.6, max(1.0, (capacity * 0.30) / ops_guess))
+    # Target hours per operation so the shop is busy but not full (about a third
+    # of worker hours on job work; the rest is setup, breaks and slack).
+    shop.hours_per_op = min(5.0, max(1.0, (capacity * 0.33) / ops_guess))
     print(f"Scheduling {len(plans)} job orders...", flush=True)
     counters = _schedule_jobs(rng, shop, ledger, plans)
     _attendance(rng, shop, ledger, plans, counters)
@@ -658,7 +668,8 @@ def _plan_jobs(rng, shop, start, end):
         season = {3: 1.08, 4: 0.97, 5: 1.03, 6: 0.90, 7: 1.05, 8: 1.08, 9: 0.96, 10: 1.12}.get(
             anchor.month, 1.0
         )
-        full = (6.5 + month_i * 1.55) * season * rng.uniform(0.94, 1.06)
+        # About 47 job orders a month at the start, rising to about 57.
+        full = (11.0 + month_i * 0.2) * season * rng.uniform(0.94, 1.06)
         count = max(1, int(round(full * (len(week) / 6))))
         for _ in range(count):
             seq += 1
@@ -673,10 +684,12 @@ def _plan_jobs(rng, shop, start, end):
                 1: 0.94, 2: 0.97, 3: 1.06, 4: 0.95, 5: 1.0, 6: 0.94,
                 7: 1.03, 8: 1.08, 9: 0.96, 10: 1.12, 11: 1.04, 12: 0.98,
             }[po.month]
-            raw = math.exp(rng.uniform(math.log(8000), math.log(180000)))
+            # Most jobs are small; a few large ones (log-uniform), so monthly
+            # sales land around PHP 3.5-5 million.
+            raw = math.exp(rng.uniform(math.log(20000), math.log(210000)))
             amount = min(
-                250000.0,
-                max(5000.0, raw * (1 + 0.11 * month_i_job) * sale_season * rng.uniform(0.94, 1.06)),
+                400000.0,
+                max(6000.0, raw * (1 + 0.006 * month_i_job) * sale_season * rng.uniform(0.94, 1.06)),
             )
             due = shop.next_working(po + timedelta(days=rng.randint(7, 21)))
             plans.append(
@@ -1066,7 +1079,7 @@ def _place_operations(rng, shop, ledger, job, plan, not_before, horizon, admin, 
 
     for step in range(1, count + 1):
         op_type = shop.op_types[rng.randrange(len(shop.op_types))]
-        estimated = max(0.75, min(6.0, hours_each))
+        estimated = max(0.75, min(8.0, hours_each))
         is_last = step == count
         in_progress = fate == "progress" and is_last
         pause = fate == "run" and not in_progress and rng.random() < 0.55
@@ -1112,8 +1125,8 @@ def _place_operations(rng, shop, ledger, job, plan, not_before, horizon, admin, 
         if (
             not in_progress
             and result["actual_end"] is not None
-            and counters["rework_hours"] < max(counters["delay_target_material"], 1) * 0.50
-            and rng.random() < 0.85
+            # About 3 in 100 operations need redoing, spread through the year.
+            and rng.random() < 0.03
         ):
             redo = _place_one(
                 rng,
@@ -1517,9 +1530,15 @@ def _consumables(rng, shop, ledger, counters):
                 inbound.append((due, tool, amount, order, line))
 
     weeks = _weeks(shop.working_days)
+    # Consumables are used in proportion to the work on the floor that day.
+    loads = [len(shop.day_work.get(d) or []) for d in shop.working_days]
+    busy = [n for n in loads if n]
+    avg_load = (sum(busy) / len(busy)) if busy else 1.0
     for week in weeks:
         for day in week:
             receive_due(day)
+            load = len(shop.day_work.get(day) or [])
+            factor = min(1.8, max(0.25, load / avg_load)) if avg_load else 1.0
             for tool in names:
                 if tool.id in estimated and day < cutoff:
                     continue
@@ -1532,6 +1551,8 @@ def _consumables(rng, shop, ledger, counters):
                     scans = 2 + spread
                 else:
                     scans = 1 + (spread % 3)
+                scaled = scans * factor
+                scans = int(scaled) + (1 if rng.random() < scaled - int(scaled) else 0)
                 for n in range(scans):
                     if qty[tool.id] < 1:
                         break
@@ -1685,9 +1706,7 @@ def _retarget_stock(rng, shop, ledger, counters):
             target = max(Decimal("0"), target - Decimal(index % 4))
         else:
             target = target + Decimal((index * 3) % 11)
-        # Hundredths are the item index, so on-hand (and therefore the
-        # on-hand / reorder-point / days-left triple) is unique per item.
-        target = Decimal(int(target)) + (Decimal(index + 1) / Decimal("100"))
+        target = Decimal(int(target))  # whole units, as counted on the shelf
         current = Decimal(str(tool.quantity_on_hand or 0))
         delta = target - current
         if delta == 0:
@@ -2581,7 +2600,7 @@ def _target_qty(adu, rop, kind):
         qty = rop_n + max(adu_n * 4, 1)
     else:
         qty = rop_n + max(adu_n * 20, 8)
-    return Decimal(str(round(qty, 2)))
+    return Decimal(int(math.ceil(qty)))
 
 
 def _shift_time(value, minutes):
