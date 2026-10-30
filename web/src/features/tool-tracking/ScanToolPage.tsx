@@ -274,7 +274,10 @@ export default function ScanToolPage() {
       startPromise = qr
         .start(
           { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 240, height: 240 } },
+          // No qrbox: read the whole camera frame. The video is stretched to
+          // fill the screen (object-fit: cover), so a fixed scan box drifts
+          // away from the green frame when the camera gives landscape frames.
+          { fps: 10 },
           (decodedText) => onCodeDetected(decodedText),
           () => {}
         )

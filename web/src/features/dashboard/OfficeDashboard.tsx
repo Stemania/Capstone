@@ -175,7 +175,7 @@ export default function OfficeDashboard() {
           valueTone={data?.lowStock.length ? 'amber' : undefined}
           loading={loading}
           hint="At the reorder level"
-          onClick={() => navigate('/tools')}
+          onClick={() => navigate('/tools?tab=consumables')}
         />
         <StatCard
           icon={<MailOutlined />}
@@ -280,7 +280,7 @@ export default function OfficeDashboard() {
             title="Low stock"
             subtitle="Consumables at the reorder level"
             extra={
-              <Button type="link" size="small" onClick={() => navigate('/tools')}>
+              <Button type="link" size="small" onClick={() => navigate('/tools?tab=consumables')}>
                 Inventory <RightOutlined />
               </Button>
             }
@@ -293,7 +293,7 @@ export default function OfficeDashboard() {
               <ul className="office-dash__list">
                 {data.lowStock.slice(0, 6).map((it) => (
                   <li key={it.id}>
-                    <button type="button" onClick={() => navigate('/tools')}>
+                    <button type="button" onClick={() => navigate('/tools?tab=consumables')}>
                       <span className="office-dash__main">
                         <strong>{it.name}</strong>
                         <span>

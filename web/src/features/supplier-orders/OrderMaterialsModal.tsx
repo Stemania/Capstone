@@ -670,7 +670,7 @@ export default function OrderMaterialsModal({
                           <span style={{ color: '#b45309', fontWeight: 600 }}>
                             {fmtQty(c.lowStock.quantityOnHand, c.unit)}
                           </span>{' '}
-                          of min {fmtQty(c.lowStock.minimumStock, c.unit)}
+                          on hand · reorder at {fmtQty(c.lowStock.minimumStock, c.unit)}
                           {c.lowStock.onOrderQuantity > 0 ? (
                             <div style={{ color: '#64748b' }}>
                               {fmtQty(c.lowStock.onOrderQuantity, c.unit)} already on order

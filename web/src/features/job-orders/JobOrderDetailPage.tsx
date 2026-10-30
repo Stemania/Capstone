@@ -1433,13 +1433,15 @@ function JobOrderDetailView() {
                               </span>
                             </div>
                             <div>
-                              {friendlyEnum(n.channel, NOTIF_CHANNEL_LABEL)} to {n.recipient}
+                              {!n.recipient || n.recipient === '(none)'
+                                ? 'No email address on file for this client'
+                                : `${friendlyEnum(n.channel, NOTIF_CHANNEL_LABEL)} to ${n.recipient}`}
                             </div>
                             <div>
                               {n.sentAt
-                                ? `Sent ${formatShop(n.sentAt, 'MMM D, HH:mm')}`
+                                ? `Sent ${formatShop(n.sentAt, 'MMM D, h:mm A')}`
                                 : n.createdAt
-                                  ? `${n.status === 'PENDING' ? 'Queued' : 'Logged'} ${formatShop(n.createdAt, 'MMM D, HH:mm')}`
+                                  ? `${n.status === 'PENDING' ? 'Queued' : 'Logged'} ${formatShop(n.createdAt, 'MMM D, h:mm A')}`
                                   : '—'}
                             </div>
                             {(n.status === 'FAILED' || n.status === 'NOT_SENT') && n.errorMessage ? (
@@ -1725,11 +1727,13 @@ function FinishCard({ job }: { job: JobOrder }) {
   const est = job.completionEstimate;
   const late = job.scheduleFlag === 'AMBER' || job.scheduleFlag === 'RED';
   const lateStyle: CSSProperties = { color: '#7A1528' };
+  // Once every operation is done, the finish is when the work actually ended.
+  const done = job.status === 'COMPLETED' || job.status === 'FOR_DELIVERY' || job.status === 'DELIVERED';
   return (
     <div className="jo-dcard" style={cardStyle({ marginBottom: 16 })}>
       <div style={{ fontWeight: 800, fontSize: 14, color: NAVY, marginBottom: 12 }}>Finish</div>
       <div style={DETAIL_GRID}>
-        <div style={{ color: MUTED }}>Scheduled finish</div>
+        <div style={{ color: MUTED }}>{done ? 'Finished' : 'Scheduled finish'}</div>
         <div
           style={{
             color: NAVY,
@@ -1740,17 +1744,21 @@ function FinishCard({ job }: { job: JobOrder }) {
         >
           {fmtDateTime(job.projectedCompletion)}
         </div>
-        <div style={{ color: MUTED }}>Estimated finish</div>
-        <div
-          style={{
-            color: NAVY,
-            fontWeight: 600,
-            textAlign: 'right',
-            ...(late && job.scheduleFlagBasis === 'ESTIMATE' ? lateStyle : {}),
-          }}
-        >
-          {fmtDateTime(job.predictedCompletion)}
-        </div>
+        {!done ? (
+          <>
+            <div style={{ color: MUTED }}>Estimated finish</div>
+            <div
+              style={{
+                color: NAVY,
+                fontWeight: 600,
+                textAlign: 'right',
+                ...(late && job.scheduleFlagBasis === 'ESTIMATE' ? lateStyle : {}),
+              }}
+            >
+              {fmtDateTime(job.predictedCompletion)}
+            </div>
+          </>
+        ) : null}
         <div style={{ color: MUTED }}>Date required</div>
         <div style={{ color: NAVY, fontWeight: 600, textAlign: 'right' }}>{fmtDate(job.dueDate)}</div>
         {job.forDeliveryAt ? (

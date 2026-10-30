@@ -127,10 +127,17 @@ export default function ToolsPage() {
     });
   }, [tools, query, stockFilter, summaryKey]);
 
-  const lowCount = tools.filter((t) => {
-    const s = consumableListStatus(t);
-    return s === 'REORDER_NOW' || s === 'REORDER_SOON';
-  }).length;
+  const reorderNowCount = tools.filter((t) => consumableListStatus(t) === 'REORDER_NOW').length;
+  const reorderSoonCount = tools.filter((t) => consumableListStatus(t) === 'REORDER_SOON').length;
+  const lowCount = reorderNowCount + reorderSoonCount;
+  const plural = (n: number) => `${n} item${n === 1 ? '' : 's'}`;
+  // "At or below" is only true of Reorder now; Reorder soon items are still above it.
+  const lowBanner = [
+    reorderNowCount ? `${plural(reorderNowCount)} at or below the reorder level` : '',
+    reorderSoonCount ? `${plural(reorderSoonCount)} reaching it soon` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const consumableCards: InventorySummaryCard[] = useMemo(() => {
     let soon = 0;
     let now = 0;
@@ -488,7 +495,7 @@ export default function ToolsPage() {
                 type="warning"
                 showIcon
                 style={{ marginBottom: 12 }}
-                title={`${lowCount} item${lowCount === 1 ? '' : 's'} at or below reorder level`}
+                title={lowBanner}
                 action={
                   <Button size="small" onClick={() => setStockFilter(['low'])}>
                     Show low stock only

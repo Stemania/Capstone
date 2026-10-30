@@ -236,7 +236,7 @@ def test_at_risk_change_sends_one_notification(shop):
     alerts = StaffAlert.query.filter_by(kind=StaffAlertKind.JOB_AT_RISK, job_order_id=job.id).all()
     assert sorted(a.recipient_id for a in alerts) == sorted([shop["admin"].id, shop["office"].id])
     assert "required Aug 10, 2026" in alerts[0].message
-    assert "Aug 12, 2026 17:00" in alerts[0].message  # 24h over 8h days from Monday 08:00
+    assert "Aug 12, 2026 5:00 PM" in alerts[0].message  # 24h over 8h days from Monday 08:00
 
     # Still at risk: no second alert.
     assert est.sync_at_risk_alert(job, now) is False
@@ -264,3 +264,18 @@ def test_job_dict_shows_both_finishes_and_flags_the_later(shop):
     assert data["projectedCompletion"] and data["predictedCompletion"]
     assert data["completionEstimate"]["label"] == est.LABEL
     assert data["scheduleFlag"] == "GREEN"
+
+
+def test_finished_operations_count_at_their_actual_end(shop):
+    """A job that finished early is not shown, or flagged, at its old plan."""
+    job = _job(shop, JobOrderStatus.COMPLETED, due=MONDAY)
+    op = _op(shop, job, shop["turning"], 1, 4, OperationStatus.COMPLETED)
+    op.scheduled_start = _at(MONDAY + timedelta(days=2), 8)
+    op.scheduled_end = _at(MONDAY + timedelta(days=2), 12)
+    op.actual_start = _at(MONDAY - timedelta(days=3), 8)
+    op.actual_end = _at(MONDAY - timedelta(days=3), 12)
+    db.session.commit()
+
+    state = est.risk_state(job, _at(MONDAY, 8))
+    assert state["scheduled"] == _at(MONDAY - timedelta(days=3), 12)
+    assert state["flag"] == "GREEN"

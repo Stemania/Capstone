@@ -18,6 +18,12 @@ function eventLabel(t: ToolEventType) {
       return 'Adjusted';
     case 'RECEIVE':
       return 'Received';
+    case 'SCAN':
+      return 'Used (scan)';
+    case 'UNDO':
+      return 'Scan undone';
+    case 'CORRECTION':
+      return 'Corrected';
     default:
       return t;
   }
@@ -33,6 +39,8 @@ function eventColor(t: ToolEventType): 'amber' | 'green' | 'gray' | 'blue' {
       return 'blue';
     case 'RECEIVE':
       return 'green';
+    case 'CORRECTION':
+      return 'blue';
     default:
       return 'gray';
   }
@@ -91,8 +99,19 @@ export default function ToolEventsPage({ category }: Props) {
             </div>
           ),
         },
-        { title: 'Worker', dataIndex: 'workerName' },
-        { title: 'Qty', dataIndex: 'quantity', align: 'right' as const, width: 72 },
+        { title: 'By', dataIndex: 'workerName' },
+        {
+          title: 'Qty',
+          dataIndex: 'quantity',
+          align: 'right' as const,
+          width: 72,
+          // Stock moves show their direction (+23 received, −1 corrected).
+          render: (q: number | null | undefined, r: ToolEvent) => {
+            const d = r.stockDelta;
+            if (d == null || d === 0) return q ?? '—';
+            return d > 0 ? `+${d}` : `−${Math.abs(d)}`;
+          },
+        },
         {
           title: 'Type',
           dataIndex: 'type',

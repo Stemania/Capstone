@@ -417,7 +417,7 @@ export default function SupplierOrderDetailPage() {
                       {c.note ? ` · ${c.note}` : ''}
                       <div style={{ opacity: 0.75, fontSize: 11 }}>
                         {c.changedByName || 'Unknown'}
-                        {c.changedAt ? `, ${formatShop(c.changedAt, 'D MMM YYYY, h:mm A')}` : ''}
+                        {c.changedAt ? `, ${formatShop(c.changedAt, 'MMM D, YYYY, h:mm A')}` : ''}
                       </div>
                     </div>
                   ))}

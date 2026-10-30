@@ -839,7 +839,7 @@ export default function MachinesPage() {
           >
             <DatePicker
               style={{ width: '100%' }}
-              format="ddd D MMM YYYY"
+              format="ddd, MMM D, YYYY"
               disabledDate={disablePastDates}
             />
           </Form.Item>
@@ -878,7 +878,7 @@ export default function MachinesPage() {
             <DatePicker
               allowClear
               style={{ width: '100%' }}
-              format="ddd D MMM YYYY"
+              format="ddd, MMM D, YYYY"
               disabledDate={disablePastDates}
             />
           </Form.Item>

@@ -152,7 +152,7 @@ export default function MachineDetailsDrawer({
                 <Row label="Reported by">{down.reportedByName || '—'}</Row>
                 <Row label="Since">{formatShop(down.startedAt, 'ddd D MMM, h:mm A')}</Row>
                 <Row label="Expected repair">
-                  {down.expectedRepairDate ? formatShop(down.expectedRepairDate, 'ddd D MMM YYYY') : 'Not set'}
+                  {down.expectedRepairDate ? formatShop(down.expectedRepairDate, 'ddd, MMM D, YYYY') : 'Not set'}
                 </Row>
                 {unit.affectedCount > 0 && (
                   <Row label="To reschedule">

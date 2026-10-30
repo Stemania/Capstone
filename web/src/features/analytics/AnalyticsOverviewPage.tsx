@@ -103,7 +103,7 @@ function AdminOverview() {
           valueTone={
             counts.LIKELY_OUT + counts.REORDER_NOW + counts.REORDER_SOON ? 'amber' : undefined
           }
-          sub="consumables, now"
+          sub={`${fmtNum(counts.LIKELY_OUT + counts.REORDER_NOW)} now · ${fmtNum(counts.REORDER_SOON)} soon`}
         />
       </Kpis>
 
@@ -297,7 +297,7 @@ function OfficeOverview() {
           valueTone={
             counts.LIKELY_OUT + counts.REORDER_NOW + counts.REORDER_SOON ? 'amber' : undefined
           }
-          sub="consumables, now"
+          sub={`${fmtNum(counts.LIKELY_OUT + counts.REORDER_NOW)} now · ${fmtNum(counts.REORDER_SOON)} soon`}
         />
       </Kpis>
 

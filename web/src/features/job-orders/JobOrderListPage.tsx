@@ -116,6 +116,8 @@ function FinishCell({ job }: { job: JobOrder }) {
     return <span style={{ fontSize: 13, color: '#94a3b8' }}>—</span>;
   }
   const flagged = job.scheduleFlag && job.scheduleFlag !== 'GREEN';
+  // Finished jobs show when the work actually ended, with no estimate.
+  const done = job.status === 'COMPLETED' || job.status === 'FOR_DELIVERY' || job.status === 'DELIVERED';
   const line = (label: string, iso: string | null | undefined, emphasize: boolean) =>
     iso ? (
       <div
@@ -132,8 +134,8 @@ function FinishCell({ job }: { job: JobOrder }) {
     ) : null;
   return (
     <div>
-      {line('Sched.', job.projectedCompletion, !!flagged && job.scheduleFlagBasis === 'SCHEDULE')}
-      {job.predictedCompletion ? (
+      {line(done ? 'Done' : 'Sched.', job.projectedCompletion, !!flagged && job.scheduleFlagBasis === 'SCHEDULE')}
+      {!done && job.predictedCompletion ? (
         <Tooltip title={ESTIMATE_HINT}>
           <span>{line('Est.', job.predictedCompletion, !!flagged && job.scheduleFlagBasis === 'ESTIMATE')}</span>
         </Tooltip>
@@ -597,7 +599,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
       },
     },
     {
-      title: 'Due Date',
+      title: 'Date required',
       dataIndex: 'dueDate',
       key: 'dueDate',
       width: 112,
@@ -606,7 +608,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
     },
     {
       title: (
-        <Tooltip title={`Scheduled finish, and the estimated finish. ${ESTIMATE_HINT}`}>
+        <Tooltip title={`Scheduled finish and estimated finish (actual finish once done). ${ESTIMATE_HINT}`}>
           <span>Finish</span>
         </Tooltip>
       ),

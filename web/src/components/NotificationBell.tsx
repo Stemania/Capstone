@@ -105,7 +105,7 @@ export default function NotificationBell({ className }: { className?: string }) 
                 <div className="notif-item__title">{a.title}</div>
                 {a.message && <div className="notif-item__msg">{a.message}</div>}
                 <div className="notif-item__meta">
-                  {a.createdAt ? formatShop(a.createdAt, 'D MMM YYYY, h:mm A') : ''}
+                  {a.createdAt ? formatShop(a.createdAt, 'MMM D, YYYY, h:mm A') : ''}
                   {a.jobOrderId && a.supplierOrderId && a.poNumber && (
                     <>
                       {' · '}

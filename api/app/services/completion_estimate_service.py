@@ -307,7 +307,14 @@ def risk_state(job, now: datetime | None = None) -> dict:
     """Scheduled finish, predicted finish, and the flag from whichever is later."""
     from app.services.schedule_service import compute_schedule_flag
 
-    ends = [ensure_utc(o.scheduled_end) for o in job.operations or [] if o.scheduled_end]
+    # A finished operation counts at its actual end, not its planned one, so a
+    # job that finished early is not shown (or flagged) at the old plan.
+    ends = []
+    for o in job.operations or []:
+        if o.status == OperationStatus.COMPLETED and o.actual_end:
+            ends.append(ensure_utc(o.actual_end))
+        elif o.scheduled_end:
+            ends.append(ensure_utc(o.scheduled_end))
     scheduled = max(ends) if ends else None
     estimate = predict_job(job, now)
     predicted = datetime.fromisoformat(estimate["predictedFinish"]) if estimate else None
@@ -319,6 +326,16 @@ def risk_state(job, now: datetime | None = None) -> dict:
         "flag": compute_schedule_flag(later, job.due_date) if later and job.due_date else None,
         "basis": "ESTIMATE" if predicted and (not scheduled or predicted > scheduled) else "SCHEDULE",
     }
+
+
+def _day(d) -> str:
+    """Nov 5, 2026 (the app's date style, no leading zero)."""
+    return f"{d:%b} {d.day}, {d:%Y}"
+
+
+def _clock(dt) -> str:
+    """5:00 PM (the app's time style)."""
+    return f"{dt.hour % 12 or 12}:{dt:%M} {'AM' if dt.hour < 12 else 'PM'}"
 
 
 def sync_at_risk_alert(job, now: datetime | None = None) -> bool:
@@ -341,8 +358,8 @@ def sync_at_risk_alert(job, now: datetime | None = None) -> bool:
         kind=StaffAlertKind.JOB_AT_RISK,
         title=f"{job.job_number} may miss its required date",
         message=(
-            f"{job.title}: {which} {utc_to_shop(finish):%b %d, %Y %H:%M}; "
-            f"required {job.due_date:%b %d, %Y}."
+            f"{job.title}: {which} {_day(utc_to_shop(finish))} {_clock(utc_to_shop(finish))}; "
+            f"required {_day(job.due_date)}."
         ),
         job_order_id=job.id,
     )

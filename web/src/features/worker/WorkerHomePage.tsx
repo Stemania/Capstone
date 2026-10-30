@@ -37,6 +37,7 @@ import { useMyOperations } from '../my-assignments/useMyOperations';
 import { TOOLS_CHANGED } from './toolsEvents';
 import { useMyProfile } from './useMyProfile';
 import { formatRange, greeting, summarizeSchedule, weekInWords } from './workerFormat';
+import { formatHoursMinutes } from '../../utils/duration';
 
 const STARTABLE = new Set(['PENDING', 'SCHEDULED', 'REWORK']);
 
@@ -303,7 +304,7 @@ export default function WorkerHomePage() {
           <div>
             <div className="w-fact__label">Target</div>
             <div className="w-fact__value">
-              {hero.estimatedHours != null ? `${hero.estimatedHours} h` : '—'}
+              {formatHoursMinutes(hero.estimatedHours)}
             </div>
           </div>
           <div>
