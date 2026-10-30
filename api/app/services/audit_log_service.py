@@ -219,6 +219,12 @@ def _record_label(row: AuditLog, names: dict[str, str]) -> str | None:
     snapshot = row.after_json or row.before_json or {}
     if row.entity_id and row.entity_id in names:
         return names[row.entity_id]
+    if row.entity_type == "MachineDowntime" and isinstance(snapshot, dict):
+        unit = snapshot.get("machineUnitLabel") or names.get(
+            snapshot.get("machineUnitId") or snapshot.get("machine_unit_id") or ""
+        )
+        if unit:
+            return str(unit)
     for key in ("jobNumber", "poNumber", "name", "fullName", "invoiceNumber", "materialName", "label"):
         if isinstance(snapshot, dict) and snapshot.get(key):
             return str(snapshot[key])

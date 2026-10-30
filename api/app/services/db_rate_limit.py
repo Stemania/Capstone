@@ -43,9 +43,19 @@ def hit(key: str, limit: int, window_seconds: int) -> int:
     Increment the counter for ``key`` inside the current window.
 
     Returns the new count. Raises AppError 429 when the limit is exceeded.
-    Uses SELECT … FOR UPDATE so two app instances sharing the DB agree.
+    Uses SELECT … FOR UPDATE so two app instances sharing the DB agree. The
+    row is created first with INSERT … ON CONFLICT DO NOTHING, so two first
+    requests for the same key at the same moment cannot both try to insert it.
     """
     now = _utcnow()
+    if db.session.get_bind().dialect.name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+
+        db.session.execute(
+            insert(RateLimitCounter.__table__)
+            .values(key=key, window_start=now, count=0)
+            .on_conflict_do_nothing(index_elements=["key"])
+        )
     row = (
         RateLimitCounter.query.filter_by(key=key)
         .with_for_update()
@@ -65,6 +75,12 @@ def hit(key: str, limit: int, window_seconds: int) -> int:
         db.session.commit()
         return 1
 
+    if row.count == 0:  # just created above
+        row.window_start = now
+        row.count = 1
+        db.session.commit()
+        return 1
+
     if row.count >= limit:
         # Do not rollback — callers may have other work in this session
         # (tests often map commit→flush inside a single transaction).
@@ -74,9 +90,10 @@ def hit(key: str, limit: int, window_seconds: int) -> int:
             429,
         )
 
-    row.count += 1
+    count = row.count + 1
+    row.count = count
     db.session.commit()
-    return row.count
+    return count
 
 
 def client_key(prefix: str) -> str:

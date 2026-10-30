@@ -322,3 +322,20 @@ def test_older_entries_and_system_changes_read_plainly(client, shop):
     created = next(i for i in items if i["action"] == "CREATE")
     assert created["user"] is None
     assert created["summary"].startswith("The system created job order")
+
+
+def test_breakdown_entry_names_the_machine(client, shop):
+    from app.models.operation_time import DowntimeCategory, MachineDowntime
+
+    db.session.add(MachineDowntime(machine_unit_id=shop["unit"].id, category=DowntimeCategory.MECHANICAL_FAILURE, reason="Spindle noise",
+                                   started_at=datetime(2031, 4, 1, 1, tzinfo=timezone.utc),
+                                   reported_by_id=shop["admin"].id))
+    db.session.commit()
+    res = client.get(
+        "/api/v1/admin/audit-logs",
+        query_string={"entityType": "MachineDowntime"},
+        headers=_headers(shop["admin"]),
+    )
+    [item] = res.get_json()["items"]
+    assert item["recordLabel"] == "Lathe A-1"
+    assert "Lathe A-1" in item["summary"]

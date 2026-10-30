@@ -1,4 +1,5 @@
 import enum
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -12,6 +13,19 @@ def _utcnow():
 def _uuid():
     return str(uuid.uuid4())
 
+
+
+_TECHNICAL_ERROR = re.compile(
+    r"\[Errno|Connection (refused|reset)|timed out|Name or service not known|getaddrinfo|SMTP|Traceback",
+    re.IGNORECASE,
+)
+
+
+def readable_send_error(message: str | None) -> str | None:
+    """Older rows kept the raw technical error; show those in plain words."""
+    if message and _TECHNICAL_ERROR.search(message):
+        return "The mail server could not be reached. Try sending again later."
+    return message
 
 class NotificationMilestone(enum.Enum):
     """Client job updates. JOB_DELIVERED is the "ready for delivery" email.
@@ -104,7 +118,7 @@ class NotificationLog(db.Model):
             "messageBody": self.message_body,
             "status": self.status.value if self.status else None,
             "providerReference": self.provider_reference,
-            "errorMessage": self.error_message,
+            "errorMessage": readable_send_error(self.error_message),
             "sentAt": self.sent_at.isoformat() if self.sent_at else None,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }

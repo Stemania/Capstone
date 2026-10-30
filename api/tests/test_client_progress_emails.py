@@ -274,3 +274,20 @@ def test_delayed_email_shows_new_date_and_reason(flask_app):
     assert "New expected finish: Mar 24, 2031" in c.text
     assert "Reason: Machine breakdown" in c.text
     assert "4 days late" in c.html
+
+
+def test_finish_never_in_the_past_for_unfinished_work(monkeypatch):
+    from app.services import completion_estimate_service as ces
+    from app.services import schedule_calendar as sc
+
+    monkeypatch.setattr(sc, "shop_now", lambda: datetime(2031, 3, 10, 9, tzinfo=sc.SHOP_TZ))
+    late = [_op(1, "COMPLETED", 2), _op(2, "IN_PROGRESS", 5, end=date(2031, 3, 5))]
+
+    monkeypatch.setattr(ces, "predict_job", lambda job: {"predictedFinish": _at(date(2031, 3, 13), 15).isoformat()})
+    assert ju.job_progress(_job(late))["finish"] == date(2031, 3, 13)
+
+    monkeypatch.setattr(ces, "predict_job", lambda job: None)
+    assert ju.job_progress(_job(late))["finish"] == date(2031, 3, 10)  # today, not Mar 5
+
+    done = [_op(1, "COMPLETED", 2, end=date(2031, 3, 5))]
+    assert ju.job_progress(_job(done))["finish"] == date(2031, 3, 5)

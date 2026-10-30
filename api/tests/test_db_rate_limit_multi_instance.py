@@ -57,3 +57,46 @@ def test_login_lockout_shared_across_two_app_instances(app):
         RateLimitCounter.query.delete()
         User.query.filter_by(email="twin_rate@test.local").delete()
         db.session.commit()
+
+
+def test_first_hits_at_the_same_moment_do_not_fail(app):
+    """Several first requests for a new key at once: none fails on the insert."""
+    import threading
+
+    from app.services.db_rate_limit import hit
+
+    uri = app.config["SQLALCHEMY_DATABASE_URI"]
+
+    class Cfg(SharedRateConfig):
+        SQLALCHEMY_DATABASE_URI = uri
+
+    with app.app_context():
+        RateLimitCounter.query.filter_by(key="race:test").delete()
+        db.session.commit()
+
+    apps = [create_app(Cfg) for _ in range(6)]
+    barrier = threading.Barrier(len(apps))
+    results, errors = [], []
+
+    def go(a):
+        with a.app_context():
+            barrier.wait()
+            try:
+                results.append(hit("race:test", 100, 60))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+            finally:
+                db.session.remove()
+
+    threads = [threading.Thread(target=go, args=(a,)) for a in apps]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+    assert sorted(results) == list(range(1, len(apps) + 1))
+    with app.app_context():
+        assert RateLimitCounter.query.get("race:test").count == len(apps)
+        RateLimitCounter.query.filter_by(key="race:test").delete()
+        db.session.commit()

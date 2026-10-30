@@ -60,6 +60,26 @@ def _shop_date(dt) -> date | None:
     return dt
 
 
+def _expected_finish(job, scheduled_finish: date | None) -> date | None:
+    """Finish date to tell the client for unfinished work: the scheduled
+    finish, or, once that day has passed with work still left, the completion
+    estimate (never a day that has already passed)."""
+    from app.services.completion_estimate_service import predict_job
+    from app.services.schedule_calendar import shop_now
+
+    today = shop_now().date()
+    if scheduled_finish is None or scheduled_finish >= today:
+        return scheduled_finish
+    try:
+        estimate = predict_job(job)
+    except Exception:  # an estimate problem must not stop the email
+        estimate = None
+    predicted = None
+    if estimate and estimate.get("predictedFinish"):
+        predicted = _shop_date(datetime.fromisoformat(estimate["predictedFinish"]))
+    return max(predicted or today, today)
+
+
 def job_progress(job) -> dict:
     """Progress of a job for the client: done operations, percent of target
     hours, the operation in progress, the part stage and the scheduled finish."""
@@ -82,6 +102,8 @@ def job_progress(job) -> dict:
     starts = [o.scheduled_start for o in ops if o.scheduled_start]
     ends = [o.scheduled_end for o in ops if o.scheduled_end]
     finish = _shop_date(max(ends)) if ends else None
+    if ops and len(done) < len(ops):
+        finish = _expected_finish(job, finish)
     due = getattr(job, "due_date", None)
     return {
         "operations": items,

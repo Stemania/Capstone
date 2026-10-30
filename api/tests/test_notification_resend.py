@@ -128,3 +128,17 @@ def test_resend_logs_and_errors_when_email_updates_off(client, shop):
     assert latest.status == NotificationStatus.SKIPPED
     assert latest.error_message == "Email updates are off for this client"
     assert latest.recipient in ("still@example.com", "(none)") or "still@" in latest.recipient
+
+
+def test_send_errors_read_in_plain_words():
+    import smtplib
+
+    from app.models.notification import readable_send_error
+    from app.services.notification_service import friendly_send_error
+
+    assert friendly_send_error(ConnectionRefusedError(111, "Connection refused")) == (
+        "The mail server could not be reached. Try sending again later."
+    )
+    assert "refused by the mail server" in friendly_send_error(smtplib.SMTPRecipientsRefused({}))
+    assert readable_send_error("[Errno 111] Connection refused").startswith("The mail server could not be reached")
+    assert readable_send_error("Email updates are off for this client") == "Email updates are off for this client"

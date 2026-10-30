@@ -8,6 +8,9 @@
 * Stalled: paused for more than one working day without a resume. The Admin
   is told so a person decides (resume, re-plan or reassign); its booking stops
   growing meanwhile (see ``schedule_service.stalled_since``).
+* End of shift: work still running after the worker's shift has ended (they
+  went home without pausing) is paused at the end of the shift, or at the
+  clock-out the Admin recorded, so overnight hours are not counted as work.
 * Down units: released unstarted operations booked on a unit that is down are
   flagged; with no expected repair date and no other unit of the type the job
   is marked Needs re-plan. A passed expected repair date on a unit still down
@@ -443,12 +446,117 @@ def flag_passed_repair_dates(now_utc=None) -> int:
     return alerts
 
 
+# --- Work left running after the shift ended -----------------------------------------
+
+# Time after the end of a shift before running work is paused for the worker,
+# so a worker finishing a few minutes late can still pause it themselves.
+END_OF_SHIFT_GRACE = timedelta(minutes=30)
+AUTO_PAUSE_NOTE = "Paused automatically at the end of the shift"
+
+
+def _shift_cutoff(worker_id, started_at, attendance_by_key):
+    """(pause_at, pause_after) for work running since ``started_at``: the clock
+    stops at ``pause_at`` once the time is past ``pause_after``.
+
+    * A clock-out recorded for that shop day, after the start: the clock-out.
+    * Else the end of the worker's working hours that day (overtime and
+      holidays included; the shop's normal hours if none are set). While the
+      worker is clocked in with no clock-out yet, wait until the day is over.
+    * Started after the day's hours ended (unplanned overtime): the end of
+      that day.
+    """
+    from app.services.schedule_calendar import (
+        default_shop_schedule_by_dow,
+        effective_windows_for_date,
+        has_working_hours,
+        load_calendar_exceptions,
+        load_worker_schedule_maps,
+        shop_local_to_utc,
+    )
+
+    start = ensure_utc(started_at)
+    day = utc_to_shop(start).date()
+    day_end = shop_local_to_utc(day + timedelta(days=1), datetime.min.time())
+    record = attendance_by_key.get((worker_id, day))
+    if record is not None and record.clock_out is not None:
+        out = ensure_utc(record.clock_out)
+        if out > start:
+            return out, out + END_OF_SHIFT_GRACE
+
+    schedule = load_worker_schedule_maps(worker_id) if worker_id else {}
+    if not has_working_hours(schedule):
+        schedule = default_shop_schedule_by_dow()
+    windows = effective_windows_for_date(day, schedule, load_calendar_exceptions(day, day))
+    ends = [shop_local_to_utc(day, end) for _s, end in windows]
+    ends = [e for e in ends if e > start]
+    if not ends:
+        return day_end, day_end
+    shift_end = max(ends)
+    still_in = record is not None and record.clock_out is None
+    return shift_end, (day_end if still_in else shift_end + END_OF_SHIFT_GRACE)
+
+
+def auto_pause_after_shift(now_utc=None) -> int:
+    """Pause running work whose shift is over. Returns how many. Does not commit."""
+    from app.models.attendance import AttendanceRecord
+    from app.models.operation_time import OperationPauseReason, OperationTimeEvent
+    from app.services.operation_service import _append_log, _last_event
+
+    now = _now(now_utc)
+    running = []
+    for op in JobOperation.query.filter_by(status=OperationStatus.IN_PROGRESS).all():
+        last = _last_event(op)
+        if last and last.event in (OperationTimeEvent.START, OperationTimeEvent.RESUME):
+            running.append((op, last))
+    if not running:
+        return 0
+
+    days = {utc_to_shop(ensure_utc(last.event_at)).date() for _op, last in running}
+    workers = {last.worker_id or op.assigned_worker_id for op, last in running}
+    attendance = {
+        (r.worker_id, r.work_date): r
+        for r in AttendanceRecord.query.filter(
+            AttendanceRecord.worker_id.in_([w for w in workers if w]),
+            AttendanceRecord.work_date.in_(days),
+        ).all()
+    }
+
+    paused = 0
+    for op, last in running:
+        worker_id = last.worker_id or op.assigned_worker_id
+        pause_at, pause_after = _shift_cutoff(worker_id, last.event_at, attendance)
+        if now < pause_after:
+            continue
+        _append_log(
+            op,
+            worker_id,
+            OperationTimeEvent.PAUSE,
+            max(pause_at, ensure_utc(last.event_at)),
+            reason=OperationPauseReason.END_OF_SHIFT,
+            note=AUTO_PAUSE_NOTE,
+            received_at=now,
+        )
+        paused += 1
+    if paused:
+        db.session.flush()
+    return paused
+
+
 def run_checks(now_utc=None) -> dict:
     """Every check above; overruns first so the flags see the moved work. Commits."""
     now = _now(now_utc)
+    try:
+        auto_paused = auto_pause_after_shift(now)
+        if auto_paused:
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+        log.exception("Pausing work left running after the shift failed")
+        auto_paused = 0
     moved = shift_work_behind_overruns(now)
     try:
         result = {
+            "autoPaused": auto_paused,
             "moved": len(moved["moved"]),
             "notPlaced": len(moved["notPlaced"]),
             "stalledAlerts": flag_stalled(now),

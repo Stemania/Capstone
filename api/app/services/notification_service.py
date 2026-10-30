@@ -22,6 +22,7 @@ from app.models.notification import (
     NotificationChannel,
     NotificationEvent,
     NotificationLog,
+    readable_send_error,
     NotificationMilestone,
     NotificationStatus,
 )
@@ -95,6 +96,24 @@ def _attempt(cfg, channel, to, subject, body, html_body):
     return NotificationStatus.SENT, None, reference, body
 
 
+
+def friendly_send_error(exc: Exception) -> str:
+    """What Office Staff see when an email could not be sent. The technical
+    error stays in the server log."""
+    import smtplib
+    import socket
+
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        return "The email address was refused by the mail server. Check the client's email address."
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return "The shop's email account could not sign in to the mail server. Ask the Admin to check the email settings."
+    if isinstance(exc, (ConnectionError, socket.timeout, TimeoutError, smtplib.SMTPConnectError,
+                        smtplib.SMTPServerDisconnected, OSError)):
+        return "The mail server could not be reached. Try sending again later."
+    # Errors raised by the app itself (for example, missing email settings) are
+    # already written for people.
+    return str(exc)[:2000] or "The email could not be sent. Try sending again later."
+
 def send_notification(
     *,
     channel: NotificationChannel,
@@ -122,7 +141,7 @@ def send_notification(
             )
     except Exception as exc:  # noqa: BLE001 - a notification must never break the action
         logger.exception("Notification send failed event=%s channel=%s", event, channel.value)
-        status, error, reference = NotificationStatus.FAILED, str(exc)[:2000] or type(exc).__name__, None
+        status, error, reference = NotificationStatus.FAILED, friendly_send_error(exc), None
 
     from app.utils.log_mask import mask_email
 
@@ -172,7 +191,7 @@ def delivery_summary(log: NotificationLog | None) -> dict:
         "status": log.status.value,
         "channel": log.channel.value,
         "recipient": log.recipient,
-        "errorMessage": log.error_message,
+        "errorMessage": readable_send_error(log.error_message),
     }
 
 
