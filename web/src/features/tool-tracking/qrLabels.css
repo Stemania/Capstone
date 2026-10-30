@@ -1,0 +1,123 @@
+/* QR label sheets: a hidden copy for printing, and a scaled preview in the dialog. */
+
+.qr-sheet {
+  position: relative;
+  width: 210mm;
+  height: 297mm;
+  background: #fff;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.qr-label {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 2mm;
+  padding: 1.6mm 2mm;
+  color: #0f172a;
+  font-family: Arial, Helvetica, sans-serif;
+  overflow: hidden;
+}
+
+.qr-label--cut {
+  outline: 0.2mm dashed #94a3b8;
+  outline-offset: -0.1mm;
+}
+
+.qr-label--large {
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  gap: 2mm;
+}
+
+.qr-label__qr {
+  flex: none;
+  line-height: 0;
+  box-sizing: border-box;
+  padding: 1mm; /* quiet zone so phone cameras find the code */
+  background: #fff;
+}
+
+.qr-label__qr .ant-qrcode {
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  background: #fff !important;
+}
+
+.qr-label__qr .ant-qrcode svg {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.qr-label__text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6mm;
+}
+
+.qr-label__code {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  overflow-wrap: anywhere;
+}
+
+.qr-label__name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.qr-label__detail {
+  color: #475569;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qr-label--small .qr-label__code { font-size: 7.5pt; }
+.qr-label--small .qr-label__name { font-size: 6.5pt; }
+.qr-label--small .qr-label__detail { font-size: 6pt; }
+.qr-label--medium .qr-label__code { font-size: 9pt; }
+.qr-label--medium .qr-label__name { font-size: 8pt; }
+.qr-label--medium .qr-label__detail { font-size: 7pt; }
+.qr-label--large .qr-label__code { font-size: 13pt; }
+.qr-label--large .qr-label__name { font-size: 11pt; }
+.qr-label--large .qr-label__detail { font-size: 9pt; }
+
+.qr-preview {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f1f5f9;
+  padding: 12px;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.qr-preview__frame {
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.15);
+  overflow: hidden;
+}
+
+.qr-preview__frame .qr-sheet {
+  transform-origin: top left;
+}
+
+/* Printing happens in a separate frame with only the sheets (see QrLabelPrintModal). */
+@media print {
+  .qr-sheet {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .qr-sheet:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+}

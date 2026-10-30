@@ -1,21 +1,22 @@
-import { isFutureShopDay, shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Modal, Form, Input, InputNumber, Select, Segmented, DatePicker, Alert, Dropdown, Drawer, Row, Col, message, Tooltip } from 'antd';
+import { Button, Modal, Form, Input, InputNumber, Select, Segmented, Alert, Dropdown, Drawer, Row, Col, message, Tooltip } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
   SearchOutlined,
   DownloadOutlined,
   MoreOutlined,
-  AppstoreAddOutlined,
   HistoryOutlined,
   EditOutlined,
   AuditOutlined,
+  PrinterOutlined,
+  QrcodeOutlined,
 } from '@ant-design/icons';
 import { BookOpen, Layers, Package, PackageOpen, Wrench } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { type Dayjs } from 'dayjs';
 import { toolsApi } from '../../api/tools.api';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
+import QrLabelPrintModal from './QrLabelPrintModal';
+import { downloadQrPng, type QrLabelItem } from './qrLabels';
 import type { Tool } from '../../types';
 import { getErrorMessage } from '../../api/client';
 import { useIsPhone } from '../../hooks/useIsPhone';
@@ -59,16 +60,15 @@ export default function ToolsPage() {
   const [loading, setLoading] = useState(true);
   const [editTool, setEditTool] = useState<Tool | null>(null);
   const [adjustTool, setAdjustTool] = useState<Tool | null>(null);
-  const [receiveTool, setReceiveTool] = useState<Tool | null>(null);
   const [eventsOpen, setEventsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [stockFilter, setStockFilter] = useState<StockFilter[]>([]);
   const [summaryKey, setSummaryKey] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [labelItems, setLabelItems] = useState<QrLabelItem[] | null>(null);
   const [editForm] = Form.useForm();
   const [adjustForm] = Form.useForm();
-  const [receiveForm] = Form.useForm();
   const [savingEdit, setSavingEdit] = useState(false);
   const isPhone = useIsPhone();
 
@@ -235,24 +235,16 @@ export default function ToolsPage() {
     }
   };
 
-  const onReceive = async (values: {
-    quantity: number;
-    supplier: string;
-    receivedOn: Dayjs;
-    note?: string;
-  }) => {
-    if (!receiveTool) return;
+  const labelOf = (t: Tool): QrLabelItem => ({
+    key: t.id,
+    code: t.code,
+    name: t.name,
+    detail: [t.sizeSpec, t.unit].filter(Boolean).join(' · ') || null,
+  });
+
+  const saveQrPng = async (t: Tool) => {
     try {
-      await toolsApi.receive(receiveTool.id, {
-        quantity: values.quantity,
-        supplier: values.supplier,
-        receivedOn: values.receivedOn.format('YYYY-MM-DD'),
-        note: values.note,
-      });
-      message.success('Delivery recorded');
-      setReceiveTool(null);
-      receiveForm.resetFields();
-      await fetchTools();
+      await downloadQrPng(`/tools/${t.id}/qr`, labelOf(t));
     } catch (err) {
       message.error(getErrorMessage(err));
     }
@@ -261,12 +253,16 @@ export default function ToolsPage() {
   const actionItems = (record: Tool): MenuProps['items'] => [
     { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => setEditTool(record) },
     {
-      key: 'receive',
-      label: 'Receive delivery',
-      onClick: () => {
-        setReceiveTool(record);
-        receiveForm.setFieldsValue({ receivedOn: shopToday(), quantity: 1 });
-      },
+      key: 'print-qr',
+      icon: <PrinterOutlined />,
+      label: 'Print QR label',
+      onClick: () => setLabelItems([labelOf(record)]),
+    },
+    {
+      key: 'png-qr',
+      icon: <QrcodeOutlined />,
+      label: 'Download QR (PNG)',
+      onClick: () => void saveQrPng(record),
     },
     {
       key: 'correct',
@@ -429,6 +425,7 @@ export default function ToolsPage() {
                 <Tooltip title={selectMode ? 'Done selecting' : 'Select multiple'}>
                   <Button
                     icon={<SelectMultipleIcon />}
+                    aria-label={selectMode ? 'Done selecting' : 'Select multiple'}
                     type={selectMode ? 'primary' : 'default'}
                     ghost={selectMode}
                     onClick={() => {
@@ -439,6 +436,17 @@ export default function ToolsPage() {
                     }}
                   />
                 </Tooltip>
+                {canEdit && selectMode ? (
+                  <Button
+                    icon={<PrinterOutlined />}
+                    disabled={!selectedKeys.length}
+                    onClick={() =>
+                      setLabelItems(tools.filter((t) => selectedKeys.includes(t.id)).map(labelOf))
+                    }
+                  >
+                    Print QR labels{selectedKeys.length ? ` (${selectedKeys.length})` : ''}
+                  </Button>
+                ) : null}
                 {isPhone ? (
                   <Dropdown
                     trigger={['click']}
@@ -529,6 +537,12 @@ export default function ToolsPage() {
                 }
               />
           </div>
+
+          <QrLabelPrintModal
+            open={Boolean(labelItems)}
+            items={labelItems || []}
+            onClose={() => setLabelItems(null)}
+          />
 
           <Drawer
             title="Consumable event log"
@@ -664,7 +678,7 @@ export default function ToolsPage() {
                   {adjustTool ? `Correct stock: ${adjustTool.name}` : 'Correct stock'}
                 </div>
                 <div className="app-form-modal__sub">
-                  Set the actual shelf count. Use Receive delivery for supplier stock.
+                  Set the actual shelf count. Supplier deliveries are added when their order is received in Suppliers and Orders.
                 </div>
               </div>
               <button
@@ -719,90 +733,6 @@ export default function ToolsPage() {
             </div>
           </Modal>
 
-          <Modal
-            open={Boolean(receiveTool)}
-            onCancel={() => setReceiveTool(null)}
-            footer={null}
-            width={560}
-            centered
-            destroyOnHidden
-            className="app-form-modal"
-            styles={{
-              container: { padding: 0, borderRadius: 0, overflow: 'hidden' },
-              body: { padding: 0 },
-            }}
-            closable={false}
-          >
-            <div className="app-form-modal__head">
-              <div className="app-form-modal__icon">
-                <AppstoreAddOutlined />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="app-form-modal__title">
-                  {receiveTool ? `Receive delivery: ${receiveTool.name}` : 'Receive delivery'}
-                </div>
-                <div className="app-form-modal__sub">
-                  Increases stock on hand when a delivery arrives.
-                </div>
-              </div>
-              <button
-                type="button"
-                className="app-form-modal__close"
-                onClick={() => setReceiveTool(null)}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-            <Form
-              form={receiveForm}
-              layout="vertical"
-              onFinish={onReceive}
-              style={{ padding: '20px 24px 8px' }}
-              initialValues={{ receivedOn: shopToday(), quantity: 1 }}
-            >
-              {sectionLabel('Delivery')}
-              <Form.Item
-                name="quantity"
-                label="Quantity"
-                rules={[{ required: true }]}
-                style={{ marginBottom: 14 }}
-              >
-                <InputNumber min={0.01} style={{ width: '100%' }} />
-              </Form.Item>
-              <Form.Item
-                name="supplier"
-                label="Supplier"
-                rules={[{ required: true, message: 'Supplier is required' }]}
-                style={{ marginBottom: 14 }}
-              >
-                <Input placeholder="Supplier name" />
-              </Form.Item>
-              <Form.Item
-                name="receivedOn"
-                label="Date received"
-                rules={[{ required: true }]}
-                style={{ marginBottom: 14 }}
-              >
-                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" allowClear={false} disabledDate={isFutureShopDay} />
-              </Form.Item>
-              <Form.Item name="note" label="Note (optional)" style={{ marginBottom: 14 }}>
-                <Input.TextArea rows={2} placeholder="PO number, invoice, etc." />
-              </Form.Item>
-            </Form>
-            <div className="app-form-modal__footer">
-              <Button onClick={() => setReceiveTool(null)} style={{ minWidth: 96 }}>
-                Cancel
-              </Button>
-              <Button
-                type="primary"
-                onClick={() => receiveForm.submit()}
-                style={{ fontWeight: 700, minWidth: 140 }}
-              >
-                Receive delivery
-              </Button>
-            </div>
-          </Modal>
         </>
       )}
     </div>

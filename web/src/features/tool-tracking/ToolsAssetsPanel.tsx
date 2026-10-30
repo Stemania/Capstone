@@ -9,6 +9,7 @@ import {
   HistoryOutlined,
   MoreOutlined,
   PlusOutlined,
+  PrinterOutlined,
   QrcodeOutlined,
   SearchOutlined,
   SwapOutlined,
@@ -21,6 +22,8 @@ import StatusPill from '../../components/StatusPill';
 import type { InventoryUsageByWorker, ToolType, ToolUnit, ToolUnitStatus } from '../../types';
 import { exportCsv } from '../../utils/csvExport';
 import ToolEventsPage from './ToolEventsPage';
+import QrLabelPrintModal from './QrLabelPrintModal';
+import { downloadQrPng, type QrLabelItem } from './qrLabels';
 import { useAuth } from '../../hooks/useAuth';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import { MOBILE_SHELL_QUERY, useMediaQuery } from '../../hooks/useViewport';
@@ -68,6 +71,10 @@ export default function ToolsAssetsPanel() {
   const [unitModalType, setUnitModalType] = useState<ToolType | null>(null);
   const [receiveType, setReceiveType] = useState<ToolType | null>(null);
   const [qrUnit, setQrUnit] = useState<ToolUnit | null>(null);
+  const [labelItems, setLabelItems] = useState<QrLabelItem[] | null>(null);
+  const [labelPickOpen, setLabelPickOpen] = useState(false);
+  const [labelPick, setLabelPick] = useState<string[]>([]);
+  const [labelLoading, setLabelLoading] = useState(false);
   const [eventsOpen, setEventsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [typeForm] = Form.useForm();
@@ -149,6 +156,44 @@ export default function ToolsAssetsPanel() {
       { key: 'borrowed', label: 'Borrowed out', value: borrowed, icon: Package, tone: 'amber' },
     ];
   }, [types]);
+
+  const unitLabel = (u: ToolUnit, type?: ToolType | null): QrLabelItem => ({
+    key: u.id,
+    code: u.assetCode,
+    name: type?.name || u.toolTypeName || 'Tool',
+    detail: type?.code || u.toolTypeCode || null,
+  });
+
+  /** Labels for every unit (not retired) of the chosen tool types. */
+  const openLabelsForTypes = async (typeIds: string[]) => {
+    setLabelLoading(true);
+    try {
+      const results = await Promise.all(typeIds.map((id) => toolsApi.getType(id)));
+      const items = results.flatMap(({ data }) =>
+        (data.units || [])
+          .filter((u) => u.status !== 'RETIRED')
+          .map((u) => unitLabel(u, data))
+      );
+      if (!items.length) {
+        message.info('These tool types have no units to label yet.');
+        return;
+      }
+      setLabelPickOpen(false);
+      setLabelItems(items);
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    } finally {
+      setLabelLoading(false);
+    }
+  };
+
+  const saveUnitPng = async (u: ToolUnit) => {
+    try {
+      await downloadQrPng(`/tools/units/${u.id}/qr`, unitLabel(u, types.find((t) => t.id === u.toolTypeId)));
+    } catch (err) {
+      message.error(getErrorMessage(err));
+    }
+  };
 
   const loadUnits = async (typeId: string) => {
     try {
@@ -326,6 +371,13 @@ export default function ToolsAssetsPanel() {
             label: 'Add unit',
             onClick: () => setUnitModalType(r),
           },
+          {
+            key: 'print-qr',
+            icon: <PrinterOutlined />,
+            label: 'Print QR labels',
+            disabled: !r.totalUnits,
+            onClick: () => void openLabelsForTypes([r.id]),
+          },
         ];
         return (
           <Dropdown menu={{ items }} trigger={['click']}>
@@ -489,6 +541,17 @@ export default function ToolsAssetsPanel() {
           )}
           {canEdit && (
             <Button
+              icon={<PrinterOutlined />}
+              onClick={() => {
+                setLabelPick(types.filter((t) => t.totalUnits > 0).map((t) => t.id));
+                setLabelPickOpen(true);
+              }}
+            >
+              {isPhone ? 'QR labels' : 'Print QR labels'}
+            </Button>
+          )}
+          {canEdit && (
+            <Button
               type="primary"
               icon={<PlusOutlined />}
               style={{ fontWeight: 700 }}
@@ -535,6 +598,7 @@ export default function ToolsAssetsPanel() {
       >
         <Space style={{ marginBottom: 12 }} wrap>
           <DatePicker.RangePicker
+            format="MMM D, YYYY"
             value={usageRange}
             allowClear={false}
             onChange={(vals) => {
@@ -879,7 +943,7 @@ export default function ToolsAssetsPanel() {
             rules={[{ required: true }]}
             style={{ marginBottom: 14 }}
           >
-            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" allowClear={false} disabledDate={isFutureShopDay} />
+            <DatePicker style={{ width: '100%' }} format="MMM D, YYYY" allowClear={false} disabledDate={isFutureShopDay} />
           </Form.Item>
           <Form.Item name="note" label="Note (optional)" style={{ marginBottom: 14 }}>
             <Input.TextArea rows={2} placeholder="PO number, invoice, etc." />
@@ -904,10 +968,63 @@ export default function ToolsAssetsPanel() {
         title={qrUnit ? `QR: ${qrUnit.assetCode}` : 'QR'}
         open={Boolean(qrUnit)}
         onCancel={() => setQrUnit(null)}
-        footer={null}
+        footer={
+          qrUnit && canEdit
+            ? [
+                <Button key="png" icon={<DownloadOutlined />} onClick={() => void saveUnitPng(qrUnit)}>
+                  Download PNG
+                </Button>,
+                <Button
+                  key="print"
+                  type="primary"
+                  icon={<PrinterOutlined />}
+                  onClick={() => {
+                    setLabelItems([unitLabel(qrUnit, types.find((t) => t.id === qrUnit.toolTypeId))]);
+                    setQrUnit(null);
+                  }}
+                >
+                  Print label
+                </Button>,
+              ]
+            : null
+        }
       >
         {qrUnit && <UnitQrImage unitId={qrUnit.id} code={qrUnit.assetCode} />}
       </Modal>
+
+      <Modal
+        title="Print QR labels"
+        open={labelPickOpen}
+        onCancel={() => setLabelPickOpen(false)}
+        okText="Next"
+        okButtonProps={{ disabled: !labelPick.length, loading: labelLoading }}
+        onOk={() => void openLabelsForTypes(labelPick)}
+        destroyOnHidden
+      >
+        <div style={{ marginBottom: 8 }}>
+          Choose the tool types to print. Every unit of each type gets its own label (retired units
+          are left out).
+        </div>
+        <Select
+          mode="multiple"
+          allowClear
+          style={{ width: '100%' }}
+          placeholder="Tool types"
+          value={labelPick}
+          onChange={setLabelPick}
+          optionFilterProp="label"
+          maxTagCount="responsive"
+          options={types
+            .filter((t) => t.totalUnits > 0)
+            .map((t) => ({ value: t.id, label: `${t.name} (${t.totalUnits})` }))}
+        />
+      </Modal>
+
+      <QrLabelPrintModal
+        open={Boolean(labelItems)}
+        items={labelItems || []}
+        onClose={() => setLabelItems(null)}
+      />
     </div>
   );
 }
