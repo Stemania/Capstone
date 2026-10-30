@@ -181,7 +181,15 @@ def list_machine_unit_status():
         "true",
         "yes",
     )
-    return jsonify(op_service.list_machine_unit_statuses(include_inactive=include_inactive))
+    from app.services.read_cache import get_or_build
+
+    return jsonify(
+        get_or_build(
+            ("machine-unit-status", include_inactive),
+            lambda: op_service.list_machine_unit_statuses(include_inactive=include_inactive),
+            ttl=15,
+        )
+    )
 
 
 @operations_bp.route("/machine-units", methods=["POST"])

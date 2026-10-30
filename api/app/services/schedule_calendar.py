@@ -568,9 +568,37 @@ def load_calendar_exceptions(start_date: date, end_date: date):
     return {d: e for d, e in covered[2].items() if start_date <= d <= end_date}
 
 
+class _ShopSchedule(dict):
+    """The default shop week; marked so working-day answers can be memoised."""
+
+    is_default_shop_week = True
+
+
+def shop_working_day_memo() -> dict | None:
+    """Per-request {date: is working day} for the default shop week (calendar
+    exceptions applied). None outside a request."""
+    cache = _request_cache()
+    if cache is None:
+        return None
+    return cache.setdefault("shop_working_day", {})
+
+
+def is_shop_working_day(on_date, schedule_by_dow, exceptions_by_date, memo=None) -> bool:
+    """effective_windows_for_date(...) is non-empty, memoised for the default
+    shop week (exceptions are the same for a date within a request)."""
+    if memo is not None and getattr(schedule_by_dow, "is_default_shop_week", False):
+        hit = memo.get(on_date)
+        if hit is None:
+            hit = memo[on_date] = bool(
+                effective_windows_for_date(on_date, schedule_by_dow, exceptions_by_date)
+            )
+        return hit
+    return bool(effective_windows_for_date(on_date, schedule_by_dow, exceptions_by_date))
+
+
 def default_shop_schedule_by_dow():
     """Mon–Sat 08:00–17:00; Sunday off. Shared shop-hours baseline for capacity."""
-    out = {}
+    out = _ShopSchedule()
     for dow in range(7):
         working = dow < 6
         out[dow] = type(

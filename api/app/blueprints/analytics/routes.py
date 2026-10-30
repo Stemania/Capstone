@@ -33,15 +33,10 @@ def _min_ops_arg():
 
 
 def _cached(name, builder, ttl=45, **key):
-    from app.services.read_cache import get as cache_get, put as cache_put
+    from app.services.read_cache import get_or_build
 
     cache_key = (name, tuple(sorted((k, None if v is None else str(v)) for k, v in key.items())))
-    hit = cache_get(cache_key)
-    if hit is not None:
-        return jsonify(hit)
-    payload = builder()
-    cache_put(cache_key, payload, ttl=ttl)
-    return jsonify(payload)
+    return jsonify(get_or_build(cache_key, builder, ttl=ttl))
 
 
 def _period():
@@ -81,14 +76,16 @@ def by_machine():
 @jwt_required()
 @require_roles(*PRODUCTION)
 def trend():
-    return jsonify(analytics.efficiency_trend(**_period()))
+    period = _period()
+    return _cached("efficiency-trend", lambda: analytics.efficiency_trend(**period), **period)
 
 
 @analytics_bp.route("/delays", methods=["GET"])
 @jwt_required()
 @require_roles(*PRODUCTION)
 def delays():
-    return jsonify(analytics.delays(**_period()))
+    period = _period()
+    return _cached("delays", lambda: analytics.delays(**period), **period)
 
 
 @analytics_bp.route("/utilization/weekly", methods=["GET"])
@@ -116,14 +113,16 @@ def demand_capacity():
 @jwt_required()
 @require_roles(*TRANSACTIONS)
 def job_orders_summary():
-    return jsonify(analytics.job_orders_summary(**_period()))
+    period = _period()
+    return _cached("job-orders", lambda: analytics.job_orders_summary(**period), **period)
 
 
 @analytics_bp.route("/sales/summary", methods=["GET"])
 @jwt_required()
 @require_roles(*TRANSACTIONS)
 def sales_summary():
-    return jsonify(analytics.sales_summary(**_period()))
+    period = _period()
+    return _cached("sales-summary", lambda: analytics.sales_summary(**period), **period)
 
 
 @analytics_bp.route("/sales/forecast", methods=["GET"])

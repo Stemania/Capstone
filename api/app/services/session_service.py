@@ -97,7 +97,17 @@ def refresh_session(user: User, payload: dict, device_id: str | None) -> dict:
 def register_jwt_callbacks(jwt_manager) -> None:
     @jwt_manager.token_in_blocklist_loader
     def _ended(_header, payload):
-        return session_ended(payload)
+        # The token is checked by @jwt_required and again by the role check;
+        # look the session up once per request.
+        from flask import has_request_context, request
+
+        if not has_request_context():
+            return session_ended(payload)
+        key = (payload.get("jti"), payload.get("sub"))
+        memo = request.environ.setdefault("bmsc.session_ended", {})
+        if key not in memo:
+            memo[key] = session_ended(payload)
+        return memo[key]
 
     @jwt_manager.revoked_token_loader
     def _ended_response(_header, _payload):

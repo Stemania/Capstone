@@ -130,7 +130,15 @@ def office_summary() -> dict:
         .filter(JobOrder.status == JobOrderStatus.DRAFT, JobOrder.archived_at.is_(None))
         .scalar()
     )
-    low, _ = low_stock_service.reorder_now_items(today)
+    from app.services.read_cache import get_or_build
+
+    # The stock forecast behind this is the slow part; it changes only when
+    # tools, scans or purchases do (those clear the cache).
+    low = get_or_build(
+        ("office-low-stock", today.isoformat()),
+        lambda: low_stock_service.reorder_now_items(today)[0],
+        ttl=60,
+    )
     deliveries = _deliveries(today)
     return {
         "pendingJobs": int(pending or 0),

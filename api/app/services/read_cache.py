@@ -23,15 +23,18 @@ def _watched():
     global _WATCHED
     if _WATCHED is None:
         from app.models.job_order import JobOrder
+        from app.models.machine import MachineUnit
         from app.models.material_purchase import MaterialPurchase
         from app.models.operation import JobOperation
         from app.models.operation_time import MachineDowntime, OperationTimeLog
         from app.models.sales_invoice import SalesInvoice
         from app.models.tool import Tool
         from app.models.tool_event import ToolEvent
+        from app.models.worker_skill import WorkCalendarException, WorkerSchedule
 
         _WATCHED = (
             JobOrder,
+            MachineUnit,
             JobOperation,
             OperationTimeLog,
             MachineDowntime,
@@ -39,6 +42,8 @@ def _watched():
             ToolEvent,
             MaterialPurchase,
             SalesInvoice,
+            WorkerSchedule,
+            WorkCalendarException,
         )
     return _WATCHED
 
@@ -72,6 +77,32 @@ def put(key, value, ttl=30):
         while len(_store) >= MAX_ENTRIES:
             del _store[next(iter(_store))]
         _store[key] = (_generation, now + ttl, value)
+
+
+_key_locks: dict = {}
+
+
+def get_or_build(key, builder, ttl=30):
+    """Cached value for ``key``, building it once when missing. Requests that
+    miss at the same moment wait for that one build instead of each running
+    the same heavy queries."""
+    if not _enabled():
+        return builder()
+    hit = get(key)
+    if hit is not None:
+        return hit
+    with _lock:
+        key_lock = _key_locks.setdefault(key, Lock())
+        if len(_key_locks) > MAX_ENTRIES * 2:
+            for k in [k for k, lk in _key_locks.items() if k != key and not lk.locked()]:
+                del _key_locks[k]
+    with key_lock:
+        hit = get(key)
+        if hit is not None:
+            return hit
+        value = builder()
+        put(key, value, ttl=ttl)
+        return value
 
 
 def invalidate():

@@ -53,18 +53,19 @@ def list_job_orders():
     )
     role = get_current_user_role()
     summary = str(request.args.get("summary", "")).lower() in ("1", "true", "yes")
-    cache_key = ("job-list", role, scope or "production", status or "", awaiting, summary)
-    from app.services.read_cache import get as cache_get, put as cache_put
+    user_id = get_current_user_id()
+    # A worker's list holds only their own jobs, so it is cached per worker.
+    viewer = user_id if role == UserRole.PRODUCTION_WORKER.value else ""
+    cache_key = ("job-list", role, viewer, scope or "production", status or "", awaiting, summary)
+    from app.services.read_cache import get_or_build
 
-    cached = cache_get(cache_key)
-    if cached is not None:
-        return jsonify(cached)
-    jobs = jo_service.list_job_orders(
-        get_current_user_id(), role, status, scope, awaiting_material=awaiting, summary=summary
-    )
-    payload = [j.to_dict(viewer_role=role, include_estimate=not summary) for j in jobs]
-    cache_put(cache_key, payload, ttl=20)
-    return jsonify(payload)
+    def build():
+        jobs = jo_service.list_job_orders(
+            user_id, role, status, scope, awaiting_material=awaiting, summary=summary
+        )
+        return [j.to_dict(viewer_role=role, include_estimate=not summary) for j in jobs]
+
+    return jsonify(get_or_build(cache_key, build, ttl=20))
 
 
 @job_orders_bp.route("", methods=["POST"])

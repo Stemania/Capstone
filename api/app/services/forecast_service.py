@@ -9,8 +9,10 @@ from collections import defaultdict
 from datetime import date, time, timedelta
 from decimal import Decimal
 
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
+from app.extensions import db
 from app.models.job_order import JobOrder, JobOrderStatus, JobType
 from app.models.operation import OperationStatus
 from app.models.tool import Tool, ToolCategory
@@ -19,9 +21,11 @@ from app.services.schedule_calendar import (
     SHOP_TZ,
     default_shop_schedule_by_dow,
     effective_windows_for_date,
+    is_shop_working_day,
     load_calendar_exceptions,
     shop_local_to_utc,
     shop_now,
+    shop_working_day_memo,
 )
 
 MONTHLY_WINDOW = 3
@@ -311,6 +315,7 @@ def demand_forecast(today: date | None = None):
 def shop_working_dates_after(start: date, count: int, schedule=None, exceptions=None):
     """The next ``count`` shop working days strictly after ``start``."""
     schedule = schedule or default_shop_schedule_by_dow()
+    memo = shop_working_day_memo() if exceptions is None else None
     out = []
     d = start
     span = max(14, count * 2 + 14)
@@ -322,7 +327,7 @@ def shop_working_dates_after(start: date, count: int, schedule=None, exceptions=
         end = d + timedelta(days=span)
         while d < end and len(out) < count:
             d += timedelta(days=1)
-            if effective_windows_for_date(d, schedule, chunk):
+            if is_shop_working_day(d, schedule, chunk, memo):
                 out.append(d)
     return out
 
@@ -332,13 +337,15 @@ def shop_working_days_between(after: date, through: date, schedule=None, excepti
     if through <= after:
         return 0
     schedule = schedule or default_shop_schedule_by_dow()
+    memo = None
     if exceptions is None:
         exceptions = load_calendar_exceptions(after + timedelta(days=1), through)
+        memo = shop_working_day_memo()
     n = 0
     d = after
     while d < through:
         d += timedelta(days=1)
-        if effective_windows_for_date(d, schedule, exceptions):
+        if is_shop_working_day(d, schedule, exceptions, memo):
             n += 1
     return n
 
@@ -495,24 +502,37 @@ def _scan_usage_by_day_batch(tool_ids, start: date, end: date, schedule):
         return out
     start_utc = shop_local_to_utc(start, time(0, 0))
     end_utc = shop_local_to_utc(end + timedelta(days=1), time(0, 0))
-    events = (
-        ToolEvent.query.filter(
-            ToolEvent.tool_id.in_(list(tool_ids)),
-            ToolEvent.type == ToolEventType.SCAN,
-            ToolEvent.undone_at.is_(None),
-            ToolEvent.created_at >= start_utc,
-            ToolEvent.created_at < end_utc,
-        ).all()
+    filters = (
+        ToolEvent.tool_id.in_(list(tool_ids)),
+        ToolEvent.type == ToolEventType.SCAN,
+        ToolEvent.undone_at.is_(None),
+        ToolEvent.created_at >= start_utc,
+        ToolEvent.created_at < end_utc,
     )
-    exceptions = load_calendar_exceptions(start, end)
-    for ev in events:
-        local = (
-            ev.created_at.astimezone(SHOP_TZ).date()
-            if ev.created_at.tzinfo
-            else ev.created_at.date()
+    qty = func.coalesce(func.nullif(ToolEvent.quantity, 0), 1)  # as `quantity or 1`
+    if db.session.get_bind().dialect.name == "postgresql":
+        # Summed per tool and shop day in the database: scans can number tens of thousands.
+        shop_day = func.date(func.timezone(SHOP_TZ.key, ToolEvent.created_at))
+        rows = (
+            db.session.query(ToolEvent.tool_id, shop_day, func.sum(qty))
+            .filter(*filters)
+            .group_by(ToolEvent.tool_id, shop_day)
+            .all()
         )
-        if effective_windows_for_date(local, schedule, exceptions):
-            out[ev.tool_id][local] += float(ev.quantity or 1)
+    else:
+        rows = [
+            (tid, at.astimezone(SHOP_TZ).date() if at.tzinfo else at.date(), q)
+            for tid, at, q in db.session.query(ToolEvent.tool_id, ToolEvent.created_at, qty)
+            .filter(*filters)
+            .all()
+        ]
+    exceptions = load_calendar_exceptions(start, end)
+    memo = shop_working_day_memo()
+    if memo is None:
+        memo = {} if getattr(schedule, "is_default_shop_week", False) else None
+    for tool_id, local, quantity in rows:
+        if is_shop_working_day(local, schedule, exceptions, memo):
+            out[tool_id][local] += float(quantity or 0)
     return out
 
 
@@ -670,6 +690,9 @@ def stock_snapshot_for_tools(tools, today: date | None = None) -> dict[str, dict
     # Precompute working-day calendars used by every tool (shared exceptions).
     adu_span = ADU_WINDOW_MAX * 3 + 14
     exceptions = load_calendar_exceptions(today - timedelta(days=adu_span), today)
+    working_memo = shop_working_day_memo()
+    if working_memo is None:
+        working_memo = {}
 
     out: dict[str, dict] = {}
     for tool in tools:
@@ -698,7 +721,7 @@ def stock_snapshot_for_tools(tools, today: date | None = None) -> dict[str, dict
                 working_back = []
                 d = today
                 while len(working_back) < n and (today - d).days < adu_span:
-                    if effective_windows_for_date(d, schedule, exceptions):
+                    if is_shop_working_day(d, schedule, exceptions, working_memo):
                         working_back.append(d)
                     d -= timedelta(days=1)
                 working_back.reverse()
