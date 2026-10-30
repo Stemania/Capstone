@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatHoursMinutes } from '../../utils/duration';
 import { Button, message } from 'antd';
 import { CheckCircleFilled, FileTextOutlined, WarningOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -74,6 +75,40 @@ function formatElapsed(ms: number): string {
   if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
+}
+
+type WorkerMaterial = { key: string; name: string; spec: string; qty: string; received: boolean };
+
+/** One list of the job's materials for the worker: the planned lines (with
+ * size), marked received when a received supplier order line matches; the
+ * ordered lines alone when nothing was planned. */
+function workerMaterialList(job: JobOrder): WorkerMaterial[] {
+  const qty = (q: number | null | undefined, u: string | null | undefined) =>
+    [q, u].filter((x) => x != null && x !== '').join(' ');
+  const norm = (v: string | null | undefined) => (v || '').trim().toLowerCase();
+  const lines = job.materialLines || [];
+  const planned = (job.rawMaterials || []).filter((m) => m && m.name);
+  if (planned.length) {
+    return planned.map((m, i) => {
+      const matching = lines.filter(
+        (l) => norm(l.materialName) === norm(m.name) && norm(l.gradeOrSpec) === norm(m.gradeOrSpec)
+      );
+      return {
+        key: m.id || `${m.name}-${i}`,
+        name: m.name,
+        spec: [m.gradeOrSpec, m.sizeSpec].filter(Boolean).join(', '),
+        qty: qty(m.quantity, m.unit),
+        received: matching.length > 0 && matching.every((l) => l.status === 'RECEIVED'),
+      };
+    });
+  }
+  return lines.map((l) => ({
+    key: l.id,
+    name: l.materialName,
+    spec: l.gradeOrSpec || '',
+    qty: qty(l.quantity, l.unit),
+    received: l.status === 'RECEIVED',
+  }));
 }
 
 export default function AssignmentDetailPage() {
@@ -240,6 +275,7 @@ export default function AssignmentDetailPage() {
   }
 
   const finished = isJobFinished(job.status);
+  const workerMaterials = workerMaterialList(job);
   const overdue = !finished && dayjs(job.dueDate).isBefore(shopToday(), 'day');
   const statusLabel =
     finished
@@ -350,7 +386,7 @@ export default function AssignmentDetailPage() {
           </div>
         </div>
 
-        {!!job.materialLines?.length && (
+        {workerMaterials.length > 0 && (
           <div
             style={{
               background: colors.card,
@@ -362,38 +398,12 @@ export default function AssignmentDetailPage() {
             }}
           >
             <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>Materials</div>
-            {job.materialLines.map((m) => (
-              <div key={m.id} style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 4 }}>
-                {m.materialName}
-                {m.gradeOrSpec ? ` · ${m.gradeOrSpec}` : ''}
-                {(m.quantity != null || m.unit) && (
-                  <> — {[m.quantity, m.unit].filter((x) => x != null && x !== '').join(' ')}</>
-                )}
-                {m.status === 'RECEIVED' ? ' · received' : ''}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!!job.rawMaterials?.length && (
-          <div
-            style={{
-              background: colors.card,
-              border: `1px solid ${colors.cardBorder}`,
-              borderRadius: 14,
-              padding: 14,
-              marginBottom: 16,
-              boxShadow: colors.shadow,
-            }}
-          >
-            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>Materials needed</div>
-            {job.rawMaterials.map((m, i) => (
-              <div key={`${m.name}-${i}`} style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 4 }}>
+            {workerMaterials.map((m) => (
+              <div key={m.key} style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 4 }}>
                 {m.name}
-                {[m.gradeOrSpec, m.sizeSpec].filter(Boolean).length ? ` (${[m.gradeOrSpec, m.sizeSpec].filter(Boolean).join(', ')})` : ''}
-                {(m.quantity != null || m.unit) && (
-                  <> — {[m.quantity, m.unit].filter((x) => x != null && x !== '').join(' ')}</>
-                )}
+                {m.spec ? ` (${m.spec})` : ''}
+                {m.qty ? <> — {m.qty}</> : null}
+                {m.received ? ' · received' : ''}
               </div>
             ))}
           </div>
@@ -588,7 +598,7 @@ export default function AssignmentDetailPage() {
                     {op.estimatedHours != null ? (
                       <div>
                         <span style={{ fontWeight: 600, color: colors.text }}>Target</span>
-                        {`: ${op.estimatedHours}h`}
+                        {`: ${formatHoursMinutes(op.estimatedHours)}`}
                       </div>
                     ) : null}
                     {op.assignedWorkerName && (!isMine || (op.crewSize || 1) > 1) ? (
@@ -622,8 +632,8 @@ export default function AssignmentDetailPage() {
                     )}
                     {op.actualWorkedHours != null && done && (
                       <div>
-                        Worked {op.actualWorkedHours}h
-                        {op.estimatedHours != null ? ` / target ${op.estimatedHours}h` : ''}
+                        Worked {formatHoursMinutes(op.actualWorkedHours)}
+                        {op.estimatedHours != null ? ` / target ${formatHoursMinutes(op.estimatedHours)}` : ''}
                       </div>
                     )}
                   </div>

@@ -92,6 +92,7 @@ export default function WorkerHistoryPanel({ workerId }: Props) {
         </div>
         <DatePicker.RangePicker
           className="wh-head__range"
+          format="MMM D, YYYY"
           allowClear
           value={range}
           placeholder={['From', 'To']}

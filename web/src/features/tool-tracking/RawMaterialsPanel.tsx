@@ -112,7 +112,7 @@ export default function RawMaterialsPanel() {
           <DatePicker
             style={{ width: '100%' }}
             defaultValue={shopToday()}
-            format="YYYY-MM-DD"
+            format="MMM D, YYYY"
             allowClear={false}
             disabledDate={isFutureShopDay}
             onChange={(d) => {

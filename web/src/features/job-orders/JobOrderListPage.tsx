@@ -35,7 +35,7 @@ import { useOverdueCheck } from '../../hooks/useOverdueCheck';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import { NARROW_QUERY } from '../../hooks/useViewport';
 import type { JobOrder, JobOrderStatus } from '../../types';
-import { compareByDue } from './jobOrderSort';
+import { compareByDue, compareOpenFirst } from './jobOrderSort';
 import { isJobOrderListTab } from './jobOrderListTabs';
 import CancelJobModal from './CancelJobModal';
 import MarkDeliveredModal from './MarkDeliveredModal';
@@ -344,12 +344,14 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return jobs.filter((job) => {
-      if (q && !jobSearchHaystack(job).includes(q)) return false;
-      if (statusFilter.length && !statusFilter.includes(job.status)) return false;
-      if (clientFilter.length && !clientFilter.includes(job.clientName || '')) return false;
-      return true;
-    });
+    return jobs
+      .filter((job) => {
+        if (q && !jobSearchHaystack(job).includes(q)) return false;
+        if (statusFilter.length && !statusFilter.includes(job.status)) return false;
+        if (clientFilter.length && !clientFilter.includes(job.clientName || '')) return false;
+        return true;
+      })
+      .sort(compareOpenFirst);
   }, [jobs, search, statusFilter, clientFilter]);
 
   const selectedJobs = useMemo(
@@ -599,7 +601,6 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
       dataIndex: 'dueDate',
       key: 'dueDate',
       width: 112,
-      defaultSortOrder: 'ascend',
       sorter: compareByDue,
       render: (_d: string, record) => <DuePill job={record} />,
     },

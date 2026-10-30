@@ -46,7 +46,7 @@ function askDate(title: string, intro: string, okText: string, onOk: (d: string)
         <DatePicker
           style={{ width: '100%' }}
           defaultValue={shopToday()}
-          format="YYYY-MM-DD"
+          format="MMM D, YYYY"
           allowClear={false}
           disabledDate={isFutureShopDay}
           onChange={(d) => {
@@ -847,7 +847,7 @@ export default function SupplierOrderDetailPage() {
             </div>
             <DatePicker
               style={{ width: '100%' }}
-              format="YYYY-MM-DD"
+              format="MMM D, YYYY"
               allowClear={false}
               value={newDate}
               onChange={(d) => setNewDate(d)}

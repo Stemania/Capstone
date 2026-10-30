@@ -1,9 +1,10 @@
+import { useEffect } from 'react';
 import { Button, Input, InputNumber, Select, Tooltip } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { MATERIAL_UNITS } from '../../api/materialCatalog.api';
 import { GradeSelect, MaterialCatalogPicker } from '../../components/MaterialInputs';
 import { useMaterialCatalog } from '../../hooks/useMaterialCatalog';
-import { blankPlannedRow, type PlannedRow } from './plannedMaterials';
+import { blankPlannedRow, matchLegacyRows, type PlannedRow } from './plannedMaterials';
 
 /**
  * "Materials needed" rows on the job order form: catalog material, grade,
@@ -24,6 +25,13 @@ export default function PlannedMaterialsEditor({
     onChange(rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const remove = (key: number) => onChange(rows.filter((r) => r.key !== key));
   const add = () => onChange([...rows, blankPlannedRow()]);
+
+  // Lines saved before the material catalog only have a name: link them to the
+  // catalog material of the same name, keeping the saved grade and size.
+  useEffect(() => {
+    const matched = matchLegacyRows(rows, catalog);
+    if (matched) onChange(matched);
+  }, [rows, catalog, onChange]);
 
   return (
     <div className="jo-mats">
@@ -49,6 +57,11 @@ export default function PlannedMaterialsEditor({
                     size="middle"
                     catalogId={r.materialCatalogId}
                     materialName={r.materialName}
+                    placeholder={
+                      !r.materialCatalogId && r.materialName
+                        ? `Saved as "${[r.materialName, r.gradeOrSpec].filter(Boolean).join(' ')}": pick it from the catalog`
+                        : undefined
+                    }
                     disabled={ordered}
                     onPick={(item) =>
                       set(r.key, {

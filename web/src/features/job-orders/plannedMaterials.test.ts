@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blankPlannedRow, plannedPayload, rowsFromJob } from './plannedMaterials';
+import { blankPlannedRow, matchLegacyRows, plannedPayload, rowsFromJob, type PlannedRow } from './plannedMaterials';
 import { linesFromPlanned } from '../supplier-orders/OrderMaterialsModal';
 import type { PlannedMaterialSummary } from '../../types';
 
@@ -67,5 +67,30 @@ describe('linesFromPlanned', () => {
     ]);
     expect(lines[0].jobOrderId).toBe('job-1');
     expect(lines[0].unitCost).toBeNull();
+  });
+});
+
+describe('matchLegacyRows', () => {
+  const catalog = [
+    { id: 'c1', name: 'Round bar', shopTerm: 'Bilog' },
+    { id: 'c2', name: 'Flat bar', shopTerm: null },
+  ];
+  const legacy = (name: string): PlannedRow => ({
+    key: 99, id: 'm1', materialCatalogId: null, materialName: name, gradeOrSpec: 'S45C',
+    sizeSpec: 'Ø50', quantity: 2, unit: 'pcs', onOrder: 0,
+  });
+
+  it('links a saved name to the catalog and keeps grade and size', () => {
+    const out = matchLegacyRows([legacy(' round BAR ')], catalog);
+    expect(out?.[0]).toMatchObject({ materialCatalogId: 'c1', materialName: 'Round bar', gradeOrSpec: 'S45C', sizeSpec: 'Ø50' });
+  });
+
+  it('matches the shop term', () => {
+    expect(matchLegacyRows([legacy('bilog')], catalog)?.[0].materialCatalogId).toBe('c1');
+  });
+
+  it('returns null when nothing matches or the catalog is not loaded', () => {
+    expect(matchLegacyRows([legacy('Pipe')], catalog)).toBeNull();
+    expect(matchLegacyRows([legacy('Round bar')], [])).toBeNull();
   });
 });

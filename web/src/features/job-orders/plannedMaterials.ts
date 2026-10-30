@@ -1,3 +1,4 @@
+import type { MaterialCatalogItem } from '../../api/materialCatalog.api';
 import type { PlannedMaterialSummary, RawMaterial } from '../../types';
 
 /** One row of "Materials needed" on the job order form. */
@@ -91,4 +92,29 @@ export function plannedPayload(
     });
   }
   return { lines };
+}
+
+const norm = (v: string | null | undefined) => (v || '').trim().toLowerCase();
+
+/**
+ * Rows saved with only a material name (before the catalog) linked to the
+ * catalog material with that name or shop term; grade and size are kept.
+ * Null when nothing changes.
+ */
+export function matchLegacyRows(
+  rows: PlannedRow[],
+  catalog: Pick<MaterialCatalogItem, 'id' | 'name' | 'shopTerm'>[]
+): PlannedRow[] | null {
+  if (!catalog.length) return null;
+  let changed = false;
+  const out = rows.map((r) => {
+    if (r.materialCatalogId || !r.materialName.trim()) return r;
+    const name = norm(r.materialName);
+    const item =
+      catalog.find((c) => norm(c.name) === name) ?? catalog.find((c) => c.shopTerm && norm(c.shopTerm) === name);
+    if (!item) return r;
+    changed = true;
+    return { ...r, materialCatalogId: item.id, materialName: item.name };
+  });
+  return changed ? out : null;
 }

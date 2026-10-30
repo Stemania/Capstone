@@ -141,7 +141,7 @@ export default function InventoryReportPage() {
               <DatePicker.RangePicker
                 value={range}
                 allowClear={false}
-                format="YYYY-MM-DD"
+                format="MMM D, YYYY"
                 onChange={(vals) => {
                   if (vals?.[0] && vals?.[1]) {
                     setRange([vals[0].startOf('day'), vals[1].endOf('day')]);

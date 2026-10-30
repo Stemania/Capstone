@@ -1334,7 +1334,9 @@ export default function JobOrderPlanningPage() {
         disabled={readOnly}
         onChange={(v) => {
           patchRow(index, { estimatedHours: v });
-          void loadSuggestions(index, { ...record, estimatedHours: v ?? undefined }, { autoAssign: false, preserveExisting: true });
+          // Keeps a valid lead; a row whose lead was not picked yet still gets
+          // one (this request replaces the one started by the operation pick).
+          void loadSuggestions(index, { ...record, estimatedHours: v ?? undefined }, { autoAssign: true, preserveExisting: true });
         }}
       />
     );

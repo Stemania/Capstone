@@ -14,3 +14,17 @@ export function compareByDue(a: Sortable, b: Sortable): number {
     time(a.createdAt) - time(b.createdAt)
   );
 }
+
+const FINISHED = new Set(['DELIVERED', 'CANCELLED']);
+
+/**
+ * Default list order: open work first by due date (soonest first); delivered
+ * and cancelled jobs after it, the most recently due first, so old finished
+ * jobs do not sit at the top.
+ */
+export function compareOpenFirst(a: Sortable & { status?: string }, b: Sortable & { status?: string }): number {
+  const fa = FINISHED.has(a.status || '') ? 1 : 0;
+  const fb = FINISHED.has(b.status || '') ? 1 : 0;
+  if (fa !== fb) return fa - fb;
+  return fa ? compareByDue(b, a) : compareByDue(a, b);
+}

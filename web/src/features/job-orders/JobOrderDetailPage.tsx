@@ -214,6 +214,15 @@ function ReceivedAt({ eventAt, receivedAt }: { eventAt: string; receivedAt?: str
   );
 }
 
+/** A failed or not-sent client email that no later attempt of the same update has sent. */
+function isUnresolvedFailure(n: NotificationLog, all: NotificationLog[]): boolean {
+  if (n.status !== 'FAILED' && n.status !== 'NOT_SENT') return false;
+  const at = (x: NotificationLog) => new Date(x.createdAt || x.sentAt || 0).getTime();
+  return !all.some(
+    (o) => o.id !== n.id && o.milestone === n.milestone && o.status === 'SENT' && at(o) >= at(n)
+  );
+}
+
 function fmtHours(v?: number | null) {
   if (v == null || Number.isNaN(v)) return '—';
   return `${v.toFixed(1)}h`;
@@ -1394,7 +1403,7 @@ function JobOrderDetailView() {
                         title="Client notifications"
                         count={notifications?.length ?? 0}
                         alert={
-                          notifications?.some((n) => n.status === 'FAILED' || n.status === 'NOT_SENT')
+                          notifications?.some((n) => isUnresolvedFailure(n, notifications))
                             ? 'failed'
                             : undefined
                         }
@@ -1434,10 +1443,12 @@ function JobOrderDetailView() {
                                   : '—'}
                             </div>
                             {(n.status === 'FAILED' || n.status === 'NOT_SENT') && n.errorMessage ? (
-                              <div style={{ color: MUTED, fontSize: 12 }}>{n.errorMessage}</div>
+                              <div style={{ color: MUTED, fontSize: 12 }}>
+                                {n.errorMessage}
+                                {isUnresolvedFailure(n, notifications) ? '' : ' Sent again later.'}
+                              </div>
                             ) : null}
-                            {canOfficeWrite &&
-                            (n.status === 'FAILED' || n.status === 'NOT_SENT') ? (
+                            {canOfficeWrite && isUnresolvedFailure(n, notifications) ? (
                               <Button
                                 size="small"
                                 style={{ marginTop: 4 }}
@@ -1602,7 +1613,7 @@ function JobOrderDetailView() {
             <Form.Item name="invoiceDate" label="Date" rules={[{ required: true }]}>
               <DatePicker
                 style={{ width: '100%' }}
-                format="YYYY-MM-DD"
+                format="MMM D, YYYY"
                 allowClear={false}
                 disabledDate={(d) => d.isAfter(shopToday(), 'day')}
               />

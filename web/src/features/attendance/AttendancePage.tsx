@@ -420,6 +420,7 @@ export default function AttendancePage() {
               style={{ width: 220 }}
             />
             <DatePicker.RangePicker
+              format="MMM D, YYYY"
               value={range}
               allowClear={false}
               disabledDate={(d) => d.isAfter(shopToday(), 'day')}

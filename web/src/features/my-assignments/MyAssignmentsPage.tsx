@@ -1,4 +1,5 @@
 import { formatShop } from '../../utils/shopTime';
+import { formatHoursMinutes } from '../../utils/duration';
 import { useMemo, useState } from 'react';
 import { Input, Segmented } from 'antd';
 import { ProfileOutlined, SearchOutlined } from '@ant-design/icons';
@@ -113,8 +114,8 @@ export default function MyAssignmentsPage() {
                     </b>
                   </span>
                   <span>
-                    Target <b>{op.estimatedHours != null ? `${op.estimatedHours} h` : '—'}</b>
-                    {op.actualWorkedHours != null ? ` · worked ${op.actualWorkedHours} h` : ''}
+                    Target <b>{formatHoursMinutes(op.estimatedHours)}</b>
+                    {op.actualWorkedHours != null ? ` · worked ${formatHoursMinutes(op.actualWorkedHours)}` : ''}
                   </span>
                 </div>
                 {(op.crew?.length || 0) > 1 ? (

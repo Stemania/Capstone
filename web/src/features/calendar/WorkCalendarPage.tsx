@@ -683,7 +683,7 @@ export default function WorkCalendarPage() {
             rules={[{ required: true, message: 'Pick a date' }]}
             style={{ marginBottom: 14 }}
           >
-            <DatePicker style={{ width: '100%' }} disabledDate={isPastShopDay} />
+            <DatePicker style={{ width: '100%' }} format="MMM D, YYYY" disabledDate={isPastShopDay} />
           </Form.Item>
           {!editing && (
             <Form.Item
@@ -694,6 +694,7 @@ export default function WorkCalendarPage() {
             >
               <DatePicker
                 style={{ width: '100%' }}
+                format="MMM D, YYYY"
                 disabledDate={(d) =>
                   isPastShopDay(d) || Boolean(d && form.getFieldValue('date')?.isAfter?.(d, 'day'))
                 }
