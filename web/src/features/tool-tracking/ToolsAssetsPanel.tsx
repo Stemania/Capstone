@@ -1,4 +1,4 @@
-import { formatShop, isFutureShopDay, shopToday } from '../../utils/shopTime';
+import { formatShop, shopToday } from '../../utils/shopTime';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Col, DatePicker, Drawer, Dropdown, Form, Input, InputNumber, Modal, Row, Select, Skeleton, Space, Typography, message } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
@@ -69,7 +69,8 @@ export default function ToolsAssetsPanel() {
   const [unitsByType, setUnitsByType] = useState<Record<string, ToolUnit[]>>({});
   const [typeModal, setTypeModal] = useState(false);
   const [unitModalType, setUnitModalType] = useState<ToolType | null>(null);
-  const [receiveType, setReceiveType] = useState<ToolType | null>(null);
+  const [editingType, setEditingType] = useState<ToolType | null>(null);
+  const [editUnit, setEditUnit] = useState<ToolUnit | null>(null);
   const [qrUnit, setQrUnit] = useState<ToolUnit | null>(null);
   const [labelItems, setLabelItems] = useState<QrLabelItem[] | null>(null);
   const [labelPickOpen, setLabelPickOpen] = useState(false);
@@ -79,10 +80,11 @@ export default function ToolsAssetsPanel() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [typeForm] = Form.useForm();
   const [unitForm] = Form.useForm();
-  const [receiveForm] = Form.useForm();
+  const [editUnitForm] = Form.useForm();
+  const unitQty = Form.useWatch('quantity', unitForm) ?? 1;
   const [creatingType, setCreatingType] = useState(false);
   const [creatingUnit, setCreatingUnit] = useState(false);
-  const [receiving, setReceiving] = useState(false);
+  const [savingUnit, setSavingUnit] = useState(false);
   const [usageRange, setUsageRange] = useState<[Dayjs, Dayjs]>([
     shopToday().subtract(29, 'day').startOf('day'),
     shopToday().endOf('day'),
@@ -213,14 +215,31 @@ export default function ToolsAssetsPanel() {
     }
   };
 
+  const openEditType = (t: ToolType) => {
+    setEditingType(t);
+    typeForm.setFieldsValue({ name: t.name, code: t.code, description: t.description || '' });
+  };
+
+  const closeTypeModal = () => {
+    setTypeModal(false);
+    setEditingType(null);
+    typeForm.resetFields();
+  };
+
   const createType = async (values: { name: string; code?: string; description?: string }) => {
     try {
       setCreatingType(true);
-      await toolsApi.createType(values);
-      message.success('Tool type added');
-      setTypeModal(false);
-      typeForm.resetFields();
+      if (editingType) {
+        await toolsApi.updateType(editingType.id, values);
+        message.success('Tool type saved');
+      } else {
+        await toolsApi.createType(values);
+        message.success('Tool type added');
+      }
+      const typeId = editingType?.id;
+      closeTypeModal();
       await fetchTypes();
+      if (typeId && unitsByType[typeId]) await loadUnits(typeId);
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
@@ -228,12 +247,17 @@ export default function ToolsAssetsPanel() {
     }
   };
 
-  const createUnit = async (values: { assetCode?: string; notes?: string }) => {
+  const createUnit = async (values: { quantity?: number; assetCode?: string; notes?: string }) => {
     if (!unitModalType) return;
     try {
       setCreatingUnit(true);
-      await toolsApi.createUnit(unitModalType.id, values);
-      message.success('Unit added');
+      const qty = Number(values.quantity) || 1;
+      await toolsApi.createUnit(unitModalType.id, {
+        quantity: qty,
+        assetCode: qty > 1 ? undefined : values.assetCode,
+        notes: values.notes,
+      });
+      message.success(qty > 1 ? `${qty} units added` : 'Unit added');
       setUnitModalType(null);
       unitForm.resetFields();
       await fetchTypes();
@@ -245,32 +269,63 @@ export default function ToolsAssetsPanel() {
     }
   };
 
-  const onReceiveUnits = async (values: {
-    quantity: number;
-    supplier: string;
-    receivedOn: Dayjs;
-    note?: string;
-  }) => {
-    if (!receiveType) return;
+  const saveUnit = async (values: { assetCode: string; notes?: string }) => {
+    if (!editUnit) return;
     try {
-      setReceiving(true);
-      const { data } = await toolsApi.receiveUnits(receiveType.id, {
-        quantity: values.quantity,
-        supplier: values.supplier,
-        receivedOn: values.receivedOn.format('YYYY-MM-DD'),
-        note: values.note,
-      });
-      message.success(`Received ${data.count} unit${data.count === 1 ? '' : 's'}`);
-      setReceiveType(null);
-      receiveForm.resetFields();
+      setSavingUnit(true);
+      await toolsApi.updateUnit(editUnit.id, { assetCode: values.assetCode, notes: values.notes || '' });
+      message.success('Unit saved');
+      const typeId = editUnit.toolTypeId;
+      setEditUnit(null);
       await fetchTypes();
-      await loadUnits(receiveType.id);
+      await loadUnits(typeId);
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
-      setReceiving(false);
+      setSavingUnit(false);
     }
   };
+
+  const confirmRemoveUnit = (u: ToolUnit) =>
+    Modal.confirm({
+      title: `Remove ${u.assetCode}?`,
+      content:
+        'A unit that was never borrowed is deleted. One that was borrowed before is retired instead, so its borrowing history is kept and it can no longer be borrowed.',
+      okText: 'Remove',
+      okButtonProps: { danger: true },
+      centered: true,
+      onOk: async () => {
+        try {
+          const { data } = await toolsApi.removeUnit(u.id);
+          message.success(data.result === 'RETIRED' ? `${u.assetCode} retired (it has borrowing history)` : `${u.assetCode} removed`);
+          await fetchTypes();
+          await loadUnits(u.toolTypeId);
+        } catch (err) {
+          message.error(getErrorMessage(err));
+        }
+      },
+    });
+
+  const confirmRemoveType = (t: ToolType) =>
+    Modal.confirm({
+      title: `Remove ${t.name}?`,
+      content: t.totalUnits
+        ? `This also removes its ${t.totalUnits} unit${t.totalUnits === 1 ? '' : 's'}. A tool that was ever borrowed cannot be removed; retire its units instead.`
+        : 'This tool type has no units.',
+      okText: 'Remove',
+      okButtonProps: { danger: true },
+      centered: true,
+      onOk: async () => {
+        try {
+          await toolsApi.removeType(t.id);
+          message.success(`${t.name} removed`);
+          if (detailType?.id === t.id) setDetailType(null);
+          await fetchTypes();
+        } catch (err) {
+          message.error(getErrorMessage(err));
+        }
+      },
+    });
 
   const openDetail = (t: ToolType) => {
     setDetailType(t);
@@ -279,6 +334,14 @@ export default function ToolsAssetsPanel() {
 
   const unitMenuItems = (u: ToolUnit): MenuProps['items'] =>
     [
+      {
+        key: 'edit',
+        label: 'Edit',
+        onClick: () => {
+          setEditUnit(u);
+          editUnitForm.setFieldsValue({ assetCode: u.assetCode, notes: u.notes || '' });
+        },
+      },
       u.status !== 'AVAILABLE'
         ? { key: 'avail', label: 'Mark available', onClick: () => void setUnitStatus(u, 'AVAILABLE') }
         : null,
@@ -288,6 +351,8 @@ export default function ToolsAssetsPanel() {
       u.status !== 'RETIRED'
         ? { key: 'retire', label: 'Retire', onClick: () => void setUnitStatus(u, 'RETIRED') }
         : null,
+      { type: 'divider' as const },
+      { key: 'remove', label: 'Remove', danger: true, onClick: () => confirmRemoveUnit(u) },
     ].filter(Boolean) as MenuProps['items'];
 
   const setUnitStatus = async (unit: ToolUnit, status: ToolUnitStatus) => {
@@ -359,17 +424,14 @@ export default function ToolsAssetsPanel() {
         if (!canEdit) return null;
         const items: MenuProps['items'] = [
           {
-            key: 'receive',
-            label: 'Receive delivery',
-            onClick: () => {
-              setReceiveType(r);
-              receiveForm.setFieldsValue({ receivedOn: shopToday(), quantity: 1 });
-            },
+            key: 'add-unit',
+            label: 'Add units',
+            onClick: () => setUnitModalType(r),
           },
           {
-            key: 'add-unit',
-            label: 'Add unit',
-            onClick: () => setUnitModalType(r),
+            key: 'edit',
+            label: 'Edit',
+            onClick: () => openEditType(r),
           },
           {
             key: 'print-qr',
@@ -378,6 +440,8 @@ export default function ToolsAssetsPanel() {
             disabled: !r.totalUnits,
             onClick: () => void openLabelsForTypes([r.id]),
           },
+          { type: 'divider' },
+          { key: 'remove', label: 'Remove', danger: true, onClick: () => confirmRemoveType(r) },
         ];
         return (
           <Dropdown menu={{ items }} trigger={['click']}>
@@ -712,15 +776,11 @@ export default function ToolsAssetsPanel() {
             {canEdit ? (
               <div className="tunits__actions">
                 <Button icon={<PlusOutlined />} onClick={() => setUnitModalType(detailType)}>
-                  Add unit
+                  Add units
                 </Button>
-                <Button
-                  onClick={() => {
-                    setReceiveType(detailType);
-                    receiveForm.setFieldsValue({ receivedOn: shopToday(), quantity: 1 });
-                  }}
-                >
-                  Receive delivery
+                <Button onClick={() => detailType && openEditType(detailType)}>Edit</Button>
+                <Button danger onClick={() => detailType && confirmRemoveType(detailType)}>
+                  Remove
                 </Button>
               </div>
             ) : null}
@@ -739,8 +799,8 @@ export default function ToolsAssetsPanel() {
       </Drawer>
 
       <Modal
-        open={typeModal}
-        onCancel={() => setTypeModal(false)}
+        open={typeModal || Boolean(editingType)}
+        onCancel={closeTypeModal}
         footer={null}
         width={560}
         centered
@@ -757,15 +817,17 @@ export default function ToolsAssetsPanel() {
             <AppstoreAddOutlined />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="app-form-modal__title">Add tool type</div>
+            <div className="app-form-modal__title">{editingType ? 'Edit tool type' : 'Add tool type'}</div>
             <div className="app-form-modal__sub">
-              Individually tracked tools — add units with QR codes after creating the type.
+              {editingType
+                ? 'Changing the name or code does not change the asset codes already on the units.'
+                : 'Individually tracked tools — add units with QR codes after creating the type.'}
             </div>
           </div>
           <button
             type="button"
             className="app-form-modal__close"
-            onClick={() => setTypeModal(false)}
+            onClick={closeTypeModal}
             aria-label="Close"
           >
             ×
@@ -800,7 +862,7 @@ export default function ToolsAssetsPanel() {
           </Row>
         </Form>
         <div className="app-form-modal__footer">
-          <Button onClick={() => setTypeModal(false)} style={{ minWidth: 96 }}>
+          <Button onClick={closeTypeModal} style={{ minWidth: 96 }}>
             Cancel
           </Button>
           <Button
@@ -809,7 +871,7 @@ export default function ToolsAssetsPanel() {
             onClick={() => typeForm.submit()}
             style={{ fontWeight: 700, minWidth: 120 }}
           >
-            Create
+            {editingType ? 'Save' : 'Create'}
           </Button>
         </div>
       </Modal>
@@ -833,7 +895,7 @@ export default function ToolsAssetsPanel() {
             <AppstoreAddOutlined />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="app-form-modal__title">Add unit</div>
+            <div className="app-form-modal__title">Add units</div>
             <div className="app-form-modal__sub">
               {unitModalType
                 ? `${unitModalType.name} — each unit gets its own asset code and QR.`
@@ -856,8 +918,22 @@ export default function ToolsAssetsPanel() {
           style={{ padding: '20px 24px 8px' }}
         >
           {sectionLabel('Unit details')}
-          <Form.Item name="assetCode" label="Asset code" style={{ marginBottom: 14 }}>
-            <Input placeholder="Auto-generated if empty (e.g. TYPE-001)" />
+          <Form.Item
+            name="quantity"
+            label="How many units"
+            initialValue={1}
+            rules={[{ required: true, message: 'Enter how many units' }]}
+            style={{ marginBottom: 14 }}
+          >
+            <InputNumber min={1} max={50} precision={0} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            name="assetCode"
+            label="Asset code"
+            extra={unitQty > 1 ? 'Several units are numbered for you, e.g. TYPE-004, TYPE-005.' : undefined}
+            style={{ marginBottom: 14 }}
+          >
+            <Input placeholder="Auto-generated if empty (e.g. TYPE-001)" disabled={unitQty > 1} />
           </Form.Item>
           <Form.Item name="notes" label="Notes" style={{ marginBottom: 14 }}>
             <Input placeholder="Optional" />
@@ -879,10 +955,10 @@ export default function ToolsAssetsPanel() {
       </Modal>
 
       <Modal
-        open={Boolean(receiveType)}
-        onCancel={() => setReceiveType(null)}
+        open={Boolean(editUnit)}
+        onCancel={() => setEditUnit(null)}
         footer={null}
-        width={560}
+        width={480}
         centered
         destroyOnHidden
         className="app-form-modal"
@@ -897,69 +973,44 @@ export default function ToolsAssetsPanel() {
             <AppstoreAddOutlined />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="app-form-modal__title">
-              {receiveType ? `Receive delivery: ${receiveType.name}` : 'Receive delivery'}
-            </div>
+            <div className="app-form-modal__title">Edit unit</div>
             <div className="app-form-modal__sub">
-              Creates available units with asset codes and logs a RECEIVE event each.
+              A new asset code needs a new QR label on the tool.
             </div>
           </div>
           <button
             type="button"
             className="app-form-modal__close"
-            onClick={() => setReceiveType(null)}
+            onClick={() => setEditUnit(null)}
             aria-label="Close"
           >
             ×
           </button>
         </div>
-        <Form
-          form={receiveForm}
-          layout="vertical"
-          onFinish={onReceiveUnits}
-          style={{ padding: '20px 24px 8px' }}
-          initialValues={{ receivedOn: shopToday(), quantity: 1 }}
-        >
-          {sectionLabel('Delivery')}
+        <Form form={editUnitForm} layout="vertical" onFinish={saveUnit} style={{ padding: '20px 24px 8px' }}>
           <Form.Item
-            name="quantity"
-            label="Quantity (units)"
-            rules={[{ required: true }]}
+            name="assetCode"
+            label="Asset code"
+            rules={[{ required: true, whitespace: true, message: 'Asset code is required' }]}
             style={{ marginBottom: 14 }}
           >
-            <InputNumber min={1} max={50} style={{ width: '100%' }} />
+            <Input />
           </Form.Item>
-          <Form.Item
-            name="supplier"
-            label="Supplier"
-            rules={[{ required: true, message: 'Supplier is required' }]}
-            style={{ marginBottom: 14 }}
-          >
-            <Input placeholder="Supplier name" />
-          </Form.Item>
-          <Form.Item
-            name="receivedOn"
-            label="Date received"
-            rules={[{ required: true }]}
-            style={{ marginBottom: 14 }}
-          >
-            <DatePicker style={{ width: '100%' }} format="MMM D, YYYY" allowClear={false} disabledDate={isFutureShopDay} />
-          </Form.Item>
-          <Form.Item name="note" label="Note (optional)" style={{ marginBottom: 14 }}>
-            <Input.TextArea rows={2} placeholder="PO number, invoice, etc." />
+          <Form.Item name="notes" label="Notes" style={{ marginBottom: 14 }}>
+            <Input placeholder="Optional" />
           </Form.Item>
         </Form>
         <div className="app-form-modal__footer">
-          <Button onClick={() => setReceiveType(null)} style={{ minWidth: 96 }}>
+          <Button onClick={() => setEditUnit(null)} style={{ minWidth: 96 }}>
             Cancel
           </Button>
           <Button
             type="primary"
-            loading={receiving}
-            onClick={() => receiveForm.submit()}
-            style={{ fontWeight: 700, minWidth: 140 }}
+            loading={savingUnit}
+            onClick={() => editUnitForm.submit()}
+            style={{ fontWeight: 700, minWidth: 120 }}
           >
-            Receive delivery
+            Save
           </Button>
         </div>
       </Modal>

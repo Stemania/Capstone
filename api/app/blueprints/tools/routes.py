@@ -223,28 +223,27 @@ def create_unit(type_id):
     return jsonify(tt_service.create_tool_unit(type_id, data)), 201
 
 
-@tools_bp.route("/types/<type_id>/receive", methods=["POST"])
-@jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
-def receive_tool_units(type_id):
-    data = request.get_json() or {}
-    units = te_service.receive_tool_units(
-        type_id,
-        get_current_user_id(),
-        data.get("quantity"),
-        data.get("supplier"),
-        received_on=data.get("receivedOn") or data.get("received_on"),
-        note=data.get("note") or data.get("reason"),
-    )
-    return jsonify({"items": units, "count": len(units)}), 201
-
-
 @tools_bp.route("/units/<unit_id>", methods=["PATCH"])
 @jwt_required()
 @require_roles(UserRole.OFFICE_STAFF)
 def patch_unit(unit_id):
     data = request.get_json() or {}
     return jsonify(tt_service.update_tool_unit(unit_id, data))
+
+
+@tools_bp.route("/units/<unit_id>", methods=["DELETE"])
+@jwt_required()
+@require_roles(UserRole.OFFICE_STAFF)
+def delete_unit(unit_id):
+    """Deletes a never-borrowed unit; retires one with borrowing history."""
+    return jsonify(tt_service.remove_tool_unit(unit_id))
+
+
+@tools_bp.route("/types/<type_id>", methods=["DELETE"])
+@jwt_required()
+@require_roles(UserRole.OFFICE_STAFF)
+def delete_tool_type(type_id):
+    return jsonify(tt_service.remove_tool_type(type_id))
 
 
 @tools_bp.route("/units/<unit_id>/qr", methods=["GET"])
@@ -314,21 +313,5 @@ def correct_stock(tool_id):
         get_current_user_id(),
         data.get("actualCount") if "actualCount" in data else data.get("actual_count"),
         data.get("reason"),
-    )
-    return jsonify(event.to_dict()), 201
-
-
-@tools_bp.route("/<tool_id>/receive", methods=["POST"])
-@jwt_required()
-@require_roles(UserRole.OFFICE_STAFF)
-def receive_stock(tool_id):
-    data = request.get_json() or {}
-    event = te_service.receive_stock(
-        tool_id,
-        get_current_user_id(),
-        data.get("quantity"),
-        data.get("supplier"),
-        received_on=data.get("receivedOn") or data.get("received_on"),
-        note=data.get("note") or data.get("reason"),
     )
     return jsonify(event.to_dict()), 201

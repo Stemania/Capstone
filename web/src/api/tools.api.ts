@@ -75,18 +75,6 @@ export const toolsApi = {
     ),
   adjust: (id: string, data: { quantity: number; reason: string }) =>
     apiClient.post<ToolEvent>(`/tools/${id}/adjust`, data),
-  receive: (
-    id: string,
-    data: { quantity: number; supplier: string; receivedOn?: string; note?: string }
-  ) => apiClient.post<ToolEvent>(`/tools/${id}/receive`, data),
-  receiveUnits: (
-    typeId: string,
-    data: { quantity: number; supplier: string; receivedOn?: string; note?: string }
-  ) =>
-    apiClient.post<{ items: ToolUnit[]; count: number }>(
-      `/tools/types/${typeId}/receive`,
-      data
-    ),
   myTools: () => apiClient.get<ToolUnit[]>('/tools/my'),
   myHistory: (params?: { page?: number; perPage?: number }) =>
     apiClient.get<{ items: ToolEvent[]; total: number; page: number; pages: number }>(
@@ -120,8 +108,11 @@ export const toolsApi = {
   ) => apiClient.patch<ToolType>(`/tools/types/${id}`, data),
   createUnit: (
     typeId: string,
-    data: { assetCode?: string; notes?: string; status?: string }
-  ) => apiClient.post<ToolUnit>(`/tools/types/${typeId}/units`, data),
+    data: { quantity?: number; assetCode?: string; notes?: string; status?: string }
+  ) => apiClient.post<ToolUnit & { created: ToolUnit[] }>(`/tools/types/${typeId}/units`, data),
+  removeType: (id: string) => apiClient.delete<{ result: 'DELETED'; id: string }>(`/tools/types/${id}`),
+  removeUnit: (id: string) =>
+    apiClient.delete<{ result: 'DELETED' | 'RETIRED'; id?: string; unit?: ToolUnit }>(`/tools/units/${id}`),
   updateUnit: (
     id: string,
     data: { assetCode?: string; notes?: string; status?: string }

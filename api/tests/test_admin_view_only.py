@@ -33,11 +33,11 @@ ADMIN_REFUSED = [
     ("POST", "/api/v1/tools"),
     ("PATCH", f"/api/v1/tools/{X}"),
     ("POST", f"/api/v1/tools/{X}/adjust"),
-    ("POST", f"/api/v1/tools/{X}/receive"),
     ("POST", "/api/v1/tools/types"),
     ("PATCH", f"/api/v1/tools/types/{X}"),
     ("POST", f"/api/v1/tools/types/{X}/units"),
-    ("POST", f"/api/v1/tools/types/{X}/receive"),
+    ("DELETE", f"/api/v1/tools/types/{X}"),
+    ("DELETE", f"/api/v1/tools/units/{X}"),
     ("PATCH", f"/api/v1/tools/units/{X}"),
     ("POST", f"/api/v1/job-orders/{X}/material-purchases"),
     ("PATCH", f"/api/v1/job-orders/{X}/material-purchases/{X}"),
@@ -140,20 +140,12 @@ def test_office_staff_can_still_change_everything(client, shop):
         client.post(f"/api/v1/tools/{consumable.id}/adjust", json={"quantity": -2, "reason": "Damaged"}, headers=h).status_code
         in (200, 201)
     )
-    assert (
-        client.post(f"/api/v1/tools/{consumable.id}/receive", json={"quantity": 5, "supplier": "Hardware"}, headers=h).status_code
-        in (200, 201)
-    )
 
     res = client.post("/api/v1/tools/types", json={"name": "Caliper"}, headers=h)
     assert res.status_code == 201, res.get_json()
     new_type = res.get_json()["id"]
     assert client.patch(f"/api/v1/tools/types/{new_type}", json={"description": "Digital"}, headers=h).status_code == 200
     assert client.post(f"/api/v1/tools/types/{new_type}/units", json={}, headers=h).status_code == 201
-    assert (
-        client.post(f"/api/v1/tools/types/{tool_type.id}/receive", json={"quantity": 1, "supplier": "Tools Inc"}, headers=h).status_code
-        in (200, 201)
-    )
     assert client.patch(f"/api/v1/tools/units/{unit.id}", json={"status": "UNDER_REPAIR"}, headers=h).status_code == 200
 
 

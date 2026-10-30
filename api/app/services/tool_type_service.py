@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from decimal import Decimal
 
 from app.extensions import db
+from app.models.tool_event import ToolEvent, ToolEventType
 from app.models.tool_type import ToolType, ToolUnit, ToolUnitStatus
 from app.utils.errors import AppError
 
@@ -77,16 +79,44 @@ def update_tool_type(type_id, data):
     return t.to_dict(include_units=True)
 
 
+MAX_UNITS_AT_ONCE = 50
+
+
+def _next_asset_codes(t, count):
+    """The next free TYPECODE-001 style codes for a type (after the highest used)."""
+    pattern = re.compile(rf"^{re.escape(t.code)}-(\d+)$")
+    used = [int(m.group(1)) for u in (t.units or []) if (m := pattern.match(u.asset_code or ""))]
+    n = max(used, default=0)
+    codes = []
+    while len(codes) < count:
+        n += 1
+        code = f"{t.code}-{n:03d}"
+        if not ToolUnit.query.filter_by(asset_code=code).first():
+            codes.append(code)
+    return codes
+
+
 def create_tool_unit(type_id, data):
+    """Add one unit (with an optional asset code) or several numbered units."""
     t = ToolType.query.get(type_id)
     if not t:
         raise AppError("Tool type not found", "NOT_FOUND", 404)
+    try:
+        count = int(data.get("quantity") or 1)
+    except (TypeError, ValueError) as exc:
+        raise AppError("Quantity must be a whole number", "VALIDATION_ERROR", 400) from exc
+    if count < 1 or count > MAX_UNITS_AT_ONCE:
+        raise AppError(
+            f"Add between 1 and {MAX_UNITS_AT_ONCE} units at a time", "VALIDATION_ERROR", 400
+        )
     asset = (data.get("assetCode") or "").strip()
-    if not asset:
-        # Auto: TYPECODE-001
-        n = len(t.units) + 1
-        asset = f"{t.code}-{n:03d}"
-    if ToolUnit.query.filter_by(asset_code=asset).first():
+    if asset and count > 1:
+        raise AppError(
+            "Leave the asset code blank to add several units; they are numbered for you.",
+            "VALIDATION_ERROR",
+            400,
+        )
+    if asset and ToolUnit.query.filter_by(asset_code=asset).first():
         raise AppError("Asset code already exists", "CONFLICT", 409)
     status_raw = (data.get("status") or "AVAILABLE").upper()
     try:
@@ -99,15 +129,16 @@ def create_tool_unit(type_id, data):
             "VALIDATION_ERROR",
             400,
         )
-    unit = ToolUnit(
-        tool_type_id=t.id,
-        asset_code=asset,
-        status=status,
-        notes=(data.get("notes") or None) or None,
-    )
-    db.session.add(unit)
+    codes = [asset] if asset else _next_asset_codes(t, count)
+    notes = (data.get("notes") or None) or None
+    units = [
+        ToolUnit(tool_type_id=t.id, asset_code=code, status=status, notes=notes) for code in codes
+    ]
+    db.session.add_all(units)
     db.session.commit()
-    return unit.to_dict()
+    first = units[0].to_dict()
+    first["created"] = [u.to_dict() for u in units]
+    return first
 
 
 def update_tool_unit(unit_id, data):
@@ -156,3 +187,71 @@ def get_tool_unit(unit_id):
     if not unit:
         raise AppError("Tool unit not found", "NOT_FOUND", 404)
     return unit
+
+
+# Borrowing and returning are the history that must be kept; a unit or type
+# with any of it is retired instead of deleted.
+_HISTORY_EVENTS = (ToolEventType.BORROW, ToolEventType.RETURN)
+
+
+def _has_borrow_history(unit_ids) -> bool:
+    if not unit_ids:
+        return False
+    return (
+        ToolEvent.query.filter(
+            ToolEvent.tool_unit_id.in_(list(unit_ids)), ToolEvent.type.in_(_HISTORY_EVENTS)
+        ).first()
+        is not None
+    )
+
+
+def _delete_units(units):
+    ids = [u.id for u in units]
+    if ids:
+        ToolEvent.query.filter(ToolEvent.tool_unit_id.in_(ids)).delete(synchronize_session=False)
+    for u in units:
+        db.session.delete(u)
+
+
+def remove_tool_unit(unit_id):
+    """Delete a unit that was never borrowed; retire one that was, so its
+    borrow history stays. A unit that is out must be returned first."""
+    unit = get_tool_unit(unit_id)
+    if unit.status == ToolUnitStatus.OUT:
+        raise AppError(
+            f"{unit.asset_code} is borrowed out. Have it returned before removing it.",
+            "CONFLICT",
+            409,
+        )
+    if _has_borrow_history([unit.id]):
+        unit.status = ToolUnitStatus.RETIRED
+        db.session.commit()
+        return {"result": "RETIRED", "unit": unit.to_dict()}
+    _delete_units([unit])
+    db.session.commit()
+    return {"result": "DELETED", "id": unit_id}
+
+
+def remove_tool_type(type_id):
+    """Delete a tool type and its units when none were ever borrowed."""
+    t = ToolType.query.get(type_id)
+    if not t:
+        raise AppError("Tool type not found", "NOT_FOUND", 404)
+    units = list(t.units or [])
+    if any(u.status == ToolUnitStatus.OUT for u in units):
+        raise AppError(
+            "A unit of this tool is borrowed out. Have it returned before removing the tool.",
+            "CONFLICT",
+            409,
+        )
+    if _has_borrow_history([u.id for u in units]):
+        raise AppError(
+            f"{t.name} has borrowing history, so it is kept. Retire its units instead; "
+            "retired units can no longer be borrowed.",
+            "CONFLICT",
+            409,
+        )
+    _delete_units(units)
+    db.session.delete(t)
+    db.session.commit()
+    return {"result": "DELETED", "id": type_id}

@@ -99,7 +99,6 @@ export default function ToolsPage() {
         unit: editTool.unit,
         sizeSpec: editTool.sizeSpec,
         shopTerm: editTool.shopTerm,
-        minimumStock: editTool.minimumStock,
       });
     }
   }, [editTool, editForm]);
@@ -201,7 +200,6 @@ export default function ToolsPage() {
     name: string;
     code: string;
     unit: string;
-    minimumStock?: number | null;
     sizeSpec?: string;
     shopTerm?: string;
   }) => {
@@ -318,7 +316,7 @@ export default function ToolsPage() {
           </span>
           <StockBar
             onHand={r.quantityOnHand}
-            reorderLevel={r.reorderPoint ?? r.reorderLevel ?? r.minimumStock}
+            reorderLevel={r.reorderPoint ?? r.reorderLevel}
           />
         </div>
       ),
@@ -361,7 +359,6 @@ export default function ToolsPage() {
     { key: 'size', header: 'Size', value: (r: Tool) => r.sizeSpec },
     { key: 'unit', header: 'Unit', value: (r: Tool) => r.unit },
     { key: 'onHand', header: 'QuantityOnHand', value: (r: Tool) => r.quantityOnHand },
-    { key: 'min', header: 'MinimumStock', value: (r: Tool) => r.minimumStock },
     { key: 'low', header: 'LowStock', value: (r: Tool) => (r.lowStock ? 'yes' : 'no') },
   ];
 
@@ -621,7 +618,7 @@ export default function ToolsPage() {
               <Form.Item name="sizeSpec" label="Size / spec" style={{ marginBottom: 18 }}>
                 <Input />
               </Form.Item>
-              {sectionLabel('Stock levels')}
+              {sectionLabel('Stock')}
               <Row gutter={12}>
                 <Col xs={24} sm={12}>
                   <Form.Item
@@ -633,12 +630,11 @@ export default function ToolsPage() {
                     <Input />
                   </Form.Item>
                 </Col>
-                <Col xs={24} sm={12}>
-                  <Form.Item name="minimumStock" label="Reorder level" style={{ marginBottom: 14 }}>
-                    <InputNumber min={0} style={{ width: '100%' }} />
-                  </Form.Item>
-                </Col>
               </Row>
+              <div style={{ color: '#64748b', fontSize: 12, marginBottom: 14 }}>
+                The reorder level is computed by the system from the QR scans, supplier lead times
+                and safety stock, so it is not set here.
+              </div>
             </Form>
             <div className="app-form-modal__footer">
               <Button onClick={() => setEditTool(null)} style={{ minWidth: 96 }}>

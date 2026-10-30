@@ -96,7 +96,7 @@ export default function InventoryReportPage() {
         { key: 'name', header: 'Item', value: (r) => r.name },
         { key: 'code', header: 'Code', value: (r) => r.code },
         { key: 'onHand', header: 'On hand', value: (r) => r.quantityOnHand },
-        { key: 'rop', header: 'Reorder level', value: (r) => r.reorderLevel ?? r.minimumStock },
+        { key: 'rop', header: 'Reorder level', value: (r) => r.reorderLevel },
         { key: 'status', header: 'Status', value: (r) => r.status ?? '' },
         { key: 'days', header: 'Days left', value: (r) => r.daysLeft },
         { key: 'abc', header: 'ABC', value: (r) => r.abcClass ?? '' },
@@ -193,7 +193,7 @@ export default function InventoryReportPage() {
                   width: 110,
                   align: 'right',
                   render: (_: unknown, r) => {
-                    const v = r.reorderLevel ?? r.minimumStock;
+                    const v = r.reorderLevel;
                     return v == null ? '—' : formatNum(v, 2);
                   },
                 },
