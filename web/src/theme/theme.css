@@ -135,6 +135,23 @@ input[type='number'],
   transform: translateY(0.5px);
 }
 
+/* Outlined danger buttons (Cancel job order, Cancel order) get the same
+   visible hover as the plain buttons beside them: a soft red fill. */
+.ant-btn.ant-btn-dangerous.ant-btn-variant-outlined:not(:disabled):not(.ant-btn-disabled):hover {
+  background: #fdeeee;
+  border-color: #9b1c33;
+  color: #9b1c33;
+}
+
+/* Help text under a field: same size as the field label, with room
+   between it and the field. */
+.ant-form .ant-form-item .ant-form-item-extra {
+  min-height: 0;
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

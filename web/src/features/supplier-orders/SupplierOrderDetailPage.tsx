@@ -518,8 +518,8 @@ export default function SupplierOrderDetailPage() {
               </Tooltip>
             ) : null}
             {canOfficeWrite && (order.status === 'DRAFT' || order.status === 'ISSUED') ? (
-              <Button danger type="text" icon={<StopOutlined />} disabled={busy} onClick={cancelOrder}>
-                Cancel
+              <Button danger icon={<StopOutlined />} disabled={busy} onClick={cancelOrder}>
+                Cancel order
               </Button>
             ) : null}
           </Space>
