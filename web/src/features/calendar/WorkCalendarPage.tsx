@@ -12,9 +12,8 @@ import {
   message,
   DatePicker,
 } from 'antd';
-import { CalendarOutlined, DeleteOutlined, WarningOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { CalendarOutlined, DeleteOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
-import { Link } from 'react-router-dom';
 import {
   calendarApi,
   type CalendarAffectedJob,
@@ -28,6 +27,7 @@ import PeriodNavigator from '../../components/PeriodNavigator';
 import RescheduleAffectedJobs from './RescheduleAffectedJobs';
 import { Legend, PageSkeleton, FormModal } from '../../components/ui';
 import './workCalendar.css';
+import { confirmAction } from '../../utils/confirmAction';
 
 const TYPE_LABEL: Record<CalendarExceptionType, string> = {
   OVERTIME: 'Overtime',
@@ -358,32 +358,14 @@ export default function WorkCalendarPage() {
       /* still allow delete; impact is advisory */
     }
 
-    Modal.confirm({
+    confirmAction({
       title: `Remove exception on ${formatShop(exc.date, 'MMM D, YYYY')}?`,
-      icon: <WarningOutlined />,
-      content: (
-        <div>
-          <p style={{ marginBottom: 8 }}>
-            Deleting may leave schedules in hours that are no longer working time.
-            Nothing is moved automatically; you can re-propose affected jobs afterwards.
-          </p>
-          {impactCount > 0 ? (
-            <p style={{ marginBottom: 0 }}>
-              <strong>{impactCount}</strong> scheduled operation
-              {impactCount === 1 ? '' : 's'} would fall outside working hours.{' '}
-              <Link to="/schedule" onClick={() => Modal.destroyAll()}>
-                Review schedule
-              </Link>
-            </p>
-          ) : (
-            <p style={{ marginBottom: 0, color: '#64748b' }}>
-              No scheduled operations appear stranded by this change.
-            </p>
-          )}
-        </div>
-      ),
+      content:
+        impactCount > 0
+          ? `${impactCount} scheduled operation${impactCount === 1 ? '' : 's'} will fall outside working hours.`
+          : 'No scheduled work is affected.',
       okText: 'Delete',
-      okButtonProps: { danger: true },
+      danger: true,
       onOk: async () => {
         try {
           await calendarApi.remove(exc.id);
@@ -637,13 +619,7 @@ export default function WorkCalendarPage() {
                   ? 'Edit calendar exception'
                   : 'Add calendar exception'}
             </div>
-            <div className="app-form-modal__sub">
-              {!isAdmin
-                ? 'View only. Ask an Admin to change the work calendar.'
-                : editing
-                  ? 'Update overtime, special working days, or shop closures.'
-                  : 'Set overtime, special working days, or shop closures for scheduling.'}
-            </div>
+            {!isAdmin ? <div className="app-form-modal__sub">View only</div> : null}
           </div>
           <button
             type="button"
@@ -768,7 +744,6 @@ export default function WorkCalendarPage() {
       <FormModal
         size="sm"
         icon={<ClockCircleOutlined />}
-        subtitle="Applies to every working day."
         open={breakOpen}
         title="Daily break"
         onCancel={() => setBreakOpen(false)}
@@ -777,10 +752,7 @@ export default function WorkCalendarPage() {
         confirmLoading={breakSaving}
         forceRender
       >
-        <p style={{ marginTop: 0, color: '#64748b' }}>
-          Not working time on every working day. Scheduling, capacity, workload and completion
-          estimates leave it out; an operation can run across it.
-        </p>
+        <p style={{ marginTop: 0, color: '#64748b' }}>Not counted as working time.</p>
         <Form form={breakForm} layout="vertical" requiredMark={false}>
           <Row gutter={12}>
             <Col xs={24} sm={12}>

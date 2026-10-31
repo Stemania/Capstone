@@ -17,7 +17,7 @@ import { TabBar } from '../../components/ui';
 import { PersonAvatar, crewNames } from '../../components/PersonAvatar';
 import { adminPx } from '../../theme/adminTheme';
 import { OPERATION_BAR_COLOR } from '../../theme/statuses';
-import { formatShopDateTime, SHOP_TZ } from '../../utils/shopTime';
+import { formatShop, formatShopDateTime, SHOP_TZ } from '../../utils/shopTime';
 import { personLabel } from '../../utils/people';
 import MonthDayChip from './MonthDayChip';
 import {
@@ -44,6 +44,16 @@ import {
   type TimelineViewMode,
   type WeekTimelineLayout,
 } from './scheduleTimelineUtils';
+
+/** "Nov 3, 8:00 AM – 10:00 AM", or both dates when it runs past the day. */
+function shopRange(start?: string | null, end?: string | null) {
+  if (!start) return '—';
+  const s = formatShop(start, 'MMM D, h:mm A');
+  if (!end) return s;
+  const sameDay = formatShop(start, 'YYYY-MM-DD') === formatShop(end, 'YYYY-MM-DD');
+  return `${s} – ${formatShop(end, sameDay ? 'h:mm A' : 'MMM D, h:mm A')}`;
+}
+
 
 type ViewMode = TimelineViewMode;
 export type RowMode = 'machine' | 'worker';
@@ -538,29 +548,20 @@ const BoardRows = memo(function BoardRows({
                             {opTitle}
                             {op.jobNumber ? ` · ${op.jobNumber}` : ''}
                           </div>
+                          <div>{[op.jobTitle, op.clientName].filter(Boolean).join(' · ')}</div>
                           <div>
-                            {op.jobNumber} · {op.jobTitle}
-                          </div>
-                          <div>Client: {op.clientName || '—'}</div>
-                          <div>
-                            {(op.crew?.length || 0) > 1 ? 'Crew' : 'Worker'}:{' '}
                             {crewNames(
                               op.crew,
                               op.assignedWorkerName
                                 ? personLabel(op.assignedWorkerName, op.assignedWorkerNickname)
                                 : null,
-                            ) || '—'}
+                            ) || 'No worker'}
                           </div>
                           <div>
-                            Target hours:{' '}
-                            {op.estimatedHours != null ? op.estimatedHours : '—'}
+                            {shopRange(op.scheduledStart, op.scheduledEnd)}
+                            {op.estimatedHours != null ? ` · ${op.estimatedHours} h target` : ''}
                           </div>
-                          <div>
-                            Scheduled:{' '}
-                            {formatShopDateTime(op.scheduledStart)} →{' '}
-                            {formatShopDateTime(op.scheduledEnd)}
-                          </div>
-                          <div>Status: {statusLabel(op.status)}</div>
+                          <div>{statusLabel(op.status)}</div>
                           {op.waitingForMaterials ? (
                             <div style={{ color: '#FCD34D' }}>
                               Waiting for materials: {op.materialWaitReason}

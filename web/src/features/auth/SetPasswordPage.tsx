@@ -139,7 +139,7 @@ export default function SetPasswordPage() {
           {error && <Alert className="login-alert" type="error" title={error} showIcon />}
 
           {showCodeForm && (
-            <Form form={form} layout="vertical" onFinish={onValidateCode} autoComplete="off">
+            <Form scrollToFirstError={{ block: 'center' }} form={form} layout="vertical" onFinish={onValidateCode} autoComplete="off">
               <Form.Item
                 name="identifier"
                 label="Email or mobile"
@@ -168,7 +168,7 @@ export default function SetPasswordPage() {
           )}
 
           {showPasswordForm && (
-            <Form form={form} layout="vertical" onFinish={onFinish} autoComplete="off">
+            <Form scrollToFirstError={{ block: 'center' }} form={form} layout="vertical" onFinish={onFinish} autoComplete="off">
               {!tokenFromLink && (
                 <>
                   <Form.Item name="identifier" hidden>

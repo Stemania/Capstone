@@ -1,7 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
   Button,
   Collapse,
   Col,
@@ -25,11 +24,11 @@ import {
   CheckOutlined,
   EditOutlined,
   FileTextOutlined,
+  InfoCircleOutlined,
   PrinterOutlined,
   ReloadOutlined,
   StopOutlined,
   InboxOutlined,
-  LockOutlined,
   RedoOutlined,
 } from '@ant-design/icons';
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -70,7 +69,6 @@ import OutsourcedOperationPanel from './OutsourcedOperationPanel';
 import OrderMaterialsModal from '../supplier-orders/OrderMaterialsModal';
 import {
   JobMaterialsTable,
-  materialArrivalText,
   rowsFromPlanned,
   rowsFromPurchases,
   rowsFromSummary,
@@ -82,6 +80,8 @@ import RescheduleModal, {
 import CancelJobModal, { cancelReasonLabel } from './CancelJobModal';
 import { jobOrderPrintBlockers } from '../reports/jobOrderPrintReadiness';
 import JobAuditHistory from '../audit/JobAuditHistory';
+import { confirmAction } from '../../utils/confirmAction';
+import JobNotice from './JobNotice';
 
 const RESCHEDULE_REASON_CODES = new Set(
   RESCHEDULE_REASON_OPTIONS.map((o) => o.value as string)
@@ -550,10 +550,9 @@ function JobOrderDetailView() {
 
   const handleSetMaterialNotRequired = () => {
     if (!job) return;
-    Modal.confirm({
+    confirmAction({
       title: 'Set Materials needed to Not required?',
-      content:
-        'Use this when the client supplies the material or the shop already has it in stock. The first operation can then start without a supplier order.',
+      content: 'For material the client supplies or the shop has in stock.',
       okText: 'Set Not required',
       onOk: async () => {
         try {
@@ -635,9 +634,9 @@ function JobOrderDetailView() {
   const canUnarchive = canManage && Boolean(job.isArchived || job.archivedAt);
 
   const handleArchive = () => {
-    Modal.confirm({
+    confirmAction({
       title: 'Archive this job order?',
-      content: 'It leaves the default list. Open Archived job orders to find it again.',
+      content: 'You can find it later under Archived.',
       okText: 'Archive',
       onOk: async () => {
         try {
@@ -692,11 +691,6 @@ function JobOrderDetailView() {
               <NeedsReplanTag job={job} compact={false} />
               <MaterialWaitTag wait={job} compact={false} />
               <MaterialDelayTag job={job} compact={false} />
-              {!isWorker && !isDraft && (isAdmin || canOfficeWrite) ? (
-                <span className="jo-head__lock-pill" title="Locked after release">
-                  <LockOutlined /> Locked
-                </span>
-              ) : null}
             </div>
             <h2 className="jo-head__title">{job.title}</h2>
             <div className="jo-head__facts">
@@ -728,27 +722,6 @@ function JobOrderDetailView() {
             >
               Edit details
             </Button>
-          )}
-          {!isDraft && (isAdmin || canOfficeWrite) && (
-            <span
-              className="jo-head__lock"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                fontSize: 12,
-                fontWeight: 600,
-                color: '#64748b',
-                background: '#f1f5f9',
-                border: '1px solid #e2e8f0',
-                borderRadius: 6,
-                padding: '3px 8px',
-                lineHeight: 1.3,
-              }}
-            >
-              <LockOutlined style={{ fontSize: 12 }} />
-              Locked after release
-            </span>
           )}
           <Tooltip
             title={
@@ -850,79 +823,58 @@ function JobOrderDetailView() {
       </div>
 
       {job.status === 'CANCELLED' ? (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          title="This job order was cancelled"
-          description={
-            <>
-              <div>
-                {cancelReasonLabel(job.cancelReason)}
-                {job.cancelNote ? ` — ${job.cancelNote}` : ''}
-              </div>
-              {job.cancelledByName || job.cancelledAt ? (
-                <div>
-                  {job.cancelledByName ? `${job.cancelledByName}` : ''}
-                  {job.cancelledAt ? ` · ${fmtDateTime(job.cancelledAt)}` : ''}
-                </div>
-              ) : null}
-              {purchases.some((p) => p.reviewAfterJobCancel) ? (
-                <div style={{ marginTop: 6 }}>
-                  Open purchase lines are flagged — Office can cancel those POs or keep the material.
-                </div>
-              ) : null}
-            </>
-          }
+        <JobNotice
+          tone="muted"
+          title="Cancelled"
+          detail={[
+            cancelReasonLabel(job.cancelReason) + (job.cancelNote ? ` — ${job.cancelNote}` : ''),
+            job.cancelledByName,
+            job.cancelledAt ? fmtDateTime(job.cancelledAt) : null,
+            purchases.some((p) => p.reviewAfterJobCancel) ? 'supplier lines to review' : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
         />
       ) : null}
 
       {isAdmin && job.needsReplan ? (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
-          title="Needs re-plan"
-          description={
-            <>
-              {job.needsReplanReason && <div>{job.needsReplanReason}</div>}
-              <div>Propose the schedule again and apply it.</div>
-            </>
-          }
-        />
+        <JobNotice tone="warn" title="Needs re-plan" detail={job.needsReplanReason || undefined} />
       ) : null}
 
       {canManage && job.materialDelay ? (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
+        <JobNotice
+          tone="info"
           title={
             {
-              MATERIAL: 'Schedule moved later because of materials',
-              RESCHEDULED: 'Rescheduled because the planned start date had passed',
-              OVERRUN: 'Moved later because earlier work on the same worker or machine ran long',
-              BREAKDOWN: 'Moved because its machine broke down',
+              MATERIAL: 'Moved later for materials',
+              RESCHEDULED: 'Rescheduled',
+              OVERRUN: 'Moved later: earlier work ran long',
+              BREAKDOWN: 'Moved: machine breakdown',
             }[job.materialDelay.kind]
           }
-          description={
+          detail={
             <>
-              <div>
-                Originally planned to start {fmtDateTime(job.materialDelay.originalStart)}
-                {job.materialDelay.currentStart
-                  ? `; now starts ${fmtDateTime(job.materialDelay.currentStart)}`
-                  : ''}
-                .
-              </div>
-              {job.materialDelay.reason && <div>{job.materialDelay.reason}</div>}
-              {job.materialDelay.supplierOrderId && (
-                <div>
-                  Supplier order:{' '}
+              {[
+                job.materialDelay.reason
+                  ? /^[A-Z_]+$/.test(job.materialDelay.reason)
+                    ? rescheduleReasonLabel(job.materialDelay.reason)
+                    : job.materialDelay.reason
+                  : null,
+                job.materialDelay.currentStart &&
+                job.materialDelay.currentStart !== job.materialDelay.originalStart
+                  ? `was ${fmtDateTime(job.materialDelay.originalStart)}, now ${fmtDateTime(job.materialDelay.currentStart)}`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+              {job.materialDelay.supplierOrderId ? (
+                <>
+                  {' · '}
                   <a onClick={() => navigate(`/supplier-orders/${job.materialDelay!.supplierOrderId}`)}>
-                    {job.materialDelay.poNumber || 'View order'}
+                    {job.materialDelay.poNumber || 'Supplier order'}
                   </a>
-                </div>
-              )}
+                </>
+              ) : null}
             </>
           }
         />
@@ -932,39 +884,19 @@ function JobOrderDetailView() {
       job.materialStatus !== 'NOT_REQUIRED' &&
       !jobStarted &&
       (placedLines.length === 0 || outstandingLines.length > 0) ? (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
+        <JobNotice
+          tone="warn"
           title={
             placedLines.length === 0
-              ? 'The first operation cannot start: no materials have been ordered'
-              : 'The first operation cannot start until all materials are received'
+              ? purchases.some((p) => p.status === 'DRAFT')
+                ? 'Can’t start yet: supplier order not issued'
+                : 'Can’t start yet: no materials ordered'
+              : 'Can’t start yet: waiting for materials'
           }
-          description={
-            placedLines.length === 0 ? (
-              (purchases.some((p) => p.status === 'DRAFT')
-                ? 'This job\u2019s materials are on a draft supplier order that has not been issued yet. '
-                : canOfficeWrite
-                  ? 'Nothing has been ordered for this job. Use Order materials below. '
-                  : 'Nothing has been ordered for this job. Office Staff order it from the Materials section. ') +
-              (isAdmin
-                ? 'If the client supplies the material or the shop has it in stock, set Materials needed to Not required.'
-                : 'If the client supplies the material or the shop has it in stock, ask the Admin to set Materials needed to Not required.')
-            ) : (
-              <>
-                <div>
-                  Still on order:{' '}
-                  {outstandingLines
-                    .map((p) => (p.gradeOrSpec ? `${p.materialName} (${p.gradeOrSpec})` : p.materialName))
-                    .join(', ')}
-                  .
-                </div>
-                {materialArrivalText(job.materialReadiness) ? (
-                  <div>{materialArrivalText(job.materialReadiness)}</div>
-                ) : null}
-              </>
-            )
+          detail={
+            placedLines.length === 0
+              ? undefined
+              : outstandingLines.map((p) => p.materialName).join(', ')
           }
           action={
             placedLines.length === 0 && isAdmin ? (
@@ -1499,7 +1431,7 @@ function JobOrderDetailView() {
         confirmLoading={reworkSaving}
         destroyOnHidden
       >
-        <Form layout="vertical">
+        <Form scrollToFirstError={{ block: 'center' }} layout="vertical">
           <Form.Item label="Category" required>
             <Select
               placeholder="Why does it need to be redone?"
@@ -1591,13 +1523,12 @@ function JobOrderDetailView() {
             </Text>
           </>
         ) : (
-          <Form form={invoiceForm} layout="vertical" onFinish={onSaveInvoice}>
+          <Form scrollToFirstError={{ block: 'center' }} form={invoiceForm} layout="vertical" onFinish={onSaveInvoice}>
             {invoiceMode === 'record' ? (
               <>
                 <BookletGuide job={job} />
                 <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
-                  Enter the details from the shop&apos;s official BIR-registered sales invoice. The
-                  system does not issue invoices.
+                  From the shop&apos;s BIR-registered invoice booklet.
                 </Text>
               </>
             ) : null}
@@ -1746,7 +1677,12 @@ function FinishCard({ job }: { job: JobOrder }) {
         </div>
         {!done ? (
           <>
-            <div style={{ color: MUTED }}>Estimated finish</div>
+            <div style={{ color: MUTED }}>
+              Estimated finish{' '}
+              <Tooltip title="From how long past operations of the same kind actually took.">
+                <InfoCircleOutlined style={{ fontSize: 12 }} />
+              </Tooltip>
+            </div>
             <div
               style={{
                 color: NAVY,
@@ -1786,11 +1722,7 @@ function FinishCard({ job }: { job: JobOrder }) {
         ) : null}
       </div>
       {est ? (
-        <div style={{ marginTop: 12, fontSize: 12, color: MUTED }}>
-          {est.label}: each remaining operation's target hours times how long that operation
-          type has taken before, placed in order from now across working hours.
-          {late ? ' The at-risk flag uses the later of the two finishes.' : ''}
-          {est.notEnoughHistoryNote ? <div style={{ marginTop: 6 }}>{est.notEnoughHistoryNote}</div> : null}
+        <div style={{ marginTop: 8, fontSize: 12, color: MUTED }}>
           <Collapse
             size="small"
             ghost

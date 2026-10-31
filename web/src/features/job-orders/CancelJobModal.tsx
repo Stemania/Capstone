@@ -64,9 +64,7 @@ export default function CancelJobModal({ job, open, onClose, onCancelled }: Prop
       destroyOnHidden
     >
       <p style={{ marginBottom: 12, color: '#64748b' }}>
-        The job stays in history. Unstarted work leaves the schedule and frees workers and
-        machines. Open purchase lines are flagged for Office to cancel the PO or keep the
-        material. The client is not notified.
+        Unstarted work leaves the schedule. The client is not notified.
       </p>
       <Form layout="vertical">
         <Form.Item label="Reason" required>

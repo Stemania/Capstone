@@ -28,7 +28,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 16px;
+  padding: 14px 20px 14px 16px;
   min-height: var(--topbar-h);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -53,7 +53,6 @@
   font-weight: 800;
   color: #fff;
   line-height: 1.2;
-  white-space: nowrap;
   letter-spacing: 0.1px;
 }
 

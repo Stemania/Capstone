@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Checkbox, Col, InputNumber, Modal, QRCode, Row, Segmented } from 'antd';
-import { PrinterOutlined } from '@ant-design/icons';
+import { Button, Checkbox, Col, InputNumber, QRCode, Row, Select, Tooltip } from 'antd';
+import { InfoCircleOutlined, PrinterOutlined, QrcodeOutlined } from '@ant-design/icons';
+import { FormModal } from '../../components/ui';
 import {
   LABEL_SIZES,
   layoutSheets,
@@ -123,97 +124,110 @@ export default function QrLabelPrintModal({
     }, 150);
   };
 
-  const previewScale = 0.42;
+  const previewScale = 0.4;
+  const field = (text: string) => <div className="qr-form__label">{text}</div>;
 
   return (
     <>
-      <Modal
+      <FormModal
         open={open}
+        icon={<QrcodeOutlined />}
         title={title}
+        width={820}
         onCancel={onClose}
-        width={640}
-        centered
         destroyOnHidden
-        footer={[
-          <Button key="cancel" onClick={onClose}>
-            Close
-          </Button>,
-          <Button
-            key="print"
-            type="primary"
-            icon={<PrinterOutlined />}
-            disabled={!items.length}
-            loading={printing}
-            onClick={print}
-          >
-            Print {labelCount} label{labelCount === 1 ? '' : 's'}
-          </Button>,
-        ]}
+        footer={
+          <>
+            <Button onClick={onClose} style={{ minWidth: 96 }}>
+              Close
+            </Button>
+            <Button
+              type="primary"
+              icon={<PrinterOutlined />}
+              disabled={!items.length}
+              loading={printing}
+              onClick={print}
+              style={{ fontWeight: 700 }}
+            >
+              Print {labelCount} label{labelCount === 1 ? '' : 's'}
+            </Button>
+          </>
+        }
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Label size</div>
-            <Segmented
-              block
+        <Row gutter={[24, 16]} className="qr-form">
+          <Col xs={24} md={11}>
+            {field('Label size')}
+            <Select
               value={sizeId}
               onChange={(v) => setSizeId(v as LabelSizeId)}
-              options={Object.values(LABEL_SIZES).map((s) => ({ value: s.id, label: s.label }))}
+              style={{ width: '100%' }}
+              options={Object.values(LABEL_SIZES).map((s) => ({ value: s.id, label: s.label, hint: s.hint }))}
+              optionRender={(o) => (
+                <div>
+                  <div style={{ fontWeight: 600 }}>{o.label}</div>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>{o.data.hint}</div>
+                </div>
+              )}
             />
-            <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>{size.hint}</div>
-          </div>
-          <Row gutter={12}>
-            <Col span={12}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>Copies of each</div>
-              <InputNumber
-                min={1}
-                max={50}
-                precision={0}
-                value={copies}
-                onChange={(v) => setCopies(Math.max(1, Number(v) || 1))}
-                style={{ width: '100%' }}
-              />
-            </Col>
-            <Col span={12}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>Start at label</div>
-              <InputNumber
-                min={1}
-                max={per}
-                precision={0}
-                value={startAt}
-                onChange={(v) => setStartAt(Math.min(per, Math.max(1, Number(v) || 1)))}
-                style={{ width: '100%' }}
-              />
-            </Col>
-          </Row>
-          <div style={{ color: '#64748b', fontSize: 12, marginTop: -8 }}>
-            Start at a later label to use the rest of a sheet that was partly used. Labels are
-            counted left to right, top to bottom.
-          </div>
-          <Checkbox checked={cutLines} onChange={(e) => setCutLines(e.target.checked)}>
-            Show cut lines (for plain paper)
-          </Checkbox>
-          <Alert
-            type="info"
-            showIcon
-            message={`${labelCount} label${labelCount === 1 ? '' : 's'} on ${sheets.length} A4 sheet${
-              sheets.length === 1 ? '' : 's'
-            }. In the print dialog, set the scale to 100% (Actual size) and turn off headers and footers.`}
-          />
-          {sheets[0] ? (
-            <div className="qr-preview" aria-label="Preview of the first sheet">
-              <div
-                className="qr-preview__frame"
-                style={{ width: `calc(210mm * ${previewScale})`, height: `calc(297mm * ${previewScale})` }}
-              >
-                <div style={{ transform: `scale(${previewScale})`, transformOrigin: 'top left' }}>
-                  {/* The preview always outlines labels so their places are visible. */}
-                  <Sheet cells={sheets[0]} size={size} cutLines />
+            <div className="qr-form__hint">{size.hint}</div>
+
+            <Row gutter={12} style={{ marginTop: 14 }}>
+              <Col span={12}>
+                {field('Copies of each')}
+                <InputNumber
+                  min={1}
+                  max={50}
+                  precision={0}
+                  value={copies}
+                  onChange={(v) => setCopies(Math.max(1, Number(v) || 1))}
+                  style={{ width: '100%' }}
+                />
+              </Col>
+              <Col span={12}>
+                <div className="qr-form__label">
+                  Start at label{' '}
+                  <Tooltip title="To reuse a partly used sheet. Counted left to right, top to bottom.">
+                    <InfoCircleOutlined style={{ color: '#94a3b8', fontSize: 12 }} />
+                  </Tooltip>
+                </div>
+                <InputNumber
+                  min={1}
+                  max={per}
+                  precision={0}
+                  value={startAt}
+                  onChange={(v) => setStartAt(Math.min(per, Math.max(1, Number(v) || 1)))}
+                  style={{ width: '100%' }}
+                />
+              </Col>
+            </Row>
+
+            <Checkbox checked={cutLines} onChange={(e) => setCutLines(e.target.checked)} style={{ marginTop: 14 }}>
+              Cut lines (plain paper)
+            </Checkbox>
+
+            <div className="qr-form__summary">
+              {labelCount} label{labelCount === 1 ? '' : 's'} · {sheets.length} A4 sheet
+              {sheets.length === 1 ? '' : 's'}
+              <div className="qr-form__hint">Print at 100% scale with headers and footers off.</div>
+            </div>
+          </Col>
+          <Col xs={24} md={13}>
+            {sheets[0] ? (
+              <div className="qr-preview" aria-label="Preview of the first sheet">
+                <div
+                  className="qr-preview__frame"
+                  style={{ width: `calc(210mm * ${previewScale})`, height: `calc(297mm * ${previewScale})` }}
+                >
+                  <div style={{ transform: `scale(${previewScale})`, transformOrigin: 'top left' }}>
+                    {/* The preview always outlines labels so their places are visible. */}
+                    <Sheet cells={sheets[0]} size={size} cutLines />
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : null}
-        </div>
-      </Modal>
+            ) : null}
+          </Col>
+        </Row>
+      </FormModal>
       {open ? (
         <div ref={printRef} style={{ display: 'none' }} aria-hidden>
           {sheets.map((cells, i) => (

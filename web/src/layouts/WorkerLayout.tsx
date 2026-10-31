@@ -4,7 +4,7 @@ import {
   HomeOutlined,
   IdcardOutlined,
   LeftOutlined,
-  LockOutlined,
+  SafetyCertificateOutlined,
   LogoutOutlined,
   ProfileOutlined,
   QrcodeOutlined,
@@ -29,6 +29,7 @@ import { MyOperationsProvider } from '../features/my-assignments/useMyOperations
 import WorkerBell from '../features/worker/WorkerBell';
 import './topBar.css';
 import '../features/worker/worker.css';
+import './appShell.css';
 
 export interface WorkerPalette {
   bg: string;
@@ -108,28 +109,27 @@ export function WorkerPageHeader({
   };
 
   const accountPanel = user ? (
-    <div className="w-menu">
-      <div className="w-menu__who">
+    <div className="acct-panel">
+      <div className="acct-panel__who">
         <PersonAvatar userId={user.id} fullName={user.fullName} photoVersion={user.photoVersion} size={40} />
         <div style={{ minWidth: 0 }}>
-          <div className="w-menu__name">{user.fullName}</div>
-          <div className="w-menu__role">{isWorker ? 'Production worker' : 'Admin'}</div>
+          <div className="acct-panel__name">{user.fullName}</div>
+          <div className="acct-panel__role">{isWorker ? 'Production Worker' : 'Administrator'}</div>
         </div>
       </div>
       {isWorker && (
-        <button type="button" className="w-menu__item" onClick={() => go('/account/profile')}>
+        <button type="button" className="acct-sheet-btn" onClick={() => go('/account/profile')}>
           <IdcardOutlined />
           My profile
         </button>
       )}
-      <button type="button" className="w-menu__item" onClick={() => go('/account/security')}>
-        <LockOutlined />
+      <button type="button" className="acct-sheet-btn" onClick={() => go('/account/security')}>
+        <SafetyCertificateOutlined />
         Account security
       </button>
-      <div className="w-menu__sep" />
       <button
         type="button"
-        className="w-menu__item w-menu__item--danger"
+        className="acct-sheet-btn acct-sheet-btn--danger"
         onClick={() => {
           setAccountOpen(false);
           logout();
@@ -164,13 +164,7 @@ export function WorkerPageHeader({
             onOpenChange={setAccountOpen}
             arrow={false}
             content={accountPanel}
-            styles={{
-              container: {
-                padding: 10,
-                borderRadius: 14,
-                boxShadow: '0 8px 28px rgba(15,23,42,0.18)',
-              },
-            }}
+            styles={{ container: { padding: 12, borderRadius: 12 } }}
           >
             <button type="button" className="w-iconbtn" aria-label="Account menu">
               <span className="w-avatar">

@@ -129,10 +129,6 @@ export default function AuditLogPage() {
 
   return (
     <div className="audit-page">
-      <p className="audit-note">
-        Every sign-in and every change to job orders, operations, accounts, inventory, purchasing,
-        and settings is recorded here automatically. Entries cannot be edited or deleted.
-      </p>
       <FilterBar
         tabs={<TabBar<Tab> value={tab} onChange={setTab} items={TABS} />}
         search={{

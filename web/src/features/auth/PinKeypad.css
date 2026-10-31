@@ -144,8 +144,16 @@
   line-height: 1;
 }
 
+/* Backspace: a plain key with an outline icon, like a phone keypad. */
 .pin-keypad__key--action {
-  color: #0f1c2e;
+  color: #475569;
+  background: transparent;
+  border-color: transparent;
+}
+
+.pin-keypad__key--action:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: transparent;
 }
 
 .pin-keypad__footer {

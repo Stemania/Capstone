@@ -1,4 +1,5 @@
-import { Modal, message } from 'antd';
+import { message } from 'antd';
+import { showNotice } from '../../utils/confirmAction';
 import { getErrorCode, getErrorMessage } from '../../api/client';
 import type { Operation } from '../../types';
 
@@ -39,11 +40,10 @@ export function announceRecorded(outcome: 'sent' | 'queued', online: boolean, se
 export function showActionError(err: unknown) {
   const code = getErrorCode(err);
   if (code === 'MATERIALS_NOT_RECEIVED' || code === 'MATERIALS_NOT_ORDERED') {
-    Modal.warning({
+    showNotice({
       title:
         code === 'MATERIALS_NOT_ORDERED' ? 'Materials have not been ordered' : 'Materials have not arrived',
       content: getErrorMessage(err),
-      okText: 'OK',
     });
   } else {
     message.error(getErrorMessage(err));

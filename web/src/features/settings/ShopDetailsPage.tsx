@@ -209,7 +209,7 @@ export default function ShopDetailsPage() {
       {error ? <Alert type="error" showIcon title={error} className="sd-page__alert" /> : null}
 
       <div className="sd-page__layout">
-        <Form
+        <Form scrollToFirstError={{ block: 'center' }}
           form={form}
           layout="vertical"
           onFinish={onSave}

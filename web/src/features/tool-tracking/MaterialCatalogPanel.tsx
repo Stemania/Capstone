@@ -419,10 +419,6 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
             <div className="app-form-modal__title">
               {editing ? 'Edit catalog item' : ADD_CATALOG_ITEM_LABEL}
             </div>
-            <div className="app-form-modal__sub">
-              Catalog is what the shop can buy. Stock for consumables arrives only by receiving a
-              purchase order.
-            </div>
           </div>
           <button
             type="button"
@@ -433,7 +429,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
             ×
           </button>
         </div>
-        <Form form={form} layout="vertical" onFinish={onSave} style={{ padding: '20px 24px 8px' }}>
+        <Form scrollToFirstError={{ block: 'center' }} form={form} layout="vertical" onFinish={onSave} style={{ padding: '20px 24px 8px' }}>
           {sectionLabel('Type')}
           <Form.Item name="kind" label="Type" rules={[{ required: true }]}>
             <Select

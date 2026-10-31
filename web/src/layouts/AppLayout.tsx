@@ -91,21 +91,21 @@ const NAV: NavGroup[] = [
   },
 ];
 
-const SECTION_META: Record<string, { title: string; subtitle: string }> = {
-  '/schedule': { title: 'Schedule', subtitle: 'Shop-wide production schedule by machine and worker' },
-  '/job-orders': { title: 'Job Orders', subtitle: 'Create and track production job orders' },
-  '/machines': { title: 'Machines', subtitle: 'Machine units, breakdowns, and who reported them' },
-  '/work-calendar': { title: 'Work calendar', subtitle: 'Shop-wide overtime, special days, and holidays' },
-  '/suppliers': { title: 'Suppliers and Orders', subtitle: 'Material suppliers and the purchase orders sent to them' },
-  '/tools': { title: 'Inventory', subtitle: 'Tools, consumables, and raw materials' },
-  '/clients': { title: 'Clients', subtitle: 'Clients and contacts for job update messages' },
-  '/users': { title: 'Users & Roles', subtitle: 'Accounts, roles, and who can sign in' },
-  '/worker-setup': { title: 'Worker setup', subtitle: 'Skills, weekly hours, and work history' },
-  '/attendance': { title: 'Attendance', subtitle: 'Each worker\u2019s clock-in and clock-out' },
-  '/analytics': { title: 'Analytics', subtitle: 'How the shop is doing, and printable reports' },
-  '/audit-log': { title: 'Audit log', subtitle: 'Who signed in, and who changed what, when, and from where' },
-  '/settings/shop': { title: 'Shop details', subtitle: 'Printed on purchase orders and job orders' },
-  '/account': { title: 'Account security', subtitle: 'Password and your devices' },
+const SECTION_META: Record<string, { title: string; subtitle?: string }> = {
+  '/schedule': { title: 'Schedule' },
+  '/job-orders': { title: 'Job Orders' },
+  '/machines': { title: 'Machines' },
+  '/work-calendar': { title: 'Work calendar' },
+  '/suppliers': { title: 'Suppliers and Orders' },
+  '/tools': { title: 'Inventory' },
+  '/clients': { title: 'Clients' },
+  '/users': { title: 'Users & Roles' },
+  '/worker-setup': { title: 'Worker setup' },
+  '/attendance': { title: 'Attendance' },
+  '/analytics': { title: 'Analytics' },
+  '/audit-log': { title: 'Audit log' },
+  '/settings/shop': { title: 'Shop details' },
+  '/account': { title: 'Account security' },
 };
 
 const REPORT_TITLES: Record<string, string> = {
@@ -121,7 +121,6 @@ function routeMeta(pathname: string, section: string | null): Meta {
   if (pathname === '/job-orders/archived') {
     return {
       title: 'Archived job orders',
-      subtitle: 'Jobs removed from the day-to-day list',
       crumbs: [jobs, { label: 'Archived' }],
     };
   }
@@ -131,15 +130,14 @@ function routeMeta(pathname: string, section: string | null): Meta {
     return { title: 'Plan job order', crumbs: [{ label: 'Job Orders', to: '/job-orders?tab=drafts' }, { label: 'Plan' }] };
   }
   if (/^\/job-orders\/[^/]+$/.test(pathname)) {
-    return { title: 'Job order', subtitle: 'Details, progress, and notifications', crumbs: [jobs, { label: 'Details' }] };
+    return { title: 'Job order', crumbs: [jobs, { label: 'Details' }] };
   }
   if (/^\/clients\/[^/]+$/.test(pathname)) {
-    return { title: 'Client', subtitle: 'Details and job history', crumbs: [{ label: 'Clients', to: '/clients' }, { label: 'Details' }] };
+    return { title: 'Client', crumbs: [{ label: 'Clients', to: '/clients' }, { label: 'Details' }] };
   }
   if (/^\/supplier-orders\/[^/]+$/.test(pathname)) {
     return {
       title: 'Supplier order',
-      subtitle: 'Lines, issuing, receiving, and the printed PO',
       crumbs: [{ label: 'Suppliers and Orders', to: '/supplier-orders' }, { label: 'Supplier order' }],
     };
   }

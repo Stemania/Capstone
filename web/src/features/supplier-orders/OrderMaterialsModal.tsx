@@ -175,7 +175,7 @@ export default function OrderMaterialsModal({
   const catalog = useMaterialCatalog();
   const plannedRef = useRef(planned);
   plannedRef.current = planned;
-  const [fromPlan, setFromPlan] = useState(0);
+  const [, setFromPlan] = useState(0);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [reliability, setReliability] = useState<Record<string, SupplierReliability>>({});
   const [supplierId, setSupplierId] = useState<string | undefined>();
@@ -352,13 +352,6 @@ export default function OrderMaterialsModal({
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="app-form-modal__title">
             {jobId ? 'Order materials for this job' : 'New supplier order'}
-          </div>
-          <div className="app-form-modal__sub">
-            {offerConsumables
-              ? 'Pick a supplier, then pick catalog materials and tick consumables to add to its draft order.'
-              : fromPlan
-                ? `Pick a supplier. The ${fromPlan} material${fromPlan === 1 ? '' : 's'} still to order ${fromPlan === 1 ? 'is' : 'are'} filled in from the job; enter the unit costs. Remove any you'll buy from another supplier.`
-                : 'Pick a supplier, then pick catalog materials to add to its draft order.'}
           </div>
         </div>
         <button type="button" className="app-form-modal__close" onClick={onClose} aria-label="Close">
@@ -598,10 +591,6 @@ export default function OrderMaterialsModal({
             />
           )}
 
-          <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 10 }}>
-            Pick each material from the catalog. Once the order is issued its lines are locked; to
-            change them, cancel the order and issue a new one.
-          </Text>
 
           {offerConsumables ? (
             <>
@@ -724,10 +713,6 @@ export default function OrderMaterialsModal({
                   },
                 ]}
               />
-              <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 10 }}>
-                Quantities start at the suggested order quantity. Receiving a consumable line on the
-                order adds it to stock.
-              </Text>
             </>
           ) : null}
         </>

@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AutoComplete, Button, Input, Select } from 'antd';
-import { CloseOutlined } from '@ant-design/icons';
+import { AutoComplete, Input, Select } from 'antd';
 import { materialMatches, type MaterialCatalogItem } from '../api/materialCatalog.api';
 import { findCatalogItem, useMaterialCatalog } from '../hooks/useMaterialCatalog';
 import { materialLineLocked } from './materialPicker';
@@ -11,19 +10,19 @@ interface MaterialCatalogPickerProps {
   catalogId?: string | null;
   materialName?: string;
   onPick: (item: MaterialCatalogItem) => void;
-  onClear: () => void;
+  /** Kept for callers; a picked material is changed by removing the line. */
+  onClear?: () => void;
   placeholder?: string;
   disabled?: boolean;
   size?: 'small' | 'middle' | 'large';
 }
 
 /** Searchable picker over offered catalog materials. Once picked, the name is
- *  read-only with a clear control to re-pick — no free typing of names. */
+ *  read-only; the line's delete button removes it. */
 export function MaterialCatalogPicker({
   catalogId,
   materialName,
   onPick,
-  onClear,
   placeholder = 'Pick a material',
   disabled,
   size = 'small',
@@ -43,24 +42,13 @@ export function MaterialCatalogPicker({
 
   if (locked) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-        <Input
-          size={size}
-          value={materialName || ''}
-          readOnly
-          disabled={disabled}
-          style={{ flex: 1, fontWeight: 600 }}
-        />
-        {!disabled ? (
-          <Button
-            type="text"
-            size="small"
-            icon={<CloseOutlined />}
-            aria-label="Clear material"
-            onClick={onClear}
-          />
-        ) : null}
-      </div>
+      <Input
+        size={size}
+        value={materialName || ''}
+        readOnly
+        disabled={disabled}
+        style={{ width: '100%', fontWeight: 600 }}
+      />
     );
   }
 

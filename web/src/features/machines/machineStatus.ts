@@ -83,56 +83,23 @@ export interface MachineActions {
   onClearDefaultOperator: (unit: MachineUnitStatus) => void;
 }
 
+/** The card's menu: only actions that change the machine. Details open by
+ *  clicking the card, so they are not repeated here. Admin only. */
 export function machineMenuItems(unit: MachineUnitStatus, actions: MachineActions): MenuProps['items'] {
   const items: NonNullable<MenuProps['items']> = [];
-  if (actions.onDetails) {
-    items.push({ key: 'details', label: 'View details', onClick: () => actions.onDetails?.(unit) });
-  }
   if (cardStatus(unit) === 'retired') {
     items.push({ key: 'restore', label: 'Restore machine', onClick: () => actions.onRestore(unit) });
     return items;
   }
-  const job = unit.currentOperation ?? unit.nextOperation;
-  if (job?.jobOrderId) {
-    items.push({
-      key: 'job',
-      label: `Open ${job.jobNumber || 'job order'}`,
-      onClick: () => actions.onOpenJob(job.jobOrderId),
-    });
-  }
-  if (items.length) items.push({ type: 'divider' });
   items.push({
     key: 'defaultOp',
-    label: unit.defaultOperatorId ? 'Change assigned operator' : 'Assign an operator',
+    label: unit.defaultOperatorId ? 'Change operator' : 'Assign operator',
     onClick: () => actions.onSetDefaultOperator(unit),
   });
-  if (unit.defaultOperatorId) {
-    items.push({
-      key: 'clearDefault',
-      label: 'Open to all (clear operator)',
-      onClick: () => actions.onClearDefaultOperator(unit),
-    });
-  }
-  items.push({ type: 'divider' });
   if (!unit.down) {
     items.push({ key: 'report', label: 'Report breakdown', onClick: () => actions.onReport(unit) });
   } else {
-    items.push({
-      key: 'repairDate',
-      label: unit.openDowntime?.expectedRepairDate ? 'Change expected repair date' : 'Set expected repair date',
-      onClick: () => actions.onSetRepairDate(unit),
-    });
     items.push({ key: 'close', label: 'Close breakdown', onClick: () => actions.onClose(unit) });
-    if (unit.affectedCount > 0 && actions.onBreakdownWork) {
-      items.push({
-        key: 'breakdownWork',
-        label: 'Move booked work…',
-        onClick: () => actions.onBreakdownWork?.(unit),
-      });
-    }
-  }
-  if (unit.affectedCount > 0) {
-    items.push({ key: 'schedule', label: 'Open schedule', onClick: actions.onOpenSchedule });
   }
   items.push({ type: 'divider' });
   items.push({ key: 'retire', label: 'Remove machine', danger: true, onClick: () => actions.onRetire(unit) });

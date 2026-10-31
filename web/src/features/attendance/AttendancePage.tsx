@@ -40,6 +40,7 @@ import type {
   AttendanceHistory,
   AttendanceRow,
 } from '../../types';
+import { confirmAction } from '../../utils/confirmAction';
 
 type ModalMode = 'in' | 'out' | 'edit';
 
@@ -227,11 +228,11 @@ export default function AttendancePage() {
   const confirmDelete = (row: AttendanceRow) => {
     if (!row.record) return;
     const id = row.record.id;
-    Modal.confirm({
+    confirmAction({
       title: `Delete ${row.workerName}'s attendance for ${formatShop(row.date, 'MMM D, YYYY')}?`,
-      content: 'Use this only for a record entered by mistake.',
+      content: 'Only for a record entered by mistake.',
       okText: 'Delete',
-      okButtonProps: { danger: true },
+      danger: true,
       onOk: async () => {
         try {
           await attendanceApi.remove(id);
@@ -562,7 +563,7 @@ export default function AttendancePage() {
             ×
           </button>
         </div>
-        <Form form={form} layout="vertical" onFinish={onSave} style={{ padding: '20px 24px 8px' }}>
+        <Form scrollToFirstError={{ block: 'center' }} form={form} layout="vertical" onFinish={onSave} style={{ padding: '20px 24px 8px' }}>
           {saveError ? (
             <Alert type="error" showIcon title={saveError} style={{ marginBottom: 12 }} />
           ) : null}

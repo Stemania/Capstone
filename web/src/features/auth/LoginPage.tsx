@@ -169,7 +169,7 @@ export default function LoginPage() {
               }
             />
           ) : (
-            <Form
+            <Form scrollToFirstError={{ block: 'center' }}
               form={form}
               layout="vertical"
               onFinish={onPasswordLogin}

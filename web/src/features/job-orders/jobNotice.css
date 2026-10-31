@@ -1,0 +1,68 @@
+.job-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #334155;
+}
+
+.job-notice__icon {
+  flex: none;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.job-notice__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.job-notice__text strong {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.job-notice__detail {
+  color: #475569;
+}
+
+.job-notice__action {
+  flex: none;
+}
+
+.job-notice--info {
+  background: #eff6ff;
+  border-color: #dbeafe;
+}
+
+.job-notice--info .job-notice__icon {
+  color: #2563eb;
+}
+
+.job-notice--warn {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.job-notice--warn .job-notice__icon {
+  color: #d97706;
+}
+
+.job-notice--muted .job-notice__icon {
+  color: #64748b;
+}
+
+@media (max-width: 640px) {
+  .job-notice {
+    flex-wrap: wrap;
+  }
+  .job-notice__action {
+    width: 100%;
+  }
+}

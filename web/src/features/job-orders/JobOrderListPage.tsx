@@ -25,10 +25,8 @@ import { jobOrdersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import StatusPill from '../../components/StatusPill';
 import { EllipsisText, IdChip, TabBar, rowOpenProps } from '../../components/ui';
-import { JOB_FLAG, JOB_STATUS } from '../../theme/statuses';
-import MaterialDelayTag from '../../components/MaterialDelayTag';
-import NeedsReplanTag from '../../components/NeedsReplanTag';
-import MaterialWaitTag from '../../components/MaterialWaitTag';
+import { JOB_STATUS } from '../../theme/statuses';
+import { DELAY_LABEL } from '../../components/MaterialDelayTag';
 import SelectMultipleIcon from '../../components/SelectMultipleIcon';
 import { useAuth } from '../../hooks/useAuth';
 import { useOverdueCheck } from '../../hooks/useOverdueCheck';
@@ -71,22 +69,34 @@ function isJobOverdue(job: JobOrder) {
   );
 }
 
+/** Warnings on an open job, most urgent first. Short labels; the tooltip has the full text. */
+function jobFlags(job: JobOrder): { label: string; tone: 'red' | 'amber'; full: string }[] {
+  if (job.status === 'CANCELLED' || isJobFinished(job.status)) return [];
+  const flags: { label: string; tone: 'red' | 'amber'; full: string }[] = [];
+  if (isJobOverdue(job)) flags.push({ label: 'Overdue', tone: 'red', full: 'Past its date required' });
+  if (job.needsReplan) flags.push({ label: 'Re-plan', tone: 'red', full: job.needsReplanReason || 'Needs re-plan' });
+  if (job.waitingForMaterials)
+    flags.push({ label: 'Materials', tone: 'amber', full: job.materialWaitReason || 'Waiting for materials' });
+  if (job.materialDelay && job.status === 'SCHEDULED')
+    flags.push({ label: 'Moved', tone: 'amber', full: DELAY_LABEL[job.materialDelay.kind] });
+  return flags;
+}
+
 function JobStatusBadge({ job }: { job: JobOrder }) {
-  const overdue = isJobOverdue(job);
-  const pill = overdue ? (
-    <StatusPill tone={JOB_FLAG.overdue.tone} compact>{JOB_FLAG.overdue.label}</StatusPill>
-  ) : (
-    <StatusPill status={job.status} map={JOB_STATUS} compact />
-  );
-  const delayed = !!job.materialDelay && job.status === 'SCHEDULED';
-  if (!job.waitingForMaterials && !delayed && !job.needsReplan) return pill;
+  const pill = <StatusPill status={job.status} map={JOB_STATUS} compact />;
+  const flags = jobFlags(job);
+  if (!flags.length) return pill;
+  const [first, ...rest] = flags;
   return (
-    <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
-      {pill}
-      <NeedsReplanTag job={job} />
-      <MaterialWaitTag wait={job} />
-      <MaterialDelayTag job={job} />
-    </span>
+    <Tooltip title={flags.map((f) => f.full).join(' · ')}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+        {pill}
+        <StatusPill color={first.tone} compact>
+          {first.label}
+        </StatusPill>
+        {rest.length ? <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>+{rest.length}</span> : null}
+      </span>
+    </Tooltip>
   );
 }
 
@@ -109,7 +119,7 @@ function DuePill({ job }: { job: JobOrder }) {
   return <Tooltip title={`${st.label}: based on the ${basis}`}>{pill}</Tooltip>;
 }
 
-const ESTIMATE_HINT = 'Estimate based on past performance: target hours scaled by how long each operation type has taken before.';
+const ESTIMATE_HINT = 'From how long past operations of the same kind took.';
 
 function FinishCell({ job }: { job: JobOrder }) {
   if (!job.projectedCompletion && !job.predictedCompletion) {
@@ -661,7 +671,7 @@ export default function JobOrderListPage({ mode = 'active' }: JobOrderListPagePr
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 150,
+      width: 190,
       render: (_s: JobOrderStatus, record) => <JobStatusBadge job={record} />,
     },
     {

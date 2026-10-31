@@ -227,8 +227,8 @@ def _progress_skip_reason(job, client, milestone, progress) -> str | None:
 
     if milestone not in ju.PROGRESS_MILESTONES:
         return None
-    if (getattr(client, "update_level", None) or "DETAILED") == "KEY":
-        return ju.KEY_UPDATES_ONLY
+    # Every client who gets job updates gets the detailed progress emails; the
+    # old "key updates only" choice was removed, so a stored KEY is ignored.
     if ju.is_short_job(progress):
         return ju.SHORT_JOB
     try:

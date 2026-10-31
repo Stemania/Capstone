@@ -28,7 +28,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import { MOBILE_SHELL_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
-import { TwoLineCell, rowOpenProps } from '../../components/ui';
+import { FormModal, TwoLineCell, rowOpenProps } from '../../components/ui';
 import { Package, Wrench } from 'lucide-react';
 import {
   CategoryTile,
@@ -36,6 +36,7 @@ import {
   showSeedBadge,
   type InventorySummaryCard,
 } from './inventoryLook';
+import { confirmAction } from '../../utils/confirmAction';
 
 function sectionLabel(text: string) {
   return <div className="app-form-section">{text}</div>;
@@ -287,13 +288,11 @@ export default function ToolsAssetsPanel() {
   };
 
   const confirmRemoveUnit = (u: ToolUnit) =>
-    Modal.confirm({
+    confirmAction({
       title: `Remove ${u.assetCode}?`,
-      content:
-        'A unit that was never borrowed is deleted. One that was borrowed before is retired instead, so its borrowing history is kept and it can no longer be borrowed.',
+      content: 'If it was borrowed before, it is retired instead so its history is kept.',
       okText: 'Remove',
-      okButtonProps: { danger: true },
-      centered: true,
+      danger: true,
       onOk: async () => {
         try {
           const { data } = await toolsApi.removeUnit(u.id);
@@ -307,14 +306,13 @@ export default function ToolsAssetsPanel() {
     });
 
   const confirmRemoveType = (t: ToolType) =>
-    Modal.confirm({
+    confirmAction({
       title: `Remove ${t.name}?`,
       content: t.totalUnits
-        ? `This also removes its ${t.totalUnits} unit${t.totalUnits === 1 ? '' : 's'}. A tool that was ever borrowed cannot be removed; retire its units instead.`
-        : 'This tool type has no units.',
+        ? `Its ${t.totalUnits} unit${t.totalUnits === 1 ? ' is' : 's are'} removed too.`
+        : undefined,
       okText: 'Remove',
-      okButtonProps: { danger: true },
-      centered: true,
+      danger: true,
       onOk: async () => {
         try {
           await toolsApi.removeType(t.id);
@@ -818,11 +816,6 @@ export default function ToolsAssetsPanel() {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="app-form-modal__title">{editingType ? 'Edit tool type' : 'Add tool type'}</div>
-            <div className="app-form-modal__sub">
-              {editingType
-                ? 'Changing the name or code does not change the asset codes already on the units.'
-                : 'Individually tracked tools — add units with QR codes after creating the type.'}
-            </div>
           </div>
           <button
             type="button"
@@ -833,7 +826,7 @@ export default function ToolsAssetsPanel() {
             ×
           </button>
         </div>
-        <Form
+        <Form scrollToFirstError={{ block: 'center' }}
           form={typeForm}
           layout="vertical"
           onFinish={createType}
@@ -896,11 +889,7 @@ export default function ToolsAssetsPanel() {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="app-form-modal__title">Add units</div>
-            <div className="app-form-modal__sub">
-              {unitModalType
-                ? `${unitModalType.name} — each unit gets its own asset code and QR.`
-                : 'Each unit gets its own asset code and QR.'}
-            </div>
+            {unitModalType ? <div className="app-form-modal__sub">{unitModalType.name}</div> : null}
           </div>
           <button
             type="button"
@@ -911,7 +900,7 @@ export default function ToolsAssetsPanel() {
             ×
           </button>
         </div>
-        <Form
+        <Form scrollToFirstError={{ block: 'center' }}
           form={unitForm}
           layout="vertical"
           onFinish={createUnit}
@@ -974,9 +963,6 @@ export default function ToolsAssetsPanel() {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="app-form-modal__title">Edit unit</div>
-            <div className="app-form-modal__sub">
-              A new asset code needs a new QR label on the tool.
-            </div>
           </div>
           <button
             type="button"
@@ -987,7 +973,7 @@ export default function ToolsAssetsPanel() {
             ×
           </button>
         </div>
-        <Form form={editUnitForm} layout="vertical" onFinish={saveUnit} style={{ padding: '20px 24px 8px' }}>
+        <Form scrollToFirstError={{ block: 'center' }} form={editUnitForm} layout="vertical" onFinish={saveUnit} style={{ padding: '20px 24px 8px' }}>
           <Form.Item
             name="assetCode"
             label="Asset code"
@@ -1043,18 +1029,20 @@ export default function ToolsAssetsPanel() {
         {qrUnit && <UnitQrImage unitId={qrUnit.id} code={qrUnit.assetCode} />}
       </Modal>
 
-      <Modal
+      <FormModal
         title="Print QR labels"
+        icon={<QrcodeOutlined />}
+        size="sm"
         open={labelPickOpen}
         onCancel={() => setLabelPickOpen(false)}
         okText="Next"
-        okButtonProps={{ disabled: !labelPick.length, loading: labelLoading }}
+        okButtonProps={{ disabled: !labelPick.length }}
+        confirmLoading={labelLoading}
         onOk={() => void openLabelsForTypes(labelPick)}
         destroyOnHidden
       >
         <div style={{ marginBottom: 8 }}>
-          Choose the tool types to print. Every unit of each type gets its own label (retired units
-          are left out).
+          Each unit of the chosen types gets a label.
         </div>
         <Select
           mode="multiple"
@@ -1069,7 +1057,7 @@ export default function ToolsAssetsPanel() {
             .filter((t) => t.totalUnits > 0)
             .map((t) => ({ value: t.id, label: `${t.name} (${t.totalUnits})` }))}
         />
-      </Modal>
+      </FormModal>
 
       <QrLabelPrintModal
         open={Boolean(labelItems)}

@@ -41,11 +41,14 @@ export default function MachineCard({
   kind,
   nowMs,
   actions,
+  canEdit = false,
 }: {
   unit: MachineUnitStatus;
   kind: MachineKind;
   nowMs: number;
   actions: MachineActions;
+  /** Admin only: Office Staff view machines without an actions menu. */
+  canEdit?: boolean;
 }) {
   const status = cardStatus(unit);
   const cur = unit.currentOperation;
@@ -70,13 +73,15 @@ export default function MachineCard({
       <header className="mcard__head">
         <h3 className="mcard__name">{unit.label}</h3>
         <StatusPill status={status} map={MACHINE_STATUS} compact dot />
-        <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-          <Dropdown menu={{ items: machineMenuItems(unit, actions) }} trigger={['click']} placement="bottomRight">
-            <button type="button" className="mcard__menu" aria-label={`${unit.label} actions`}>
-              <MoreOutlined />
-            </button>
-          </Dropdown>
-        </span>
+        {canEdit ? (
+          <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+            <Dropdown menu={{ items: machineMenuItems(unit, actions) }} trigger={['click']} placement="bottomRight">
+              <button type="button" className="mcard__menu" aria-label={`${unit.label} actions`}>
+                <MoreOutlined />
+              </button>
+            </Dropdown>
+          </span>
+        ) : null}
       </header>
 
       <div className="mcard__main">

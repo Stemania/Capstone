@@ -132,13 +132,13 @@ export default function ResetPasswordPage() {
           {error && <Alert className="login-alert" type="error" title={error} showIcon />}
 
           {showCodeForm && (
-            <Form form={form} layout="vertical" onFinish={onValidateCode} autoComplete="off">
+            <Form scrollToFirstError={{ block: 'center' }} form={form} layout="vertical" onFinish={onValidateCode} autoComplete="off">
               <Form.Item
                 name="identifier"
                 label="Email or mobile"
                 rules={[{ required: true, message: 'Email or mobile is required' }]}
               >
-                <Input size="large" placeholder="name@bmsc.local or 09XXXXXXXXX" />
+                <Input size="large" />
               </Form.Item>
               <Form.Item
                 name="token"
@@ -161,7 +161,7 @@ export default function ResetPasswordPage() {
           )}
 
           {showPasswordForm && (
-            <Form form={form} layout="vertical" onFinish={onFinish} autoComplete="off">
+            <Form scrollToFirstError={{ block: 'center' }} form={form} layout="vertical" onFinish={onFinish} autoComplete="off">
               {!tokenFromLink && (
                 <>
                   <Form.Item name="identifier" hidden>

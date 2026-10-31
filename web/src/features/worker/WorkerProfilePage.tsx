@@ -123,9 +123,6 @@ export default function WorkerProfilePage() {
           )}
         </section>
 
-        <div className="w-note" style={{ padding: '0 4px' }}>
-          Skills, machine and hours are set by the Admin. Tell them if something is wrong.
-        </div>
 
         {user && (
           <section className="w-card w-card--flush">

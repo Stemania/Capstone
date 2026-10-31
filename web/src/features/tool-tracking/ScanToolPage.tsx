@@ -13,10 +13,11 @@ import type { Html5Qrcode } from 'html5-qrcode';
 import { toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
-import { useWorkerTheme } from '../../layouts/WorkerLayout';
+import { WorkerPageHeader, useWorkerTheme } from '../../layouts/WorkerLayout';
 import { useOfflineOptional } from '../../offline/OfflineProvider';
 import { announceToolsChanged } from '../worker/toolsEvents';
 import type { ToolEvent, ToolUnit } from '../../types';
+import { confirmAction } from '../../utils/confirmAction';
 
 type CameraState = 'starting' | 'scanning' | 'denied' | 'unavailable';
 type ScanIntent = 'BORROW' | 'RETURN';
@@ -152,12 +153,11 @@ export default function ScanToolPage() {
         });
 
         if (data.needsConfirm) {
-          Modal.confirm({
+          confirmAction({
             title: 'Scan again?',
             content: data.confirmMessage || 'You just scanned this item. Scan again?',
             okText: 'Yes, scan again',
             cancelText: 'Cancel',
-            centered: true,
             onOk: () => performScan(code, { ...options, confirmRepeat: true }),
           });
           return;
@@ -309,14 +309,10 @@ export default function ScanToolPage() {
 
   return (
     <div className="w-scan">
-      <div className="w-scan__head">
-        <div className="w-scan__title">Scan QR</div>
-        <div className="w-scan__sub">
-          {offlineBanner
-            ? 'Offline — scans save on this phone'
-            : 'Borrow or return a tool, or scan a consumable (−1)'}
-        </div>
-      </div>
+      <WorkerPageHeader
+        title="Scan"
+        subtitle={offlineBanner ? 'Offline · scans save on this phone' : 'Tools and consumables'}
+      />
 
       <div className="w-scan__camera">
         <div id="qr-camera-view" />

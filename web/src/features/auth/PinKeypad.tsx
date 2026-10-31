@@ -16,11 +16,15 @@ const LETTERS: Record<string, string> = {
 
 function BackspaceIcon() {
   return (
-    <svg width="26" height="18" viewBox="0 0 26 18" aria-hidden focusable="false">
+    <svg width="26" height="20" viewBox="0 0 26 20" aria-hidden focusable="false">
       <path
-        fill="currentColor"
-        d="M9.2 1.2h14.3A2.5 2.5 0 0 1 26 3.7v10.6a2.5 2.5 0 0 1-2.5 2.5H9.2L1.4 9l7.8-7.8zm7.1 3.4-1.1 1.1-2.1-2.1-1.5 1.5 2.1 2.1-2.1 2.1 1.5 1.5 2.1-2.1 2.1 2.1 1.5-1.5-2.1-2.1 2.1-2.1-1.5-1.5z"
+        d="M8.6 2h13.9A2.5 2.5 0 0 1 25 4.5v11a2.5 2.5 0 0 1-2.5 2.5H8.6L1.6 10l7-8z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
       />
+      <path d="M12.5 6.5l7 7M19.5 6.5l-7 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
 }

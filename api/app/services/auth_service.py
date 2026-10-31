@@ -149,7 +149,7 @@ def update_user(user, data):
 
     from app.services.worker_profile_service import ensure_worker_profile
 
-    if user.role in (UserRole.PRODUCTION_WORKER, UserRole.ADMIN):
+    if user.role == UserRole.PRODUCTION_WORKER:
         ensure_worker_profile(user)
 
     db.session.commit()

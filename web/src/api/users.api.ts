@@ -18,7 +18,7 @@ export const usersApi = {
   list: () => apiClient.get<User[]>('/users'),
   get: (id: string) => apiClient.get<User>(`/users/${id}`),
   create: (data: {
-    email: string;
+    email?: string;
     fullName: string;
     nickname?: string;
     role: string;

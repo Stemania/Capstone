@@ -132,7 +132,7 @@ export default function BreakdownWorkModal({ work, canDecide, onClose, onDone, o
         </Radio.Group>
       ) : (
         <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
-          An Admin decides whether to move this work. Until then the board shows it on a down machine.
+          The Admin decides whether to move this work.
         </Typography.Paragraph>
       )}
     </FormModal>

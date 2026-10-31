@@ -25,7 +25,7 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="login-page">
+    <div className="login-page login-page--password">
       <div className="login-page__bg" aria-hidden />
       <div className="login-page__veil" aria-hidden />
       <div className="login-card">
@@ -39,45 +39,38 @@ export default function ForgotPasswordPage() {
           <div className="login-card__subtitle">Production Scheduling System</div>
         </div>
         <div className="login-card__body">
-          {!submitted && (
+          {submitted ? (
+            <>
+              <h1 className="login-card__title">Check your email</h1>
+              <p className="login-card__lead">If the account has an email, a reset link is on its way.</p>
+            </>
+          ) : (
             <>
               <h1 className="login-card__title">Forgot password</h1>
-              <p className="login-card__lead">
-                Enter the email or mobile on your account. We send a reset link when an email is on file.
-              </p>
+              <p className="login-card__lead">We&apos;ll email you a reset link.</p>
             </>
           )}
 
           {error && <Alert className="login-alert" type="error" title={error} showIcon />}
 
-          {submitted ? (
-            <div className="login-card__success">
-              <Alert
-                className="login-alert"
-                type="success"
-                showIcon
-                title="Reset link sent"
-                description="If that account has an email on file, check your inbox for instructions."
-              />
-            </div>
-          ) : (
-            <Form form={form} layout="vertical" onFinish={onFinish} autoComplete="off">
+          {!submitted && (
+            <Form scrollToFirstError={{ block: 'center' }} form={form} layout="vertical" onFinish={onFinish} autoComplete="off" requiredMark={false}>
               <Form.Item
                 name="identifier"
-                label="Email or mobile"
-                rules={[{ required: true, message: 'Email or mobile is required' }]}
+                label="Email or mobile number"
+                rules={[{ required: true, message: 'Enter your email or mobile number' }]}
               >
-                <Input size="large" placeholder="name@bmsc.local or 09XXXXXXXXX" />
+                <Input size="large" autoFocus />
               </Form.Item>
               <Button type="primary" htmlType="submit" block size="large" loading={submitting}>
-                Send reset instructions
+                Send reset link
               </Button>
             </Form>
           )}
 
-          <p style={{ marginTop: 16, fontSize: 12, color: '#64748b' }}>
+          <div className="login-card__footer">
             <Link to="/login">Back to sign in</Link>
-          </p>
+          </div>
         </div>
       </div>
     </div>

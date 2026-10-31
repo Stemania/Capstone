@@ -161,14 +161,26 @@ DOWNTIME_REASONS = (
     (DowntimeCategory.MECHANICAL_FAILURE, "Coolant pump failed"),
 )
 
+# The newest jobs are still open at the end date, as in a shop that takes
+# 30-40 jobs a month with one to three weeks to deliver: a few waiting to be
+# planned, some waiting on a supplier, and the rest scheduled or in progress.
 OPEN_FATES = (
     "draft",
     "draft",
     "waiting",
     "scheduled",
+    "waiting",
+    "draft",
+    "scheduled",
     "scheduled",
     "progress",
+    "scheduled",
+    "scheduled",
     "progress",
+    "scheduled",
+    "scheduled",
+    "progress",
+    "scheduled",
 )
 
 _AUDIT_MODELS = (
@@ -202,6 +214,108 @@ def assert_local_database():
             "sample-history only runs on a local database (localhost). "
             f"Refusing host {host!r}."
         )
+
+
+# Every table that holds shop activity rather than setup. Each foreign key
+# that points at one of these comes from another table in this list, so a
+# TRUNCATE ... CASCADE never reaches users, machines, clients, suppliers,
+# the catalog, tools or settings.
+TRANSACTION_TABLES = (
+    "job_orders",
+    "operations",
+    "operation_helpers",
+    "operation_time_logs",
+    "schedule_moves",
+    "sales_invoices",
+    "material_purchases",
+    "supplier_orders",
+    "notification_logs",
+    "staff_alerts",
+    "attendance_records",
+    "machine_downtimes",
+    "tool_events",
+    "stocktakes",
+    "stocktake_lines",
+    "offline_action_receipts",
+    "sample_records",
+)
+
+
+def _wipe_transactions():
+    """Delete all shop activity and put borrowed tools back on the rack.
+
+    Users, machines, clients, suppliers, the catalog, tools and consumables,
+    the work calendar and settings stay. Machine units whose usual operator
+    is not a production worker (an Admin, from before Admins stopped
+    working jobs) are opened to all.
+    """
+    from sqlalchemy import text
+
+    counts = {}
+    # From an earlier run of the generator: put back the consumable stock it
+    # changed and drop the audit rows it wrote (the rest goes in the TRUNCATE).
+    restored = 0
+    sample_audit = []
+    for row in SampleRecord.query.order_by(SampleRecord.id).all():
+        detail = row.detail or {}
+        if detail.get("role") == "stock_snapshot":
+            tool = db.session.get(Tool, row.record_id)
+            if tool is not None:
+                tool.quantity_on_hand = Decimal(str(detail.get("quantityOnHand")))
+                restored += 1
+        elif row.table_name == "audit_logs":
+            sample_audit.append(row.record_id)
+    counts["sample audit rows"] = _delete_ids("audit_logs", sample_audit) if sample_audit else 0
+    counts["stock restored"] = restored
+    db.session.flush()
+    for table in TRANSACTION_TABLES:
+        counts[table] = db.session.execute(text(f"SELECT count(*) FROM {table}")).scalar()
+    db.session.execute(text("TRUNCATE " + ", ".join(TRANSACTION_TABLES) + " CASCADE"))
+    counts["tool units back on the rack"] = db.session.execute(
+        text(
+            "UPDATE tool_units SET status = 'AVAILABLE', current_holder_id = NULL, held_since = NULL "
+            "WHERE status = 'OUT'"
+        )
+    ).rowcount
+    counts["machine operators cleared"] = db.session.execute(
+        text(
+            "UPDATE machine_units SET default_operator_id = NULL "
+            "WHERE default_operator_id IS NOT NULL AND default_operator_id NOT IN "
+            "(SELECT id FROM users WHERE role = 'PRODUCTION_WORKER' AND status <> 'DISABLED')"
+        )
+    ).rowcount
+    db.session.flush()
+    return counts
+
+
+def reset_demo_data(start, end, seed=42, apply=False):
+    """Replace all shop activity with fresh sample history (``start``..``end``).
+
+    One transaction: the wipe and the new history commit together or not at
+    all. Without ``apply`` everything is rolled back after the summary.
+    Runs on any database; the CLI asks for the host name before it commits.
+    """
+    start_d = _parse_day(start, "start")
+    end_d = _parse_day(end, "end")
+    if end_d < start_d:
+        raise ValueError("end is before start")
+    frozen = _freeze_onupdate()
+    try:
+        with _quiet_audit():
+            wiped = _wipe_transactions()
+            summary = _generate(start_d, end_d, int(seed))
+            summary["wiped"] = wiped
+            if apply:
+                db.session.commit()
+            else:
+                db.session.rollback()
+            summary["applied"] = bool(apply)
+            return summary
+    except Exception:
+        db.session.rollback()
+        raise
+    finally:
+        _thaw_onupdate(frozen)
 
 
 def generate(start, end, seed=42, apply=False):
@@ -668,8 +782,9 @@ def _plan_jobs(rng, shop, start, end):
         season = {3: 1.08, 4: 0.97, 5: 1.03, 6: 0.90, 7: 1.05, 8: 1.08, 9: 0.96, 10: 1.12}.get(
             anchor.month, 1.0
         )
-        # About 47 job orders a month at the start, rising to about 57.
-        full = (11.0 + month_i * 0.2) * season * rng.uniform(0.94, 1.06)
+        # About 32 job orders a month at the start, rising to about 38
+        # (the shop's 30-40 a month), with the seasonal wobble.
+        full = (7.5 + month_i * 0.17) * season * rng.uniform(0.94, 1.06)
         count = max(1, int(round(full * (len(week) / 6))))
         for _ in range(count):
             seq += 1
@@ -700,7 +815,7 @@ def _plan_jobs(rng, shop, start, end):
                     "client": client,
                     "kind": kind,
                     "needs": needs,
-                    "title": f"{part}, {size}",
+                    "title": _job_title(kind, part, size),
                     "description": f"{blurb} Size {size}.",
                     "qty": rng.randint(1, 12),
                     "amount": round(amount, 2),
@@ -785,7 +900,7 @@ def _one_job(rng, shop, ledger, plan, counters, admin, office):
         title=plan["title"],
         description=plan["description"],
         due_date=plan["due"],
-        client_po_number=f"PO-{plan['po'].year}-{plan['seq']:04d}",
+        client_po_number=_client_po(plan),
         po_date=plan["po"],
         status=status,
         priority=plan["priority"],
@@ -829,14 +944,16 @@ def _one_job(rng, shop, ledger, plan, counters, admin, office):
     purchase = _purchase_for_job(rng, shop, ledger, plan, job, catalog, office, counters)
     not_before, previous_start, late = _ready_at(shop, plan, purchase)
     if fate == "progress":
-        anchor = shop.working_days[-4] if len(shop.working_days) >= 4 else plan["po"]
+        anchor = shop.working_days[-10] if len(shop.working_days) >= 10 else plan["po"]
         not_before = max(not_before, shop_local_to_utc(anchor, time(8, 0)))
         if purchase and purchase["received"] and purchase["received"] > anchor:
             not_before = shop_local_to_utc(purchase["received"], time(8, 0))
     elif fate in ("scheduled", "waiting"):
         not_before = max(not_before, shop_local_to_utc(shop.next_working(shop.end + timedelta(days=1)), time(8, 0)))
 
-    horizon = shop.history_end if fate == "run" else shop.future_end
+    # Work already started must have started by the end date, so in-progress
+    # jobs are placed inside the history too (never in the future).
+    horizon = shop.history_end if fate in ("run", "progress") else shop.future_end
     ops = _place_operations(
         rng, shop, ledger, job, plan, not_before, horizon, admin, counters, fate
     )
@@ -2417,6 +2534,21 @@ def _weighted(rng, weights):
         if roll <= acc:
             return index
     return len(weights) - 1
+
+
+def _job_title(kind, part, size):
+    """Titles in the shop's own style, e.g. "Fabrication of Drive shaft, 50 mm"."""
+    verb = {
+        JobType.FABRICATION: "Fabrication of",
+        JobType.MODIFICATION: "Modification of",
+        JobType.REPAIR: "Repair of",
+    }.get(kind, "Fabrication of")
+    return f"{verb} {part}, {size}"
+
+
+def _client_po(plan):
+    """A plain numeric client PO number, like the paper POs the shop receives."""
+    return str(12000 + plan["seq"] * 7 + (plan["po"].toordinal() % 5))
 
 
 def _job_type(rng):

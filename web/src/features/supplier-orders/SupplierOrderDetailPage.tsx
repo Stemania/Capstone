@@ -1,6 +1,6 @@
 import { formatShop, isFutureShopDay, isPastShopDay, shopToday } from '../../utils/shopTime';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, DatePicker, Input, InputNumber, Modal, Select, Space, Table, Tooltip, message } from 'antd';
+import { Alert, Button, DatePicker, Input, InputNumber, Select, Space, Table, Tooltip, message } from 'antd';
 import type { TableColumnsType } from 'antd';
 import {
   CheckOutlined,
@@ -30,6 +30,7 @@ import {
 } from './printReceiveGate';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
 import './supplierOrderDetail.css';
+import { confirmAction } from '../../utils/confirmAction';
 
 const DELIVERY_MODE_OPTIONS: { value: DeliveryMode; label: string }[] = [
   { value: 'PICKUP', label: 'Pick-up' },
@@ -38,7 +39,8 @@ const DELIVERY_MODE_OPTIONS: { value: DeliveryMode; label: string }[] = [
 
 function askDate(title: string, intro: string, okText: string, onOk: (d: string) => Promise<void>) {
   let picked: Dayjs = shopToday();
-  Modal.confirm({
+  confirmAction({
+      wide: true,
     title,
     content: (
       <div style={{ marginTop: 8 }}>
@@ -253,12 +255,11 @@ export default function SupplierOrderDetailPage() {
     );
 
   const cancelOrder = () =>
-    Modal.confirm({
+    confirmAction({
       title: 'Cancel this supplier order?',
-      content:
-        'Every line is cancelled and its material goes back to "to order". To change an issued order, cancel it and issue a new one.',
+      content: 'Its materials go back to "to order".',
       okText: 'Cancel order',
-      okButtonProps: { danger: true },
+      danger: true,
       cancelText: 'Keep',
       onOk: () => run(() => supplierOrdersApi.cancel(order.id), 'Order cancelled'),
     });
@@ -838,8 +839,7 @@ export default function SupplierOrderDetailPage() {
       >
         <div style={{ display: 'grid', gap: 12 }}>
           <div style={{ fontSize: 13, color: '#475569' }}>
-            Applies to every line on this order that has not been received. A later date moves
-            affected jobs later; an earlier date moves nothing.
+            For every line not yet received. A later date moves affected jobs later.
           </div>
           <div>
             <div style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>

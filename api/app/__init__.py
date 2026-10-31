@@ -360,6 +360,40 @@ def _register_cli(app):
             else "Dry run: nothing was saved. Run with --apply to commit."
         )
 
+    @sample_history_group.command("reset")
+    @click.option("--start", required=True, help="First shop day, YYYY-MM-DD.")
+    @click.option("--end", required=True, help="Last shop day, YYYY-MM-DD.")
+    @click.option("--seed", type=int, default=42, show_default=True)
+    @click.option(
+        "--apply",
+        "apply_changes",
+        is_flag=True,
+        help="Commit. Without it, wipe and rebuild, print the summary, and roll back.",
+    )
+    def sample_history_reset(start, end, seed, apply_changes):
+        """Delete ALL job orders and other shop activity, then load sample history.
+
+        Keeps users, machines, clients, suppliers, the catalog, tools and
+        settings. Works on a hosted database too: take a backup first.
+        --apply asks you to type the database host before it commits.
+        """
+        from app.services.sample_history_service import format_summary, reset_demo_data
+
+        _confirm_sample_history_host(apply_changes)
+        try:
+            summary = reset_demo_data(start, end, seed=seed, apply=apply_changes)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        wiped = summary.pop("wiped", {})
+        print("Removed: " + ", ".join(f"{k} {v}" for k, v in wiped.items() if v))
+        for line in format_summary(summary):
+            print(line)
+        print(
+            "Applied."
+            if apply_changes
+            else "Dry run: nothing was saved. Run with --apply to commit."
+        )
+
     @sample_history_group.command("remove")
     @click.option(
         "--apply",

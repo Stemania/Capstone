@@ -44,7 +44,7 @@ export default function PinOfferModal() {
       width={400}
     >
       <p style={{ color: '#475569', marginBottom: 16, textAlign: 'center' }}>
-        Set a 6-digit PIN for this device only. You still need your password on any new device.
+        A 6-digit PIN for this phone only.
       </p>
       <PinSetupKeypad
         onSave={onSave}

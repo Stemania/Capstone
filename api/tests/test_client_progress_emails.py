@@ -130,21 +130,17 @@ def _use_job(monkeypatch, svc_mod, job):
 LONG = dict(start=date(2031, 3, 3), end=date(2031, 3, 14))
 
 
-def test_progress_emails_follow_the_update_level(svc, monkeypatch):
+def test_progress_emails_go_to_every_client_with_job_updates(svc, monkeypatch):
     svc_mod, sent = svc
     job = _job([_op(1, "IN_PROGRESS", **LONG), _op(2, **LONG)])
     _use_job(monkeypatch, svc_mod, job)
     svc_mod.notify_job_milestone(job.id, M.JOB_STARTED)
     assert sent[-1]["skip"] is None
 
+    # A client saved earlier with "key updates only" now gets progress emails too.
     job.client.update_level = "KEY"
-    for m in (M.JOB_STARTED, M.JOB_HALFWAY, M.JOB_FINAL_STAGE):
-        svc_mod.notify_job_milestone(job.id, m)
-        assert sent[-1]["skip"] == ju.KEY_UPDATES_ONLY
-    # Key updates still get Received and Ready for delivery.
-    for m in (M.JOB_RECEIVED, M.JOB_DELIVERED):
-        svc_mod.notify_job_milestone(job.id, m)
-        assert sent[-1]["skip"] is None
+    svc_mod.notify_job_milestone(job.id, M.JOB_HALFWAY)
+    assert sent[-1]["skip"] is None
 
 
 def test_progress_skipped_for_short_jobs_and_same_day(svc, monkeypatch):

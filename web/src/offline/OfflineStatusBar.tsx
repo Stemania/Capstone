@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons';
 import { formatShop } from '../utils/shopTime';
 import { useOfflineOptional, type OfflineContextValue } from './OfflineProvider';
+import { confirmAction } from '../utils/confirmAction';
 
 /**
  * Connection and waiting actions as a small pill in the worker top bar.
@@ -35,11 +36,11 @@ function SyncPill({
 
   const confirmDiscard = () => {
     if (!refused) return;
-    Modal.confirm({
+    confirmAction({
       title: 'Discard this action?',
-      content: `"${refused.label}" at ${formatShop(refused.at, 'MMM D, h:mm A')} will not be recorded. Tell the office if the work really happened.`,
+      content: `"${refused.label}" at ${formatShop(refused.at, 'MMM D, h:mm A')} will not be recorded.`,
       okText: 'Discard',
-      okButtonProps: { danger: true },
+      danger: true,
       cancelText: 'Keep it',
       onOk: () => {
         discard(refused.id);

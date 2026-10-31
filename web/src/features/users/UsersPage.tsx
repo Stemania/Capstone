@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Button, Modal, Form, Input, Select, Dropdown, message, Tooltip, QRCode, Space, Row, Col,
+  Button, Form, Input, Select, Dropdown, message, Tooltip, QRCode, Space, Row, Col,
 } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
@@ -20,6 +20,7 @@ import SelectMultipleIcon from '../../components/SelectMultipleIcon';
 import { EllipsisText, ResponsiveTable, rowOpenProps, FormModal } from '../../components/ui';
 import UserIdentity from '../../components/UserIdentity';
 import type { User, UserRole } from '../../types';
+import { confirmAction, showNotice } from '../../utils/confirmAction';
 
 const roleStyle: Record<string, { label: string; color: PillColor }> = {
   ADMIN: { label: 'Administrator', color: 'blue' },
@@ -29,39 +30,44 @@ const roleStyle: Record<string, { label: string; color: PillColor }> = {
 
 type StatusFilter = 'active' | 'inactive';
 
+function SetupLinkBlock({ setupUrl }: { setupUrl: string }) {
+  return (
+    <div style={{ textAlign: 'center', marginTop: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+        <QRCode value={setupUrl} size={168} bordered={false} />
+      </div>
+      <Space.Compact style={{ width: '100%' }}>
+        <Input value={setupUrl} readOnly />
+        <Button
+          icon={<CopyOutlined />}
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(setupUrl);
+              message.success('Link copied');
+            } catch {
+              message.error('Could not copy');
+            }
+          }}
+        >
+          Copy
+        </Button>
+      </Space.Compact>
+    </div>
+  );
+}
+
 /** Show the one-time setup link + QR so a worker without reliable email can still activate. */
 export function showSetupLink(setupUrl: string | null | undefined) {
   if (!setupUrl) return;
-  Modal.info({
-    title: 'Setup link for this user',
-    width: 440,
-    icon: null,
+  showNotice({
+    title: 'Setup link',
+    wide: true,
+    okText: 'Done',
     content: (
-      <div style={{ textAlign: 'center' }}>
-        <p style={{ color: '#475569', marginBottom: 16 }}>
-          They can open the email link, or scan this QR / copy the link on a phone.
-          This link works once and expires in 48 hours.
-        </p>
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
-          <QRCode value={setupUrl} size={168} />
-        </div>
-        <Space.Compact style={{ width: '100%' }}>
-          <Input value={setupUrl} readOnly />
-          <Button
-            icon={<CopyOutlined />}
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(setupUrl);
-                message.success('Link copied');
-              } catch {
-                message.error('Could not copy');
-              }
-            }}
-          >
-            Copy
-          </Button>
-        </Space.Compact>
-      </div>
+      <>
+        Scan on the worker’s phone or copy the link. Works once, for 48 hours.
+        <SetupLinkBlock setupUrl={setupUrl} />
+      </>
     ),
   });
 }
@@ -74,50 +80,26 @@ function reportInviteDelivery(
   setupUrl?: string | null,
 ) {
   if (!delivery) {
-    message.success(`${saved} Show them the setup link or QR. It works once and expires in 48 hours.`);
+    message.success(saved);
     showSetupLink(setupUrl);
     return;
   }
   if (delivery.status === 'SENT') {
-    message.success(
-      `${saved} Invitation sent by email${delivery.recipient ? ` to ${delivery.recipient}` : ''}.`,
-    );
+    message.success(`${saved} Invitation emailed${delivery.recipient ? ` to ${delivery.recipient}` : ''}.`);
     showSetupLink(setupUrl);
     return;
   }
-  Modal.warning({
-    title: delivery.status === 'FAILED' ? 'The invitation email could not be sent' : 'The invitation email was not sent',
-    width: 480,
+  showNotice({
+    title: 'Invitation email not sent',
+    wide: true,
+    okText: 'Done',
     content: (
       <>
-        <p>
-          {saved} The email was not delivered
-          {delivery.recipient ? ` to ${delivery.recipient}` : ''}.
-          Use the setup link below so they can still set a password on a phone.
-        </p>
-        {delivery.errorMessage && <p style={{ color: '#64748b' }}>Reason: {delivery.errorMessage}</p>}
+        {delivery.errorMessage ? `${delivery.errorMessage}. ` : ''}Use the setup link instead.
         {setupUrl ? (
-          <div style={{ textAlign: 'center', marginTop: 12 }}>
-            <QRCode value={setupUrl} size={148} />
-            <Space.Compact style={{ width: '100%', marginTop: 12 }}>
-              <Input value={setupUrl} readOnly />
-              <Button
-                icon={<CopyOutlined />}
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(setupUrl);
-                    message.success('Link copied');
-                  } catch {
-                    message.error('Could not copy');
-                  }
-                }}
-              >
-                Copy
-              </Button>
-            </Space.Compact>
-          </div>
+          <SetupLinkBlock setupUrl={setupUrl} />
         ) : (
-          <p>Add a mobile number or an email, then generate the setup link again.</p>
+          <div style={{ marginTop: 8 }}>Add a mobile number or an email, then generate the link again.</div>
         )}
       </>
     ),
@@ -139,6 +121,7 @@ export default function UsersPage() {
   const [editSaving, setEditSaving] = useState(false);
   const [editForm] = Form.useForm();
   const editRole = Form.useWatch('role', editForm) as UserRole | undefined;
+  const addRole = (Form.useWatch('role', form) as UserRole | undefined) ?? 'PRODUCTION_WORKER';
   const fetchUsers = async () => {
     setLoading(true);
     try {
@@ -173,7 +156,7 @@ export default function UsersPage() {
   };
 
   const onCreate = async (values: {
-    email: string;
+    email?: string;
     fullName: string;
     nickname?: string;
     role: string;
@@ -182,7 +165,7 @@ export default function UsersPage() {
     setSubmitting(true);
     try {
       const { data } = await usersApi.create({
-        email: values.email,
+        email: values.email?.trim() || undefined,
         fullName: values.fullName,
         nickname: values.nickname?.trim() || undefined,
         role: values.role,
@@ -238,7 +221,7 @@ export default function UsersPage() {
       });
       message.success(
         values.role !== editUser.role
-          ? 'Details saved. Their device PINs were revoked, so the new role applies at their next sign-in.'
+          ? 'Saved. The new role applies at their next sign-in.'
           : 'Details saved'
       );
       setEditUser(null);
@@ -253,7 +236,7 @@ export default function UsersPage() {
   const onDeactivate = async (id: string) => {
     try {
       await usersApi.deactivate(id);
-      message.success('User disabled. Their production history is kept.');
+      message.success('User disabled');
       fetchUsers();
     } catch (err) {
       message.error(getErrorMessage(err));
@@ -271,12 +254,11 @@ export default function UsersPage() {
   };
 
   const confirmDisable = (id: string, name: string) => {
-    Modal.confirm({
+    confirmAction({
       title: `Disable ${name}?`,
-      content:
-        'They will not be able to sign in. Job history, time logs, and audit records stay in the system.',
+      content: 'They can no longer sign in. Their history is kept.',
       okText: 'Disable',
-      okButtonProps: { danger: true },
+      danger: true,
       onOk: () => onDeactivate(id),
     });
   };
@@ -388,9 +370,9 @@ export default function UsersPage() {
             icon: <CheckCircleOutlined />,
             label: 'Re-enable',
             onClick: () => {
-              Modal.confirm({
+              confirmAction({
                 title: `Re-enable ${record.fullName}?`,
-                content: 'They will be able to sign in again with their existing password.',
+                content: 'They can sign in again with their current password.',
                 okText: 'Re-enable',
                 onOk: () => onReenable(record.id),
               });
@@ -543,7 +525,6 @@ export default function UsersPage() {
         open={modalOpen}
         icon={<UserAddOutlined />}
         title="Add User"
-        subtitle="Create an account. Set worker skills and hours under Worker setup."
         size="lg"
         width={640}
         onCancel={closeModal}
@@ -552,13 +533,22 @@ export default function UsersPage() {
         confirmLoading={submitting}
         destroyOnHidden
       >
-        <Form
+        <Form scrollToFirstError={{ block: 'center' }}
           form={form}
           layout="vertical"
           onFinish={onCreate}
           requiredMark="optional"
           initialValues={{ role: 'PRODUCTION_WORKER' }}
         >
+          <Form.Item name="role" label="Role" rules={[{ required: true }]} style={{ marginBottom: 14 }}>
+            <Select
+              options={[
+                { value: 'ADMIN', label: 'Administrator' },
+                { value: 'OFFICE_STAFF', label: 'Office Staff' },
+                { value: 'PRODUCTION_WORKER', label: 'Production Worker' },
+              ]}
+            />
+          </Form.Item>
           {sectionLabel('Account details')}
           <Row gutter={16}>
             <Col xs={24} sm={15}>
@@ -575,7 +565,6 @@ export default function UsersPage() {
               <Form.Item
                 name="nickname"
                 label="Nickname"
-                tooltip="Shown under the full name."
                 style={{ marginBottom: 14 }}
               >
                 <Input maxLength={40} placeholder="e.g. JD" />
@@ -585,10 +574,13 @@ export default function UsersPage() {
               <Form.Item
                 name="email"
                 label="Email"
-                rules={[{ required: true, type: 'email', message: 'Valid email required' }]}
+                rules={[
+                  { required: addRole !== 'PRODUCTION_WORKER', message: 'Email is required for this role' },
+                  { type: 'email', message: 'Enter a valid email' },
+                ]}
                 style={{ marginBottom: 14 }}
               >
-                <Input placeholder="name@bmsc.local" />
+                <Input placeholder={addRole === 'PRODUCTION_WORKER' ? undefined : 'name@bmsc.local'} />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -602,21 +594,6 @@ export default function UsersPage() {
               </Form.Item>
             </Col>
           </Row>
-          <div style={{ fontSize: 12, color: '#64748b', margin: '-4px 0 12px' }}>
-            Email or mobile number is used for sign-in. The invitation is sent by email, and a
-            setup link is also shown on screen.
-          </div>
-
-          {sectionLabel('Role & access')}
-          <Form.Item name="role" label="Role" rules={[{ required: true }]} style={{ marginBottom: 4 }}>
-            <Select
-              options={[
-                { value: 'ADMIN', label: 'Administrator' },
-                { value: 'OFFICE_STAFF', label: 'Office Staff' },
-                { value: 'PRODUCTION_WORKER', label: 'Production Worker' },
-              ]}
-            />
-          </Form.Item>
         </Form>
       </FormModal>
 
@@ -624,7 +601,6 @@ export default function UsersPage() {
         open={!!editUser}
         icon={<EditOutlined />}
         title={editUser ? `Edit ${editUser.fullName}` : 'Edit user'}
-        subtitle="Name, contact details, and role."
         size="lg"
         width={640}
         onCancel={() => setEditUser(null)}
@@ -633,7 +609,7 @@ export default function UsersPage() {
         confirmLoading={editSaving}
         forceRender
       >
-        <Form form={editForm} layout="vertical" onFinish={onEditSave} requiredMark="optional">
+        <Form scrollToFirstError={{ block: 'center' }} form={editForm} layout="vertical" onFinish={onEditSave} requiredMark="optional">
           {sectionLabel('Account details')}
           <Row gutter={16}>
             <Col xs={24} sm={15}>
@@ -650,7 +626,6 @@ export default function UsersPage() {
               <Form.Item
                 name="nickname"
                 label="Nickname"
-                tooltip="Shown under the full name."
                 style={{ marginBottom: 14 }}
               >
                 <Input maxLength={40} placeholder="e.g. JD" />
@@ -674,7 +649,7 @@ export default function UsersPage() {
           </Row>
           {editUser?.status === 'INVITED' ? (
             <div style={{ fontSize: 12, color: '#64748b', margin: '-4px 0 12px' }}>
-              Add an email or mobile number, save, then send the invite from the row menu.
+              Save, then send the invite or setup link from the row menu.
             </div>
           ) : null}
 
@@ -690,8 +665,7 @@ export default function UsersPage() {
           </Form.Item>
           {editUser && editRole && editRole !== editUser.role ? (
             <div style={{ fontSize: 12, color: '#b45309', marginTop: 8 }}>
-              Changing the role revokes this user&apos;s device PINs. They must sign in with their
-              password next time, and the new role applies from then.
+              They will need to sign in again with their password.
             </div>
           ) : null}
         </Form>

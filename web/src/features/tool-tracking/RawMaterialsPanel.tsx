@@ -1,7 +1,7 @@
 import { formatShop, isFutureShopDay, shopToday } from '../../utils/shopTime';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, DatePicker, Descriptions, Drawer, Modal, Segmented, message } from 'antd';
+import { Button, DatePicker, Descriptions, Drawer, Segmented, message } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { DownloadOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
@@ -27,6 +27,7 @@ import {
   type InventorySummaryCard,
 } from './inventoryLook';
 import { formatPoMaterialLabel } from '../../components/MaterialInputs';
+import { confirmAction } from '../../utils/confirmAction';
 
 function money(v: number | null | undefined) {
   if (v == null) return '—';
@@ -104,7 +105,8 @@ export default function RawMaterialsPanel() {
 
   const markReceived = (row: MaterialPurchase) => {
     let receivedDate = shopToday();
-    Modal.confirm({
+    confirmAction({
+      wide: true,
       title: `Mark “${row.materialName}” received?`,
       content: (
         <div style={{ marginTop: 8 }}>

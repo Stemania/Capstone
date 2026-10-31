@@ -90,6 +90,28 @@
 .qr-label--large .qr-label__name { font-size: 11pt; }
 .qr-label--large .qr-label__detail { font-size: 9pt; }
 
+.qr-form__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 6px;
+}
+
+.qr-form__hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.qr-form__summary {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
 .qr-preview {
   border: 1px solid #e2e8f0;
   border-radius: 8px;

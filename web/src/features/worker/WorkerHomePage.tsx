@@ -617,7 +617,7 @@ export default function WorkerHomePage() {
 
           {!online && (
             <div className="w-note" style={{ textAlign: 'center', padding: '0 12px' }}>
-              Offline: your week and tools show again when you reconnect. Start and Resume still work.
+              Offline. Start and Resume still work.
             </div>
           )}
         </div>

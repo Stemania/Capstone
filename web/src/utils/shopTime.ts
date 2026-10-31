@@ -54,7 +54,7 @@ export function formatShop(value: DateInput, format: string, empty = '—'): str
 
 /** Format an ISO UTC timestamp for display in shop local time. */
 export function formatShopDateTime(iso: string | null | undefined): string {
-  return formatShop(iso, 'MMM D, YYYY HH:mm');
+  return formatShop(iso, 'MMM D, YYYY h:mm A');
 }
 
 export function formatShopDate(iso: string | null | undefined): string {

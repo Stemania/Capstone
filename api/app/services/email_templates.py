@@ -162,16 +162,6 @@ def _button_html(label: str, url: str) -> str:
     )
 
 
-def _fallback_link_html(url: str) -> str:
-    return (
-        f'<p style="margin:8px 0 0;font-family:Arial,Helvetica,sans-serif;'
-        f'font-size:13px;line-height:1.5;color:{EMAIL_MUTED}">'
-        f'If the button doesn&rsquo;t work, open this link:<br>'
-        f'<a href="{_esc(url)}" style="color:{EMAIL_BLUE};word-break:break-all">'
-        f"{_esc(url)}</a></p>"
-    )
-
-
 def _status_badge_html(milestone: str) -> str:
     label, fg, bg = _STATUS_BADGES.get(milestone, ("Update", EMAIL_MUTED, "#f1f5f9"))
     return (
@@ -219,9 +209,6 @@ def render_branded_email(
         text_parts.append("")
     if button_url and button_label:
         text_parts.append(f"{button_label}:")
-        text_parts.append(button_url)
-        text_parts.append("")
-        text_parts.append("If the button doesn't work, open this link:")
         text_parts.append(button_url)
         text_parts.append("")
     if note:
@@ -272,8 +259,9 @@ def render_branded_email(
             f'font-size:15px;line-height:1.55;color:#0f172a">{_esc(closing)}</p>'
         )
     if button_url and button_label:
+        # Button only: a long raw link printed in the body looks like phishing
+        # to spam filters. The plain-text part still carries the link.
         body_bits.append(_button_html(button_label, button_url))
-        body_bits.append(_fallback_link_html(button_url))
     if note:
         body_bits.append(
             f'<p style="margin:18px 0 0;font-family:Arial,Helvetica,sans-serif;'
@@ -281,8 +269,8 @@ def render_branded_email(
         )
 
     footer_html = "<br>".join(_esc(line) for line in footer)
-    logo_src = _esc(email_logo_url())
-    # Table header: title left, logo right (remote URL from PUBLIC_APP_URL).
+    # Text-only header. A remote image on a free hosting domain (vercel.app)
+    # counts against new senders in spam filters, so the logo is left out.
     header_html = (
         f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">'
         f"<tr>"
@@ -292,11 +280,6 @@ def render_branded_email(
         f'line-height:1.3;color:#ffffff">{_esc(SHOP_HEADER_NAME)}</div>'
         f'<div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#cbd5e1;'
         f'margin-top:4px">{_esc(SHOP_SUBTITLE)}</div>'
-        f"</td>"
-        f'<td valign="middle" align="right" width="64" style="padding:0 0 0 12px;'
-        f'vertical-align:middle;width:64px">'
-        f'<img src="{logo_src}" alt="BMSC logo" width="48" height="48" '
-        f'style="display:block;border:0">'
         f"</td>"
         f"</tr></table>"
     )

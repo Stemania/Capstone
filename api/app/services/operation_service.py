@@ -1240,7 +1240,7 @@ def set_machine_unit_default_operator(unit_id, operator_id):
         raise AppError("Worker not found", "NOT_FOUND", 404)
     if not is_assignable_worker(user):
         raise AppError(
-            "Default operator must be a production worker or Admin who is not disabled",
+            "Default operator must be an active production worker",
             "VALIDATION_ERROR",
             400,
         )

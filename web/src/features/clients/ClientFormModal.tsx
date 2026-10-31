@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Col, Form, Input, Modal, Row, Segmented, Switch, message } from 'antd';
+import { Button, Col, Form, Input, Modal, Row, Switch, message } from 'antd';
 import { ContactsOutlined } from '@ant-design/icons';
 import { clientsApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
@@ -26,7 +26,6 @@ export default function ClientFormModal({
   const [saving, setSaving] = useState(false);
   const notifyByEmail = Form.useWatch('notifyByEmail', form);
   const email = Form.useWatch('email', form);
-  const updateLevel = Form.useWatch('updateLevel', form);
 
   useEffect(() => {
     if (!open) return;
@@ -37,11 +36,10 @@ export default function ClientFormModal({
         email: client.email,
         mobileNumber: client.mobileNumber,
         notifyByEmail: !!client.notifyByEmail,
-        updateLevel: client.updateLevel || 'DETAILED',
       });
     } else {
       form.resetFields();
-      form.setFieldsValue({ notifyByEmail: false, updateLevel: 'DETAILED' });
+      form.setFieldsValue({ notifyByEmail: false });
     }
   }, [open, client, form]);
 
@@ -55,7 +53,8 @@ export default function ClientFormModal({
         email: values.email || undefined,
         mobileNumber: values.mobileNumber || undefined,
         notifyByEmail: !!values.notifyByEmail,
-        updateLevel: values.updateLevel || 'DETAILED',
+        // One kind of job update: detailed progress.
+        updateLevel: 'DETAILED' as const,
       };
       if (client) {
         const { data } = await clientsApi.update(client.id, payload);
@@ -97,11 +96,6 @@ export default function ClientFormModal({
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="app-form-modal__title">{client ? 'Edit client' : 'Register client'}</div>
-          <div className="app-form-modal__sub">
-            {client
-              ? 'Update contact details and email job updates.'
-              : 'Company or person, plus email job updates if they want them.'}
-          </div>
         </div>
         <button type="button" className="app-form-modal__close" onClick={onClose} aria-label="Close">
           ×
@@ -119,10 +113,10 @@ export default function ClientFormModal({
           <Input placeholder="Company or person name" />
         </Form.Item>
         <Form.Item name="contact" label="Contact person / notes" style={{ marginBottom: 18 }}>
-          <Input placeholder="Optional — who to ask for, or a short note" />
+          <Input placeholder="Optional" />
         </Form.Item>
 
-        {sectionLabel('Contact Details and Email Updates')}
+        {sectionLabel('Contact')}
         <Row gutter={12}>
           <Col xs={24} sm={14}>
             <Form.Item
@@ -145,35 +139,14 @@ export default function ClientFormModal({
           <div className="client-notify__row">
             <div className="client-notify__copy">
               <div className="client-notify__title">Send job updates by email</div>
-              <div className="client-notify__hint">
-                Emails when a job is received, as it progresses, if it is delayed, and when it is
-                ready for delivery
-              </div>
             </div>
             <Form.Item name="notifyByEmail" valuePropName="checked" style={{ marginBottom: 0 }}>
               <Switch />
             </Form.Item>
           </div>
-          {notifyByEmail ? (
-            <div className="client-notify__level">
-              <Form.Item name="updateLevel" style={{ marginBottom: 4 }}>
-                <Segmented
-                  options={[
-                    { value: 'DETAILED', label: 'Detailed progress' },
-                    { value: 'KEY', label: 'Key updates only' },
-                  ]}
-                />
-              </Form.Item>
-              <div className="client-notify__hint">
-                {updateLevel === 'KEY'
-                  ? 'Received, ready for delivery, and delays: about 2 emails per job.'
-                  : 'Also when work starts, at about halfway, and at the final stage: up to 5 emails per job, never more than one progress email a day.'}
-              </div>
-            </div>
-          ) : null}
           {emailMissing && (
             <div style={{ fontSize: 12, color: '#b45309', marginTop: 8 }}>
-              Add an email address above — updates cannot be sent without one.
+              Add an email address to send updates.
             </div>
           )}
         </div>

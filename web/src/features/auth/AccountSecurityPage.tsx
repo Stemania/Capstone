@@ -21,6 +21,7 @@ import { formatShop, shopNow, toShopDayjs } from '../../utils/shopTime';
 import type { UserDevice } from '../../types';
 import PinSetupKeypad from './PinSetupKeypad';
 import './AccountSecurityPage.css';
+import { confirmAction } from '../../utils/confirmAction';
 
 /** Other devices listed before "Show N more". */
 const VISIBLE_OTHERS = 3;
@@ -138,7 +139,6 @@ export default function AccountSecurityPage() {
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const deviceId = getOrCreateDeviceId();
   const deviceWord = isWorker ? 'phone' : 'device';
-  const [modal, modalHolder] = Modal.useModal();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -177,12 +177,11 @@ export default function AccountSecurityPage() {
   };
 
   const onRemovePin = () => {
-    modal.confirm({
+    confirmAction({
       title: 'Turn off PIN unlock?',
       content: `You will sign in with your password on this ${deviceWord}.`,
       okText: 'Turn off PIN',
       cancelText: 'Keep PIN',
-      centered: true,
       onOk: async () => {
         try {
           await authApi.removePin();
@@ -220,12 +219,11 @@ export default function AccountSecurityPage() {
     : 'It is signed out right away. Signing in there again needs the password.';
 
   const signOutOne = (row: UserDevice) => {
-    modal.confirm({
+    confirmAction({
       title: `Sign out ${describeDevice(row.deviceLabel, row.deviceId).name}?`,
       content: signOutNote,
       okText: 'Sign out',
-      okButtonProps: { danger: true },
-      centered: true,
+      danger: true,
       onOk: async () => {
         try {
           await authApi.revokeDevice(row.id);
@@ -239,12 +237,11 @@ export default function AccountSecurityPage() {
   };
 
   const signOutOthers = () => {
-    modal.confirm({
+    confirmAction({
       title: `Sign out ${others.length} other device${others.length === 1 ? '' : 's'}?`,
       content: `Each one is signed out right away${isWorker ? ' and its PIN unlock is turned off' : ''}. This ${deviceWord} stays signed in.`,
       okText: 'Sign out others',
-      okButtonProps: { danger: true },
-      centered: true,
+      danger: true,
       onOk: async () => {
         try {
           const { data } = await authApi.signOutOtherDevices();
@@ -270,9 +267,8 @@ export default function AccountSecurityPage() {
           Password
         </span>
       }
-      subtitle="Change the password you use to sign in."
     >
-      <Form
+      <Form scrollToFirstError={{ block: 'center' }}
         form={passwordForm}
         layout="vertical"
         onFinish={onChangePassword}
@@ -345,8 +341,8 @@ export default function AccountSecurityPage() {
         <p className="sec-note">
           <InfoCircleOutlined aria-hidden />
           {isWorker
-            ? 'Changing your password signs out your other devices and turns off PIN unlock on all of them.'
-            : 'Changing your password signs out your other devices.'}
+            ? 'Your other devices will be signed out and their PINs turned off.'
+            : 'Your other devices will be signed out.'}
         </p>
         <Button type="primary" htmlType="submit" size="large" loading={passwordSaving} className="sec-btn">
           Update password
@@ -435,7 +431,6 @@ export default function AccountSecurityPage() {
           Your devices
         </span>
       }
-      subtitle="Browsers and phones where you signed in. Most recent first."
       extra={
         others.length > 0 ? (
           <Button className="sec-btn sec-devices__all" onClick={signOutOthers}>
@@ -476,10 +471,6 @@ export default function AccountSecurityPage() {
               {showAll ? 'Show fewer' : `Show ${hiddenCount} more`}
             </Button>
           ) : null}
-          <p className="sec-note sec-note--muted">
-            <InfoCircleOutlined aria-hidden />
-            Last active updates about once an hour while a device is in use. Location is not recorded.
-          </p>
         </>
       )}
     </SectionCard>
@@ -494,7 +485,6 @@ export default function AccountSecurityPage() {
           onBack={() => (window.history.length > 1 ? navigate(-1) : navigate('/home'))}
         />
       ) : null}
-      {modalHolder}
       <div className="sec__inner">
         {isWorker ? null : (
           <div className="sec-who">

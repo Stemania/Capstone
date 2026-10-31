@@ -9,7 +9,7 @@ import {
   Alert,
   Row,
   Col,
-  Segmented,
+  Checkbox,
 } from 'antd';
 import { CheckOutlined } from '@ant-design/icons';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -20,11 +20,11 @@ import { useAuth } from '../../hooks/useAuth';
 import { isPastShopDay } from '../../utils/shopTime';
 import type { Client, JobOrderStatus } from '../../types';
 import { jobOrdersDraftsListPath } from './jobOrderListPaths';
-import { MATERIALS_NEEDED_OPTIONS } from './jobOrderListTabs';
 import { IdChip, Page, SectionCard, PageSkeleton } from '../../components/ui';
 import PlannedMaterialsEditor from './PlannedMaterialsEditor';
 import { blankPlannedRow, plannedPayload, rowsFromJob, type PlannedRow } from './plannedMaterials';
 import './joForm.css';
+import { showFormError, validateOrShow } from '../../utils/formFeedback';
 
 const { TextArea } = Input;
 
@@ -56,7 +56,6 @@ export default function JobOrderFormPage() {
   const { isAdmin, canOfficeWrite } = useAuth();
   const released = jobStatus != null && jobStatus !== 'DRAFT';
   /** Edit job info: Office Staff only, and only before release. */
-  const canEditInfo = canOfficeWrite && (!isEdit || !released);
   const backTo = !id
     ? presetClientId
       ? `/clients/${presetClientId}`
@@ -142,7 +141,7 @@ export default function JobOrderFormPage() {
       materialsNeeded: MaterialsNeeded;
     };
     try {
-      values = await form.validateFields();
+      values = await validateOrShow(form);
     } catch {
       return;
     }
@@ -151,7 +150,7 @@ export default function JobOrderFormPage() {
       values.materialsNeeded === 'TO_ORDER' ? plannedPayload(materials) : { lines: [] };
     if (planned.error) {
       setMaterialErrorKey(planned.error.key);
-      setError(planned.error.message);
+      showFormError(planned.error.message, document.querySelector('.jo-form__panel--mats'));
       return;
     }
     setMaterialErrorKey(null);
@@ -181,7 +180,7 @@ export default function JobOrderFormPage() {
         navigate(`/job-orders/${data.id}`);
       }
     } catch (err) {
-      setError(getErrorMessage(err));
+      showFormError(getErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
@@ -211,17 +210,6 @@ export default function JobOrderFormPage() {
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
             {pageHeading}
             {isEdit && jobNumber ? <IdChip>{jobNumber}</IdChip> : null}
-          </span>
-        }
-        extra={
-          <span className="ui-muted-note">
-            {canEditInfo ? (
-              <>
-                Fields marked <span className="tone-text--red">*</span> are required
-              </>
-            ) : (
-              'Locked after release'
-            )}
           </span>
         }
       >
@@ -325,24 +313,18 @@ export default function JobOrderFormPage() {
               <div className="ui-form-section">Materials needed</div>
               <Form.Item
                 name="materialsNeeded"
-                label="Does this job need materials bought?"
-                rules={[{ required: true }]}
+                valuePropName="checked"
+                getValueProps={(v) => ({ checked: v === 'NOT_REQUIRED' })}
+                normalize={(checked: boolean) => (checked ? 'NOT_REQUIRED' : 'TO_ORDER')}
                 className="jo-form__materials-item"
               >
-                <Segmented
-                  className="jo-form__materials-radios"
-                  options={MATERIALS_NEEDED_OPTIONS.map((opt) => ({
-                    value: opt.value,
-                    label: opt.label,
-                    disabled: opt.value === 'NOT_REQUIRED' && released && !isAdmin,
-                  }))}
-                />
+                <Checkbox disabled={released && !isAdmin && needsMaterials}>
+                  No materials to buy{' '}
+                  <span className="ui-muted-note">(client-supplied or in stock)</span>
+                </Checkbox>
               </Form.Item>
               {needsMaterials ? (
                 <>
-                  <div className="ui-muted-note jo-form__materials-note">
-                    List what the job needs. The job page orders from this list, so it is only typed once.
-                  </div>
                   <PlannedMaterialsEditor
                     rows={materials}
                     errorKey={materialErrorKey}

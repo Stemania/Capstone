@@ -44,7 +44,9 @@ def list_users():
 @require_roles(UserRole.ADMIN)
 def create_user_route():
     data = request.get_json() or {}
-    required = ["email", "fullName", "role", "mobileNumber"]
+    required = ["fullName", "role", "mobileNumber"]
+    if data.get("role") != UserRole.PRODUCTION_WORKER.value:
+        required.insert(0, "email")
     for field in required:
         if not data.get(field):
             return (
@@ -77,7 +79,7 @@ def create_user_route():
 
     user, invitation, _raw = create_invited_user(
         full_name=data["fullName"],
-        email=data["email"],
+        email=data.get("email") or "",
         mobile_number=data["mobileNumber"],
         role=UserRole(data["role"]),
         channel=InvitationChannel.EMAIL,

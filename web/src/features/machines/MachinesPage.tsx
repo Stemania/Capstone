@@ -6,7 +6,6 @@ import {
   Select,
   Modal,
   Form,
-  Typography,
   Skeleton,
   message,
   Button,
@@ -56,6 +55,7 @@ import {
   type CardStatus,
   type MachineActions,
 } from './machineStatus';
+import { confirmAction } from '../../utils/confirmAction';
 
 type StatusFilter = CardStatus;
 
@@ -242,15 +242,9 @@ export default function MachinesPage() {
 
   const warnScheduled = (count: number) => {
     if (!count) return;
-    Modal.confirm({
-      title: `${count} operation${count === 1 ? '' : 's'} still scheduled`,
-      icon: <WarningOutlined />,
-      content:
-        'They were not moved. This machine is now marked down and unavailable for new scheduling. Open the schedule to reschedule them.',
-      okText: 'Open Schedule',
-      cancelText: 'Stay here',
-      onOk: () => navigate('/schedule'),
-    });
+    message.warning(
+      `${count} operation${count === 1 ? ' is' : 's are'} still booked on this machine. Use Move booked work in its details.`,
+    );
   };
 
   const submitReport = async () => {
@@ -322,14 +316,11 @@ export default function MachinesPage() {
   };
 
   const retireUnit = (unit: MachineUnitStatus) => {
-    Modal.confirm({
+    confirmAction({
       title: `Remove ${unit.label}?`,
-      icon: <WarningOutlined />,
-      content:
-        'Use this when the machine is scrapped or replaced. It leaves the shop floor but keeps history. For a temporary repair, use Report breakdown instead.',
+      content: 'For a scrapped or replaced machine. Its history is kept.',
       okText: 'Remove machine',
-      okButtonProps: { danger: true },
-      cancelText: 'Cancel',
+      danger: true,
       onOk: async () => {
         try {
           const { data } = await operationsApi.setMachineUnitActive(unit.id, false);
@@ -338,14 +329,9 @@ export default function MachinesPage() {
           await fetchUnits();
           const count = data.affectedCount || 0;
           if (count > 0) {
-            Modal.confirm({
-              title: `${count} operation${count === 1 ? '' : 's'} still point at this machine`,
-              icon: <WarningOutlined />,
-              content: 'Reschedule them onto a replacement unit from the schedule board.',
-              okText: 'Open Schedule',
-              cancelText: 'Stay here',
-              onOk: () => navigate('/schedule'),
-            });
+            message.warning(
+              `${count} operation${count === 1 ? ' is' : 's are'} still booked on ${unit.label}. Reschedule their job orders.`,
+            );
           }
         } catch (err) {
           message.error(getErrorMessage(err));
@@ -411,6 +397,22 @@ export default function MachinesPage() {
       setSaving(false);
     }
   };
+
+  // The saved operator may no longer be in the worker list (disabled, or an
+  // Admin from before Admins stopped working jobs): still show their name.
+  const operatorOptions = useMemo(() => {
+    const id = operatorFor?.defaultOperatorId;
+    if (!id || workers.some((w) => w.id === id)) return workers;
+    return [
+      ...workers,
+      {
+        id,
+        fullName: operatorFor?.defaultOperatorName || 'Former operator',
+        nickname: operatorFor?.defaultOperatorNickname || null,
+        photoVersion: operatorFor?.defaultOperatorPhotoVersion ?? null,
+      } as (typeof workers)[number],
+    ];
+  }, [workers, operatorFor]);
 
   const actions: MachineActions = {
     onDetails: (u) => setDetailsId(u.id),
@@ -700,6 +702,7 @@ export default function MachinesPage() {
                         kind={group.kind}
                         nowMs={nowMs}
                         actions={actions}
+                        canEdit={isAdmin}
                       />
                     ))}
                   </div>
@@ -740,10 +743,6 @@ export default function MachinesPage() {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="app-form-modal__title">Add machine</div>
-            <div className="app-form-modal__sub">
-              Add a replacement or extra unit to the floor. Label is optional — we&apos;ll number it
-              automatically (e.g. Milling #9).
-            </div>
           </div>
           <button
             type="button"
@@ -835,7 +834,7 @@ export default function MachinesPage() {
           <Form.Item
             name="expectedRepairDate"
             label="Expected repair date (optional)"
-            extra="Scheduling treats the machine as unavailable through this date. Leave empty if unknown."
+            extra="Leave empty if unknown."
           >
             <DatePicker
               style={{ width: '100%' }}
@@ -869,10 +868,6 @@ export default function MachinesPage() {
         okText="Save"
         destroyOnHidden
       >
-        <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
-          Scheduling treats the machine as unavailable through this date. Clear it if the repair
-          date is no longer known.
-        </Typography.Paragraph>
         <Form form={repairForm} layout="vertical">
           <Form.Item name="expectedRepairDate" label="Expected repair date">
             <DatePicker
@@ -918,8 +913,7 @@ export default function MachinesPage() {
       <FormModal
         size="sm"
         icon={<UserOutlined />}
-        title="Assigned operator"
-        subtitle={operatorFor ? `${operatorFor.label}` : undefined}
+        title={operatorFor ? `Operator · ${operatorFor.label}` : 'Operator'}
         open={!!operatorFor}
         onCancel={() => setOperatorFor(null)}
         onOk={submitDefaultOperator}
@@ -927,18 +921,18 @@ export default function MachinesPage() {
         okText="Save"
         destroyOnHidden
       >
-        <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
-          Usual operator for this unit (a worker or an Admin). Leave empty to keep it open to all.
-          This only prefers the unit when scheduling — it does not block other workers.
-        </Typography.Paragraph>
-        <Form form={operatorForm} layout="vertical">
-          <Form.Item name="defaultOperatorId" label="Operator">
+        <Form form={operatorForm} layout="vertical" style={{ marginTop: 8 }}>
+          <Form.Item
+            name="defaultOperatorId"
+            label="Usual operator"
+            extra="Preferred when scheduling. Leave empty for anyone."
+          >
             <Select
               allowClear
               showSearch
               optionFilterProp="search"
-              placeholder="Open to all"
-              options={workers.map((w) => ({
+              placeholder="Anyone"
+              options={operatorOptions.map((w) => ({
                 value: w.id,
                 search: personLabel(w.fullName, w.nickname),
                 label: (

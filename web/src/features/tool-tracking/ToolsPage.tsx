@@ -578,9 +578,6 @@ export default function ToolsPage() {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="app-form-modal__title">Edit consumable</div>
-                <div className="app-form-modal__sub">
-                  {editTool ? `Update details for ${editTool.name}.` : 'Update item details.'}
-                </div>
               </div>
               <button
                 type="button"
@@ -591,7 +588,7 @@ export default function ToolsPage() {
                 ×
               </button>
             </div>
-            <Form
+            <Form scrollToFirstError={{ block: 'center' }}
               form={editForm}
               layout="vertical"
               onFinish={onEdit}
@@ -638,10 +635,6 @@ export default function ToolsPage() {
                   </Form.Item>
                 </Col>
               </Row>
-              <div style={{ color: '#64748b', fontSize: 12, marginBottom: 14 }}>
-                The reorder level is computed by the system from the QR scans, supplier lead times
-                and safety stock, so it is not set here.
-              </div>
             </Form>
             <div className="app-form-modal__footer">
               <Button onClick={() => setEditTool(null)} style={{ minWidth: 96 }}>
@@ -680,9 +673,6 @@ export default function ToolsPage() {
                 <div className="app-form-modal__title">
                   {adjustTool ? `Correct stock: ${adjustTool.name}` : 'Correct stock'}
                 </div>
-                <div className="app-form-modal__sub">
-                  Set the actual shelf count. Supplier deliveries are added when their order is received in Suppliers and Orders.
-                </div>
               </div>
               <button
                 type="button"
@@ -693,7 +683,7 @@ export default function ToolsPage() {
                 ×
               </button>
             </div>
-            <Form
+            <Form scrollToFirstError={{ block: 'center' }}
               form={adjustForm}
               layout="vertical"
               onFinish={onAdjust}

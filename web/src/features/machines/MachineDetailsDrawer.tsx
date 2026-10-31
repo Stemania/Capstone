@@ -170,7 +170,9 @@ export default function MachineDetailsDrawer({
                       </Button>
                     </>
                   )}
-                  {unit.affectedCount > 0 && <Button onClick={actions.onOpenSchedule}>Open schedule</Button>}
+                  {canEdit && unit.affectedCount > 0 && actions.onBreakdownWork ? (
+                    <Button onClick={() => actions.onBreakdownWork?.(unit)}>Move booked work</Button>
+                  ) : null}
                 </div>
               </Section>
             )}
@@ -192,9 +194,6 @@ export default function MachineDetailsDrawer({
                   </span>
                 )}
               </div>
-              <p className="mdrawer__muted mdrawer__hint">
-                Scheduling prefers this person for the unit; it does not block other workers.
-              </p>
               {canEdit && status !== 'retired' && (
                 <div className="mdrawer__actions">
                   <Button onClick={() => actions.onSetDefaultOperator(unit)}>

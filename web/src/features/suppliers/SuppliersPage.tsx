@@ -324,9 +324,6 @@ export default function SuppliersPage() {
             <div className="app-form-modal__title">
               {editing ? 'Edit supplier' : 'Add supplier'}
             </div>
-            <div className="app-form-modal__sub">
-              Used on job material purchases and lead-time analytics.
-            </div>
           </div>
           <button
             type="button"
@@ -337,94 +334,78 @@ export default function SuppliersPage() {
             ×
           </button>
         </div>
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={onSave}
-          style={{ padding: '20px 24px 8px' }}
-        >
-          {sectionLabel('Supplier')}
-          <Row gutter={16}>
-            <Col xs={16} md={9}>
-              <Form.Item name="name" label="Name" rules={[{ required: true }]}>
-                <Input />
-              </Form.Item>
-            </Col>
-            <Col xs={8} md={4}>
-              <Form.Item
-                name="code"
-                label="Code"
-                tooltip="2 to 5 letters that start this supplier's PO numbers (e.g. STP gives STP26000001). Needed before a PO can be issued."
-                normalize={(v: string) => (v || '').toUpperCase().replace(/[^A-Z]/g, '')}
-                rules={[{ pattern: /^[A-Z]{2,5}$/, message: '2 to 5 letters' }]}
-              >
-                <Input maxLength={5} placeholder="RIC" />
-              </Form.Item>
-            </Col>
-            <Col xs={14} md={6}>
-              <Form.Item
-                name="typicalLeadTimeDays"
-                label="Typical lead time"
-                tooltip="Days from ordering until the material arrives. Used to estimate when a job's materials are ready."
-                rules={[{ required: true, message: 'Enter the lead time in days' }]}
-              >
-                <InputNumber min={0} addonAfter="days" style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col xs={10} md={5}>
-              <Form.Item
-                name="active"
-                label="Status"
-                valuePropName="checked"
-                tooltip="Inactive suppliers are hidden from new orders; their history is kept."
-              >
-                <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
-              </Form.Item>
-            </Col>
-          </Row>
+        <Form scrollToFirstError={{ block: 'center' }} form={form} layout="vertical" onFinish={onSave}>
+          <div style={{ padding: '20px 24px 8px' }}>
+            {sectionLabel('Supplier')}
+            <Row gutter={16}>
+              <Col xs={24} md={12}>
+                <Form.Item name="name" label="Name" rules={[{ required: true }]}>
+                  <Input />
+                </Form.Item>
+              </Col>
+              <Col xs={10} md={5}>
+                <Form.Item
+                  name="code"
+                  label="Code"
+                  tooltip="Starts this supplier's PO numbers, e.g. STP26000001."
+                  normalize={(v: string) => (v || '').toUpperCase().replace(/[^A-Z]/g, '')}
+                  rules={[{ pattern: /^[A-Z]{2,5}$/, message: '2 to 5 letters' }]}
+                >
+                  <Input maxLength={5} placeholder="RIC" />
+                </Form.Item>
+              </Col>
+              <Col xs={14} md={7}>
+                <Form.Item
+                  name="typicalLeadTimeDays"
+                  label="Typical lead time"
+                  rules={[{ required: true, message: 'Enter the lead time in days' }]}
+                >
+                  <InputNumber min={0} addonAfter="days" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+            </Row>
 
-          {sectionLabel('Contact')}
-          <Row gutter={16}>
-            <Col xs={24} md={8}>
-              <Form.Item name="contactPerson" label="Contact person">
-                <Input />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={8}>
-              <Form.Item name="phone" label="Phone">
-                <Input />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={8}>
-              <Form.Item name="email" label="Email">
-                <Input type="email" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="address" label="Address">
-                <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="notes" label="Notes">
-                <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} />
-              </Form.Item>
-            </Col>
-          </Row>
+            {sectionLabel('Contact')}
+            <Row gutter={16}>
+              <Col xs={24} md={8}>
+                <Form.Item name="contactPerson" label="Contact person">
+                  <Input />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={8}>
+                <Form.Item name="phone" label="Phone">
+                  <Input />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={8}>
+                <Form.Item name="email" label="Email">
+                  <Input type="email" />
+                </Form.Item>
+              </Col>
+              <Col xs={24}>
+                <Form.Item name="address" label="Address">
+                  <Input.TextArea autoSize={{ minRows: 1, maxRows: 3 }} />
+                </Form.Item>
+              </Col>
+            </Row>
+          </div>
+          <div className="app-form-modal__footer">
+            {editing ? (
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginRight: 'auto', fontSize: 13, fontWeight: 600, color: '#334155', cursor: 'pointer' }}>
+                <Form.Item name="active" valuePropName="checked" noStyle>
+                  <Switch size="small" />
+                </Form.Item>
+                Active
+              </label>
+            ) : null}
+            <Button onClick={() => setModalOpen(false)} style={{ minWidth: 96 }}>
+              Cancel
+            </Button>
+            <Button type="primary" htmlType="submit" loading={saving} style={{ fontWeight: 700, minWidth: 120 }}>
+              Save
+            </Button>
+          </div>
         </Form>
-        <div className="app-form-modal__footer">
-          <Button onClick={() => setModalOpen(false)} style={{ minWidth: 96 }}>
-            Cancel
-          </Button>
-          <Button
-            type="primary"
-            loading={saving}
-            onClick={() => form.submit()}
-            style={{ fontWeight: 700, minWidth: 120 }}
-          >
-            Save
-          </Button>
-        </div>
       </Modal>
     </div>
   );

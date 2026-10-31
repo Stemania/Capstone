@@ -65,10 +65,14 @@ def create_invited_user(
     created_by_id: str,
     nickname: str | None = None,
 ) -> tuple[User, UserInvitation, str]:
-    email_norm = (email or "").strip().lower()
-    if not email_norm or "@" not in email_norm:
+    # A production worker may have only a mobile number: the admin shows the
+    # setup link and QR on screen and the worker signs in with the number.
+    email_norm = (email or "").strip().lower() or None
+    if email_norm is None and role != UserRole.PRODUCTION_WORKER:
         raise AppError("Valid email is required", "VALIDATION_ERROR", 400)
-    if User.query.filter_by(email=email_norm).first():
+    if email_norm is not None and "@" not in email_norm:
+        raise AppError("Valid email is required", "VALIDATION_ERROR", 400)
+    if email_norm and User.query.filter_by(email=email_norm).first():
         raise AppError("Email already exists", "CONFLICT", 409)
 
     mobile = normalize_ph_mobile(mobile_number, required=True)
@@ -103,7 +107,7 @@ def create_invited_user(
         user, InvitationChannel.EMAIL, created_by_id, commit=False
     )
     db.session.commit()
-    invitation.delivery = _deliver_invitation(user, invitation, raw_secret)
+    invitation.delivery = _deliver_invitation(user, invitation, raw_secret) if user.email else None
     invitation.setup_url = invitation_setup_url(raw_secret)
     return user, invitation, raw_secret
 

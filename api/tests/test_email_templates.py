@@ -50,19 +50,18 @@ def _assert_multipart_message(msg, *, link_substr: str | None = None, logo_url: 
         parts[ctype] = payload.decode() if isinstance(payload, (bytes, bytearray)) else payload
     assert "text/plain" in parts and "text/html" in parts
     assert SHOP_HEADER_NAME in parts["text/html"]
-    assert "BMSC logo" in parts["text/html"]
+    # No remote images: they count against a new sender in spam filters.
+    assert "<img" not in parts["text/html"]
     assert "cid:" not in parts["text/html"]
     assert "cid:" not in parts["text/plain"]
     assert SHOP_HEADER_NAME not in parts["text/plain"]
-    if logo_url:
-        assert f'src="{logo_url}"' in parts["text/html"]
-        assert 'alt="BMSC logo"' in parts["text/html"]
-        assert 'width="48"' in parts["text/html"]
-        assert 'height="48"' in parts["text/html"]
     if link_substr:
         assert link_substr in parts["text/plain"]
         assert f'href="{link_substr}"' in parts["text/html"] or f"href='{link_substr}'" in parts["text/html"]
         assert "<a href=" in parts["text/html"]
+        # The link appears once in the HTML (the button), not also printed as text.
+        assert parts["text/html"].count(link_substr) == 1
+        assert parts["text/plain"].count(link_substr) == 1
     return parts
 
 
@@ -114,7 +113,7 @@ def test_admin_test_email_multipart(https_app):
         assert SHOP_HEADER_NAME in parts["text/html"]
         assert "Brothers Machine Shop" in content.text
         assert SHOP_HEADER_NAME not in content.text
-        assert "https://capstone-five-beta.vercel.app/email-logo.png" in parts["text/html"]
+        assert "email-logo.png" not in parts["text/html"]
 
 
 def test_job_update_emails_have_status_badge_no_amounts(https_app):
