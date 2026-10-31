@@ -1,6 +1,6 @@
-import { shopNow, shopToday } from '../../utils/shopTime';
+import { shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
-import { Button, DatePicker, Table, message } from 'antd';
+import { Button, DatePicker, message } from 'antd';
 import { DownloadOutlined } from '@ant-design/icons';
 import { downloadCsv, rowsToCsv } from '../../utils/csvExport';
 import { analyticsApi } from '../../api/analytics.api';
@@ -17,14 +17,33 @@ import type {
 } from '../../types';
 import {
   defaultAnalyticsRange,
-  formatNum,
+  formatInt,
   rangeToParams,
   type AnalyticsRange,
 } from '../analytics/analyticsPeriod';
-import { ReportSection, ReportToolbar, displayOrDash } from './ReportChrome';
+import { ReportToolbar, displayOrDash } from './ReportChrome';
+import {
+  FormalTable,
+  ReportHeading,
+  ReportNotes,
+  ReportSignatures,
+  ReportTitleBlock,
+  SummaryTable,
+  longDate,
+  qty,
+  sum,
+} from './FormalReport';
 import { PrintDocument } from './PrintTemplate';
 import { PageSkeleton } from '../../components/ui';
 import './reportsPrint.css';
+
+const STATUS_LABEL: Record<string, string> = {
+  REORDER_NOW: 'Reorder now',
+  REORDER_SOON: 'Reorder soon',
+  OK: 'OK',
+  NO_DATA: 'No data yet',
+  NOT_STOCKED: 'Not stocked yet',
+};
 
 export default function InventoryReportPage() {
   const shop = useShopDetails();
@@ -67,7 +86,7 @@ export default function InventoryReportPage() {
     };
   }, [params.from, params.to]);
 
-  const generatedAt = shopNow().format('YYYY-MM-DD HH:mm');
+  const today = shopToday().format('YYYY-MM-DD');
   const consumables = runOut?.items || [];
   const outstanding = usageWorker?.outstandingUnreturned || [];
   const awaiting: MaterialPurchase[] = (purchases?.items || []).filter(
@@ -78,8 +97,7 @@ export default function InventoryReportPage() {
     return types
       .map((t) => {
         const units = t.units || [];
-        const available =
-          t.availableCount ?? units.filter((u) => u.status === 'AVAILABLE').length;
+        const available = t.availableCount ?? units.filter((u) => u.status === 'AVAILABLE').length;
         const out = t.outCount ?? units.filter((u) => u.status === 'OUT').length;
         const total = t.totalUnits ?? units.length;
         return { typeName: t.name, available, out, total };
@@ -87,6 +105,10 @@ export default function InventoryReportPage() {
       .filter((r) => r.total > 0)
       .sort((a, b) => a.typeName.localeCompare(b.typeName));
   }, [types]);
+  const toolUnits = sum(toolAvailability, (r) => r.total) ?? 0;
+  const toolsOut = sum(toolAvailability, (r) => r.out) ?? 0;
+  const reorderNow = consumables.filter((c) => c.status === 'REORDER_NOW').length;
+  const reorderSoon = consumables.filter((c) => c.status === 'REORDER_SOON').length;
 
   const exportReport = () => {
     const sections = [
@@ -154,164 +176,206 @@ export default function InventoryReportPage() {
         />
       }
     >
-      <div className="shop-print-doc-head">
-        <div className="shop-print-doc-title">Inventory report</div>
-        <div className="shop-print-doc-ref">
-          Period {params.from} → {params.to} · Generated {generatedAt}
-        </div>
-      </div>
+      <div className="formal-report">
+        <ReportTitleBlock title="Inventory Report" from={params.from} to={params.to} />
 
-      {loading && !tools.length && !consumables.length ? (
-        <PageSkeleton variant="block" />
-      ) : (
-        <>
-          <ReportSection
-            title="Consumables"
-            note="On hand, reorder level, status, days left, and ABC class."
-          >
-            <Table
-              size="small"
-              pagination={false}
-              rowKey="toolId"
-              dataSource={consumables}
-              rowClassName={(r) => (r.lowStock || r.status === 'REORDER_NOW' ? 'report-row-low-stock' : '')}
-              locale={{ emptyText: 'No consumables to show yet' }}
+        {loading && !tools.length && !consumables.length ? (
+          <PageSkeleton variant="block" />
+        ) : (
+          <>
+            <ReportHeading n={1}>Summary</ReportHeading>
+            <SummaryTable
+              caption="Table 1. Summary of inventory"
+              items={[
+                { label: 'Consumable items in stock list', value: formatInt(consumables.length) },
+                { label: 'Consumables to reorder now', value: formatInt(reorderNow) },
+                { label: 'Consumables to reorder soon', value: formatInt(reorderSoon) },
+                {
+                  label: 'Tool units out with workers',
+                  value: `${formatInt(toolsOut)} of ${formatInt(toolUnits)}`,
+                },
+                { label: 'Material lines awaiting delivery', value: formatInt(awaiting.length) },
+              ]}
+            />
+
+            <ReportHeading n={2}>Consumables Stock Status</ReportHeading>
+            <FormalTable
+              caption={`Table 2. Stock on hand and reorder status of consumables as of ${longDate(today)}`}
+              numbered
+              rows={consumables}
+              rowKey={(r) => r.toolId}
+              rowClassName={(r) => (r.status === 'REORDER_NOW' ? 'fr-row-flag' : undefined)}
+              empty="No consumables on file."
               columns={[
-                { title: 'Item', dataIndex: 'name' },
-                { title: 'Code', dataIndex: 'code', width: 90 },
+                {
+                  title: 'Item',
+                  render: (r) => (
+                    <>
+                      {r.name}
+                      {r.sizeSpec ? <span className="fr-sub">{r.sizeSpec}</span> : null}
+                    </>
+                  ),
+                  width: '22%',
+                },
+                {
+                  title: 'Code',
+                  render: (r) => r.code,
+                  width: '19%',
+                  nowrap: true,
+                  className: 'fr-code',
+                },
                 {
                   title: 'On hand',
-                  dataIndex: 'quantityOnHand',
-                  width: 90,
+                  render: (r) => qty(r.quantityOnHand, r.unit),
                   align: 'right',
-                  render: (v: number | null, r) =>
-                    v == null ? '—' : `${formatNum(v, 2)} ${r.unit}`,
+                  width: '10%',
+                  nowrap: true,
                 },
                 {
                   title: 'Reorder level',
-                  key: 'rop',
-                  width: 110,
+                  render: (r) => qty(r.reorderLevel, r.unit),
                   align: 'right',
-                  render: (_: unknown, r) => {
-                    const v = r.reorderLevel;
-                    return v == null ? '—' : formatNum(v, 2);
-                  },
+                  width: '10%',
+                  nowrap: true,
                 },
                 {
                   title: 'Status',
-                  dataIndex: 'status',
-                  width: 120,
-                  render: (v: string | undefined) => v || '—',
+                  render: (r) => STATUS_LABEL[r.status || ''] || '—',
+                  width: '13%',
                 },
                 {
                   title: 'Days left',
-                  dataIndex: 'daysLeft',
-                  width: 90,
+                  render: (r) => (r.daysLeft == null ? '—' : formatInt(r.daysLeft)),
                   align: 'right',
-                  render: (v: number | null) => (v == null ? '—' : formatNum(v, 0)),
+                  width: '9%',
                 },
                 {
-                  title: 'ABC',
-                  dataIndex: 'abcClass',
-                  width: 64,
-                  render: (v: string | null | undefined) => v || '—',
+                  title: 'ABC class',
+                  render: (r) => r.abcClass || '—',
+                  align: 'center',
+                  width: '9%',
                 },
               ]}
             />
-          </ReportSection>
+            <ReportNotes
+              items={[
+                'Items to reorder now are shown in bold.',
+                'The reorder level is computed from recent usage, the supplier lead time, and a safety buffer. Days left is how long the stock is expected to last at its recent rate of use.',
+                'ABC class ranks items by the value of their use: A for the few items with the highest value, C for the many with the lowest.',
+              ]}
+            />
 
-          <ReportSection title="Tools out / available">
-            <Table
-              size="small"
-              pagination={false}
-              rowKey="typeName"
-              dataSource={toolAvailability}
-              locale={{ emptyText: 'No tool units on file' }}
+            <ReportHeading n={3}>Tool Availability</ReportHeading>
+            <FormalTable
+              caption="Table 3. Tool units available and out, by tool type"
+              rows={toolAvailability}
+              rowKey={(r) => r.typeName}
+              empty="No tool units on file."
               columns={[
-                { title: 'Tool type', dataIndex: 'typeName' },
+                { title: 'Tool type', render: (r) => r.typeName, width: '52%' },
+                {
+                  title: 'Total units',
+                  render: (r) => formatInt(r.total),
+                  align: 'right',
+                  width: '16%',
+                },
                 {
                   title: 'Available',
-                  dataIndex: 'available',
-                  width: 100,
+                  render: (r) => formatInt(r.available),
                   align: 'right',
+                  width: '16%',
                 },
-                { title: 'Out', dataIndex: 'out', width: 80, align: 'right' },
-                { title: 'Total units', dataIndex: 'total', width: 100, align: 'right' },
+                { title: 'Out', render: (r) => formatInt(r.out), align: 'right', width: '16%' },
+              ]}
+              total={[
+                'Total',
+                formatInt(toolUnits),
+                formatInt(sum(toolAvailability, (r) => r.available)),
+                formatInt(toolsOut),
               ]}
             />
-          </ReportSection>
 
-          <ReportSection title="Outstanding borrowed tools by worker">
-            <Table
-              size="small"
-              pagination={false}
-              rowKey="workerId"
-              dataSource={outstanding}
-              locale={{ emptyText: 'No tools still out with workers' }}
+            <ReportHeading n={4}>Tools Not Yet Returned</ReportHeading>
+            <FormalTable
+              caption="Table 4. Tools still held by each worker"
+              rows={outstanding}
+              rowKey={(r) => r.workerId}
+              empty="All borrowed tools have been returned."
               columns={[
-                { title: 'Worker', dataIndex: 'workerName', render: (v) => displayOrDash(v) },
+                { title: 'Worker', render: (r) => displayOrDash(r.workerName), width: '28%' },
                 {
-                  title: 'Total qty',
-                  dataIndex: 'totalOutstandingQuantity',
-                  width: 100,
-                  align: 'right',
-                  render: (v: number | null) => (v == null ? '—' : v),
-                },
-                {
-                  title: 'Items',
-                  key: 'items',
-                  render: (_: unknown, r) =>
+                  title: 'Tools held',
+                  render: (r) =>
                     r.items?.length
                       ? r.items
-                          .map((i) => `${i.toolName} (${i.quantity == null ? '—' : i.quantity})`)
+                          .map(
+                            (i) =>
+                              `${i.toolName}${i.quantity != null && i.quantity !== 1 ? ` (${i.quantity})` : ''}`
+                          )
                           .join('; ')
                       : '—',
+                  width: '56%',
                 },
-              ]}
-            />
-          </ReportSection>
-
-          <ReportSection title="Materials awaiting delivery">
-            <Table
-              size="small"
-              pagination={false}
-              rowKey="id"
-              dataSource={awaiting}
-              locale={{ emptyText: 'No materials awaiting delivery' }}
-              columns={[
-                { title: 'Material', dataIndex: 'materialName' },
                 {
-                  title: 'Qty',
-                  dataIndex: 'quantity',
-                  width: 90,
+                  title: 'Quantity',
+                  render: (r) =>
+                    r.totalOutstandingQuantity == null
+                      ? '—'
+                      : formatInt(r.totalOutstandingQuantity),
                   align: 'right',
-                  render: (v: number | null, r) =>
-                    v == null ? '—' : `${formatNum(v, 2)} ${r.unit || ''}`.trim(),
-                },
-                {
-                  title: 'Supplier',
-                  dataIndex: 'supplierName',
-                  render: (v) => displayOrDash(v),
-                },
-                {
-                  title: 'Expected',
-                  key: 'expected',
-                  width: 120,
-                  render: (_: unknown, r: MaterialPurchase) =>
-                    displayOrDash(r.currentExpectedDate ?? r.expectedDeliveryDate),
-                },
-                {
-                  title: 'Job',
-                  dataIndex: 'jobNumber',
-                  width: 120,
-                  render: (v) => displayOrDash(v),
+                  width: '16%',
                 },
               ]}
             />
-          </ReportSection>
-          <p className="report-note">How reorder levels are computed: from recent usage, supplier lead time, and a safety buffer.</p>
-        </>
-      )}
+
+            <ReportHeading n={5}>Materials Awaiting Delivery</ReportHeading>
+            <FormalTable
+              caption="Table 5. Job materials ordered from suppliers and not yet received"
+              numbered
+              rows={awaiting}
+              rowKey={(r) => r.id}
+              empty="No materials are awaiting delivery."
+              columns={[
+                {
+                  title: 'Material',
+                  render: (r) => (
+                    <>
+                      {r.materialName}
+                      {r.gradeOrSpec || r.sizeSpec ? (
+                        <span className="fr-sub">
+                          {[r.gradeOrSpec, r.sizeSpec].filter(Boolean).join(' · ')}
+                        </span>
+                      ) : null}
+                    </>
+                  ),
+                  width: '27%',
+                },
+                {
+                  title: 'Quantity',
+                  render: (r) => qty(r.quantity, r.unit),
+                  align: 'right',
+                  width: '11%',
+                  nowrap: true,
+                },
+                { title: 'Supplier', render: (r) => displayOrDash(r.supplierName), width: '25%' },
+                {
+                  title: 'Job order',
+                  render: (r) => displayOrDash(r.jobNumber),
+                  width: '15%',
+                  nowrap: true,
+                },
+                {
+                  title: 'Expected delivery',
+                  render: (r) => longDate(r.currentExpectedDate ?? r.expectedDeliveryDate),
+                  width: '16%',
+                },
+              ]}
+            />
+
+            <ReportSignatures shop={shop} />
+          </>
+        )}
+      </div>
     </PrintDocument>
   );
 }

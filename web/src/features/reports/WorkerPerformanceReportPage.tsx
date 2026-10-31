@@ -1,27 +1,30 @@
-import { shopNow, shopToday } from '../../utils/shopTime';
+import { shopToday } from '../../utils/shopTime';
 import { useEffect, useMemo, useState } from 'react';
-import { DatePicker, Table, message } from 'antd';
+import { DatePicker, message } from 'antd';
 import { analyticsApi } from '../../api/analytics.api';
 import { workersApi } from '../../api/jobOrders.api';
 import { getErrorMessage } from '../../api/client';
 import { useShopDetails } from '../../hooks/useShopDetails';
 import { ANALYTICS_DEFAULT_MIN_OPS } from '../../constants/shopLetterhead';
-import type {
-  AnalyticsByWorker,
-  AnalyticsDelays,
-  AnalyticsWorkerRow,
-  User,
-} from '../../types';
+import type { AnalyticsByWorker, AnalyticsDelays, AnalyticsWorkerRow, User } from '../../types';
 import {
   defaultAnalyticsRange,
   formatInt,
-  formatNum,
-  formatPct,
-  formatPctVsTarget,
   rangeToParams,
   type AnalyticsRange,
 } from '../analytics/analyticsPeriod';
-import { ReportSection, ReportToolbar } from './ReportChrome';
+import { ReportToolbar } from './ReportChrome';
+import {
+  FormalTable,
+  ReportHeading,
+  ReportNotes,
+  ReportSignatures,
+  ReportTitleBlock,
+  SummaryTable,
+  num,
+  signedPct,
+  sum,
+} from './FormalReport';
 import { PrintDocument } from './PrintTemplate';
 import { PageSkeleton } from '../../components/ui';
 import './reportsPrint.css';
@@ -71,7 +74,6 @@ export default function WorkerPerformanceReportPage() {
   }, [params.from, params.to]);
 
   const minOps = ANALYTICS_DEFAULT_MIN_OPS;
-  const generatedAt = shopNow().format('YYYY-MM-DD HH:mm');
 
   const rows = useMemo(() => {
     const byId = new Map((byWorker?.workers || []).map((w) => [w.workerId, w]));
@@ -87,9 +89,9 @@ export default function WorkerPerformanceReportPage() {
         operationCount,
         totalEstimatedHours: perf?.totalEstimatedHours ?? null,
         totalActualWorkedHours: perf?.totalActualWorkedHours ?? null,
-        averageVariancePct: belowMin ? null : perf?.averageVariancePct ?? null,
-        laborEfficiencyPct: belowMin ? null : perf?.laborEfficiencyPct ?? null,
-        onEstimateRatePct: belowMin ? null : perf?.onEstimateRatePct ?? null,
+        averageVariancePct: belowMin ? null : (perf?.averageVariancePct ?? null),
+        laborEfficiencyPct: belowMin ? null : (perf?.laborEfficiencyPct ?? null),
+        onEstimateRatePct: belowMin ? null : (perf?.onEstimateRatePct ?? null),
         reworkWorkedHours: perf?.reworkWorkedHours ?? null,
         belowMin,
       });
@@ -109,6 +111,12 @@ export default function WorkerPerformanceReportPage() {
   }, [byWorker, workers, minOps]);
 
   const pauseRows = delays?.pauseReasons || [];
+  const totalOps = sum(rows, (r) => r.operationCount) ?? 0;
+  const activeWorkers = rows.filter((r) => r.operationCount > 0).length;
+  const totalTarget = sum(rows, (r) => r.totalEstimatedHours);
+  const totalActual = sum(rows, (r) => r.totalActualWorkedHours);
+  const overallEff = totalTarget != null && totalActual ? (totalTarget / totalActual) * 100 : null;
+  const totalPause = sum(pauseRows, (r) => r.totalPausedHours);
 
   return (
     <PrintDocument
@@ -136,109 +144,138 @@ export default function WorkerPerformanceReportPage() {
         />
       }
     >
-      <div className="shop-print-doc-head">
-        <div className="shop-print-doc-title">Worker performance report</div>
-        <div className="shop-print-doc-ref">
-          Period {params.from} → {params.to} · Generated {generatedAt}
-        </div>
-      </div>
+      <div className="formal-report">
+        <ReportTitleBlock title="Worker Performance Report" from={params.from} to={params.to} />
 
-      {loading && !byWorker ? (
-        <PageSkeleton variant="block" />
-      ) : (
-        <>
-          <ReportSection
-            title="By worker"
-            note={`Averages need at least ${minOps} finished operations. Efficiency % = target ÷ actual × 100. On-time % = share finished close to target.`}
-          >
-            <Table
-              size="small"
-              pagination={false}
-              rowKey="workerId"
-              dataSource={rows}
-              locale={{ emptyText: 'No workers to show for this period yet' }}
-              columns={[
-                { title: 'Worker', dataIndex: 'workerName', width: 160 },
+        {loading && !byWorker ? (
+          <PageSkeleton variant="block" />
+        ) : (
+          <>
+            <ReportHeading n={1}>Summary</ReportHeading>
+            <SummaryTable
+              caption="Table 1. Summary of worker performance"
+              items={[
+                { label: 'Workers with finished operations', value: formatInt(activeWorkers) },
+                { label: 'Operations completed', value: formatInt(totalOps) },
+                { label: 'Target hours', value: num(totalTarget) },
+                { label: 'Actual hours worked', value: num(totalActual) },
                 {
-                  title: 'Ops completed',
-                  dataIndex: 'operationCount',
-                  width: 110,
+                  label: 'Overall labor efficiency',
+                  value: overallEff == null ? '—' : `${num(overallEff)}%`,
+                },
+                { label: 'Pause hours (all reasons)', value: num(totalPause) },
+              ]}
+            />
+
+            <ReportHeading n={2}>Performance by Worker</ReportHeading>
+            <FormalTable
+              caption="Table 2. Operations completed and labor efficiency of each worker"
+              numbered
+              rows={rows}
+              rowKey={(r) => r.workerId}
+              empty="No workers to show for this period."
+              columns={[
+                { title: 'Worker', render: (r) => r.workerName, width: '21%' },
+                {
+                  title: 'Operations completed',
+                  render: (r) => formatInt(r.operationCount),
                   align: 'right',
-                  render: (v: number) => formatInt(v),
+                  width: '14%',
                 },
                 {
                   title: 'Target hours',
-                  dataIndex: 'totalEstimatedHours',
-                  width: 100,
+                  render: (r) => num(r.totalEstimatedHours),
                   align: 'right',
-                  render: (v: number | null) => formatNum(v),
+                  width: '10%',
                 },
                 {
                   title: 'Actual hours',
-                  dataIndex: 'totalActualWorkedHours',
-                  width: 100,
+                  render: (r) => num(r.totalActualWorkedHours),
                   align: 'right',
-                  render: (v: number | null) => formatNum(v),
+                  width: '10%',
                 },
                 {
-                  title: 'Efficiency %',
-                  dataIndex: 'laborEfficiencyPct',
-                  width: 110,
+                  title: 'Labor efficiency (%)',
+                  render: (r) => num(r.laborEfficiencyPct),
                   align: 'right',
-                  render: (v: number | null) => formatPct(v),
+                  width: '13%',
                 },
                 {
-                  title: 'On-time %',
-                  dataIndex: 'onEstimateRatePct',
-                  width: 100,
+                  title: 'On-time rate (%)',
+                  render: (r) => num(r.onEstimateRatePct),
                   align: 'right',
-                  render: (v: number | null) => formatPct(v),
+                  width: '12%',
                 },
                 {
-                  title: 'Vs target',
-                  dataIndex: 'averageVariancePct',
-                  width: 110,
+                  title: 'Variance vs. target',
+                  render: (r) => signedPct(r.averageVariancePct),
                   align: 'right',
-                  render: (v: number | null) => formatPctVsTarget(v),
+                  width: '14%',
+                  nowrap: true,
                 },
               ]}
+              total={[
+                'Total',
+                formatInt(totalOps),
+                num(totalTarget),
+                num(totalActual),
+                num(overallEff),
+                '',
+                '',
+              ]}
             />
-          </ReportSection>
+            <ReportNotes
+              items={[
+                'Labor efficiency = target hours ÷ actual hours × 100. Above 100% means the work took less time than its target.',
+                'On-time rate is the share of operations finished close to their target hours.',
+                'Variance vs. target is the average difference from target hours; a negative value means faster than target.',
+                `A dash (—) means the worker has fewer than ${minOps} finished operations, too few for a fair average.`,
+              ]}
+            />
 
-          <ReportSection
-            title="Pause hours by reason"
-            note="Shop-wide pause hours for the same period (same figures as Analytics → Delays)."
-          >
-            <Table
-              size="small"
-              pagination={false}
-              rowKey="reason"
-              dataSource={pauseRows}
-              locale={{ emptyText: 'No pause hours in this period' }}
+            <ReportHeading n={3}>Pause Hours by Reason</ReportHeading>
+            <FormalTable
+              caption="Table 3. Shop-wide pause hours by reason"
+              rows={pauseRows}
+              rowKey={(r) => r.reason}
+              empty="No pause hours were recorded in this period."
               columns={[
-                {
-                  title: 'Reason',
-                  dataIndex: 'reason',
-                  render: (v: string) => PAUSE_LABEL[v] || v,
-                },
+                { title: 'Reason', render: (r) => PAUSE_LABEL[r.reason] || r.reason, width: '46%' },
                 {
                   title: 'Occurrences',
-                  dataIndex: 'occurrenceCount',
-                  width: 120,
+                  render: (r) => formatInt(r.occurrenceCount),
                   align: 'right',
+                  width: '18%',
                 },
                 {
                   title: 'Hours',
-                  dataIndex: 'totalPausedHours',
-                  width: 100,
+                  render: (r) => num(r.totalPausedHours),
                   align: 'right',
-                  render: (v: number | null) => formatNum(v),
+                  width: '18%',
+                },
+                {
+                  title: 'Share (%)',
+                  render: (r) =>
+                    totalPause && r.totalPausedHours != null
+                      ? num((r.totalPausedHours / totalPause) * 100)
+                      : '—',
+                  align: 'right',
+                  width: '18%',
                 },
               ]}
+              total={[
+                'Total',
+                formatInt(sum(pauseRows, (r) => r.occurrenceCount)),
+                num(totalPause),
+                totalPause ? '100.0' : '—',
+              ]}
             />
-          </ReportSection>
-        </>
-      )}
+            <ReportNotes items={['Same figures as Analytics → Delays for this period.']} />
+
+            <ReportSignatures shop={shop} />
+          </>
+        )}
+      </div>
     </PrintDocument>
   );
 }
