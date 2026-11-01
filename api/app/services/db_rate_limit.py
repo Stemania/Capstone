@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 from flask import request
+from sqlalchemy.exc import OperationalError
 
 from app.extensions import db
 from app.models.rate_limit import RateLimitCounter
@@ -15,6 +16,9 @@ from app.utils.errors import AppError
 _LIMIT_RE = re.compile(
     r"^\s*(\d+)\s+per\s+(second|minute|hour|day|month)\s*$", re.IGNORECASE
 )
+# How long a request waits for another request's lock on its counter row.
+LOCK_WAIT_MS = 5000
+
 _WINDOW_SECONDS = {
     "second": 1,
     "minute": 60,
@@ -49,18 +53,31 @@ def hit(key: str, limit: int, window_seconds: int) -> int:
     """
     now = _utcnow()
     if db.session.get_bind().dialect.name == "postgresql":
+        from sqlalchemy import text
         from sqlalchemy.dialects.postgresql import insert
 
+        # Never wait long behind another request's lock on this counter: a
+        # sign-in that cannot get it within a few seconds answers "busy"
+        # instead of hanging until the browser gives up.
+        db.session.execute(text(f"SET LOCAL lock_timeout = '{LOCK_WAIT_MS}ms'"))
         db.session.execute(
             insert(RateLimitCounter.__table__)
             .values(key=key, window_start=now, count=0)
             .on_conflict_do_nothing(index_elements=["key"])
         )
-    row = (
-        RateLimitCounter.query.filter_by(key=key)
-        .with_for_update()
-        .one_or_none()
-    )
+    try:
+        row = (
+            RateLimitCounter.query.filter_by(key=key)
+            .with_for_update()
+            .one_or_none()
+        )
+    except OperationalError as exc:
+        db.session.rollback()
+        raise AppError(
+            "The server is busy. Please try again in a moment.",
+            "SERVER_BUSY",
+            503,
+        ) from exc
     if row is None:
         db.session.add(
             RateLimitCounter(key=key, window_start=now, count=1)

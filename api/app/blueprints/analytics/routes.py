@@ -32,7 +32,13 @@ def _min_ops_arg():
         raise AppError("minOps must be an integer", "VALIDATION_ERROR", 400)
 
 
-def _cached(name, builder, ttl=45, **key):
+# Analytics change only when records change, and every committed write clears
+# the cache, so results can be kept for a few minutes. On a small server
+# (Render's free plan) rebuilding the analytics overview takes seconds.
+ANALYTICS_TTL = 300
+
+
+def _cached(name, builder, ttl=ANALYTICS_TTL, **key):
     from app.services.read_cache import get_or_build
 
     cache_key = (name, tuple(sorted((k, None if v is None else str(v)) for k, v in key.items())))
@@ -144,7 +150,7 @@ def demand_forecast():
 @jwt_required()
 @require_roles(*TRANSACTIONS)
 def consumable_run_out():
-    return _cached("consumable-run-out", analytics.consumable_run_out, ttl=60)
+    return _cached("consumable-run-out", analytics.consumable_run_out)
 
 
 @analytics_bp.route("/purchasing", methods=["GET"])

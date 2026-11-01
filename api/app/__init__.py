@@ -63,6 +63,30 @@ def create_app(config_object=None):
     def health():
         return {"status": "ok"}
 
+    @app.route("/api/v1/health/db", methods=["GET", "HEAD"])
+    def health_db():
+        """For uptime monitors: also checks that the database answers quickly.
+
+        Wakes a suspended database, so monitor it every 30-60 minutes rather
+        than every few minutes on a plan with a monthly compute limit.
+        """
+        import time
+
+        from sqlalchemy import text
+
+        started = time.monotonic()
+        try:
+            if db.session.get_bind().dialect.name == "postgresql":
+                db.session.execute(text("SET LOCAL statement_timeout = '5s'"))
+                db.session.execute(text("SET LOCAL lock_timeout = '5s'"))
+            db.session.execute(text("SELECT 1"))
+            db.session.rollback()
+        except Exception:  # noqa: BLE001 - any failure means "database down"
+            db.session.rollback()
+            app.logger.exception("Database health check failed")
+            return {"status": "error", "database": "unreachable"}, 503
+        return {"status": "ok", "database": "ok", "ms": round((time.monotonic() - started) * 1000)}
+
     @app.after_request
     def _security_headers(response):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")

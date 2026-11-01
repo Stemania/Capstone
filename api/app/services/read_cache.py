@@ -1,7 +1,9 @@
 """Short-lived cache for expensive read models.
 
-Invalidated when a job, operation, tool, purchase, or invoice is written.
-A TTL still drops entries so a missed invalidation cannot last.
+Cleared after any committed write except logging and sign-in bookkeeping
+(see ``_ignored``), including bulk UPDATE/DELETE/INSERT statements. A TTL
+still drops entries, so a missed invalidation cannot last; pages that change
+only with writes (analytics) can therefore keep a longer TTL.
 """
 
 from __future__ import annotations
@@ -11,41 +13,31 @@ from threading import Lock
 
 from flask import current_app, has_app_context
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import TextClause
 
 _lock = Lock()
 _generation = 0
 _store: dict[tuple, tuple[int, float, object]] = {}
 
-_WATCHED = None
+_IGNORED = None
 
 
-def _watched():
-    global _WATCHED
-    if _WATCHED is None:
-        from app.models.job_order import JobOrder
-        from app.models.machine import MachineUnit
-        from app.models.material_purchase import MaterialPurchase
-        from app.models.operation import JobOperation
-        from app.models.operation_time import MachineDowntime, OperationTimeLog
-        from app.models.sales_invoice import SalesInvoice
-        from app.models.tool import Tool
-        from app.models.tool_event import ToolEvent
-        from app.models.worker_skill import WorkCalendarException, WorkerSchedule
+def _ignored():
+    """Models whose writes never change a cached page: logging, sign-in and
+    rate-limit bookkeeping. Any other write clears the cache, so a new table
+    is covered without anyone remembering to list it here."""
+    global _IGNORED
+    if _IGNORED is None:
+        from app.models.audit_log import AuditLog
+        from app.models.rate_limit import RateLimitCounter
+        from app.models.user_security import PasswordResetToken, UserDevice, UserInvitation
 
-        _WATCHED = (
-            JobOrder,
-            MachineUnit,
-            JobOperation,
-            OperationTimeLog,
-            MachineDowntime,
-            Tool,
-            ToolEvent,
-            MaterialPurchase,
-            SalesInvoice,
-            WorkerSchedule,
-            WorkCalendarException,
-        )
-    return _WATCHED
+        _IGNORED = (AuditLog, RateLimitCounter, UserDevice, UserInvitation, PasswordResetToken)
+    return _IGNORED
+
+
+def _ignored_tables():
+    return {m.__table__.name for m in _ignored()}
 
 
 def _enabled() -> bool:
@@ -112,10 +104,36 @@ def invalidate():
         _store.clear()
 
 
-def _before_commit(session):
-    watched = _watched()
-    changed = list(session.new) + list(session.dirty) + list(session.deleted)
-    session.info["read_cache_dirty"] = any(isinstance(obj, watched) for obj in changed)
+def _mark_if_changed(session, objects):
+    ignored = _ignored()
+    if any(not isinstance(obj, ignored) for obj in objects):
+        session.info["read_cache_dirty"] = True
+
+
+def _after_flush(session, _flush_context):
+    # new/dirty/deleted still hold this flush's objects here; by commit time an
+    # earlier autoflush would have emptied them.
+    _mark_if_changed(session, list(session.new) + list(session.dirty) + list(session.deleted))
+
+
+_READ_ONLY_SQL = ("SELECT", "SET", "SHOW")
+
+
+def _on_execute(orm_execute_state):
+    """Bulk UPDATE/DELETE/INSERT statements bypass the flush: check their table.
+    Raw SQL (the sample-history reset, data clean-up) counts as a write unless
+    it only reads or sets a session option."""
+    stmt = orm_execute_state.statement
+    if isinstance(stmt, TextClause):
+        if not stmt.text.lstrip().upper().startswith(_READ_ONLY_SQL):
+            orm_execute_state.session.info["read_cache_dirty"] = True
+        return
+    if not (orm_execute_state.is_update or orm_execute_state.is_delete or orm_execute_state.is_insert):
+        return
+    table = getattr(orm_execute_state.statement, "table", None)
+    name = getattr(table, "name", None)
+    if name is None or name not in _ignored_tables():
+        orm_execute_state.session.info["read_cache_dirty"] = True
 
 
 def _after_commit(session):
@@ -128,8 +146,10 @@ def register():
         return
     from sqlalchemy import event
 
-    event.listen(Session, "before_commit", _before_commit)
+    event.listen(Session, "after_flush", _after_flush)
+    event.listen(Session, "do_orm_execute", _on_execute)
     event.listen(Session, "after_commit", _after_commit)
+
     register._done = True
 
 
