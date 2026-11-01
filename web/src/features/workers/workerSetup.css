@@ -423,3 +423,102 @@ a.wh-jobno:hover {
     width: 100%;
   }
 }
+
+/* ---- Skill evidence ------------------------------------------------------ */
+
+.ws-reviewed {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--c-text-muted);
+}
+
+.ws-level-name {
+  font-size: 12px;
+  color: var(--c-text-2);
+}
+
+.ws-record {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--c-text);
+}
+
+.ws-record__sub {
+  color: var(--c-text-muted);
+}
+
+.ws-record__k {
+  cursor: help;
+}
+
+.ws-record__k.is-bad {
+  color: var(--tone-red-fg);
+  font-weight: 600;
+}
+
+.ws-suggest {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.ws-suggest__level {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--c-text);
+  cursor: help;
+}
+
+.ws-suggest__use.ant-btn {
+  padding: 0 4px;
+  height: auto;
+}
+
+.ws-suggest__info {
+  color: var(--c-text-muted);
+}
+
+.ws-suggest__flag {
+  color: var(--tone-amber-fg);
+  font-size: 15px;
+}
+
+.ws-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 320px;
+  font-size: 12.5px;
+}
+
+.ws-guide__row {
+  display: flex;
+  flex-direction: column;
+}
+
+.ws-guide__note {
+  margin-top: 4px;
+  color: var(--c-text-muted);
+}
+
+.ws-row__evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--c-border);
+}
+
+.ws-row__suggest {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Phone: give the level field and its bar the room they need. */
+.app-shell--m .ws-row .ws-row__meta {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}

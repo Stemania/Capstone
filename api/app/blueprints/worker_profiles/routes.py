@@ -27,6 +27,15 @@ def put_skills(worker_id):
     return jsonify([s.to_dict() for s in rows])
 
 
+@worker_profiles_bp.route("/<worker_id>/skill-evidence", methods=["GET"])
+@jwt_required()
+@require_roles(UserRole.ADMIN)
+def get_skill_evidence(worker_id):
+    from app.services.skill_evidence_service import worker_skill_evidence
+
+    return jsonify(worker_skill_evidence(worker_id))
+
+
 @worker_profiles_bp.route("/<worker_id>/schedule", methods=["GET"])
 @jwt_required()
 @require_roles(UserRole.ADMIN)

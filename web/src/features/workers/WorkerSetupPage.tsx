@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Checkbox, Input, InputNumber, Select, Spin, Switch, Typography, message } from 'antd';
+import { Button, Checkbox, Input, InputNumber, Select, Spin, Switch, Tooltip, Typography, message } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useSearchParams } from 'react-router-dom';
 import { MOBILE_SHELL_QUERY, NARROW_QUERY, useMediaQuery, useViewport } from '../../hooks/useViewport';
 import { jobOrdersApi } from '../../api/jobOrders.api';
 import { usersApi, workerProfileApi } from '../../api/users.api';
 import { getErrorMessage } from '../../api/client';
-import type { User, WorkerSchedule, WorkerSkill } from '../../types';
+import type { SkillEvidence, User, WorkerSchedule, WorkerSkill } from '../../types';
 import UserIdentity from '../../components/UserIdentity';
 import WorkerHistoryPanel from './WorkerHistoryPanel';
+import { LevelGuide, SkillRecord, SkillSuggestion, levelName } from './SkillEvidence';
+import { formatShop } from '../../utils/shopTime';
 import './workerSetup.css';
 import InfoTip from '../../components/InfoTip';
 import { LevelBar, TabBar, PageSkeleton } from '../../components/ui';
@@ -55,6 +57,7 @@ export default function WorkerSetupPage() {
   const [skillRows, setSkillRows] = useState<SkillRow[]>([]);
   const [schedule, setSchedule] = useState<WorkerSchedule[]>(defaultSchedule());
   const [savingSkills, setSavingSkills] = useState(false);
+  const [evidence, setEvidence] = useState<SkillEvidence | null>(null);
   const [savingSchedule, setSavingSchedule] = useState(false);
 
   const { isNarrow } = useViewport();
@@ -108,11 +111,14 @@ export default function WorkerSetupPage() {
     const load = async () => {
       setDetailLoading(true);
       try {
-        const [machinesRes, skillsRes, scheduleRes] = await Promise.all([
+        setEvidence(null);
+        const [machinesRes, skillsRes, scheduleRes, evidenceRes] = await Promise.all([
           jobOrdersApi.machines(),
           workerProfileApi.getSkills(workerId).catch(() => ({ data: [] as WorkerSkill[] })),
           workerProfileApi.getSchedule(workerId).catch(() => ({ data: [] as WorkerSchedule[] })),
+          workerProfileApi.getSkillEvidence(workerId).catch(() => ({ data: null })),
         ]);
+        setEvidence(evidenceRes.data);
         const existing = new Map((skillsRes.data || []).map((s) => [s.machineTypeId, s]));
         setSkillRows(
           machinesRes.data.map((m) => {
@@ -168,6 +174,10 @@ export default function WorkerSetupPage() {
         }))
       );
       message.success('Skills saved');
+      workerProfileApi
+        .getSkillEvidence(workerId)
+        .then((res) => setEvidence(res.data))
+        .catch(() => undefined);
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
@@ -196,11 +206,18 @@ export default function WorkerSetupPage() {
     }
   };
 
+  const evidenceByMachine = useMemo(
+    () => new Map((evidence?.machineTypes || []).map((e) => [e.machineTypeId, e])),
+    [evidence]
+  );
+  const setLevel = (key: string, level: number) =>
+    setSkillRows((prev) => prev.map((r) => (r.key === key ? { ...r, proficiency: level } : r)));
+
   const skillColumns = [
     {
       title: 'Can do',
       dataIndex: 'enabled',
-      width: 100,
+      width: 84,
       render: (_: unknown, row: SkillRow) => (
         <Switch
           checked={row.enabled}
@@ -223,15 +240,21 @@ export default function WorkerSetupPage() {
     {
       title: 'Machine',
       key: 'target',
+      width: 120,
       render: (_: unknown, row: SkillRow) => <strong>{row.name}</strong>,
     },
     {
-      title: 'Level',
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          Level
+          <InfoTip label="What each level means" title="Skill levels" content={<LevelGuide />} />
+        </span>
+      ),
       dataIndex: 'proficiency',
-      width: 200,
+      width: 176,
       render: (_: unknown, row: SkillRow) =>
         row.enabled ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
             <InputNumber
               min={1}
               max={5}
@@ -246,16 +269,38 @@ export default function WorkerSetupPage() {
                 );
               }}
             />
-            <LevelBar level={row.proficiency} />
+            <Tooltip title={levelName(row.proficiency)}>
+              <span>
+                <LevelBar level={row.proficiency} />
+              </span>
+            </Tooltip>
           </span>
         ) : (
           <span className="ui-muted-note">Can&apos;t run</span>
         ),
     },
     {
+      title: 'Record (12 months)',
+      key: 'record',
+      render: (_: unknown, row: SkillRow) => <SkillRecord ev={evidenceByMachine.get(row.key)} />,
+    },
+    {
+      title: 'Suggested',
+      key: 'suggested',
+      width: 136,
+      render: (_: unknown, row: SkillRow) => (
+        <SkillSuggestion
+          ev={evidenceByMachine.get(row.key)}
+          current={row.proficiency}
+          enabled={row.enabled}
+          onUse={(level) => setLevel(row.key, level)}
+        />
+      ),
+    },
+    {
       title: 'Primary',
       dataIndex: 'isPrimary',
-      width: 90,
+      width: 76,
       render: (_: unknown, row: SkillRow) => (
         <Checkbox
           checked={row.isPrimary}
@@ -446,8 +491,14 @@ export default function WorkerSetupPage() {
                       Skills
                       <InfoTip
                         label="How skills work"
-                        content="Switch on the machines they can operate, each at level 1 to 5. One primary skill only. Operations without a machine take no skill: anyone can do them. A machine nobody has a skill for yet is open to everyone."
+                        content="Switch on the machines they can operate, each at level 1 to 5. One primary skill only. Operations without a machine take no skill: anyone can do them. A machine nobody has a skill for yet is open to everyone. The record and the suggested level come from the last 12 months of finished operations; you decide the level."
                       />
+                      {evidence?.lastReviewed ? (
+                        <span className="ws-reviewed">
+                          Last saved {formatShop(evidence.lastReviewed.at, 'MMM D, YYYY')}
+                          {evidence.lastReviewed.byName ? ` by ${evidence.lastReviewed.byName}` : ''}
+                        </span>
+                      ) : null}
                     </span>
                     <div className="worker-setup-panel__save m-action-bar">
                       <Button
@@ -516,6 +567,18 @@ export default function WorkerSetupPage() {
                                 );
                               }}
                             />
+                          </div>
+                          <div className="ws-row__evidence">
+                            <SkillRecord ev={evidenceByMachine.get(row.key)} />
+                            <span className="ws-row__suggest">
+                              <span className="ws-row__k">Suggested</span>
+                              <SkillSuggestion
+                                ev={evidenceByMachine.get(row.key)}
+                                current={row.proficiency}
+                                enabled={row.enabled}
+                                onUse={(level) => setLevel(row.key, level)}
+                              />
+                            </span>
                           </div>
                         </div>
                       ))}

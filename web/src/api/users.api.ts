@@ -1,5 +1,12 @@
 import apiClient from './client';
-import type { OperationType, User, WorkerSchedule, WorkerSkill, WorkerWorkHistory } from '../types';
+import type {
+  OperationType,
+  SkillEvidence,
+  User,
+  WorkerSchedule,
+  WorkerSkill,
+  WorkerWorkHistory,
+} from '../types';
 
 /** Outcome of sending an invitation. Never contains the link or code. */
 export interface InviteDelivery {
@@ -47,6 +54,8 @@ export const workerProfileApi = {
     apiClient.get<WorkerSkill[]>(`/workers/${workerId}/skills`),
   putSkills: (workerId: string, skills: Omit<WorkerSkill, 'id' | 'workerId'>[]) =>
     apiClient.put<WorkerSkill[]>(`/workers/${workerId}/skills`, { skills }),
+  getSkillEvidence: (workerId: string) =>
+    apiClient.get<SkillEvidence>(`/workers/${workerId}/skill-evidence`),
   getSchedule: (workerId: string) =>
     apiClient.get<WorkerSchedule[]>(`/workers/${workerId}/schedule`),
   putSchedule: (workerId: string, schedule: Omit<WorkerSchedule, 'id' | 'workerId'>[]) =>

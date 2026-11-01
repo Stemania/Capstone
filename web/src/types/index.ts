@@ -12,6 +12,32 @@ export interface WorkerSkill {
   isPrimary: boolean;
 }
 
+/** The shop's record behind a skill level (Admin only). */
+export interface SkillEvidenceRow {
+  machineTypeId: string;
+  machineTypeName: string;
+  rated: number | null;
+  leadOps: number;
+  helperOps: number;
+  lastDoneAt: string | null;
+  efficiencyPct: number | null;
+  speedVsPeersPct: number | null;
+  onTargetPct: number | null;
+  operatorRedos: number;
+  operatorRedoPct: number | null;
+  suggestedLevel: number | null;
+  suggestionReason: string;
+  flags: { kind: 'mismatch' | 'unused'; text: string }[];
+}
+
+export interface SkillEvidence {
+  from: string;
+  to: string;
+  minLeadOps: number;
+  lastReviewed: { at: string; byName: string | null } | null;
+  machineTypes: SkillEvidenceRow[];
+}
+
 export interface WorkerSchedule {
   id?: string;
   workerId?: string;
