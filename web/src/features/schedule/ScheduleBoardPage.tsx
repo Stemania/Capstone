@@ -300,17 +300,6 @@ function AdminOfficeScheduleBoard() {
 
   const filterSelects = (
     <>
-      {!isPhoneBoard && (
-        <PressGroup
-          label="View"
-          value={deskView}
-          onChange={changeDeskView}
-          options={[
-            { label: 'Board', value: 'board' },
-            { label: 'List', value: 'list' },
-          ]}
-        />
-      )}
       {!isPhoneBoard && deskView === 'board' && (
         <PressGroup
           label="Rows"
@@ -370,6 +359,19 @@ function AdminOfficeScheduleBoard() {
         <Switch size="small" checked={includeCompleted} onChange={setIncludeCompleted} />
         Show completed
       </label>
+      {!isPhoneBoard && (
+        <span style={{ marginLeft: 8 }}>
+          <PressGroup
+            label="View"
+            value={deskView}
+            onChange={changeDeskView}
+            options={[
+              { label: 'Board', value: 'board' },
+              { label: 'List', value: 'list' },
+            ]}
+          />
+        </span>
+      )}
     </>
   );
 
