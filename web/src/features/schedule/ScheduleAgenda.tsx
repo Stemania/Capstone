@@ -22,14 +22,14 @@ type AgendaItem = { op: ScheduleBoardOperation; start: Dayjs; end: Dayjs };
 type AgendaDowntime = { dt: ScheduleBoardDowntime; start: Dayjs; end: Dayjs };
 type AgendaDay = { key: string; date: Dayjs; items: AgendaItem[]; downtimes: AgendaDowntime[] };
 
-function opSegments(op: ScheduleBoardOperation) {
+export function opSegments(op: ScheduleBoardOperation) {
   if (op.segments.length > 0) return op.segments;
   if (op.scheduledStart && op.scheduledEnd) return [{ start: op.scheduledStart, end: op.scheduledEnd }];
   return [];
 }
 
 /** Earliest start and latest end of a set of time ranges inside one shop day. */
-function pieceOnDay(ranges: { start: string; end: string }[], day: Dayjs) {
+export function pieceOnDay(ranges: { start: string; end: string }[], day: Dayjs) {
   const dayStart = day.startOf('day');
   const dayEnd = day.endOf('day');
   let start: Dayjs | null = null;
@@ -46,7 +46,7 @@ function pieceOnDay(ranges: { start: string; end: string }[], day: Dayjs) {
   return start && end ? { start, end } : null;
 }
 
-function timeRange(start: Dayjs, end: Dayjs) {
+export function timeRange(start: Dayjs, end: Dayjs) {
   const allDay = start.hour() === 0 && start.minute() === 0 && end.hour() === 23 && end.minute() === 59;
   if (allDay) return 'All day';
   return `${start.format('h:mm A')} – ${end.format('h:mm A')}`;

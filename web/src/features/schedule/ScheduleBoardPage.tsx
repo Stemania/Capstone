@@ -43,6 +43,7 @@ import { SHOP_TZ } from '../../utils/shopTime';
 import ScheduleExpandShell from './ScheduleExpandShell';
 import WorkerPersonalSchedule from './WorkerPersonalSchedule';
 import ScheduleAgenda from './ScheduleAgenda';
+import ScheduleList from './ScheduleList';
 import { capacityLine } from './capacityText';
 import { MOBILE_SHELL_QUERY, TOUCH_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import { personLabel } from '../../utils/people';
@@ -84,6 +85,16 @@ const SCHEDULE_LEGEND: LegendItem[] = [
 
 type PhoneView = 'list' | 'board';
 const PHONE_VIEW_KEY = 'schedule.phoneView';
+type DeskView = 'board' | 'list';
+const DESK_VIEW_KEY = 'schedule.deskView';
+
+function readDeskView(): DeskView {
+  try {
+    return localStorage.getItem(DESK_VIEW_KEY) === 'list' ? 'list' : 'board';
+  } catch {
+    return 'board';
+  }
+}
 
 function readPhoneView(): PhoneView {
   try {
@@ -125,6 +136,15 @@ function AdminOfficeScheduleBoard() {
     setPhoneView(next);
     try {
       localStorage.setItem(PHONE_VIEW_KEY, next);
+    } catch {
+      /* storage unavailable */
+    }
+  };
+  const [deskView, setDeskView] = useState<DeskView>(readDeskView);
+  const changeDeskView = (next: DeskView) => {
+    setDeskView(next);
+    try {
+      localStorage.setItem(DESK_VIEW_KEY, next);
     } catch {
       /* storage unavailable */
     }
@@ -281,6 +301,17 @@ function AdminOfficeScheduleBoard() {
   const filterSelects = (
     <>
       {!isPhoneBoard && (
+        <PressGroup
+          label="View"
+          value={deskView}
+          onChange={changeDeskView}
+          options={[
+            { label: 'Board', value: 'board' },
+            { label: 'List', value: 'list' },
+          ]}
+        />
+      )}
+      {!isPhoneBoard && deskView === 'board' && (
         <PressGroup
           label="Rows"
           value={rowMode}
@@ -556,24 +587,34 @@ function AdminOfficeScheduleBoard() {
             ) : undefined
           }
         >
-          <BoardGrid
-            rows={rows}
-            rowMode={boardRowMode}
-            opsByRowKey={opsByRowKey}
-            downtimesByUnit={downtimesByUnit}
-            from={from}
-            to={to}
-            viewMode={boardViewMode}
-            isMobile={isMobile}
-            rowH={rowH}
-            labelW={labelW}
-            shopDayWindows={data?.shopDayWindows}
-            pending={boardPending}
-            onOpenJob={openJob}
-          />
+          {deskView === 'list' && !isPhoneBoard ? (
+            <ScheduleList
+              operations={data?.operations ?? NO_OPS}
+              downtimes={data?.downtimes ?? NO_DOWNTIMES}
+              from={from}
+              to={to}
+              onOpenJob={openJob}
+            />
+          ) : (
+            <BoardGrid
+              rows={rows}
+              rowMode={boardRowMode}
+              opsByRowKey={opsByRowKey}
+              downtimesByUnit={downtimesByUnit}
+              from={from}
+              to={to}
+              viewMode={boardViewMode}
+              isMobile={isMobile}
+              rowH={rowH}
+              labelW={labelW}
+              shopDayWindows={data?.shopDayWindows}
+              pending={boardPending}
+              onOpenJob={openJob}
+            />
+          )}
         </ScheduleExpandShell>
       )}
-      {!isPhoneBoard ? (
+      {!isPhoneBoard && deskView === 'board' ? (
         <div className="sched-page__legend">
           <Legend items={SCHEDULE_LEGEND} />
           <InfoTip

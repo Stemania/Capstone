@@ -312,3 +312,164 @@
   color: var(--tone-red-fg);
   margin-bottom: 8px;
 }
+
+/* ---- List view (desktop) ------------------------------------------------ */
+
+.sched-list {
+  max-height: var(--sched-view-max-h, min(520px, 55vh));
+  overflow: auto;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md, 8px);
+  background: var(--c-surface);
+}
+
+.sched-expand--open .sched-expand__body > .sched-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+.sched-list__table .ant-table {
+  border-radius: 0;
+}
+
+.sched-list__table .ant-table-thead > tr > th {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-2);
+  background: var(--c-surface-muted);
+}
+
+.sched-list__table .ant-table-tbody > tr > td {
+  vertical-align: top;
+  font-size: 13px;
+}
+
+.sched-list__table .ant-table-tbody > tr.sched-list__row--op {
+  cursor: pointer;
+}
+
+.sched-list__table .ant-table-tbody > tr.sched-list__row--op:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: -2px;
+}
+
+/* A firmer line where a new day starts. */
+.sched-list__table .ant-table-tbody > tr.sched-list__first > td {
+  border-top: 1px solid var(--c-border-strong);
+}
+
+.sched-list__table .ant-table-tbody > tr > td.sched-list__date-cell {
+  background: var(--c-surface-muted);
+  border-right: 1px solid var(--c-border);
+}
+
+.sched-list__table .ant-table-tbody > tr.sched-list__row--down > td:not(.sched-list__date-cell) {
+  background: var(--tone-red-bg);
+}
+
+.sched-list__date {
+  line-height: 1.25;
+}
+
+.sched-list__dow {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--c-text-muted);
+}
+
+.sched-list__day {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--c-text);
+}
+
+.sched-list__count {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
+
+.sched-list__date.is-today .sched-list__dow,
+.sched-list__date.is-today .sched-list__day {
+  color: var(--c-primary);
+}
+
+.sched-list__time {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.sched-list__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.sched-list__job-no {
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+.sched-list__sub {
+  font-size: 12px;
+  color: var(--c-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sched-list__muted {
+  color: var(--c-text-muted);
+}
+
+.sched-list__down {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--tone-red-fg);
+}
+
+.sched-list__crew {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.sched-list__crew-names {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sched-list__status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.sched-list__flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.sched-list__flag.is-red {
+  color: var(--tone-red-fg);
+}
+
+.sched-list__flag.is-amber {
+  color: var(--tone-amber-fg);
+}
