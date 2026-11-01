@@ -179,7 +179,7 @@ def test_reset_revokes_device_pins(client):
     user = _active_user("reset_pin@test.local", "+639170000105", password="Oldpass1!")
     device_id = "reset-device-1"
     register_device_after_password_login(user, device_id, "Phone")
-    set_device_pin(user, device_id, "482917", "Phone")
+    set_device_pin(user, device_id, "4829", "Phone")
     _, raw = _issue_reset(user)
     db.session.flush()
 
@@ -195,6 +195,6 @@ def test_reset_revokes_device_pins(client):
 
     pin_unlock = client.post(
         "/api/v1/auth/pin/unlock",
-        json={"deviceId": device_id, "pin": "482917"},
+        json={"deviceId": device_id, "pin": "4829"},
     )
     assert pin_unlock.status_code == 401

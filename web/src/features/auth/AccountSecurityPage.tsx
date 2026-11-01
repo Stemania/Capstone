@@ -22,6 +22,7 @@ import type { UserDevice } from '../../types';
 import PinSetupKeypad from './PinSetupKeypad';
 import './AccountSecurityPage.css';
 import { confirmAction } from '../../utils/confirmAction';
+import { PIN_HINT_KEY } from '../../auth/pinHint';
 
 /** Other devices listed before "Show N more". */
 const VISIBLE_OTHERS = 3;
@@ -170,7 +171,7 @@ export default function AccountSecurityPage() {
 
   const onSavePin = async (pin: string) => {
     await authApi.setPin(pin);
-    localStorage.setItem('bmsc_has_pin', '1');
+    localStorage.setItem(PIN_HINT_KEY, '1');
     message.success(`PIN saved. Use it next time you open the app on this ${deviceWord}.`);
     setPinModalOpen(false);
     load();
@@ -185,7 +186,7 @@ export default function AccountSecurityPage() {
       onOk: async () => {
         try {
           await authApi.removePin();
-          localStorage.removeItem('bmsc_has_pin');
+          localStorage.removeItem(PIN_HINT_KEY);
           message.success('PIN unlock turned off');
           load();
         } catch (err) {
@@ -199,7 +200,7 @@ export default function AccountSecurityPage() {
     setPasswordSaving(true);
     try {
       await authApi.changePassword(values.currentPassword, values.newPassword);
-      localStorage.removeItem('bmsc_has_pin');
+      localStorage.removeItem(PIN_HINT_KEY);
       message.success(
         isWorker
           ? 'Password updated. Your other devices were signed out and PIN unlock is off.'
@@ -369,7 +370,7 @@ export default function AccountSecurityPage() {
           )}
         </span>
       }
-      subtitle={`Open the app with 6 numbers instead of your password, on this ${deviceWord} only.`}
+      subtitle={`Open the app with 4 numbers instead of your password, on this ${deviceWord} only.`}
     >
       {loading ? (
         <Skeleton active paragraph={{ rows: 2 }} title={false} />
@@ -401,7 +402,7 @@ export default function AccountSecurityPage() {
           <ol className="sec-steps">
             <li>
               <span className="sec-steps__n">1</span>
-              <span>Pick 6 numbers you will remember (not 123456 or 111111).</span>
+              <span>Pick 4 numbers you will remember (not 1234 or 1111).</span>
             </li>
             <li>
               <span className="sec-steps__n">2</span>
@@ -522,7 +523,7 @@ export default function AccountSecurityPage() {
         width="min(400px, calc(100vw - 32px))"
       >
         <p className="sec-pin__modal-hint">
-          Pick 6 numbers, then type them again. This PIN works only on this {deviceWord}.
+          Pick 4 numbers, then type them again. This PIN works only on this {deviceWord}.
         </p>
         <PinSetupKeypad
           onSave={onSavePin}

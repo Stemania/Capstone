@@ -9,6 +9,7 @@ import { useOnline } from '../../offline/connectivity';
 import { createActionQueue } from '../../offline/actionQueue';
 import PinKeypad from './PinKeypad';
 import './LoginPage.css';
+import { OLD_PIN_HINT_KEY, PIN_HINT_KEY } from '../../auth/pinHint';
 
 export default function LoginPage() {
   const { login, user, loading, applySession } = useAuth();
@@ -29,7 +30,9 @@ export default function LoginPage() {
     let cancelled = false;
     (async () => {
       try {
-        const hint = localStorage.getItem('bmsc_has_pin') === '1';
+        // A 6-digit PIN from before PINs became 4 digits no longer works.
+        localStorage.removeItem(OLD_PIN_HINT_KEY);
+        const hint = localStorage.getItem(PIN_HINT_KEY) === '1';
         if (!cancelled) setPinMode(hint);
       } finally {
         if (!cancelled) setCheckingPin(false);
@@ -65,12 +68,12 @@ export default function LoginPage() {
     try {
       const { data } = await authApi.unlockWithPin(pin);
       applySession(data);
-      localStorage.setItem('bmsc_has_pin', '1');
+      localStorage.setItem(PIN_HINT_KEY, '1');
     } catch (err) {
       const code = getErrorCode(err);
       const message = getErrorMessage(err);
       if (code === 'PIN_LOCKED' || code === 'PIN_DEVICE_UNKNOWN') {
-        localStorage.removeItem('bmsc_has_pin');
+        localStorage.removeItem(PIN_HINT_KEY);
         setPinMode(false);
         setError(message);
         setPinError('');
@@ -221,7 +224,7 @@ export default function LoginPage() {
                   Forgot password?
                 </a>
               </div>
-              {localStorage.getItem('bmsc_has_pin') === '1' && (
+              {localStorage.getItem(PIN_HINT_KEY) === '1' && (
                 <Button type="link" block style={{ marginTop: 8 }} onClick={() => setPinMode(true)}>
                   Use PIN instead
                 </Button>

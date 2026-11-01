@@ -6,6 +6,7 @@ import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import PasswordRuleHints from './PasswordRuleHints';
 import './LoginPage.css';
+import { PIN_HINT_KEY } from '../../auth/pinHint';
 
 export default function SetPasswordPage() {
   const [params] = useSearchParams();
@@ -88,7 +89,7 @@ export default function SetPasswordPage() {
       );
       applySession(data);
       if (data.device?.hasPin) {
-        localStorage.setItem('bmsc_has_pin', '1');
+        localStorage.setItem(PIN_HINT_KEY, '1');
       } else if (data.user.role === 'PRODUCTION_WORKER') {
         sessionStorage.setItem('bmsc_offer_pin', '1');
       }

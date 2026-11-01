@@ -18,6 +18,7 @@ from app.services.device_pin_service import (
     set_device_pin,
 )
 from app.services.invitation_service import create_invited_user, issue_invitation
+from app.utils.errors import AppError
 from app.utils.phone import normalize_ph_mobile
 
 
@@ -272,20 +273,20 @@ def test_pin_unlock_rejects_unknown_or_revoked_device(client):
 
     unknown = client.post(
         "/api/v1/auth/pin/unlock",
-        json={"deviceId": "00000000-0000-0000-0000-000000000001", "pin": "258369"},
+        json={"deviceId": "00000000-0000-0000-0000-000000000001", "pin": "2583"},
     )
     assert unknown.status_code == 401
     assert unknown.get_json()["error"]["code"] == "PIN_DEVICE_UNKNOWN"
     assert "isn't set up" in unknown.get_json()["error"]["message"]
 
-    _set_pin(user, "dev-known-1", "258369")
+    _set_pin(user, "dev-known-1", "2583")
     device = UserDevice.query.filter_by(device_id="dev-known-1").first()
     device.revoked_at = datetime.now(timezone.utc)
     db.session.flush()
 
     revoked = client.post(
         "/api/v1/auth/pin/unlock",
-        json={"deviceId": "dev-known-1", "pin": "258369"},
+        json={"deviceId": "dev-known-1", "pin": "2583"},
     )
     assert revoked.status_code == 401
     assert revoked.get_json()["error"]["code"] == "PIN_DEVICE_UNKNOWN"
@@ -298,11 +299,11 @@ def test_pin_unlock_uses_the_row_that_has_a_pin(client):
     worker = _active_user("pinworker@test.local", "+639170000092")
     shared = "shared-browser-device"
     register_device_after_password_login(admin, shared, "Office PC")
-    _set_pin(worker, shared, "258369")
+    _set_pin(worker, shared, "2583")
 
     wrong = client.post(
         "/api/v1/auth/pin/unlock",
-        json={"deviceId": shared, "pin": "000000"},
+        json={"deviceId": shared, "pin": "0000"},
     )
     assert wrong.status_code == 401
     assert wrong.get_json()["error"]["code"] == "PIN_INVALID"
@@ -310,7 +311,7 @@ def test_pin_unlock_uses_the_row_that_has_a_pin(client):
 
     ok = client.post(
         "/api/v1/auth/pin/unlock",
-        json={"deviceId": shared, "pin": "258369"},
+        json={"deviceId": shared, "pin": "2583"},
     )
     assert ok.status_code == 200
     assert "accessToken" in ok.get_json()
@@ -332,14 +333,14 @@ def test_set_pin_then_unlock_without_a_session(client):
     saved = client.post(
         "/api/v1/auth/pin",
         headers={"Authorization": f"Bearer {token}"},
-        json={"deviceId": "phone-after-logout", "pin": "258369"},
+        json={"deviceId": "phone-after-logout", "pin": "2583"},
     )
     assert saved.status_code == 201
 
     # Logout only drops the client token. The device binding stays.
     unlocked = client.post(
         "/api/v1/auth/pin/unlock",
-        json={"deviceId": "phone-after-logout", "pin": "258369"},
+        json={"deviceId": "phone-after-logout", "pin": "2583"},
     )
     assert unlocked.status_code == 200
     assert unlocked.get_json()["user"]["id"] == user.id
@@ -347,13 +348,13 @@ def test_set_pin_then_unlock_without_a_session(client):
 
 def test_five_failed_pin_attempts_revokes_pin(client):
     user = _active_user("pinlock@test.local", "+639170000088")
-    _set_pin(user, "dev-lock", "258369")
+    _set_pin(user, "dev-lock", "2583")
 
     for _ in range(5):
         assert (
             client.post(
                 "/api/v1/auth/pin/unlock",
-                json={"deviceId": "dev-lock", "pin": "000000"},
+                json={"deviceId": "dev-lock", "pin": "0000"},
             ).status_code
             == 401
         )
@@ -364,10 +365,40 @@ def test_five_failed_pin_attempts_revokes_pin(client):
     assert device.revoked_at is not None
 
 
+def test_pin_is_four_digits(client):
+    user = _active_user("pin4@test.local", "+639170000087")
+    register_device_after_password_login(user, "dev-four", "Test phone")
+    for bad in ("482917", "482", "12a4"):
+        with pytest.raises(AppError) as err:
+            set_device_pin(user, "dev-four", bad, "Test phone")
+        assert "4 digits" in err.value.message
+    for obvious in ("1111", "1234", "4321", "1212"):
+        with pytest.raises(AppError) as err:
+            set_device_pin(user, "dev-four", obvious, "Test phone")
+        assert "less obvious" in err.value.message
+    set_device_pin(user, "dev-four", "4829", "Test phone")
+    ok = client.post("/api/v1/auth/pin/unlock", json={"deviceId": "dev-four", "pin": "4829"})
+    assert ok.status_code == 200
+
+
+def test_old_six_digit_pin_no_longer_unlocks(client):
+    user = _active_user("pin6@test.local", "+639170000086")
+    register_device_after_password_login(user, "dev-six", "Test phone")
+    device = UserDevice.query.filter_by(device_id="dev-six").first()
+    device.pin_hash = bcrypt.generate_password_hash("482917").decode()
+    device.pin_set_at = datetime.now(timezone.utc)
+    db.session.commit()
+    res = client.post("/api/v1/auth/pin/unlock", json={"deviceId": "dev-six", "pin": "482917"})
+    assert res.status_code == 400
+    # A rejected format is not a wrong guess: the device keeps its attempts.
+    db.session.refresh(device)
+    assert (device.pin_failed_attempts or 0) == 0
+
+
 def test_password_change_revokes_all_device_pins(client):
     user = _active_user("pch@test.local", "+639170000077")
-    _set_pin(user, "dev-a", "258369")
-    _set_pin(user, "dev-b", "147258")
+    _set_pin(user, "dev-a", "2583")
+    _set_pin(user, "dev-b", "1472")
     user_id = user.id
 
     login = client.post(
@@ -539,7 +570,7 @@ def test_pin_unlock_is_for_production_workers_only(client, app):
     token = res.get_json()["accessToken"]
     res = client.post(
         "/api/v1/auth/pin",
-        json={"deviceId": "dev-office-1", "pin": "482916"},
+        json={"deviceId": "dev-office-1", "pin": "4816"},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert res.status_code == 403
@@ -547,9 +578,9 @@ def test_pin_unlock_is_for_production_workers_only(client, app):
 
     # A PIN left from before still does not unlock.
     device = UserDevice.query.filter_by(user_id=office.id, device_id="dev-office-1").first()
-    device.pin_hash = _bcrypt.generate_password_hash("482916").decode()
+    device.pin_hash = _bcrypt.generate_password_hash("4816").decode()
     _db.session.commit()
-    res = client.post("/api/v1/auth/pin/unlock", json={"deviceId": "dev-office-1", "pin": "482916"})
+    res = client.post("/api/v1/auth/pin/unlock", json={"deviceId": "dev-office-1", "pin": "4816"})
     assert res.status_code == 401
 
 

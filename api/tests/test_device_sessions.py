@@ -134,7 +134,7 @@ def test_sign_out_others_keeps_only_the_current_device(client):
     current = _login(client, user.email, "dev-a")
     other_b = _login(client, user.email, "dev-b")
     other_c = _login(client, user.email, "dev-c")
-    set_device_pin(user, "dev-b", "258369")
+    set_device_pin(user, "dev-b", "2583")
 
     resp = client.post("/api/v1/auth/devices/sign-out-others", headers=_auth(current["accessToken"]))
     assert resp.status_code == 200
@@ -195,8 +195,8 @@ def test_password_change_clears_every_pin_and_keeps_this_device(client):
     user = _user("sess_pw@test.local")
     current = _login(client, user.email, "dev-pw-a")
     other = _login(client, user.email, "dev-pw-b")
-    set_device_pin(user, "dev-pw-a", "258369")
-    set_device_pin(user, "dev-pw-b", "147258")
+    set_device_pin(user, "dev-pw-a", "2583")
+    set_device_pin(user, "dev-pw-b", "1472")
 
     resp = client.post(
         "/api/v1/auth/password",
@@ -216,8 +216,8 @@ def test_password_change_clears_every_pin_and_keeps_this_device(client):
 def test_pin_unlock_issues_a_device_bound_session(client):
     user = _user("sess_pin@test.local")
     _login(client, user.email, "dev-pin")
-    set_device_pin(user, "dev-pin", "258369")
-    resp = client.post("/api/v1/auth/pin/unlock", json={"deviceId": "dev-pin", "pin": "258369"})
+    set_device_pin(user, "dev-pin", "2583")
+    resp = client.post("/api/v1/auth/pin/unlock", json={"deviceId": "dev-pin", "pin": "2583"})
     assert resp.status_code == 200
     assert decode_token(resp.get_json()["accessToken"])["did"] == _row(user, "dev-pin").id
 
@@ -226,7 +226,7 @@ def test_stale_cleanup_removes_only_inactive_devices_without_pin(client):
     user = _user("sess_stale@test.local")
     for device_id in ("dev-old", "dev-old-pin", "dev-recent", "dev-old-revoked"):
         _login(client, user.email, device_id)
-    set_device_pin(user, "dev-old-pin", "258369")
+    set_device_pin(user, "dev-old-pin", "2583")
     long_ago = datetime.now(timezone.utc) - timedelta(days=STALE_DEVICE_DAYS + 1)
     for device_id in ("dev-old", "dev-old-pin", "dev-old-revoked"):
         row = _row(user, device_id)

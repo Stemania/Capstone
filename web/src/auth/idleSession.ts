@@ -61,7 +61,7 @@ export function writeLastActivity(
 
 /**
  * Clears session tokens and sends the browser to login with the idle reason.
- * Keeps `bmsc_has_pin` and the offline action queue so PIN unlock and sync still work.
+ * Keeps `bmsc_has_pin4` and the offline action queue so PIN unlock and sync still work.
  */
 export function idleSignOut(assignHref: (url: string) => void = (url) => {
   window.location.href = url;

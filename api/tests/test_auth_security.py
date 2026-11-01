@@ -226,7 +226,7 @@ def test_login_rate_limit_returns_clear_429(rate_client):
 
 def test_pin_unlock_rate_limit_returns_clear_429(rate_client):
     limiter.reset()
-    payload = {"deviceId": "missing-device", "pin": "123456"}
+    payload = {"deviceId": "missing-device", "pin": "1234"}
     statuses = [
         rate_client.post("/api/v1/auth/pin/unlock", json=payload).status_code
         for _ in range(4)

@@ -78,7 +78,7 @@ beforeEach(() => {
 describe('device-bound sessions', () => {
   it('a signed-out device goes to login without a refresh and keeps its waiting actions', async () => {
     signIn();
-    data.set('bmsc_has_pin', '1');
+    data.set('bmsc_has_pin4', '1');
     queueTwoActions();
     const seen = serve(() => signedOut);
 
@@ -88,7 +88,7 @@ describe('device-bound sessions', () => {
     expect(location.href).toBe('/login?reason=signed-out');
     expect(data.has('accessToken')).toBe(false);
     expect(data.has('refreshToken')).toBe(false);
-    expect(data.has('bmsc_has_pin')).toBe(false);
+    expect(data.has('bmsc_has_pin4')).toBe(false);
     expect(createActionQueue(localStorage).list('worker-1')).toHaveLength(2);
     expect(data.get('bmsc_device_id')).toBe('dev-123');
   });

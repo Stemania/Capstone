@@ -6,6 +6,7 @@ import { getErrorMessage } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import PasswordRuleHints from './PasswordRuleHints';
 import './LoginPage.css';
+import { PIN_HINT_KEY } from '../../auth/pinHint';
 
 export default function ResetPasswordPage() {
   const [params] = useSearchParams();
@@ -86,7 +87,7 @@ export default function ResetPasswordPage() {
         values.identifier,
       );
       applySession(data);
-      localStorage.removeItem('bmsc_has_pin');
+      localStorage.removeItem(PIN_HINT_KEY);
       navigate(data.user.role === 'PRODUCTION_WORKER' ? '/home' : '/dashboard', {
         replace: true,
       });

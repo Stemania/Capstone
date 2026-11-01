@@ -66,7 +66,7 @@ describe('idleSession storage and sign-out', () => {
     store.set('accessToken', 'a');
     store.set('refreshToken', 'r');
     store.set('user', '{"id":"1"}');
-    store.set('bmsc_has_pin', '1');
+    store.set('bmsc_has_pin4', '1');
     store.set('bmsc.offlineQueue.v1', '[{"id":"q1"}]');
     store.set(LAST_ACTIVITY_KEY, '99');
 
@@ -77,7 +77,7 @@ describe('idleSession storage and sign-out', () => {
     expect(store.has('refreshToken')).toBe(false);
     expect(store.has('user')).toBe(false);
     expect(store.has(LAST_ACTIVITY_KEY)).toBe(false);
-    expect(store.get('bmsc_has_pin')).toBe('1');
+    expect(store.get('bmsc_has_pin4')).toBe('1');
     expect(store.get('bmsc.offlineQueue.v1')).toBe('[{"id":"q1"}]');
     expect(hrefs).toEqual([`/login?reason=${IDLE_LOGIN_REASON}`]);
   });

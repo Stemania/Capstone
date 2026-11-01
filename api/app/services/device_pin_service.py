@@ -12,7 +12,7 @@ from app.models.user_security import UserDevice
 from app.services.audit_service import write_audit_event
 from app.services.session_service import issue_tokens
 from app.utils.errors import AppError
-from app.utils.passwords import validate_pin
+from app.utils.passwords import PIN_LENGTH, is_pin_format, validate_pin
 
 MAX_PIN_FAILURES = 5
 # PIN unlock is a shop-floor convenience for Production Workers only. Admin and
@@ -125,6 +125,14 @@ def _device_not_set_up() -> AppError:
 def unlock_with_pin(device_id: str, pin: str) -> dict:
     if not device_id or not pin:
         raise _device_not_set_up()
+    if not is_pin_format(pin):
+        # PINs used to be 6 digits; those stop working and the worker signs in
+        # with the password and sets a new 4-digit PIN.
+        raise AppError(
+            f"Enter your {PIN_LENGTH}-digit PIN, or sign in with your password.",
+            "VALIDATION_ERROR",
+            400,
+        )
 
     # One browser shares a device id across accounts. Match the row that
     # actually has a PIN, not whichever row the database returns first.

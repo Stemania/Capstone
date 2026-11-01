@@ -1,6 +1,7 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { connectivity } from '../offline/connectivity';
 import { readDeviceId } from './device';
+import { PIN_HINT_KEY } from '../auth/pinHint';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -16,7 +17,7 @@ export type SessionEndReason = 'signed-out' | 'expired';
 
 function endSession(reason?: SessionEndReason) {
   clearSession();
-  if (reason === 'signed-out') localStorage.removeItem('bmsc_has_pin');
+  if (reason === 'signed-out') localStorage.removeItem(PIN_HINT_KEY);
   window.location.href = reason ? `/login?reason=${reason}` : '/login';
 }
 

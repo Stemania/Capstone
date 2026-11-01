@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import './PinKeypad.css';
+import { PIN_LENGTH } from '../../auth/pinHint';
 
 const KEYS: (string | null)[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', null, '0', 'back'];
 
@@ -41,7 +42,7 @@ export type PinKeypadProps = {
   footer?: ReactNode;
 };
 
-/** On-screen 6-digit PIN keypad. Digits are never displayed. */
+/** On-screen PIN keypad (4 digits). Digits are never displayed. */
 export default function PinKeypad({
   title,
   error,
@@ -76,7 +77,7 @@ export default function PinKeypad({
   }, [failSignal]);
 
   useEffect(() => {
-    if (digits.length !== 6 || completingRef.current || busy) return;
+    if (digits.length !== PIN_LENGTH || completingRef.current || busy) return;
     completingRef.current = true;
     onCompleteRef.current(digits);
   }, [digits, busy]);
@@ -87,7 +88,7 @@ export default function PinKeypad({
       setDigits((d) => d.slice(0, -1));
       return;
     }
-    setDigits((d) => (d.length >= 6 ? d : d + key));
+    setDigits((d) => (d.length >= PIN_LENGTH ? d : d + key));
   };
 
   return (
@@ -97,9 +98,9 @@ export default function PinKeypad({
       <div
         className={`pin-keypad__indicator${shaking ? ' pin-keypad__indicator--shake' : ''}`}
         role="status"
-        aria-label={`${digits.length} of 6 digits entered`}
+        aria-label={`${digits.length} of ${PIN_LENGTH} digits entered`}
       >
-        {Array.from({ length: 6 }, (_, i) => (
+        {Array.from({ length: PIN_LENGTH }, (_, i) => (
           <span
             key={i}
             className={`pin-keypad__dot${i < digits.length ? ' pin-keypad__dot--filled' : ''}`}
