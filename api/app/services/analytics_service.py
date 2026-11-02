@@ -541,12 +541,7 @@ def efficiency_by_worker(from_s=None, to_s=None, min_ops=None):
         }
         for wid, name, op_count, est, act, avg_v, on_est in rows
     ]
-    payload["recommendationWeights"] = {
-        "machineLead": dict(scoring_service.MACHINE_LEAD_WEIGHTS),
-        "noMachine": dict(scoring_service.NO_MACHINE_WEIGHTS),
-        "helper": dict(scoring_service.HELPER_WEIGHTS),
-        "minimumSamples": scoring_service.COLD_START_MIN_SAMPLES,
-    }
+    payload["recommendationWeights"] = scoring_service.recommendation_weights()
     return payload
 
 

@@ -8,7 +8,7 @@ import { fmtDay, fmtNum, fmtSignedPct, onTimePct, pctChange, ptsChange, symmetri
 import { Card, ChartEmpty, Grid, Heatmap, Kpi, Kpis, LineTrend, PALETTE, SortedBars } from './kit';
 import { CardLoading, FLAG, finishOf, slackText } from './cards';
 import { useCapacity, useCompletion, useOverview, usePeriods, useTrend, useUtilization } from './sources';
-import AnalyticsWorkersPage from './AnalyticsWorkersPage';
+import PerformanceVsTargetCard from './PerformanceVsTargetCard';
 
 const BASIS_LABEL: Record<string, string> = {
   WORKER: 'worker history',
@@ -249,9 +249,49 @@ export default function AnalyticsProductionPage() {
           )}
         </Card>
 
+        <PerformanceVsTargetCard span={7} />
+
+        <Card
+          title="Workload, next 4 weeks"
+          span={5}
+          takeaway={
+            capacity ? (
+              over80 ? (
+                <>
+                  <strong>{over80}</strong> machine type{over80 === 1 ? '' : 's'} above 80% booked
+                </>
+              ) : (
+                'All machine types below 80% booked'
+              )
+            ) : undefined
+          }
+          takeawayTone={over80 ? 'bad' : undefined}
+          info={`Scheduled operation hours ÷ available hours of all active units of the type, ${
+            capacity ? `${fmtDay(capacity.horizon.from)} – ${fmtDay(capacity.horizon.to)}` : 'next 4 weeks'
+          }. The dashed line is 80%.${capacity?.thinSample ? ` ${capacity.thinSampleNote ?? ''}` : ''}`}
+        >
+          {!capacity ? (
+            <CardLoading />
+          ) : !types.length ? (
+            <ChartEmpty title="Nothing scheduled yet" />
+          ) : (
+            <SortedBars
+              max={100}
+              reference={80}
+              rows={types.map((t) => ({
+                key: t.machineTypeId,
+                label: t.machineTypeName || t.machineTypeCode,
+                value: t.projectedLoadPct ?? 0,
+                display: `${fmtNum(t.projectedLoadPct)}%`,
+                sub: `${fmtNum(t.scheduledLoadHours)} h`,
+                color: t.above80Pct ? PALETTE.warn : PALETTE.primary,
+              }))}
+            />
+          )}
+        </Card>
         <Card
           title="Open jobs: predicted finish"
-          span={7}
+          span={12}
           chip="Now"
           takeaway={
             completion ? (
@@ -369,53 +409,7 @@ export default function AnalyticsProductionPage() {
             </div>
           )}
         </Card>
-
-        <Card
-          title="Workload, next 4 weeks"
-          span={5}
-          takeaway={
-            capacity ? (
-              over80 ? (
-                <>
-                  <strong>{over80}</strong> machine type{over80 === 1 ? '' : 's'} above 80% booked
-                </>
-              ) : (
-                'All machine types below 80% booked'
-              )
-            ) : undefined
-          }
-          takeawayTone={over80 ? 'bad' : undefined}
-          info={`Scheduled operation hours ÷ available hours of all active units of the type, ${
-            capacity ? `${fmtDay(capacity.horizon.from)} – ${fmtDay(capacity.horizon.to)}` : 'next 4 weeks'
-          }. The dashed line is 80%.${capacity?.thinSample ? ` ${capacity.thinSampleNote ?? ''}` : ''}`}
-        >
-          {!capacity ? (
-            <CardLoading />
-          ) : !types.length ? (
-            <ChartEmpty title="Nothing scheduled yet" />
-          ) : (
-            <SortedBars
-              max={100}
-              reference={80}
-              rows={types.map((t) => ({
-                key: t.machineTypeId,
-                label: t.machineTypeName || t.machineTypeCode,
-                value: t.projectedLoadPct ?? 0,
-                display: `${fmtNum(t.projectedLoadPct)}%`,
-                sub: `${fmtNum(t.scheduledLoadHours)} h`,
-                color: t.above80Pct ? PALETTE.warn : PALETTE.primary,
-              }))}
-            />
-          )}
-        </Card>
       </Grid>
-
-      <div style={{ marginTop: 20 }}>
-        <h2 className="ana-section-title" style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700 }}>
-          Workers
-        </h2>
-        <AnalyticsWorkersPage />
-      </div>
     </div>
   );
 }

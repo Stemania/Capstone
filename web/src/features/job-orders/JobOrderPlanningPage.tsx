@@ -33,6 +33,7 @@ import JobOrderFlowSteps, {
 } from './JobOrderFlowSteps';
 import { jobOrdersListPath } from './jobOrderListPaths';
 import JobInfoCard from './JobInfoCard';
+import RecommendationWeightsButton from './RecommendationWeights';
 import { PersonAvatar, PersonChip } from '../../components/PersonAvatar';
 import { personLabel } from '../../utils/people';
 import { pairKey, pairedUnitId, parsePairKey, scoreBreakdown, unitOwnerName, unitPairText } from './unitPairing';
@@ -45,6 +46,7 @@ import type {
   ProposedOperation,
   ScheduleProblem,
   ScheduleProposeResult,
+  RecommendationWeightSets,
   ScoringWeights,
   SuggestionDateGate,
   User,
@@ -212,15 +214,6 @@ function suggestionLabel(s: WorkerSuggestion, units: MachineUnitInfo[]) {
   return unitText ? `${name} · ${unitText}` : name;
 }
 
-const RANKING_HELP =
-  'Machine operations, lead: each suggestion is a worker and a specific unit. Assigned operator of ' +
-  'that unit counts 40 per cent, machine skill 30 per cent, past performance 20 per cent and ' +
-  'current workload 10 per cent. Hover a suggestion for the breakdown. Next free is the earliest ' +
-  'moment both that worker and unit are free, given released jobs and the work calendar. Units ' +
-  'with no assigned operator are open to anyone with the skill. Operations without a machine: ' +
-  'worker only — past performance 60 per cent and workload 40 per cent. Helpers, after the lead ' +
-  'is chosen: past performance and workload, 50 per cent each.';
-
 function newRowKey() {
   return `op-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -237,6 +230,7 @@ export default function JobOrderPlanningPage() {
   const [operationTypes, setOperationTypes] = useState<OperationType[]>([]);
   const [rowSuggestions, setRowSuggestions] = useState<Record<number, WorkerSuggestion[]>>({});
   const [rowWeights, setRowWeights] = useState<Record<number, ScoringWeights>>({});
+  const [recWeights, setRecWeights] = useState<RecommendationWeightSets | null>(null);
   const [rowGates, setRowGates] = useState<Record<number, SuggestionDateGate | undefined>>({});
   const [helperSuggestions, setHelperSuggestions] = useState<Record<string, WorkerSuggestion[]>>({});
   const [allWorkers, setAllWorkers] = useState<User[]>([]);
@@ -443,6 +437,7 @@ export default function JobOrderPlanningPage() {
       setRowSuggestions((prev) => ({ ...prev, [rowIndex]: suggestions }));
       setRowGates((prev) => ({ ...prev, [rowIndex]: data.dateGate }));
       if (data.weights) setRowWeights((prev) => ({ ...prev, [rowIndex]: data.weights }));
+      if (data.recommendationWeights) setRecWeights(data.recommendationWeights);
       rowDataRef.current[rowIndex] = {
         workers: rowDataRef.current[rowIndex]?.workers || [],
         suggestions,
@@ -1409,7 +1404,7 @@ export default function JobOrderPlanningPage() {
               ? 'No one can finish this step in time for the date required — closest finish first'
               : 'Best match that can finish in time, auto-selected — click another to override'}
           </Text>
-          <InfoTip title="How suggestions are ranked" content={RANKING_HELP} />
+          <RecommendationWeightsButton weights={recWeights} compact />
         </div>
         <div className="jo-op__picks">
           {suggestions.slice(0, 8).map((s) => {
@@ -1663,6 +1658,7 @@ export default function JobOrderPlanningPage() {
               {totalHours > 0 ? ` · ${totalHours.toLocaleString(undefined, { maximumFractionDigits: 1 })} h target` : ''}
               {' · '}done in this order
             </span>
+            {!readOnly ? <RecommendationWeightsButton weights={recWeights} /> : null}
           </div>
           <div className="jo-ops__head" aria-hidden>
             <span>#</span>

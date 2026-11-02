@@ -12,6 +12,7 @@ import type {
   ScheduleMove,
   ScheduleProposeResult,
   ScheduleValidateResult,
+  RecommendationWeightSets,
   ScoringWeights,
   SuggestionMode,
   User,
@@ -184,6 +185,7 @@ export const workersApi = {
     apiClient.post<{
       suggestions: WorkerSuggestion[];
       weights: ScoringWeights;
+      recommendationWeights?: RecommendationWeightSets;
       mode?: SuggestionMode;
       dateGate?: SuggestionDateGate;
     }>(

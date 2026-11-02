@@ -278,6 +278,9 @@ def test_every_worker_qualifies_for_operations_without_a_machine(client, shop):
     names = {s["fullName"] for s in res.get_json()["suggestions"]}
     assert {"Ana Fitter", "Ben Helper"} <= names
     assert "SP Admin" not in names  # only production workers are suggested
+    # The planning page shows how workers are ranked from the same response.
+    weights = res.get_json()["recommendationWeights"]
+    assert weights["machineLead"]["operator"] == 0.4 and weights["helper"] == {"efficiency": 0.5, "workload": 0.5}
 
 
 def _laser(shop):

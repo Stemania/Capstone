@@ -1403,11 +1403,11 @@ export interface ApiError {
 }
 
 export const MACHINE_OPTIONS: MachineInfo[] = [
-  { code: 'LATHE', name: 'Lathe Machine', units: 7 },
-  { code: 'MILLING', name: 'Milling Machine', units: 8 },
-  { code: 'SHAPER', name: 'Shaper Machine', units: 1 },
-  { code: 'GRINDING', name: 'Grinding Machine', units: 2 },
-  { code: 'DRILLING', name: 'Drilling Machine', units: 1 },
+  { code: 'LATHE', name: 'Lathe', units: 7 },
+  { code: 'MILLING', name: 'Milling', units: 8 },
+  { code: 'SHAPER', name: 'Shaper', units: 1 },
+  { code: 'GRINDING', name: 'Grinding', units: 2 },
+  { code: 'DRILLING', name: 'Drilling', units: 1 },
 ];
 
 /** Analytics API (Admin / Office) */
@@ -1493,12 +1493,15 @@ export interface AnalyticsWorkerRow {
 export interface AnalyticsByWorker extends AnalyticsPeriodMeta {
   minimumOperationCount: number;
   workers: AnalyticsWorkerRow[];
-  recommendationWeights?: {
-    machineLead: Record<string, number>;
-    noMachine: Record<string, number>;
-    helper: Record<string, number>;
-    minimumSamples: number;
-  };
+  recommendationWeights?: RecommendationWeightSets;
+}
+
+/** The three fixed weight sets used to rank worker suggestions. */
+export interface RecommendationWeightSets {
+  machineLead: Record<string, number>;
+  noMachine: Record<string, number>;
+  helper: Record<string, number>;
+  minimumSamples: number;
 }
 
 export interface AnalyticsOperationTypeRow {

@@ -1,0 +1,55 @@
+/* "How workers are recommended" weights (job planning). */
+.rw {
+  display: grid;
+  gap: 14px;
+  width: min(360px, calc(100vw - 48px));
+}
+
+.rw__kind {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--c-text);
+  margin-bottom: 6px;
+}
+
+.rw__bar {
+  display: flex;
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.rw__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--c-text-2);
+}
+
+.rw__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rw__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.rw__note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--c-text-2);
+  max-width: 360px;
+}
+
+.jo-plan__panel-head .rw__trigger {
+  margin-left: auto;
+  padding-inline: 0;
+  height: auto;
+  font-size: 13px;
+}

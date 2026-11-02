@@ -3,6 +3,7 @@ from flask_jwt_extended import jwt_required
 
 from app.middleware.rbac import require_roles
 from app.models.user import User, UserRole
+from app.services.scoring_service import recommendation_weights
 from app.services.worker_availability import get_busy_workers
 from app.services.worker_profile_service import (
     machine_skill_holders,
@@ -77,4 +78,5 @@ def suggest():
         hours_before=data.get("hoursBefore"),
         hours_after=data.get("hoursAfter"),
     )
+    result["recommendationWeights"] = recommendation_weights()
     return jsonify(result)

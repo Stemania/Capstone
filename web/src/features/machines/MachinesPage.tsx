@@ -763,7 +763,7 @@ export default function MachinesPage() {
             style={{ marginBottom: 14 }}
           >
             <Select
-              placeholder="Lathe Machine, Milling Machine, …"
+              placeholder="Lathe, Milling, …"
               options={machineTypes
                 .filter((t): t is MachineInfo & { id: string } => Boolean(t.id))
                 .map((t) => ({

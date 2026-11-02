@@ -41,6 +41,16 @@ COLD_START_MIN_SAMPLES = 2
 EFFICIENCY_RATIO_CAP = 1.5
 
 
+def recommendation_weights():
+    """All three weight sets, for the "How workers are recommended" panel."""
+    return {
+        "machineLead": dict(MACHINE_LEAD_WEIGHTS),
+        "noMachine": dict(NO_MACHINE_WEIGHTS),
+        "helper": dict(HELPER_WEIGHTS),
+        "minimumSamples": COLD_START_MIN_SAMPLES,
+    }
+
+
 def validate_weights_sum(weights, tolerance=1e-6):
     total = sum(float(v) for v in weights.values())
     return abs(total - 1.0) <= tolerance, total
