@@ -1,6 +1,6 @@
-"""Machine type names end in "Machine" ("Lathe Machine"); unit names stay short
-("Lathe #1") and the old names are still accepted wherever a type is matched
-by name."""
+"""Machine type names are short ("Lathe"; 048 had added "Machine", 060 takes it
+off again); unit names stay short ("Lathe #1") and the longer names are still
+accepted wherever a type is matched by name."""
 
 import importlib.util
 from pathlib import Path
@@ -17,12 +17,14 @@ from app.services.employee_import_service import import_employees
 from app.services.operation_service import create_machine_unit
 from app.services.reference_data_service import load_reference_data
 
-MIGRATION = Path(__file__).resolve().parents[1] / "migrations" / "versions" / "048_machine_type_names.py"
+VERSIONS = Path(__file__).resolve().parents[1] / "migrations" / "versions"
+MIGRATION = VERSIONS / "048_machine_type_names.py"
+SHORT_NAMES = VERSIONS / "060_short_machine_type_names.py"
 HEADER = "full_name,nickname,role,machine_skills,default_units\n"
 
 
-def _run_migration(direction):
-    spec = importlib.util.spec_from_file_location("m048", MIGRATION)
+def _run_migration(direction, path=MIGRATION):
+    spec = importlib.util.spec_from_file_location(path.stem, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     ctx = MigrationContext.configure(db.session.connection())
@@ -72,8 +74,48 @@ def test_migration_renames_only_exact_old_names(app):
     assert names["BENDING"] == "Bending Machine" and names["LASER"] == "Laser Machine"
 
 
+def test_short_names_migration_renames_only_exact_catalog_names(app):
+    _types(
+        ("LATHE", "Lathe Machine"),
+        ("MILLING", "Milling Machine"),
+        ("SHAPER", "Shaper Machine"),
+        ("GRINDING", "Grinding Machine"),
+        ("DRILLING", "Drilling Machine"),
+        ("BENDING", "Bending Machine"),
+        ("LASER", "Laser Machine"),
+        ("CNC", "CNC Router Machine"),
+        ("OLD", "lathe machine"),
+    )
+
+    _run_migration("upgrade", SHORT_NAMES)
+
+    names = {mt.code: mt.name for mt in MachineType.query.all()}
+    assert names == {
+        "LATHE": "Lathe",
+        "MILLING": "Milling",
+        "SHAPER": "Shaper",
+        "GRINDING": "Grinding",
+        "DRILLING": "Drilling",
+        "BENDING": "Bending",
+        "LASER": "Laser",
+        "CNC": "CNC Router Machine",
+        "OLD": "lathe machine",
+    }
+
+    _run_migration("downgrade", SHORT_NAMES)
+    names = {mt.code: mt.name for mt in MachineType.query.all()}
+    assert names["LATHE"] == "Lathe Machine" and names["LASER"] == "Laser Machine"
+
+
+def test_short_names_migration_skips_a_name_already_taken(app):
+    _types(("LATHE", "Lathe Machine"), ("LTH2", "Lathe"))
+    _run_migration("upgrade", SHORT_NAMES)
+    names = {mt.code: mt.name for mt in MachineType.query.all()}
+    assert names == {"LATHE": "Lathe Machine", "LTH2": "Lathe"}
+
+
 def test_reference_loader_renames_old_names_and_keeps_short_unit_labels(app):
-    lathe = _types(("LATHE", "Lathe"))["LATHE"]
+    lathe = _types(("LATHE", "Lathe Machine"))["LATHE"]
     for n in range(1, 8):
         db.session.add(MachineUnit(machine_type_id=lathe.id, label=f"Lathe #{n}", active=True))
     db.session.commit()
@@ -81,12 +123,12 @@ def test_reference_loader_renames_old_names_and_keeps_short_unit_labels(app):
     report = load_reference_data()
 
     names = {mt.code: mt.name for mt in MachineType.query.all()}
-    assert names["LATHE"] == "Lathe Machine"
-    assert names["MILLING"] == "Milling Machine"
-    assert names["SHAPER"] == "Shaper Machine"
-    assert names["GRINDING"] == "Grinding Machine"
-    assert names["DRILLING"] == "Drilling Machine"
-    assert "Machine type LATHE: name 'Lathe' -> 'Lathe Machine'" in report.changes
+    assert names["LATHE"] == "Lathe"
+    assert names["MILLING"] == "Milling"
+    assert names["SHAPER"] == "Shaper"
+    assert names["GRINDING"] == "Grinding"
+    assert names["DRILLING"] == "Drilling"
+    assert "Machine type LATHE: name 'Lathe Machine' -> 'Lathe'" in report.changes
     lathe_labels = {
         u.label for u in MachineUnit.query.filter_by(machine_type_id=lathe.id).all()
     }
@@ -103,13 +145,13 @@ def test_reference_loader_keeps_a_name_the_shop_chose(app):
 
 
 def test_reference_loader_matches_an_old_name_without_the_code(app):
-    legacy = _types(("LTH", "Lathe"))["LTH"]
+    legacy = _types(("LTH", "Lathe Machine"))["LTH"]
     db.session.commit()
 
     load_reference_data()
 
     assert MachineType.query.filter(MachineType.name.ilike("lathe%")).count() == 1
-    assert db.session.get(MachineType, legacy.id).name == "Lathe Machine"
+    assert db.session.get(MachineType, legacy.id).name == "Lathe"
 
 
 def test_import_accepts_old_and_new_type_names(app, tmp_path):

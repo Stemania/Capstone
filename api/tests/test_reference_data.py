@@ -86,8 +86,8 @@ def test_fresh_database_gets_full_reference_data(app):
 
     machines = {mt.code: mt for mt in MachineType.query.all()}
     assert machines["LATHE"].units == 8
-    assert machines["BENDING"].name == "Bending Machine"
-    assert machines["LASER"].name == "Laser Machine"
+    assert machines["BENDING"].name == "Bending"
+    assert machines["LASER"].name == "Laser"
     labels = {u.label: u for u in MachineUnit.query.all()}
     for label in ("Bending #1", "Laser #1", "Lathe #8"):
         assert labels[label].active

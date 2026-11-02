@@ -7,13 +7,13 @@ from collections import Counter
 # are still accepted wherever a type is matched by name (employee import,
 # reference loader).
 MACHINE_CATALOG = [
-    {"code": "LATHE", "name": "Lathe Machine", "units": 8, "unit_label": "Lathe", "old_names": ["Lathe"]},
-    {"code": "MILLING", "name": "Milling Machine", "units": 8, "unit_label": "Milling", "old_names": ["Milling"]},
-    {"code": "SHAPER", "name": "Shaper Machine", "units": 1, "unit_label": "Shaper", "old_names": ["Shaper"]},
-    {"code": "GRINDING", "name": "Grinding Machine", "units": 2, "unit_label": "Grinding", "old_names": ["Grinding"]},
-    {"code": "DRILLING", "name": "Drilling Machine", "units": 1, "unit_label": "Drilling", "old_names": ["Drilling"]},
-    {"code": "BENDING", "name": "Bending Machine", "units": 1, "unit_label": "Bending", "old_names": ["Bending"]},
-    {"code": "LASER", "name": "Laser Machine", "units": 1, "unit_label": "Laser", "old_names": ["Laser"]},
+    {"code": "LATHE", "name": "Lathe", "units": 8, "unit_label": "Lathe", "old_names": ["Lathe Machine"]},
+    {"code": "MILLING", "name": "Milling", "units": 8, "unit_label": "Milling", "old_names": ["Milling Machine"]},
+    {"code": "SHAPER", "name": "Shaper", "units": 1, "unit_label": "Shaper", "old_names": ["Shaper Machine"]},
+    {"code": "GRINDING", "name": "Grinding", "units": 2, "unit_label": "Grinding", "old_names": ["Grinding Machine"]},
+    {"code": "DRILLING", "name": "Drilling", "units": 1, "unit_label": "Drilling", "old_names": ["Drilling Machine"]},
+    {"code": "BENDING", "name": "Bending", "units": 1, "unit_label": "Bending", "old_names": ["Bending Machine"]},
+    {"code": "LASER", "name": "Laser", "units": 1, "unit_label": "Laser", "old_names": ["Laser Machine"]},
 ]
 
 _CATALOG_BY_CODE = {m["code"]: m for m in MACHINE_CATALOG}
@@ -25,7 +25,7 @@ def machine_unit_label(machine: dict, n: int) -> str:
 
 
 def machine_unit_prefix(machine_type) -> str:
-    """Short unit name for a type: "Lathe" for "Lathe Machine"."""
+    """Short unit name for a type: "Lathe" (also for an older "Lathe Machine")."""
     spec = _CATALOG_BY_CODE.get(machine_type.code or "")
     if spec and spec.get("unit_label"):
         return spec["unit_label"]
