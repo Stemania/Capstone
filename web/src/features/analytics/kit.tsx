@@ -15,6 +15,7 @@ import {
   YAxis,
 } from 'recharts';
 import InfoTip from '../../components/InfoTip';
+import { PHONE_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import { chart, chartPalette, colors, tones, type Tone } from '../../theme/tokens';
 import { fmtCompact, fmtMonth, fmtNum, symmetricBound } from './format';
 import './analytics.css';
@@ -550,6 +551,9 @@ export function ParetoChart({
   valueFormat?: (v: number) => string;
   vitalLabel?: string;
 }) {
+  // Many bars on a phone: names would overlap, so they move to the tooltip.
+  const phone = useMediaQuery(PHONE_QUERY);
+  const hideNames = phone && rows.length > 5;
   return (
     <div>
       <Legend
@@ -564,7 +568,14 @@ export function ParetoChart({
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={rows} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
             <CartesianGrid stroke={PALETTE.grid} vertical={false} />
-            <XAxis dataKey="label" tick={<WrapTick />} tickLine={false} interval={0} height={48} axisLine={{ stroke: PALETTE.grid }} />
+            <XAxis
+              dataKey="label"
+              tick={hideNames ? false : <WrapTick />}
+              tickLine={false}
+              interval={0}
+              height={hideNames ? 6 : 48}
+              axisLine={{ stroke: PALETTE.grid }}
+            />
             <YAxis
               yAxisId="h"
               tick={AXIS_TICK}

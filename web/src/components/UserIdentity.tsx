@@ -17,6 +17,8 @@ export interface UserIdentityProps {
    * text (no pill, no email). The nickname ellipsizes only past the panel width.
    */
   variant?: 'default' | 'list';
+  /** Shown in place of the contact on phones when there is none ("No email yet"). */
+  phoneEmptyContact?: string;
 }
 
 function clean(value?: string | null): string {
@@ -33,6 +35,7 @@ export default function UserIdentity({
   size = 40,
   lockSize = false,
   variant = 'default',
+  phoneEmptyContact,
 }: UserIdentityProps) {
   const phone = useMediaQuery(PHONE_QUERY);
   const name = clean(fullName) || '—';
@@ -62,14 +65,18 @@ export default function UserIdentity({
       <PersonAvatar userId={userId} fullName={name === '—' ? fullName : name} size={px} />
       <div className="user-identity__text">
         <div className="user-identity__name">{name}</div>
-        {showNick || contact ? (
+        {showNick || contact || (phone && phoneEmptyContact) ? (
           <div className="user-identity__meta">
             {showNick ? <span className="user-identity__nick">“{nick}”</span> : null}
-            {showNick && contact ? <span className="user-identity__dot" aria-hidden>·</span> : null}
+            {showNick && (contact || (phone && phoneEmptyContact)) ? (
+              <span className="user-identity__dot" aria-hidden>·</span>
+            ) : null}
             {contact ? (
               <Tooltip title={contact}>
                 <span className="user-identity__contact">{contact}</span>
               </Tooltip>
+            ) : phone && phoneEmptyContact ? (
+              <span className="user-identity__contact user-identity__contact--empty">{phoneEmptyContact}</span>
             ) : null}
           </div>
         ) : null}

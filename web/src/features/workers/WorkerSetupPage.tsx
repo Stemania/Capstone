@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Checkbox, Input, InputNumber, Select, Spin, Switch, Tooltip, Typography, message } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
+import { SearchOutlined, StarFilled, StarOutlined } from '@ant-design/icons';
 import { useSearchParams } from 'react-router-dom';
 import { MOBILE_SHELL_QUERY, NARROW_QUERY, useMediaQuery, useViewport } from '../../hooks/useViewport';
 import { jobOrdersApi } from '../../api/jobOrders.api';
@@ -512,76 +512,84 @@ export default function WorkerSetupPage() {
                     </div>
                   </div>
                   {compact ? (
-                    <div className="ws-rows">
-                      {skillRows.map((row) => (
-                        <div key={row.key} className="ws-row">
-                          <div className="ws-row__top">
-                            <strong className="ws-row__name">{row.name}</strong>
-                            <Switch
-                              checked={row.enabled}
-                              aria-label={`${row.name} enabled`}
-                              onChange={(checked) => {
-                                setSkillRows((prev) =>
-                                  prev.map((r) =>
-                                    r.key === row.key
-                                      ? { ...r, enabled: checked, isPrimary: checked ? r.isPrimary : false }
-                                      : r
-                                  )
-                                );
-                              }}
-                            />
-                          </div>
-                          <div className="ws-row__meta">
-                            <span className="ws-row__k">Level</span>
+                    <div className="wsm-list">
+                      {skillRows.map((row) => {
+                        const ev = evidenceByMachine.get(row.key);
+                        const toggle = (checked: boolean) =>
+                          setSkillRows((prev) =>
+                            prev.map((r) =>
+                              r.key === row.key ? { ...r, enabled: checked, isPrimary: checked ? r.isPrimary : false } : r
+                            )
+                          );
+                        const setPrimary = (on: boolean) =>
+                          setSkillRows((prev) =>
+                            prev.map((r) => ({ ...r, isPrimary: r.key === row.key ? on : on ? false : r.isPrimary }))
+                          );
+                        return (
+                          <section
+                            key={row.key}
+                            className={`wsm-card${row.enabled ? ' is-on' : ''}${row.isPrimary ? ' is-primary' : ''}`}
+                          >
+                            <header className="wsm-card__head">
+                              <div className="wsm-card__titles">
+                                <span className="wsm-card__name">{row.name}</span>
+                                <span className="wsm-card__state">
+                                  {row.enabled
+                                    ? `Level ${row.proficiency} · ${levelName(row.proficiency)}`
+                                    : "Can't run this machine"}
+                                </span>
+                              </div>
+                              <Switch checked={row.enabled} aria-label={`${row.name} enabled`} onChange={toggle} />
+                            </header>
+
                             {row.enabled ? (
-                              <span className="ws-row__level">
-                                <InputNumber
-                                  min={1}
-                                  max={5}
-                                  value={row.proficiency}
-                                  aria-label={`${row.name} level`}
-                                  onChange={(v) => {
-                                    setSkillRows((prev) =>
-                                      prev.map((r) =>
-                                        r.key === row.key ? { ...r, proficiency: Number(v) || 1 } : r
-                                      )
-                                    );
-                                  }}
-                                />
-                                <LevelBar level={row.proficiency} />
-                              </span>
-                            ) : (
-                              <span className="ui-muted-note">Can&apos;t run</span>
-                            )}
-                            <span className="ws-row__k">Primary</span>
-                            <Checkbox
-                              checked={row.isPrimary}
-                              disabled={!row.enabled}
-                              onChange={(e) => {
-                                const on = e.target.checked;
-                                setSkillRows((prev) =>
-                                  prev.map((r) => ({
-                                    ...r,
-                                    isPrimary: r.key === row.key ? on : on ? false : r.isPrimary,
-                                  }))
-                                );
-                              }}
-                            />
-                          </div>
-                          <div className="ws-row__evidence">
-                            <SkillRecord ev={evidenceByMachine.get(row.key)} />
-                            <span className="ws-row__suggest">
-                              <span className="ws-row__k">Suggested</span>
-                              <SkillSuggestion
-                                ev={evidenceByMachine.get(row.key)}
-                                current={row.proficiency}
-                                enabled={row.enabled}
-                                onUse={(level) => setLevel(row.key, level)}
-                              />
-                            </span>
-                          </div>
-                        </div>
-                      ))}
+                              <div className="wsm-card__controls">
+                                <div className="wsm-levels" role="radiogroup" aria-label={`${row.name} level`}>
+                                  {[1, 2, 3, 4, 5].map((n) => (
+                                    <button
+                                      key={n}
+                                      type="button"
+                                      role="radio"
+                                      aria-checked={row.proficiency === n}
+                                      aria-label={`Level ${n} ${levelName(n)}`}
+                                      className={`wsm-level${row.proficiency === n ? ' is-on' : ''}${
+                                        n <= row.proficiency ? ' is-filled' : ''
+                                      }`}
+                                      onClick={() => setLevel(row.key, n)}
+                                    >
+                                      {n}
+                                    </button>
+                                  ))}
+                                </div>
+                                <button
+                                  type="button"
+                                  className={`wsm-primary${row.isPrimary ? ' is-on' : ''}`}
+                                  aria-pressed={row.isPrimary}
+                                  onClick={() => setPrimary(!row.isPrimary)}
+                                >
+                                  {row.isPrimary ? <StarFilled aria-hidden /> : <StarOutlined aria-hidden />}
+                                  Primary
+                                </button>
+                              </div>
+                            ) : null}
+
+                            <div className="wsm-card__record">
+                              <SkillRecord ev={ev} />
+                              {row.enabled || ev?.suggestedLevel != null ? (
+                                <div className="wsm-card__suggest">
+                                  <span className="wsm-card__k">Suggested</span>
+                                  <SkillSuggestion
+                                    ev={ev}
+                                    current={row.proficiency}
+                                    enabled={row.enabled}
+                                    onUse={(level) => setLevel(row.key, level)}
+                                  />
+                                </div>
+                              ) : null}
+                            </div>
+                          </section>
+                        );
+                      })}
                     </div>
                   ) : (
                     <ResponsiveTable
@@ -612,64 +620,67 @@ export default function WorkerSetupPage() {
                     </div>
                   </div>
                   {compact ? (
-                    <div className="ws-rows">
-                      {schedule.map((row) => (
-                        <div key={row.dayOfWeek} className="ws-row">
-                          <div className="ws-row__top">
-                            <strong className="ws-row__name">{DAY_LABELS[row.dayOfWeek]}</strong>
-                            <Switch
-                              checked={row.isWorking}
-                              aria-label={`${DAY_LABELS[row.dayOfWeek]} working`}
-                              onChange={(checked) => {
-                                setSchedule((prev) =>
-                                  prev.map((d) =>
-                                    d.dayOfWeek === row.dayOfWeek
-                                      ? {
-                                          ...d,
-                                          isWorking: checked,
-                                          startTime: checked ? d.startTime || '08:00' : null,
-                                          endTime: checked ? d.endTime || '17:00' : null,
-                                        }
-                                      : d
-                                  )
-                                );
-                              }}
-                            />
-                          </div>
-                          <div className="ws-row__meta">
-                            <span className="ws-row__k">Start</span>
-                            <Select
-                              disabled={!row.isWorking}
-                              value={row.startTime || undefined}
-                              aria-label={`${DAY_LABELS[row.dayOfWeek]} start`}
-                              options={Array.from({ length: 24 }, (_, h) => {
-                                const v = `${String(h).padStart(2, '0')}:00`;
-                                return { value: v, label: v };
-                              })}
-                              onChange={(v) =>
-                                setSchedule((prev) =>
-                                  prev.map((d) => (d.dayOfWeek === row.dayOfWeek ? { ...d, startTime: v } : d))
-                                )
-                              }
-                            />
-                            <span className="ws-row__k">End</span>
-                            <Select
-                              disabled={!row.isWorking}
-                              value={row.endTime || undefined}
-                              aria-label={`${DAY_LABELS[row.dayOfWeek]} end`}
-                              options={Array.from({ length: 24 }, (_, h) => {
-                                const v = `${String(h).padStart(2, '0')}:00`;
-                                return { value: v, label: v };
-                              })}
-                              onChange={(v) =>
-                                setSchedule((prev) =>
-                                  prev.map((d) => (d.dayOfWeek === row.dayOfWeek ? { ...d, endTime: v } : d))
-                                )
-                              }
-                            />
-                          </div>
-                        </div>
-                      ))}
+                    <div className="wsm-list wsm-list--days">
+                      {schedule.map((row) => {
+                        const day = DAY_LABELS[row.dayOfWeek];
+                        const hourOptions = Array.from({ length: 24 }, (_, h) => {
+                          const v = `${String(h).padStart(2, '0')}:00`;
+                          return { value: v, label: `${h % 12 || 12}:00 ${h < 12 ? 'AM' : 'PM'}` };
+                        });
+                        return (
+                          <section key={row.dayOfWeek} className={`wsm-day${row.isWorking ? ' is-on' : ''}`}>
+                            <div className="wsm-day__head">
+                              <span className="wsm-day__name">{day}</span>
+                              {!row.isWorking ? <span className="wsm-day__off">Day off</span> : null}
+                              <Switch
+                                checked={row.isWorking}
+                                aria-label={`${day} working`}
+                                onChange={(checked) => {
+                                  setSchedule((prev) =>
+                                    prev.map((d) =>
+                                      d.dayOfWeek === row.dayOfWeek
+                                        ? {
+                                            ...d,
+                                            isWorking: checked,
+                                            startTime: checked ? d.startTime || '08:00' : null,
+                                            endTime: checked ? d.endTime || '17:00' : null,
+                                          }
+                                        : d
+                                    )
+                                  );
+                                }}
+                              />
+                            </div>
+                            {row.isWorking ? (
+                              <div className="wsm-day__times">
+                                <Select
+                                  value={row.startTime || undefined}
+                                  aria-label={`${day} start`}
+                                  options={hourOptions}
+                                  onChange={(v) =>
+                                    setSchedule((prev) =>
+                                      prev.map((d) => (d.dayOfWeek === row.dayOfWeek ? { ...d, startTime: v } : d))
+                                    )
+                                  }
+                                />
+                                <span className="wsm-day__to" aria-hidden>
+                                  to
+                                </span>
+                                <Select
+                                  value={row.endTime || undefined}
+                                  aria-label={`${day} end`}
+                                  options={hourOptions}
+                                  onChange={(v) =>
+                                    setSchedule((prev) =>
+                                      prev.map((d) => (d.dayOfWeek === row.dayOfWeek ? { ...d, endTime: v } : d))
+                                    )
+                                  }
+                                />
+                              </div>
+                            ) : null}
+                          </section>
+                        );
+                      })}
                     </div>
                   ) : (
                     <ResponsiveTable

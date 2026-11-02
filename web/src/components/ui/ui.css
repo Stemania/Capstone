@@ -1037,6 +1037,10 @@ td.ant-table-cell-row-hover.tabular-nums {
   white-space: nowrap;
 }
 
+.user-identity__contact--empty {
+  color: var(--c-text-disabled);
+}
+
 /* Narrow lists: quoted nickname, no pill, ellipsis only past the row width. */
 .user-identity--list .user-identity__nick {
   display: block;

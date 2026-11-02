@@ -277,6 +277,7 @@ export default function UsersPage() {
           email={record.email}
           mobileNumber={record.mobileNumber}
           size={32}
+          phoneEmptyContact="No email yet"
         />
       ),
     },
@@ -494,7 +495,7 @@ export default function UsersPage() {
       )}
 
       <ResponsiveTable
-        card={{ subtitle: ['email', 'role'], badge: 'status' }}
+        card={{ subtitle: ['role'], badge: 'status', hide: ['email'] }}
         cardsBelow="narrow"
         className="std-list-table users-cards"
         rowKey="id"
