@@ -158,10 +158,10 @@ function routeMeta(pathname: string, section: string | null): Meta {
 function Brand({ collapsed }: { collapsed: boolean }) {
   return (
     <div className={`app-brand${collapsed ? ' is-collapsed' : ''}`}>
-      <img src="/logo.png" alt="Brothers Machine Shop logo" className="app-brand__logo" />
+      <img src="/logo.png" alt="Brothers Machine Shop and Services Corporation logo" className="app-brand__logo" />
       {!collapsed && (
         <div className="app-brand__copy">
-          <div className="app-brand__name">Brothers Machine Shop</div>
+          <div className="app-brand__name">Brothers Machine Shop and Services Corporation</div>
           <div className="app-brand__tag">Production Scheduling</div>
         </div>
       )}

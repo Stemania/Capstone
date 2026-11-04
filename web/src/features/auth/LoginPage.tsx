@@ -191,7 +191,7 @@ export default function LoginPage() {
                 <Input
                   size="large"
                   prefix={<UserOutlined style={{ color: '#94a3b8' }} />}
-                  placeholder="name@bmsc.local or 09XXXXXXXXX"
+                  autoComplete="username"
                 />
               </Form.Item>
               <Form.Item
@@ -206,7 +206,7 @@ export default function LoginPage() {
                 <Input.Password
                   size="large"
                   prefix={<LockOutlined style={{ color: '#94a3b8' }} />}
-                  placeholder="••••••••"
+                  autoComplete="current-password"
                 />
               </Form.Item>
               <Button

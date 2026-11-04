@@ -146,7 +146,7 @@ export default function SetPasswordPage() {
                 label="Email or mobile"
                 rules={[{ required: true, message: 'Email or mobile is required' }]}
               >
-                <Input size="large" placeholder="name@bmsc.local or 09XXXXXXXXX" />
+                <Input size="large" autoComplete="username" />
               </Form.Item>
               <Form.Item
                 name="token"

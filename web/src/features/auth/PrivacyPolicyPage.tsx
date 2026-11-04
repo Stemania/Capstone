@@ -11,7 +11,7 @@ export default function PrivacyPolicyPage() {
       <div className="login-card login-card--wide">
         <div className="login-card__header">
           <img className="login-card__logo" src="/logo.png" alt="Brothers Machine Shop logo" />
-          <div className="login-card__brand">Brothers Machine Shop</div>
+          <div className="login-card__brand">Brothers Machine Shop and Services Corporation</div>
           <div className="login-card__subtitle">Production Scheduling System</div>
         </div>
         <div className="login-card__body privacy-policy">
