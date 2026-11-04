@@ -146,3 +146,32 @@ def test_email_logo_url_uses_public_app_url(https_app):
         assert email_logo_url() == "https://capstone-five-beta.vercel.app/email-logo.png"
         https_app.config["PUBLIC_APP_URL"] = "https://cdn.example.com/"
         assert email_logo_url() == "https://cdn.example.com/email-logo.png"
+
+
+def test_header_logo_only_from_the_shops_own_domain(app):
+    from app.services.email_templates import header_logo_url, test_email
+
+    for shared in (
+        "https://capstone-five-beta.vercel.app",
+        "https://bmsc-system.pages.dev",
+        "https://capstone-4t30.onrender.com",
+        "http://app.brothersmachining.net",
+    ):
+        app.config["PUBLIC_APP_URL"] = shared
+        with app.app_context():
+            assert header_logo_url() is None, shared
+            assert "<img" not in test_email().html
+
+    app.config["PUBLIC_APP_URL"] = "https://app.brothersmachining.net"
+    with app.app_context():
+        assert header_logo_url() == "https://app.brothersmachining.net/email-logo.png"
+        html = test_email().html
+        assert '<img src="https://app.brothersmachining.net/email-logo.png"' in html
+        assert 'alt=""' in html
+
+
+def test_sender_name_is_the_full_company_name():
+    from app.services.email_backends import build_message
+
+    msg = build_message("noreply@shop.example", "a@b.c", "Subject", "text", "<p>html</p>")
+    assert msg["From"] == "Brothers Machine Shop and Services Corporation <noreply@shop.example>"

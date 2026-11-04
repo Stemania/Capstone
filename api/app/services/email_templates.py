@@ -16,12 +16,17 @@ from flask import current_app, has_app_context
 logger = logging.getLogger(__name__)
 
 SHOP_DISPLAY_NAME = "Brothers Machine Shop"
-# Full legal name in the HTML email header (From: stays SHOP_DISPLAY_NAME).
+# Full legal name: the sender name (From:) and the HTML email header.
+# SHOP_DISPLAY_NAME stays short for subject lines.
 SHOP_HEADER_NAME = "Brothers Machine Shop and Services Corporation"
+SENDER_NAME = SHOP_HEADER_NAME
 SHOP_SUBTITLE = "Production Scheduling System"
 # Public logo on the live frontend (web/public/email-logo.png); not a MIME attachment.
 EMAIL_LOGO_PATH = "/email-logo.png"
-DEFAULT_PUBLIC_APP_URL = "https://capstone-five-beta.vercel.app"
+DEFAULT_PUBLIC_APP_URL = "https://app.brothersmachining.net"
+# Free hosting domains: an image loaded from one counts against a new sender in
+# spam filters, so the header logo is shown only from the shop's own domain.
+SHARED_HOSTING_SUFFIXES = (".vercel.app", ".pages.dev", ".onrender.com", "localhost")
 
 # Matches the login card header / app primary.
 EMAIL_NAVY = "#0f1c2e"
@@ -116,6 +121,16 @@ def email_logo_url(config=None) -> str:
     base = public_app_url(config)
     path = EMAIL_LOGO_PATH if EMAIL_LOGO_PATH.startswith("/") else f"/{EMAIL_LOGO_PATH}"
     return f"{base}{path}"
+
+
+def header_logo_url(config=None) -> str | None:
+    """Logo for the email header, or None when it would load from a free hosting domain."""
+    base = public_app_url(config)
+    host = base.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0].lower()
+    shared = any(host == suffix.lstrip(".") or host.endswith(suffix) for suffix in SHARED_HOSTING_SUFFIXES)
+    if not base.startswith("https://") or shared:
+        return None
+    return email_logo_url(config)
 
 
 def absolute_frontend_url(path: str, config=None) -> str:
@@ -289,11 +304,19 @@ def render_branded_email(
         )
 
     footer_html = "<br>".join(_esc(line) for line in footer)
-    # Text-only header. A remote image on a free hosting domain (vercel.app)
-    # counts against new senders in spam filters, so the logo is left out.
+    # Logo only from the shop's own domain (see header_logo_url); otherwise text only.
+    logo = header_logo_url()
+    logo_cell = (
+        f'<td width="52" valign="middle" style="padding:0 14px 0 0;vertical-align:middle">'
+        f'<img src="{_esc(logo)}" width="44" height="44" alt="" '
+        f'style="display:block;width:44px;height:44px;border:0;outline:none;text-decoration:none">'
+        f"</td>"
+        if logo
+        else ""
+    )
     header_html = (
         f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">'
-        f"<tr>"
+        f"<tr>{logo_cell}"
         f'<td valign="middle" style="padding:0;font-family:Arial,Helvetica,sans-serif;'
         f'vertical-align:middle">'
         f'<div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;'

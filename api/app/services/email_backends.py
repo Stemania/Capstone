@@ -19,7 +19,7 @@ from email.utils import formatdate, make_msgid
 import requests
 
 from app.services.email_templates import (
-    SHOP_DISPLAY_NAME,
+    SENDER_NAME,
     extract_email_address,
     format_from_header,
 )
@@ -66,7 +66,7 @@ def build_message(
     """multipart/alternative with Date, Message-ID, Reply-To, UTF-8 parts."""
     addr = extract_email_address(from_addr) or from_addr
     domain = addr.split("@", 1)[-1] if "@" in (addr or "") else "localhost"
-    from_header = sanitize_header_value(format_from_header(from_addr, SHOP_DISPLAY_NAME))
+    from_header = sanitize_header_value(format_from_header(from_addr, SENDER_NAME))
     to_header = sanitize_header_value(to)
     subject_header = sanitize_header_value(subject)
 
@@ -251,7 +251,7 @@ class ResendBackend(EmailBackend):
         if not html_body:
             raise ValueError("html_body is required for multipart email")
         payload = {
-            "from": sanitize_header_value(format_from_header(self.from_addr, SHOP_DISPLAY_NAME)),
+            "from": sanitize_header_value(format_from_header(self.from_addr, SENDER_NAME)),
             "to": [sanitize_header_value(to)],
             "subject": sanitize_header_value(subject),
             "html": html_body,
