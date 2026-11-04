@@ -125,6 +125,26 @@ def absolute_frontend_url(path: str, config=None) -> str:
     return f"{base}{path}"
 
 
+def _shop_contact_email() -> str:
+    """The shop's own email from Shop details (where clients send questions)."""
+    try:
+        if has_app_context():
+            from app.services.shop_details_service import get_shop_details
+
+            return ((get_shop_details() or {}).get("email") or "").strip()
+    except Exception:  # noqa: BLE001 - wording must never break sending
+        logger.debug("shop details unavailable for contact email", exc_info=True)
+    return ""
+
+
+def _questions_line() -> str:
+    """Emails come from a no-reply address, so point questions at the shop."""
+    contact = _shop_contact_email()
+    if contact:
+        return f"If you have questions, email us at {contact} or call the shop."
+    return "If you have questions, please call the shop."
+
+
 def _shop_footer_lines() -> list[str]:
     """Address/contact from Shop details when the DB is available."""
     lines = [SHOP_DISPLAY_NAME]
@@ -142,7 +162,7 @@ def _shop_footer_lines() -> list[str]:
                     lines.append(val)
     except Exception:  # noqa: BLE001 - footer must never break sending
         logger.debug("shop details unavailable for email footer", exc_info=True)
-    lines.append("This is an automated message.")
+    lines.append("This is an automated message. Please do not reply to this email.")
     return lines
 
 
@@ -551,9 +571,9 @@ def job_update_email_content(
         box_text = [f"{r[0]}: {r[1]}" for r in rows] + ([f"{days} day{'s' if days != 1 else ''} late"] if days > 0 else [])
 
     closing = (
-        "We will email you again if the date changes. If you have questions, reply to this email or call the shop."
+        f"We will email you again if the date changes. {_questions_line()}"
         if ms == M.JOB_DELAYED
-        else "If you have questions, reply to this email or call the shop."
+        else _questions_line()
     )
     text, html_body = render_branded_email(
         greeting="Hello,",
