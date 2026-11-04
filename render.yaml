@@ -2,6 +2,8 @@ services:
   - type: web
     name: bmsc-api
     runtime: python
+    # Free instance: without this Render treats a Blueprint as the paid Starter plan.
+    plan: free
     rootDir: api
     buildCommand: pip install -r requirements.txt && flask db upgrade
     # Workers=1 today. Auth login/PIN/reset limits are DB-backed (shared across
