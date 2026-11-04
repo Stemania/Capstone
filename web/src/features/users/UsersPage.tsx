@@ -581,7 +581,7 @@ export default function UsersPage() {
                 ]}
                 style={{ marginBottom: 14 }}
               >
-                <Input placeholder={addRole === 'PRODUCTION_WORKER' ? undefined : 'name@bmsc.local'} />
+                <Input />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
@@ -639,7 +639,7 @@ export default function UsersPage() {
                 rules={[{ type: 'email', message: 'Valid email required' }]}
                 style={{ marginBottom: 14 }}
               >
-                <Input placeholder="name@bmsc.local" />
+                <Input />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>

@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Alert, Button, Drawer, Form, Grid, Input, Segmented, Spin, message } from 'antd';
-import { EyeOutlined, SaveOutlined, SendOutlined } from '@ant-design/icons';
+import { EyeOutlined, SaveOutlined } from '@ant-design/icons';
 import { shopDetailsApi, type ShopDetails } from '../../api/shopDetails.api';
 import { getErrorMessage } from '../../api/client';
-import { notificationsApi } from '../../api/notifications.api';
-import type { NotificationLog } from '../../types';
 import { invalidateShopDetails } from '../../hooks/useShopDetails';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { usePageHeaderActions } from '../../layouts/pageHeaderActions';
@@ -317,15 +315,6 @@ export default function ShopDetailsPage() {
         </Form>
 
         {!isNarrow ? <PreviewPanel values={previewValues} dirty={dirty} /> : null}
-
-        <div className="sd-card sd-test-card">
-          <Section
-            title="Test email"
-            hint="Send one message to check that the system's emails are delivered. Temporary, for checking the email setup."
-          >
-            <TestEmailFields />
-          </Section>
-        </div>
       </div>
 
       <Drawer
@@ -351,60 +340,6 @@ export default function ShopDetailsPage() {
           <LetterheadPreviewSheet values={previewValues} kind={drawerKind} />
         </div>
       </Drawer>
-    </div>
-  );
-}
-
-const TEST_STATUS: Record<string, string> = {
-  SENT: 'Sent. Check the inbox (and Spam).',
-  SKIPPED: 'Not sent',
-  FAILED: 'Failed to send',
-  NOT_SENT: 'Not sent',
-  PENDING: 'Queued',
-};
-
-/** Temporary: send one test email through the real path (switch, allowed list, Gmail). */
-function TestEmailFields() {
-  const [to, setTo] = useState('');
-  const [sending, setSending] = useState(false);
-  const [result, setResult] = useState<NotificationLog | null>(null);
-
-  const send = async () => {
-    if (!to.trim() || sending) return;
-    try {
-      setSending(true);
-      setResult(null);
-      const { data } = await notificationsApi.sendTest('email', to.trim());
-      setResult(data);
-    } catch (err) {
-      message.error(getErrorMessage(err));
-    } finally {
-      setSending(false);
-    }
-  };
-
-  return (
-    <div className="sd-test">
-      <Input
-        type="email"
-        value={to}
-        onChange={(e) => setTo(e.target.value)}
-        placeholder="you@example.com"
-        onPressEnter={send}
-        aria-label="Test email recipient"
-      />
-      <Button icon={<SendOutlined />} loading={sending} disabled={!to.trim()} onClick={send}>
-        Send test
-      </Button>
-      {result ? (
-        <Alert
-          className="sd-test__result"
-          type={result.status === 'SENT' ? 'success' : result.status === 'FAILED' ? 'error' : 'warning'}
-          showIcon
-          title={TEST_STATUS[result.status] ?? result.status}
-          description={result.errorMessage || undefined}
-        />
-      ) : null}
     </div>
   );
 }

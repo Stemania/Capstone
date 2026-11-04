@@ -135,17 +135,6 @@
   grid-column: 1 / -1;
 }
 
-/* Below the form, in the left column of the two-column layout. */
-.sd-test-card {
-  grid-column: 1;
-}
-
-@media (max-width: 767px) {
-  .sd-test {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 /* Preview: a page on a desk, sticky beside the form. */
 .sd-preview {
   position: sticky;

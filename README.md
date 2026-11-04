@@ -113,9 +113,9 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for module organization and extension p
 
 ## Deploy Online + PWA
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for step-by-step instructions to deploy on **Neon + Render + Vercel** (free tier) and install as a mobile PWA.
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for step-by-step instructions to deploy on **Neon + Render + Cloudflare Pages** (free tier), send email from the shop's domain through **Resend**, and install as a mobile PWA.
 
-**Live (this project):** frontend [https://capstone.vercel.app](https://capstone.vercel.app) · API health [https://capstone-x1ow.onrender.com/api/health](https://capstone-x1ow.onrender.com/api/health)
+**Live (this project):** app [https://app.brothersmachining.net](https://app.brothersmachining.net) · API health [https://api.brothersmachining.net/api/v1/health](https://api.brothersmachining.net/api/v1/health)
 
 ## Features (Current Scope)
 

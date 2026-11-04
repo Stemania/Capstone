@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom';
 import './LoginPage.css';
 
-const CONTACT_EMAIL = 'acibojanvie110@gmail.com';
+/** The shop's own email, the same one printed on its documents. */
+const CONTACT_EMAIL = 'brothersmachining@yahoo.com';
 
 export default function PrivacyPolicyPage() {
   return (
@@ -10,7 +11,7 @@ export default function PrivacyPolicyPage() {
       <div className="login-page__veil" aria-hidden />
       <div className="login-card login-card--wide">
         <div className="login-card__header">
-          <img className="login-card__logo" src="/logo.png" alt="Brothers Machine Shop logo" />
+          <img className="login-card__logo" src="/logo.png" alt="Brothers Machine Shop and Services Corporation logo" />
           <div className="login-card__brand">Brothers Machine Shop and Services Corporation</div>
           <div className="login-card__subtitle">Production Scheduling System</div>
         </div>
@@ -35,7 +36,7 @@ export default function PrivacyPolicyPage() {
           <h2>How we store and share it</h2>
           <p>
             Data is stored in a secured cloud database. We do not sell it or share it with anyone,
-            except our email provider (Gmail), and only so they can deliver notifications.
+            except our email delivery service (Resend), and only so it can deliver notifications.
           </p>
 
           <h2>Your choices</h2>
