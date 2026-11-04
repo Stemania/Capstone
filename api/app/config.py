@@ -106,8 +106,10 @@ class Config:
         "yes",
     )
     NOTIFY_ALLOWLIST = os.getenv("NOTIFY_ALLOWLIST", "")
-    # gmail_api | smtp | console. smtp is for local development only (Render blocks SMTP ports).
+    # resend | gmail_api | smtp | console. smtp is for local development only (Render blocks SMTP ports).
     EMAIL_BACKEND = os.getenv("EMAIL_BACKEND") or "console"
+    # Resend: send from the shop's domain (MAIL_FROM e.g. noreply@brothersmachining.net).
+    RESEND_API_KEY = os.getenv("RESEND_API_KEY")
     GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID")
     GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET")
     GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN")
@@ -135,6 +137,7 @@ class TestConfig(Config):
     GMAIL_CLIENT_ID = None
     GMAIL_CLIENT_SECRET = None
     GMAIL_REFRESH_TOKEN = None
+    RESEND_API_KEY = None
     RATELIMIT_ENABLED = False
     RATELIMIT_STORAGE_URI = "memory://"
     SQLALCHEMY_DATABASE_URI = _normalize_database_url(

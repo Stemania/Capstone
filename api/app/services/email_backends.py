@@ -1,4 +1,4 @@
-"""Outbound email backends, chosen by EMAIL_BACKEND: gmail_api | smtp | console.
+"""Outbound email backends, chosen by EMAIL_BACKEND: resend | gmail_api | smtp | console.
 
 Each backend's send() returns the provider's message id (or None) and raises on
 failure. Callers go through notification_service, which applies the on/off
@@ -32,6 +32,7 @@ GMAIL_PROFILE_URL = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
 HTTP_TIMEOUT = 10
 TOKEN_EXPIRY_MARGIN = 60
 EXPIRED_REFRESH_TOKEN = "Gmail refresh token expired or revoked - generate a new one"
+RESEND_SEND_URL = "https://api.resend.com/emails"
 
 
 def is_development_environment(config=None) -> bool:
@@ -235,6 +236,50 @@ class GmailApiBackend(EmailBackend):
         return None
 
 
+class ResendBackend(EmailBackend):
+    """Resend HTTPS API: sends from an address on the shop's own domain
+    (e.g. noreply@brothersmachining.net), signed with that domain's DKIM key."""
+
+    name = "resend"
+
+    def __init__(self, api_key, from_addr, reply_to=None):
+        self.api_key = api_key
+        self.from_addr = from_addr
+        self.reply_to = reply_to
+
+    def send(self, to, subject, text, html_body=None):
+        if not html_body:
+            raise ValueError("html_body is required for multipart email")
+        payload = {
+            "from": sanitize_header_value(format_from_header(self.from_addr, SHOP_DISPLAY_NAME)),
+            "to": [sanitize_header_value(to)],
+            "subject": sanitize_header_value(subject),
+            "html": html_body,
+            "text": text or "",
+        }
+        reply = sanitize_header_value(self.reply_to)
+        if reply:
+            payload["reply_to"] = reply
+        resp = requests.post(
+            RESEND_SEND_URL,
+            json=payload,
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            timeout=HTTP_TIMEOUT,
+        )
+        if resp.status_code >= 400:
+            detail = ""
+            try:
+                body = resp.json()
+                detail = str(body.get("message") or body.get("name") or "")
+            except ValueError:
+                pass
+            raise RuntimeError(f"Resend send failed: HTTP {resp.status_code} {detail}".strip())
+        try:
+            return resp.json().get("id")
+        except ValueError:
+            return None
+
+
 def warn_if_mail_from_mismatch(config) -> None:
     """Log if MAIL_FROM address != Gmail OAuth account (no secrets in the log)."""
     if str(config.get("EMAIL_BACKEND") or "").strip().lower() != "gmail_api":
@@ -295,6 +340,11 @@ def warn_if_mail_from_mismatch(config) -> None:
 def get_email_backend(config) -> EmailBackend:
     choice = str(config.get("EMAIL_BACKEND") or "console").strip().lower()
     reply_to = config.get("MAIL_REPLY_TO") or None
+    if choice == "resend":
+        missing = [name for name in ("RESEND_API_KEY", "MAIL_FROM") if not config.get(name)]
+        if missing:
+            raise RuntimeError("EMAIL_BACKEND is resend but these are not set: " + ", ".join(missing))
+        return ResendBackend(config["RESEND_API_KEY"], config["MAIL_FROM"], reply_to=reply_to)
     if choice == "gmail_api":
         needed = ("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN", "MAIL_FROM")
         missing = [name for name in needed if not config.get(name)]
