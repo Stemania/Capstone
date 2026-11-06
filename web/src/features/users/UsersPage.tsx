@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Button, Form, Input, Select, Dropdown, message, Tooltip, QRCode, Space, Row, Col,
+  Button, Form, Input, Select, Dropdown, message, Tooltip, Space, Row, Col,
 } from 'antd';
 import type { MenuProps, TableColumnsType } from 'antd';
 import {
@@ -32,32 +32,27 @@ type StatusFilter = 'active' | 'inactive';
 
 function SetupLinkBlock({ setupUrl }: { setupUrl: string }) {
   return (
-    <div style={{ textAlign: 'center', marginTop: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-        <QRCode value={setupUrl} size={168} bordered={false} />
-      </div>
-      <Space.Compact style={{ width: '100%' }}>
-        <Input value={setupUrl} readOnly />
-        <Button
-          icon={<CopyOutlined />}
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(setupUrl);
-              message.success('Link copied');
-            } catch {
-              message.error('Could not copy');
-            }
-          }}
-        >
-          Copy
-        </Button>
-      </Space.Compact>
-    </div>
+    <Space.Compact style={{ width: '100%', marginTop: 12 }}>
+      <Input value={setupUrl} readOnly />
+      <Button
+        icon={<CopyOutlined />}
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(setupUrl);
+            message.success('Link copied');
+          } catch {
+            message.error('Could not copy');
+          }
+        }}
+      >
+        Copy
+      </Button>
+    </Space.Compact>
   );
 }
 
-/** Show the one-time setup link + QR so a worker without reliable email can still activate. */
-export function showSetupLink(setupUrl: string | null | undefined) {
+/** The copy-link fallback, for when the setup email does not arrive. */
+function showSetupLink(setupUrl: string | null | undefined, name: string) {
   if (!setupUrl) return;
   showNotice({
     title: 'Setup link',
@@ -65,42 +60,34 @@ export function showSetupLink(setupUrl: string | null | undefined) {
     okText: 'Done',
     content: (
       <>
-        Scan on the worker’s phone or copy the link. Works once, for 48 hours.
+        Send this link to {name} yourself, for example by chat. It works once, for 48 hours,
+        and any link sent before it no longer works.
         <SetupLinkBlock setupUrl={setupUrl} />
       </>
     ),
   });
 }
 
-/** A failed or skipped invitation stays on screen until dismissed, so the admin
- *  knows the person has no way in yet. Always offer the on-screen setup link. */
+/** A failed send stays on screen until dismissed, with the link to copy, so the
+ *  admin knows the person has no way in yet. */
 function reportInviteDelivery(
   delivery: InviteDelivery | undefined,
   saved: string,
   setupUrl?: string | null,
 ) {
-  if (!delivery) {
-    message.success(saved);
-    showSetupLink(setupUrl);
-    return;
-  }
-  if (delivery.status === 'SENT') {
-    message.success(`${saved} Invitation emailed${delivery.recipient ? ` to ${delivery.recipient}` : ''}.`);
-    showSetupLink(setupUrl);
+  if (delivery?.status === 'SENT') {
+    message.success(`${saved ? `${saved} ` : ''}Setup link sent${delivery.recipient ? ` to ${delivery.recipient}` : ''}.`);
     return;
   }
   showNotice({
-    title: 'Invitation email not sent',
+    title: 'Setup link not sent',
     wide: true,
     okText: 'Done',
     content: (
       <>
-        {delivery.errorMessage ? `${delivery.errorMessage}. ` : ''}Use the setup link instead.
-        {setupUrl ? (
-          <SetupLinkBlock setupUrl={setupUrl} />
-        ) : (
-          <div style={{ marginTop: 8 }}>Add a mobile number or an email, then generate the link again.</div>
-        )}
+        {delivery?.errorMessage ? `${delivery.errorMessage}. ` : ''}Copy the link and send it
+        yourself, or try sending it again from the row menu.
+        {setupUrl ? <SetupLinkBlock setupUrl={setupUrl} /> : null}
       </>
     ),
   });
@@ -121,7 +108,6 @@ export default function UsersPage() {
   const [editSaving, setEditSaving] = useState(false);
   const [editForm] = Form.useForm();
   const editRole = Form.useWatch('role', editForm) as UserRole | undefined;
-  const addRole = (Form.useWatch('role', form) as UserRole | undefined) ?? 'PRODUCTION_WORKER';
   const fetchUsers = async () => {
     setLoading(true);
     try {
@@ -156,20 +142,20 @@ export default function UsersPage() {
   };
 
   const onCreate = async (values: {
-    email?: string;
+    email: string;
     fullName: string;
     nickname?: string;
     role: string;
-    mobileNumber: string;
+    mobileNumber?: string;
   }) => {
     setSubmitting(true);
     try {
       const { data } = await usersApi.create({
-        email: values.email?.trim() || undefined,
+        email: values.email.trim(),
         fullName: values.fullName,
         nickname: values.nickname?.trim() || undefined,
         role: values.role,
-        mobileNumber: values.mobileNumber,
+        mobileNumber: values.mobileNumber?.trim() || undefined,
       });
       reportInviteDelivery(data.delivery, 'User saved.', data.setupUrl);
       closeModal();
@@ -195,11 +181,28 @@ export default function UsersPage() {
   const sendInvite = async (u: User) => {
     try {
       const { data } = await usersApi.resendInvite(u.id);
-      reportInviteDelivery(data.delivery, 'New invitation created.', data.setupUrl);
+      reportInviteDelivery(data.delivery, '', data.setupUrl);
       fetchUsers();
     } catch (err) {
       message.error(getErrorMessage(err));
     }
+  };
+
+  const copyInviteLink = (u: User) => {
+    confirmAction({
+      title: `Make a new setup link for ${u.fullName}?`,
+      content: 'Any setup link sent before stops working. Nothing is emailed.',
+      okText: 'Make link',
+      onOk: async () => {
+        try {
+          const { data } = await usersApi.resendInvite(u.id, { deliver: false });
+          showSetupLink(data.setupUrl, u.fullName);
+          fetchUsers();
+        } catch (err) {
+          message.error(getErrorMessage(err));
+        }
+      },
+    });
   };
 
   const onEditSave = async (values: {
@@ -215,7 +218,7 @@ export default function UsersPage() {
       await usersApi.update(editUser.id, {
         fullName: values.fullName.trim(),
         nickname: (values.nickname || '').trim() || null,
-        email: (values.email || '').trim() || null,
+        email: (values.email || '').trim(),
         mobileNumber: (values.mobileNumber || '').trim() || undefined,
         role: values.role,
       });
@@ -339,9 +342,16 @@ export default function UsersPage() {
         const status = record.status || (record.active ? 'ACTIVE' : 'DISABLED');
         if (status === 'INVITED') {
           items.push({
-            key: 'invite-link',
-            label: record.email ? 'Send invite by email' : 'Generate setup link',
+            key: 'invite-send',
+            label: record.email ? 'Send setup link' : 'Send setup link (add an email first)',
+            disabled: !record.email,
             onClick: () => sendInvite(record),
+          });
+          items.push({
+            key: 'invite-copy',
+            label: 'Copy setup link',
+            disabled: !record.email,
+            onClick: () => copyInviteLink(record),
           });
           items.push({
             key: 'revoke-invite',
@@ -576,7 +586,7 @@ export default function UsersPage() {
                 name="email"
                 label="Email"
                 rules={[
-                  { required: addRole !== 'PRODUCTION_WORKER', message: 'Email is required for this role' },
+                  { required: true, message: 'Email is required' },
                   { type: 'email', message: 'Enter a valid email' },
                 ]}
                 style={{ marginBottom: 14 }}
@@ -585,12 +595,7 @@ export default function UsersPage() {
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item
-                name="mobileNumber"
-                label="Mobile number"
-                rules={[{ required: true, message: 'Mobile number is required' }]}
-                style={{ marginBottom: 14 }}
-              >
+              <Form.Item name="mobileNumber" label="Mobile number" style={{ marginBottom: 14 }}>
                 <Input placeholder="09XX XXX XXXX" />
               </Form.Item>
             </Col>
@@ -636,7 +641,10 @@ export default function UsersPage() {
               <Form.Item
                 name="email"
                 label="Email"
-                rules={[{ type: 'email', message: 'Valid email required' }]}
+                rules={[
+                  { required: true, message: 'Email is required' },
+                  { type: 'email', message: 'Enter a valid email' },
+                ]}
                 style={{ marginBottom: 14 }}
               >
                 <Input />
@@ -650,7 +658,7 @@ export default function UsersPage() {
           </Row>
           {editUser?.status === 'INVITED' ? (
             <div style={{ fontSize: 12, color: '#64748b', margin: '-4px 0 12px' }}>
-              Save, then send the invite or setup link from the row menu.
+              Save, then send the setup link from the row menu.
             </div>
           ) : null}
 

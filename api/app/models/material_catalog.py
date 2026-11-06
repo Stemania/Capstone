@@ -1,7 +1,6 @@
-"""Common raw materials offered as suggestions on order lines.
-
-Free text is still allowed on lines; the catalog only suggests a name,
-grades, and a unit.
+"""Raw materials the shop buys, named the way the shop writes them on a PO
+(e.g. "1045"). Each order line adds its own size; ``grades`` is kept only for
+entries saved before grades were folded into the name.
 """
 
 import uuid
@@ -9,10 +8,11 @@ from datetime import datetime, timezone
 
 from app.extensions import db
 
-MATERIAL_UNITS = ["pcs", "kg", "m", "ft", "sheet"]
+# Steel is bought by the piece or length (sizes like 320mm dia x 170mmL), not by weight.
+MATERIAL_UNITS = ["pcs", "m", "ft", "sheet"]
+# Older lines may still read "kg"; they stay valid when their unit is not changed.
 MATERIAL_CATEGORIES = [
     "Steel",
-    "Tool steel",
     "Stainless steel",
     "Cast iron",
     "Aluminium",

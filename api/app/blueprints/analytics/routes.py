@@ -3,7 +3,7 @@
 Administrator: production (overview, efficiency by worker / operation type /
 machine, trend, delays and the Pareto, expected machine workload), plus the
 transaction analytics. Office Staff: transactions only (job orders and
-deliveries, sales and forecasts, demand, purchasing, consumable run-out) and
+deliveries, sales and forecasts, demand, purchasing, consumable replenishment) and
 never any per-worker figures. Production worker: only their own summary.
 """
 
@@ -146,11 +146,11 @@ def demand_forecast():
     return _cached("demand-forecast", analytics.demand_forecast)
 
 
-@analytics_bp.route("/consumables/run-out", methods=["GET"])
+@analytics_bp.route("/consumables/replenishment", methods=["GET"])
 @jwt_required()
 @require_roles(*TRANSACTIONS)
-def consumable_run_out():
-    return _cached("consumable-run-out", analytics.consumable_run_out)
+def consumable_replenishment():
+    return _cached("consumable-replenishment", analytics.consumable_replenishment)
 
 
 @analytics_bp.route("/purchasing", methods=["GET"])

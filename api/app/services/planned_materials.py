@@ -84,12 +84,12 @@ def parse_planned_materials(items, job=None) -> list[dict]:
             raise _bad(f"Enter a quantity for {item.name}.")
 
         unit = (raw.get("unit") or "").strip() or item.default_unit or "pcs"
-        check_material_unit(unit)
+        check_material_unit(unit, keep=(before or {}).get("unit"))
 
         grade = (raw.get("gradeOrSpec") or "").strip() or None
         size = (raw.get("sizeSpec") or "").strip() or None
         if (grade and len(grade) > _TEXT_LIMIT) or (size and len(size) > _TEXT_LIMIT):
-            raise _bad(f"The grade or size of {item.name} is too long.")
+            raise _bad(f"The size of {item.name} is too long.")
 
         on_order = ordered.get(line_id, Decimal("0")) if line_id else Decimal("0")
         if on_order > 0:

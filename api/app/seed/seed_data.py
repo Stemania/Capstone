@@ -405,7 +405,7 @@ def seed_database():
         po_date=date.today() - timedelta(days=1),
         status=JobOrderStatus.SCHEDULED,
         priority=JobPriority.LOW,
-        job_type=JobType.MODIFICATION,
+        job_type=JobType.MACHINING,
         part_condition=PartCondition.CLIENT_SUPPLIED_ITEM,
         material_status=MaterialStatus.NOT_REQUIRED,
         quantity=2,

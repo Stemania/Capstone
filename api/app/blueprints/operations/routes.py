@@ -174,7 +174,7 @@ def rework_operation(operation_id):
 
 @operations_bp.route("/machine-units/status", methods=["GET"])
 @jwt_required()
-@require_roles(UserRole.ADMIN, UserRole.OFFICE_STAFF)
+@require_roles(UserRole.ADMIN)
 def list_machine_unit_status():
     include_inactive = str(request.args.get("includeInactive", "")).lower() in (
         "1",

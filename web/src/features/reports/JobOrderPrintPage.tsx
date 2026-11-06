@@ -15,7 +15,7 @@ import './jobOrderPrint.css';
 
 const JOB_TYPE_LABEL: Record<string, string> = {
   FABRICATION: 'Fabrication',
-  MODIFICATION: 'Modification',
+  MACHINING: 'Machining',
   REPAIR: 'Repair',
 };
 
@@ -309,7 +309,9 @@ export default function JobOrderPrintPage() {
               <tr key={m.id}>
                 <td>
                   {orDash(m.materialName)}
-                  {m.gradeOrSpec ? <div className="jo-print-sub">{m.gradeOrSpec}</div> : null}
+                  {m.gradeOrSpec || m.sizeSpec ? (
+                    <div className="jo-print-sub">{[m.gradeOrSpec, m.sizeSpec].filter(Boolean).join(' · ')}</div>
+                  ) : null}
                 </td>
                 <td className="num">
                   {m.quantity != null ? `${m.quantity}${m.unit ? ` ${m.unit}` : ''}` : '—'}

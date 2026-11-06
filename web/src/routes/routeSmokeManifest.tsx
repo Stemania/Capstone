@@ -50,7 +50,7 @@ export const ROUTE_SMOKES: RouteSmoke[] = [
   { path: '/tools', roles: ['ADMIN', 'OFFICE_STAFF'], Page: ToolsPage },
   { path: '/clients', roles: ['ADMIN', 'OFFICE_STAFF'], Page: ClientsPage },
   { path: '/suppliers', roles: ['ADMIN', 'OFFICE_STAFF'], Page: SuppliersAndOrdersPage },
-  { path: '/machines', roles: ['ADMIN', 'OFFICE_STAFF'], Page: MachinesPage },
+  { path: '/machines', roles: ['ADMIN'], Page: MachinesPage },
   { path: '/work-calendar', roles: ['ADMIN', 'OFFICE_STAFF'], Page: WorkCalendarPage },
   { path: '/users', roles: ['ADMIN'], Page: UsersPage },
   { path: '/worker-setup', roles: ['ADMIN'], Page: WorkerSetupPage },

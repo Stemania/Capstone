@@ -21,7 +21,7 @@ export type MaterialCatalogInput = Partial<
   Pick<MaterialCatalogItem, 'name' | 'shopTerm' | 'grades' | 'defaultUnit' | 'category' | 'active'>
 >;
 
-export const MATERIAL_UNITS = ['pcs', 'kg', 'm', 'ft', 'sheet'];
+export const MATERIAL_UNITS = ['pcs', 'm', 'ft', 'sheet'];
 
 export const materialCatalogApi = {
   list: (params?: { search?: string; includeInactive?: boolean }) =>

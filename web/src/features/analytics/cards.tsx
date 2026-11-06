@@ -7,8 +7,8 @@ import type {
   AnalyticsDemandForecast,
   AnalyticsSalesForecast,
   CompletionEstimateJob,
-  ConsumableRunOut,
-  ConsumableRunOutRow,
+  ConsumableReplenishment,
+  ReplenishmentItem,
   MovingAverageForecast,
   SupplierReliability,
 } from '../../types';
@@ -21,8 +21,8 @@ import {
   Grade,
   MethodNote,
   ScoreRing,
-  STOCK_LABEL,
-  STOCK_TONE,
+  RESTOCK_LABEL,
+  RESTOCK_TONE,
   type Span,
 } from './kit';
 
@@ -242,50 +242,42 @@ export function DemandForecastCard({
   );
 }
 
-// ---------- Stock ----------
+// ---------- Consumables to buy ----------
 
-export function stockCounts(data: ConsumableRunOut | null) {
-  const c = { LIKELY_OUT: 0, REORDER_NOW: 0, REORDER_SOON: 0, OK: 0, NO_DATA: 0 };
-  for (const i of data?.items ?? []) {
-    const key = (i.status ?? 'NO_DATA') as keyof typeof c;
-    if (key in c) c[key] += 1;
-    else c.NO_DATA += 1;
-  }
-  return c;
+export function restockCounts(data: ConsumableReplenishment | null) {
+  const items = data?.items ?? [];
+  return {
+    overdue: items.filter((i) => i.status === 'OVERDUE').length,
+    dueSoon: items.filter((i) => i.status === 'DUE_SOON').length,
+  };
 }
 
-function stockLine(i: ConsumableRunOutRow) {
-  if (i.status === 'LIKELY_OUT' || (i.quantityOnHand != null && i.quantityOnHand <= 0 && (i.adu || i.dailyUsage))) {
-    return 'Probably out now';
-  }
+export function restockLine(i: ReplenishmentItem) {
   const parts = [];
-  if (i.daysLeft != null) parts.push(`${fmtNum(i.daysLeft, 0)} working days left`);
-  if (i.runOutDate) parts.push(`out ${fmtDay(i.runOutDate)}`);
-  if (i.orderByDate) parts.push(`order by ${fmtDay(i.orderByDate)}`);
+  if (i.everyDays != null) parts.push(`bought every ~${fmtNum(i.everyDays, 0)} days`);
+  if (i.nextPurchaseOn) parts.push(`${i.status === 'OVERDUE' ? 'was due' : 'next'} ${fmtDay(i.nextPurchaseOn)}`);
   return parts.join(' · ') || '—';
 }
 
-export function StockAlertsCard({ data, span = 6 }: { data: ConsumableRunOut | null; span?: Span }) {
-  const alerts = (data?.items ?? []).filter(
-    (i) => i.status === 'LIKELY_OUT' || i.status === 'REORDER_NOW' || i.status === 'REORDER_SOON'
-  );
+export function RestockCard({ data, span = 6 }: { data: ConsumableReplenishment | null; span?: Span }) {
+  const due = (data?.items ?? []).filter((i) => i.status === 'OVERDUE' || i.status === 'DUE_SOON');
   return (
     <Card
-      title="Stock alerts"
+      title="Consumables to buy"
       span={span}
       chip="Now"
       takeaway={
         data ? (
-          alerts.length ? (
+          due.length ? (
             <>
-              <strong>{alerts.length}</strong> consumable{alerts.length === 1 ? '' : 's'} to reorder
+              <strong>{due.length}</strong> consumable{due.length === 1 ? '' : 's'} due to be bought
             </>
           ) : (
-            'Nothing to reorder'
+            'Nothing due to buy'
           )
         ) : undefined
       }
-      takeawayTone={alerts.length ? 'bad' : undefined}
+      takeawayTone={due.length ? 'bad' : undefined}
       controls={
         <Link to="/analytics/inventory" className="ana-muted" style={{ fontSize: 12 }}>
           All items
@@ -294,29 +286,33 @@ export function StockAlertsCard({ data, span = 6 }: { data: ConsumableRunOut | n
     >
       {!data ? (
         <CardLoading />
-      ) : !alerts.length && !data.items.some((i) => i.status === 'OK') ? (
-        <ChartEmpty title="No reorder points yet" text="Scan usage builds ADU; then reorder levels appear." height={120} />
-      ) : !alerts.length ? (
-        <ChartEmpty title="All consumables above their reorder point" height={120} />
+      ) : !due.length && !data.summary.forecast ? (
+        <ChartEmpty
+          title="No forecast yet"
+          text={`An item is forecast after ${data.method.minPurchases} recorded purchases.`}
+          height={120}
+        />
+      ) : !due.length ? (
+        <ChartEmpty title="No consumable is due to be bought" height={120} />
       ) : (
         <div className="ana-list">
-          {alerts.slice(0, 5).map((i) => (
+          {due.slice(0, 5).map((i) => (
             <div key={i.toolId} className="ana-list__row">
               <div className="ana-list__main">
                 <div className="ana-list__title">
                   {i.name}
                   {i.sizeSpec ? <span className="ana-muted"> · {i.sizeSpec}</span> : null}
                 </div>
-                <div className="ana-list__sub">{stockLine(i)}</div>
+                <div className="ana-list__sub">{restockLine(i)}</div>
               </div>
               <div className="ana-list__end">
-                <StatusPill tone={STOCK_TONE[i.status ?? 'NO_DATA']} compact>
-                  {STOCK_LABEL[i.status ?? 'NO_DATA']}
+                <StatusPill tone={RESTOCK_TONE[i.status]} compact>
+                  {RESTOCK_LABEL[i.status]}
                 </StatusPill>
               </div>
             </div>
           ))}
-          {alerts.length > 5 ? <div className="ana-list__sub" style={{ paddingTop: 6 }}>+{alerts.length - 5} more</div> : null}
+          {due.length > 5 ? <div className="ana-list__sub" style={{ paddingTop: 6 }}>+{due.length - 5} more</div> : null}
         </div>
       )}
     </Card>

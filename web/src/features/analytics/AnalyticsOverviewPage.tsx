@@ -9,11 +9,11 @@ import {
   FLAG,
   RingCard,
   SalesForecastCard,
-  StockAlertsCard,
+  RestockCard,
   finishOf,
   scoredSuppliers,
   slackText,
-  stockCounts,
+  restockCounts,
 } from './cards';
 import {
   useCompletion,
@@ -54,7 +54,7 @@ function AdminOverview() {
 
   const onTime = onTimePct(overview.jobs.onTime, overview.jobs.late);
   const onTimePrev = overviewPrev ? onTimePct(overviewPrev.jobs.onTime, overviewPrev.jobs.late) : null;
-  const counts = stockCounts(stock);
+  const counts = restockCounts(stock);
   const causes = (delays?.causes ?? []).filter((c) => (c.hours ?? 0) > 0);
   const atRisk = (completion?.jobs ?? []).filter((j) => j.flag === 'RED' || j.flag === 'AMBER');
   const weeks = (trend?.weeks ?? []).map((w) => ({
@@ -98,12 +98,10 @@ function AdminOverview() {
           better="down"
         />
         <Kpi
-          label="To reorder"
-          value={fmtNum(counts.LIKELY_OUT + counts.REORDER_NOW + counts.REORDER_SOON)}
-          valueTone={
-            counts.LIKELY_OUT + counts.REORDER_NOW + counts.REORDER_SOON ? 'amber' : undefined
-          }
-          sub={`${fmtNum(counts.LIKELY_OUT + counts.REORDER_NOW)} now · ${fmtNum(counts.REORDER_SOON)} soon`}
+          label="To buy"
+          value={fmtNum(counts.overdue + counts.dueSoon)}
+          valueTone={counts.overdue + counts.dueSoon ? 'amber' : undefined}
+          sub={`${fmtNum(counts.overdue)} overdue · ${fmtNum(counts.dueSoon)} due soon`}
         />
       </Kpis>
 
@@ -222,7 +220,7 @@ function AdminOverview() {
           )}
         </Card>
 
-        <StockAlertsCard data={stock} span={12} />
+        <RestockCard data={stock} span={12} />
       </Grid>
     </div>
   );
@@ -250,7 +248,7 @@ function OfficeOverview() {
 
   const onTime = onTimePct(jobs.delivered.onTime, jobs.delivered.late);
   const onTimePrev = jobsPrev ? onTimePct(jobsPrev.delivered.onTime, jobsPrev.delivered.late) : null;
-  const counts = stockCounts(stock);
+  const counts = restockCounts(stock);
   const open = Object.keys(OPEN_LABEL).map((status) => ({
     key: status,
     label: OPEN_LABEL[status],
@@ -292,12 +290,10 @@ function OfficeOverview() {
           info="Amount of released jobs not yet completed."
         />
         <Kpi
-          label="To reorder"
-          value={fmtNum(counts.LIKELY_OUT + counts.REORDER_NOW + counts.REORDER_SOON)}
-          valueTone={
-            counts.LIKELY_OUT + counts.REORDER_NOW + counts.REORDER_SOON ? 'amber' : undefined
-          }
-          sub={`${fmtNum(counts.LIKELY_OUT + counts.REORDER_NOW)} now · ${fmtNum(counts.REORDER_SOON)} soon`}
+          label="To buy"
+          value={fmtNum(counts.overdue + counts.dueSoon)}
+          valueTone={counts.overdue + counts.dueSoon ? 'amber' : undefined}
+          sub={`${fmtNum(counts.overdue)} overdue · ${fmtNum(counts.dueSoon)} due soon`}
         />
       </Kpis>
 
@@ -354,7 +350,7 @@ function OfficeOverview() {
           )}
         </Card>
 
-        <StockAlertsCard data={stock} span={4} />
+        <RestockCard data={stock} span={4} />
       </Grid>
     </div>
   );

@@ -3,6 +3,7 @@ from app.models.audit_log import AuditLog
 from app.models.rate_limit import RateLimitCounter
 from app.models.sample_record import SampleRecord
 from app.models.client import Client
+from app.models.consumable_purchase import ConsumablePurchase
 from app.models.job_order import (
     JobOrder,
     JobOrderStatus,
@@ -58,6 +59,7 @@ from app.models.worker_skill import (
 )
 
 __all__ = [
+    "ConsumablePurchase",
     "User",
     "UserRole",
     "UserStatus",

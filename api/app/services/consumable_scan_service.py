@@ -187,7 +187,11 @@ def unified_scan(
     client_action_id: str | None = None,
     confirm_repeat: bool = False,
 ) -> dict:
-    """One scan entry: tool unit → borrow/return; consumable code → −1."""
+    """One scan entry: a tool unit is borrowed or returned.
+
+    Consumables are no longer scanned (the shop tracks what it buys instead,
+    see ``consumable_purchase_service``); their old QR codes are refused.
+    """
     from app.services import tool_event_service as te_service
 
     raw = (code or "").strip()
@@ -205,11 +209,10 @@ def unified_scan(
 
     tool = Tool.query.filter_by(code=raw).first()
     if tool and tool.category == ToolCategory.CONSUMABLE:
-        return scan_consumable(
-            tool,
-            worker_id,
-            client_action_id=client_action_id,
-            confirm_repeat=confirm_repeat,
+        raise AppError(
+            f"{tool.name} is a consumable. Consumables are not scanned; only tools are.",
+            "CONSUMABLE_NOT_SCANNED",
+            400,
         )
 
-    raise AppError("No tool or consumable matches that code", "NOT_FOUND", 404)
+    raise AppError("No tool matches that code", "NOT_FOUND", 404)

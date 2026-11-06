@@ -98,9 +98,10 @@ def test_fresh_database_gets_full_reference_data(app):
     assert ops["BENDING"].default_machine_type_id == machines["BENDING"].id
     assert ops["TURNING"].default_machine_type_id == machines["LATHE"].id
 
-    assert MaterialCatalogItem.query.count() == 9
-    plastic = MaterialCatalogItem.query.filter_by(name="Plastic").one()
-    assert "PTFE (Teflon)" in plastic.grades
+    assert MaterialCatalogItem.query.count() == 15
+    teflon = MaterialCatalogItem.query.filter_by(name="Teflon").one()
+    assert teflon.shop_term == "PTFE" and teflon.grades == []
+    assert {i.default_unit for i in MaterialCatalogItem.query.all()} <= {"pcs", "sheet"}
 
     tools = {t.name: t for t in Tool.query.all()}
     assert tools["Sandpaper"].shop_term == "Liha"
@@ -322,11 +323,13 @@ def test_material_catalog_search_and_roles(app, client):
 
     res = client.get("/api/v1/material-catalog?search=41-40", headers=_headers(admin))
     assert res.status_code == 200
-    assert [i["name"] for i in res.get_json()["items"]] == ["AISI 4140 alloy steel"]
+    assert [i["name"] for i in res.get_json()["items"]] == ["4140"]
     res = client.get("/api/v1/material-catalog?search=delrin", headers=_headers(office))
-    assert [i["name"] for i in res.get_json()["items"]] == ["Plastic"]
+    assert [i["name"] for i in res.get_json()["items"]] == ["Acetal"]
 
-    body = {"name": "Stainless 304", "defaultUnit": "kg", "category": "Steel", "grades": ["304"]}
+    by_weight = {"name": "304", "defaultUnit": "kg", "category": "Stainless steel"}
+    assert client.post("/api/v1/material-catalog", json=by_weight, headers=_headers(office)).status_code == 400
+    body = {"name": "304", "defaultUnit": "pcs", "category": "Stainless steel"}
     assert client.post("/api/v1/material-catalog", json=body, headers=_headers(admin)).status_code == 403
     created = client.post("/api/v1/material-catalog", json=body, headers=_headers(office))
     assert created.status_code == 201

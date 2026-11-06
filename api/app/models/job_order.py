@@ -102,7 +102,7 @@ class JobPriority(enum.Enum):
 
 class JobType(enum.Enum):
     FABRICATION = "FABRICATION"
-    MODIFICATION = "MODIFICATION"
+    MACHINING = "MACHINING"
     REPAIR = "REPAIR"
 
 
@@ -114,8 +114,8 @@ class MaterialStatus(enum.Enum):
 
 
 def default_material_status(job_type: JobType) -> MaterialStatus:
-    """REPAIR/MODIFICATION use client-supplied parts; fabrication needs steel ordered."""
-    if job_type in (JobType.REPAIR, JobType.MODIFICATION):
+    """Repair works on the client's part; fabrication and machining need stock ordered."""
+    if job_type == JobType.REPAIR:
         return MaterialStatus.NOT_REQUIRED
     return MaterialStatus.TO_ORDER
 
@@ -440,6 +440,7 @@ class JobOrder(db.Model):
                 "id": p.id,
                 "materialName": p.material_name,
                 "gradeOrSpec": p.grade_or_spec,
+                "sizeSpec": p.size_spec,
                 "quantity": float(p.quantity) if p.quantity is not None else None,
                 "unit": p.unit,
                 "status": p.status,

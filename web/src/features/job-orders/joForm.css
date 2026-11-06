@@ -89,7 +89,7 @@
 
 .jo-mats__row {
   display: grid;
-  grid-template-columns: minmax(170px, 2.2fr) minmax(88px, 0.7fr) minmax(110px, 1.1fr) 72px 80px 32px;
+  grid-template-columns: minmax(120px, 1.1fr) minmax(160px, 1.9fr) 72px 80px 32px;
   gap: 8px;
   align-items: center;
 }
@@ -136,17 +136,12 @@
 }
 
 .jo-mats__row {
-  grid-template-areas: 'material grade size qty unit remove';
+  grid-template-areas: 'material size qty unit remove';
 }
 
 .jo-mats__h--material,
 .jo-mats__cell--material {
   grid-area: material;
-}
-
-.jo-mats__h--grade,
-.jo-mats__cell--grade {
-  grid-area: grade;
 }
 
 .jo-mats__h--size,
@@ -175,7 +170,7 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) 72px 80px 32px;
     grid-template-areas:
       'material material qty unit remove'
-      'grade size size size .';
+      'size size size size .';
     row-gap: 6px;
   }
 
@@ -188,7 +183,6 @@
     grid-template-areas: 'material material qty unit remove';
   }
 
-  .jo-mats__h--grade,
   .jo-mats__h--size {
     display: none;
   }
@@ -209,7 +203,7 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px;
     grid-template-areas:
       'material material remove'
-      'grade size size'
+      'size size size'
       'qty unit unit';
     padding: 10px;
     border: 1px solid var(--c-border);

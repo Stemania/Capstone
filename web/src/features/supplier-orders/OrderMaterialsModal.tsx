@@ -1,3 +1,4 @@
+import { formatShop } from '../../utils/shopTime';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Input, InputNumber, Modal, Select, Typography, message } from 'antd';
 import { DeleteOutlined, PlusOutlined, ShoppingCartOutlined } from '@ant-design/icons';
@@ -7,7 +8,7 @@ import { suppliersApi } from '../../api/suppliers.api';
 import { MATERIAL_UNITS } from '../../api/materialCatalog.api';
 import { getErrorMessage } from '../../api/client';
 import type {
-  LowStockConsumable,
+  DueConsumable,
   OutstandingMaterials,
   PlannedMaterialSummary,
   Supplier,
@@ -16,8 +17,8 @@ import type {
   SupplierReliability,
 } from '../../types';
 import { fmtDay, fmtQty } from './supplierOrderUi';
-import { GradeSelect, MaterialCatalogPicker } from '../../components/MaterialInputs';
-import { useMaterialCatalog } from '../../hooks/useMaterialCatalog';
+import { MaterialCatalogPicker } from '../../components/MaterialInputs';
+import { SIZE_PLACEHOLDER } from '../../components/materialPicker';
 import ResponsiveTable from '../../components/ui/ResponsiveTable';
 
 const { Text } = Typography;
@@ -114,7 +115,7 @@ const isBlank = (l: MaterialLineDraft) =>
   !l.gradeOrSpec.trim() &&
   !l.sizeSpec.trim();
 
-/** A consumable restock row: from the low-stock list, or added from the consumables list. */
+/** A consumable restock row: due to be bought again, or added from the consumables list. */
 type ConsumableRow = {
   toolId: string;
   name: string;
@@ -122,10 +123,10 @@ type ConsumableRow = {
   unit: string;
   sizeSpec: string | null;
   shopTerm?: string | null;
-  lowStock?: LowStockConsumable;
+  due?: DueConsumable;
 };
 
-function fromLowStock(c: LowStockConsumable): ConsumableRow {
+function fromDue(c: DueConsumable): ConsumableRow {
   return {
     toolId: c.toolId,
     name: c.name,
@@ -133,7 +134,7 @@ function fromLowStock(c: LowStockConsumable): ConsumableRow {
     unit: c.unit,
     sizeSpec: c.sizeSpec,
     shopTerm: c.shopTerm,
-    lowStock: c,
+    due: c,
   };
 }
 
@@ -151,7 +152,7 @@ function fromCatalogConsumable(item: CatalogItem): ConsumableRow {
 /**
  * The one path for purchasing: lines go onto the chosen supplier's open draft
  * order (a new draft is started if there is none). Job materials: Office Staff
- * pick each line from the catalog (grade, size/spec, quantity, unit, unit cost)
+ * pick each line from the catalog (size, quantity, unit, unit cost)
  * for a job whose materials are To order. Consumable restock: all offered
  * catalog consumables, including not-yet-stocked ones. With ``jobId`` the lines
  * are for that job only.
@@ -172,7 +173,6 @@ export default function OrderMaterialsModal({
   /** The job's materials needed; what is still to order starts the list. */
   planned?: PlannedMaterialSummary[];
 }) {
-  const catalog = useMaterialCatalog();
   const plannedRef = useRef(planned);
   plannedRef.current = planned;
   const [, setFromPlan] = useState(0);
@@ -204,7 +204,7 @@ export default function OrderMaterialsModal({
       .then(({ data: rows }) => setReliability(Object.fromEntries(rows.map((r) => [r.supplierId, r]))))
       .catch(() => setReliability({}));
     if (offerConsumables) {
-      // All offered consumables, including "Not stocked yet" (first order path).
+      // Every offered consumable can be added to the order.
       catalogApi
         .list({ type: 'CONSUMABLE' })
         .then(({ data: res }) => setConsumables(res.items.filter((i) => i.active)))
@@ -214,14 +214,14 @@ export default function OrderMaterialsModal({
       .then(([s, o]) => {
         setSuppliers(s.data);
         setData(o.data);
-        const low = o.data.lowStockConsumables || [];
-        setConsumableRows(low.map(fromLowStock));
+        const low = o.data.dueConsumables || [];
+        setConsumableRows(low.map(fromDue));
         setConsumableEdits(
           Object.fromEntries(
             low.map((c) => [
               c.toolId,
               {
-                quantity: c.remainingSuggestedQuantity || c.suggestedOrderQuantity || 1,
+                quantity: c.remainingSuggestedQuantity || c.usualQuantity || 1,
                 unitCost: null,
                 gradeOrSpec: c.sizeSpec || '',
               },
@@ -480,7 +480,7 @@ export default function OrderMaterialsModal({
                   render: (_: unknown, l) => (
                     <MaterialCatalogPicker
                       catalogId={l.materialCatalogId}
-                      materialName={l.materialName}
+                      materialName={[l.materialName, l.gradeOrSpec].filter(Boolean).join(' ')}
                       onPick={(item) =>
                         setLine(l.key, {
                           materialCatalogId: item.id,
@@ -502,28 +502,13 @@ export default function OrderMaterialsModal({
                   ),
                 },
                 {
-                  title: 'Grade',
-                  key: 'grade',
-                  width: 120,
-                  render: (_: unknown, l) => (
-                    <GradeSelect
-                      size="small"
-                      grades={l.grades ?? catalog.find((c) => c.id === l.materialCatalogId)?.grades}
-                      materialName={l.materialName}
-                      value={l.gradeOrSpec}
-                      onChange={(v) => setLine(l.key, { gradeOrSpec: v })}
-                      disabled={!l.materialCatalogId}
-                    />
-                  ),
-                },
-                {
-                  title: 'Size / spec',
+                  title: 'Size',
                   key: 'size',
-                  width: 160,
+                  width: 220,
                   render: (_: unknown, l) => (
                     <Input
                       size="small"
-                      placeholder="e.g. Ø50 × 200 mm"
+                      placeholder={SIZE_PLACEHOLDER}
                       value={l.sizeSpec}
                       disabled={!l.materialCatalogId}
                       onChange={(e) => setLine(l.key, { sizeSpec: e.target.value })}
@@ -620,7 +605,7 @@ export default function OrderMaterialsModal({
                       value: t.id,
                       label: `${t.name}${t.shopTerm ? ` “${t.shopTerm}”` : ''}${
                         t.code ? ` (${t.code})` : ''
-                      }${t.notStockedYet ? ' · not stocked yet' : ''}`,
+                      }`,
                     }))}
                 />
               </div>
@@ -631,7 +616,7 @@ export default function OrderMaterialsModal({
                 pagination={false}
                 scroll={{ y: 'min(260px, calc(100vh - 520px))' }}
                 dataSource={consumableRows}
-                locale={{ emptyText: 'No consumable is at or below its minimum stock.' }}
+                locale={{ emptyText: 'No consumable is due to be bought.' }}
                 rowSelection={{
                   selectedRowKeys: selectedConsumables,
                   onChange: (keys) => setSelectedConsumables(keys as string[]),
@@ -650,19 +635,20 @@ export default function OrderMaterialsModal({
                     ),
                   },
                   {
-                    title: 'Stock',
+                    title: 'Due',
                     key: 'stock',
                     width: 190,
                     render: (_: unknown, c) =>
-                      c.lowStock ? (
+                      c.due ? (
                         <div style={{ fontSize: 12 }}>
-                          <span style={{ color: '#b45309', fontWeight: 600 }}>
-                            {fmtQty(c.lowStock.quantityOnHand, c.unit)}
-                          </span>{' '}
-                          on hand · reorder at {fmtQty(c.lowStock.minimumStock, c.unit)}
-                          {c.lowStock.onOrderQuantity > 0 ? (
+                          <span style={{ color: c.due.status === 'OVERDUE' ? '#b91c1c' : '#b45309', fontWeight: 600 }}>
+                            {c.due.status === 'OVERDUE' ? 'Was due' : 'Due'}{' '}
+                            {formatShop(c.due.nextPurchaseOn, 'MMM D')}
+                          </span>
+                          {c.due.usualQuantity ? ` · usually ${fmtQty(c.due.usualQuantity, c.unit)}` : ''}
+                          {c.due.onOrderQuantity > 0 ? (
                             <div style={{ color: '#64748b' }}>
-                              {fmtQty(c.lowStock.onOrderQuantity, c.unit)} already on order
+                              {fmtQty(c.due.onOrderQuantity, c.unit)} already on order
                             </div>
                           ) : null}
                         </div>

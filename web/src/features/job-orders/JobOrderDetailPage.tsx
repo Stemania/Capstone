@@ -126,7 +126,7 @@ const PART_STAGE_LABEL: Record<string, string> = {
 
 const JOB_TYPE_LABEL: Record<string, string> = {
   FABRICATION: 'Fabrication',
-  MODIFICATION: 'Modification',
+  MACHINING: 'Machining',
   REPAIR: 'Repair',
 };
 
@@ -296,7 +296,6 @@ function JobOrderDetailView() {
   const [delivering, setDelivering] = useState(false);
   const [deliveredOpen, setDeliveredOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationLog[] | null>(null);
-  const [resendingId, setResendingId] = useState<string | null>(null);
   const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
   const [breakdowns, setBreakdowns] = useState<MachineDowntimeRecord[]>([]);
   const [purchaseOpen, setPurchaseOpen] = useState(false);
@@ -430,29 +429,6 @@ function JobOrderDetailView() {
   const backTo = isWorker
     ? '/my-assignments'
     : jobOrdersListPath(job?.status);
-
-  const refreshNotifications = useCallback(async () => {
-    if (!id || !canManage) return;
-    try {
-      const { data } = await notificationsApi.list({ jobOrderId: id, limit: 200 });
-      setNotifications(data);
-    } catch {
-      setNotifications([]);
-    }
-  }, [id, canManage]);
-
-  const handleResend = async (logId: string) => {
-    setResendingId(logId);
-    try {
-      await notificationsApi.resend(logId);
-      message.success('Sent again');
-      await refreshNotifications();
-    } catch (err) {
-      message.error(getErrorMessage(err));
-    } finally {
-      setResendingId(null);
-    }
-  };
 
   const [reworkOp, setReworkOp] = useState<Operation | null>(null);
   const [reworkCategory, setReworkCategory] = useState<ReworkReasonCategory | undefined>();
@@ -1381,16 +1357,6 @@ function JobOrderDetailView() {
                                 {n.errorMessage}
                                 {isUnresolvedFailure(n, notifications) ? '' : ' Sent again later.'}
                               </div>
-                            ) : null}
-                            {canOfficeWrite && isUnresolvedFailure(n, notifications) ? (
-                              <Button
-                                size="small"
-                                style={{ marginTop: 4 }}
-                                loading={resendingId === n.id}
-                                onClick={() => handleResend(n.id)}
-                              >
-                                Send again
-                              </Button>
                             ) : null}
                           </div>
                         ))

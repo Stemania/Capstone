@@ -65,18 +65,16 @@ def create_invited_user(
     created_by_id: str,
     nickname: str | None = None,
 ) -> tuple[User, UserInvitation, str]:
-    # A production worker may have only a mobile number: the admin shows the
-    # setup link and QR on screen and the worker signs in with the number.
+    # Every account has an email: the setup link is sent there. The mobile
+    # number is optional and can also be used to sign in.
     email_norm = (email or "").strip().lower() or None
-    if email_norm is None and role != UserRole.PRODUCTION_WORKER:
+    if email_norm is None or "@" not in email_norm:
         raise AppError("Valid email is required", "VALIDATION_ERROR", 400)
-    if email_norm is not None and "@" not in email_norm:
-        raise AppError("Valid email is required", "VALIDATION_ERROR", 400)
-    if email_norm and User.query.filter_by(email=email_norm).first():
+    if User.query.filter_by(email=email_norm).first():
         raise AppError("Email already exists", "CONFLICT", 409)
 
-    mobile = normalize_ph_mobile(mobile_number, required=True)
-    if User.query.filter_by(mobile_number=mobile).first():
+    mobile = normalize_ph_mobile(mobile_number, required=False)
+    if mobile and User.query.filter_by(mobile_number=mobile).first():
         raise AppError("Mobile number already exists", "CONFLICT", 409)
 
     if channel is not None and channel != InvitationChannel.EMAIL:
@@ -107,7 +105,7 @@ def create_invited_user(
         user, InvitationChannel.EMAIL, created_by_id, commit=False
     )
     db.session.commit()
-    invitation.delivery = _deliver_invitation(user, invitation, raw_secret) if user.email else None
+    invitation.delivery = _deliver_invitation(user, invitation, raw_secret)
     invitation.setup_url = invitation_setup_url(raw_secret)
     return user, invitation, raw_secret
 
@@ -118,6 +116,7 @@ def issue_invitation(
     created_by_id: str | None = None,
     *,
     commit: bool = True,
+    deliver: bool = True,
 ) -> tuple[UserInvitation, str]:
     if user.status == UserStatus.DISABLED:
         raise AppError("Cannot invite a disabled user", "VALIDATION_ERROR", 400)
@@ -127,9 +126,9 @@ def issue_invitation(
             "VALIDATION_ERROR",
             400,
         )
-    if not user.email and not user.mobile_number:
+    if not user.email:
         raise AppError(
-            "Add a mobile number or an email before generating a setup link",
+            "Add an email before sending the setup link",
             "VALIDATION_ERROR",
             400,
         )
@@ -158,10 +157,10 @@ def issue_invitation(
     if commit:
         db.session.commit()
         # Not a column: the outcome of this send, for the admin's response.
-        # No email: the admin shows the link and QR on screen. The link rules
-        # (48 hours, single use, regenerate revokes the previous one) are the same.
+        # deliver=False is the copy-link fallback: same link rules (48 hours,
+        # single use, a new link revokes the previous one), nothing emailed.
         invitation.delivery = (
-            _deliver_invitation(user, invitation, raw_secret) if user.email else None
+            _deliver_invitation(user, invitation, raw_secret) if deliver else None
         )
         invitation.setup_url = invitation_setup_url(raw_secret)
     else:
@@ -169,7 +168,13 @@ def issue_invitation(
     return invitation, raw_secret
 
 
-def resend_invitation(user: User, created_by_id: str, channel: InvitationChannel | None = None):
+def resend_invitation(
+    user: User,
+    created_by_id: str,
+    channel: InvitationChannel | None = None,
+    *,
+    deliver: bool = True,
+):
     if user.status == UserStatus.ACTIVE and user.password_hash:
         raise AppError("User already activated", "VALIDATION_ERROR", 400)
     if user.status == UserStatus.DISABLED:
@@ -180,7 +185,9 @@ def resend_invitation(user: User, created_by_id: str, channel: InvitationChannel
             "VALIDATION_ERROR",
             400,
         )
-    return issue_invitation(user, InvitationChannel.EMAIL, created_by_id, commit=True)
+    return issue_invitation(
+        user, InvitationChannel.EMAIL, created_by_id, commit=True, deliver=deliver
+    )
 
 
 def revoke_invitation(user: User) -> int:

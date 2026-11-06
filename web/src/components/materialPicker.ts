@@ -3,7 +3,10 @@ export function materialLineLocked(catalogId: string | null | undefined): boolea
   return Boolean(catalogId);
 }
 
-/** Printed / detail display: name — grade — size/spec. */
+/** Size the way the shop writes it on a PO: diameter and length, " for inches. */
+export const SIZE_PLACEHOLDER = 'Size, e.g. 320mm dia x 170mmL';
+
+/** Detail display: name — size. Lines saved before grades were dropped keep their grade. */
 export function formatPoMaterialLabel(
   name: string,
   gradeOrSpec?: string | null,

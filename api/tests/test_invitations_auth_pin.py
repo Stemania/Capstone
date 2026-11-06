@@ -453,12 +453,13 @@ def test_normalize_ph_mobile_variants():
     assert normalize_ph_mobile("+63 917-123-4567") == "+639171234567"
 
 
-def _invited_worker_without_email(admin, mobile="09175550111"):
+def _invited_worker(admin, mobile="09175550111", email="worker@test.local"):
+    """A worker with a copied setup link (the fallback when the email does not arrive)."""
     user = User(
-        email=None,
+        email=email,
         mobile_number=normalize_ph_mobile(mobile),
         password_hash=None,
-        full_name="No Email Worker",
+        full_name="Copied Link Worker",
         role=UserRole.PRODUCTION_WORKER,
         status=UserStatus.INVITED,
         active=False,
@@ -466,7 +467,7 @@ def _invited_worker_without_email(admin, mobile="09175550111"):
     db.session.add(user)
     db.session.flush()
     invitation, raw = issue_invitation(
-        user, InvitationChannel.EMAIL, admin.id, commit=True
+        user, InvitationChannel.EMAIL, admin.id, commit=True, deliver=False
     )
     assert invitation.setup_url
     assert getattr(invitation, "delivery", None) is None
@@ -475,9 +476,26 @@ def _invited_worker_without_email(admin, mobile="09175550111"):
     return user, invitation, raw
 
 
-def test_setup_link_without_email_then_login_by_mobile(client):
+def test_setup_link_needs_an_email(client):
     admin = _admin()
-    user, _invitation, raw = _invited_worker_without_email(admin)
+    user = User(
+        email=None,
+        mobile_number=normalize_ph_mobile("09175550100"),
+        full_name="No Email Worker",
+        role=UserRole.PRODUCTION_WORKER,
+        status=UserStatus.INVITED,
+        active=False,
+    )
+    db.session.add(user)
+    db.session.flush()
+    with pytest.raises(AppError) as err:
+        issue_invitation(user, InvitationChannel.EMAIL, admin.id, commit=True)
+    assert "email" in err.value.message.lower()
+
+
+def test_copied_setup_link_then_login_by_mobile(client):
+    admin = _admin()
+    user, _invitation, raw = _invited_worker(admin)
 
     accepted = client.post(
         "/api/v1/auth/invitation/accept",
@@ -490,7 +508,6 @@ def test_setup_link_without_email_then_login_by_mobile(client):
     assert accepted.status_code == 200
     db.session.refresh(user)
     assert user.status == UserStatus.ACTIVE
-    assert user.email is None
 
     login = client.post(
         "/api/v1/auth/login",
@@ -502,14 +519,14 @@ def test_setup_link_without_email_then_login_by_mobile(client):
 
 def test_setup_link_is_single_use_and_expires(client):
     admin = _admin()
-    user, invitation, raw = _invited_worker_without_email(admin, "09175550122")
+    user, invitation, raw = _invited_worker(admin, "09175550122", "w122@test.local")
     invitation.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
     db.session.flush()
 
     expired = client.post("/api/v1/auth/invitation/validate", json={"token": raw})
     assert expired.status_code == 400
 
-    _fresh, raw2 = issue_invitation(user, InvitationChannel.EMAIL, admin.id, commit=True)
+    _fresh, raw2 = issue_invitation(user, InvitationChannel.EMAIL, admin.id, commit=True, deliver=False)
     ok = client.post(
         "/api/v1/auth/invitation/accept",
         json={
@@ -532,9 +549,9 @@ def test_setup_link_is_single_use_and_expires(client):
 
 def test_regenerate_setup_link_revokes_the_previous_one(client):
     admin = _admin()
-    user, _invitation, first = _invited_worker_without_email(admin, "09175550133")
+    user, _invitation, first = _invited_worker(admin, "09175550133", "w133@test.local")
     _second, second = issue_invitation(
-        user, InvitationChannel.EMAIL, admin.id, commit=True
+        user, InvitationChannel.EMAIL, admin.id, commit=True, deliver=False
     )
 
     old = client.post("/api/v1/auth/invitation/validate", json={"token": first})
@@ -542,8 +559,7 @@ def test_regenerate_setup_link_revokes_the_previous_one(client):
 
     current = client.post("/api/v1/auth/invitation/validate", json={"token": second})
     assert current.status_code == 200
-    assert current.get_json()["email"] is None
-
+    assert current.get_json()["email"] == "w133@test.local"
 
 
 def test_pin_unlock_is_for_production_workers_only(client, app):

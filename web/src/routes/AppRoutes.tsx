@@ -264,14 +264,6 @@ export default function AppRoutes() {
                       }
                     />
                     <Route
-                      path="/machines"
-                      element={
-                        <RouteSuspense>
-                          <MachinesPage />
-                        </RouteSuspense>
-                      }
-                    />
-                    <Route
                       path="/work-calendar"
                       element={
                         <RouteSuspense>
@@ -283,6 +275,14 @@ export default function AppRoutes() {
                   </Route>
 
                   <Route element={<ProtectedRoute roles={['ADMIN']} />}>
+                    <Route
+                      path="/machines"
+                      element={
+                        <RouteSuspense>
+                          <MachinesPage />
+                        </RouteSuspense>
+                      }
+                    />
                     <Route
                       path="/job-orders/:id/plan"
                       element={

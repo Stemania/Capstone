@@ -2,13 +2,14 @@ import { useEffect } from 'react';
 import { Button, Input, InputNumber, Select, Tooltip } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { MATERIAL_UNITS } from '../../api/materialCatalog.api';
-import { GradeSelect, MaterialCatalogPicker } from '../../components/MaterialInputs';
+import { MaterialCatalogPicker } from '../../components/MaterialInputs';
+import { SIZE_PLACEHOLDER } from '../../components/materialPicker';
 import { useMaterialCatalog } from '../../hooks/useMaterialCatalog';
 import { blankPlannedRow, matchLegacyRows, type PlannedRow } from './plannedMaterials';
 
 /**
- * "Materials needed" rows on the job order form: catalog material, grade,
- * size or spec, quantity and unit. Ordering later starts from this list.
+ * "Materials needed" rows on the job order form: catalog material, size,
+ * quantity and unit. Ordering later starts from this list.
  */
 export default function PlannedMaterialsEditor({
   rows,
@@ -27,7 +28,7 @@ export default function PlannedMaterialsEditor({
   const add = () => onChange([...rows, blankPlannedRow()]);
 
   // Lines saved before the material catalog only have a name: link them to the
-  // catalog material of the same name, keeping the saved grade and size.
+  // catalog material of the same name, keeping the saved size.
   useEffect(() => {
     const matched = matchLegacyRows(rows, catalog);
     if (matched) onChange(matched);
@@ -39,8 +40,7 @@ export default function PlannedMaterialsEditor({
         <div className="jo-mats__grid" role="table" aria-label="Materials needed">
           <div className="jo-mats__row jo-mats__row--head" role="row">
             <span role="columnheader" className="jo-mats__h jo-mats__h--material">Material</span>
-            <span role="columnheader" className="jo-mats__h jo-mats__h--grade">Grade</span>
-            <span role="columnheader" className="jo-mats__h jo-mats__h--size">Size / spec</span>
+            <span role="columnheader" className="jo-mats__h jo-mats__h--size">Size</span>
             <span role="columnheader" className="jo-mats__h jo-mats__h--qty">Qty</span>
             <span role="columnheader" className="jo-mats__h jo-mats__h--unit">Unit</span>
             <span aria-hidden className="jo-mats__h jo-mats__h--remove" />
@@ -48,7 +48,6 @@ export default function PlannedMaterialsEditor({
           <div className="jo-mats__rows">
           {rows.map((r) => {
             const ordered = r.onOrder > 0;
-            const grades = catalog.find((c) => c.id === r.materialCatalogId)?.grades;
             const invalid = errorKey === r.key;
             return (
               <div key={r.key} className={`jo-mats__row${invalid ? ' is-invalid' : ''}`} role="row">
@@ -56,7 +55,7 @@ export default function PlannedMaterialsEditor({
                   <MaterialCatalogPicker
                     size="middle"
                     catalogId={r.materialCatalogId}
-                    materialName={r.materialName}
+                    materialName={[r.materialName, r.gradeOrSpec].filter(Boolean).join(' ')}
                     placeholder={
                       !r.materialCatalogId && r.materialName
                         ? `Saved as "${[r.materialName, r.gradeOrSpec].filter(Boolean).join(' ')}": pick it from the catalog`
@@ -76,20 +75,9 @@ export default function PlannedMaterialsEditor({
                     }
                   />
                 </div>
-                <div className="jo-mats__cell jo-mats__cell--grade" data-label="Grade">
-                  <GradeSelect
-                    size="middle"
-                    grades={grades}
-                    placeholder="Grade"
-                    materialName={r.materialName}
-                    value={r.gradeOrSpec}
-                    disabled={!r.materialCatalogId}
-                    onChange={(v) => set(r.key, { gradeOrSpec: v })}
-                  />
-                </div>
-                <div className="jo-mats__cell jo-mats__cell--size" data-label="Size / spec">
+                <div className="jo-mats__cell jo-mats__cell--size" data-label="Size">
                   <Input
-                    placeholder="Size / spec, e.g. Ø50 × 200 mm"
+                    placeholder={SIZE_PLACEHOLDER}
                     value={r.sizeSpec}
                     disabled={!r.materialCatalogId}
                     maxLength={255}

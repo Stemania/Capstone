@@ -105,7 +105,7 @@ function workerMaterialList(job: JobOrder): WorkerMaterial[] {
   return lines.map((l) => ({
     key: l.id,
     name: l.materialName,
-    spec: l.gradeOrSpec || '',
+    spec: [l.gradeOrSpec, l.sizeSpec].filter(Boolean).join(', '),
     qty: qty(l.quantity, l.unit),
     received: l.status === 'RECEIVED',
   }));

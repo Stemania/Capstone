@@ -136,7 +136,7 @@ def ordering_context(job_id=None):
 
     return {
         "jobs": jobs,
-        "lowStockConsumables": [] if job_id else low_stock_consumables(),
+        "dueConsumables": [] if job_id else due_consumables(),
         # Every offered consumable (stocked or not yet) so a PO line can pick any.
         "offeredConsumables": [] if job_id else offered_consumables(),
         "materialUnits": MATERIAL_UNITS,
@@ -176,36 +176,38 @@ def _consumable_on_order() -> dict:
     return out
 
 
-def low_stock_consumables() -> list[dict]:
-    """Consumables at or below minimum stock with the suggested order quantity,
-    and what is already on a draft or open supplier order."""
-    from app.services.inventory_service import purchase_suggestions
+def due_consumables() -> list[dict]:
+    """Consumables due to be bought again (replenishment forecast), with what is
+    already on a draft or open supplier order."""
+    from app.models.tool import Tool, ToolCategory
+    from app.services.replenishment_service import due_items
 
     on_order = _consumable_on_order()
+    tools = {
+        t.id: t
+        for t in Tool.query.filter(Tool.category == ToolCategory.CONSUMABLE, Tool.active.is_(True))
+    }
     rows = []
-    for item in purchase_suggestions()["items"]:
+    for item in due_items():
         ordered = on_order.get(item["toolId"], Decimal("0"))
-        suggested = Decimal(str(item["suggestedOrderQuantity"] or 0))
+        usual = Decimal(str(item["usualQuantity"] or 0))
+        tool = tools.get(item["toolId"])
         rows.append(
             {
                 "toolId": item["toolId"],
                 "name": item["name"],
-                "code": item["code"],
+                "code": tool.code if tool else "",
                 "sizeSpec": item["sizeSpec"],
                 "shopTerm": item.get("shopTerm"),
                 "unit": item["unit"],
-                "quantityOnHand": item["quantityOnHand"],
-                "minimumStock": item["minimumStock"],
-                "suggestedOrderQuantity": item["suggestedOrderQuantity"],
+                "status": item["status"],
+                "nextPurchaseOn": item["nextPurchaseOn"],
+                "usualQuantity": item["usualQuantity"],
                 "onOrderQuantity": float(ordered),
-                "remainingSuggestedQuantity": float(max(suggested - ordered, Decimal("0"))),
+                "remainingSuggestedQuantity": float(max(usual - ordered, Decimal("0"))),
             }
         )
     return rows
-
-
-# Drafts
-
 
 def _draft_for(supplier: Supplier, actor_id: str) -> SupplierOrder:
     order = SupplierOrder.query.filter_by(
@@ -711,8 +713,9 @@ def _money(v: Decimal) -> Decimal:
 
 
 def print_data(order: SupplierOrder) -> dict:
-    """The printed PO. Lines with the same material, grade and unit print as one
-    row; the system keeps them separate per job. Consumable restock lines print
+    """The printed PO. Lines with the same material, size and unit print as one
+    row; the system keeps them separate per job. The page lists each material
+    once with its sizes below it. Consumable restock lines print
     alongside. Job numbers stay off the printout. Only an issued order prints:
     a draft has no PO number yet and a cancelled order is void."""
     if order.status == SupplierOrderStatus.DRAFT:

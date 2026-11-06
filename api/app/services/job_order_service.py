@@ -211,7 +211,7 @@ def derive_job_status(job: JobOrder) -> JobOrderStatus:
 
 
 def _initial_part_condition(job_type: JobType) -> PartCondition:
-    if job_type in (JobType.MODIFICATION, JobType.REPAIR):
+    if job_type == JobType.REPAIR:
         return PartCondition.CLIENT_SUPPLIED_ITEM
     return PartCondition.RAW_MATERIAL
 
@@ -587,8 +587,8 @@ def _apply_materials_needed(job, value, role):
 def create_job_order(data, created_by_id, actor_role=None):
     """Office creates a DRAFT from the client PO. Operations are optional; no notify.
 
-    Materials needed defaults to To order for Fabrication and Not required for
-    Repair and Modification; materials are entered later, when ordering.
+    Materials needed defaults to To order for Fabrication and Machining and Not
+    required for Repair; materials are entered later, when ordering.
     """
     priority = data.get("priority") or JobPriority.MODERATE.value
     try:

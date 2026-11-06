@@ -1346,8 +1346,10 @@ def demand_forecast():
     return forecast_service.demand_forecast()
 
 
-def consumable_run_out():
-    return forecast_service.consumable_run_out()
+def consumable_replenishment():
+    from app.services.replenishment_service import replenishment
+
+    return replenishment()
 
 
 def capacity_type_rows(capacity_rows):

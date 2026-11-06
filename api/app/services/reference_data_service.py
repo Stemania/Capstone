@@ -59,23 +59,25 @@ INACTIVE_SUPPLIERS = ["Seno Metals", "Metro Hardware"]
 
 DUPLICATE_SUFFIX = " (duplicate)"
 
+# Named the way the shop writes them on a PO; the size goes on each order line.
 MATERIAL_CATALOG = [
-    {"name": "AISI 4140 alloy steel", "shop_term": "41-40", "grades": [], "default_unit": "kg", "category": "Steel"},
-    {"name": "SKD 11 tool steel", "shop_term": None, "grades": [], "default_unit": "kg", "category": "Tool steel"},
-    {"name": "Brass", "shop_term": None, "grades": [], "default_unit": "kg", "category": "Non-ferrous"},
-    {"name": "Bronze", "shop_term": None, "grades": ["Magnolia bronze"], "default_unit": "kg", "category": "Non-ferrous"},
-    {"name": "Copper", "shop_term": None, "grades": [], "default_unit": "kg", "category": "Non-ferrous"},
-    {"name": "Mild steel (black iron)", "shop_term": "Iron", "grades": ["MS", "A36"], "default_unit": "kg", "category": "Steel"},
-    {"name": "Aluminium 6061", "shop_term": "60-61", "grades": [], "default_unit": "kg", "category": "Aluminium"},
-    {"name": "Aluminium 5052", "shop_term": "50-51", "grades": [], "default_unit": "sheet", "category": "Aluminium"},
-    {
-        "name": "Plastic",
-        "shop_term": None,
-        "grades": ["Nylon", "Acetal (POM/Delrin)", "UHMW-PE", "PTFE (Teflon)", "Bakelite (phenolic)"],
-        "default_unit": "kg",
-        "category": "Plastic",
-    },
+    {"name": "1045", "shop_term": "10-45", "grades": [], "default_unit": "pcs", "category": "Steel"},
+    {"name": "4140", "shop_term": "41-40", "grades": [], "default_unit": "pcs", "category": "Steel"},
+    {"name": "SKD 11", "shop_term": None, "grades": [], "default_unit": "pcs", "category": "Steel"},
+    {"name": "MS", "shop_term": "Iron", "grades": [], "default_unit": "pcs", "category": "Steel"},
+    {"name": "A36", "shop_term": None, "grades": [], "default_unit": "pcs", "category": "Steel"},
+    {"name": "6061", "shop_term": "60-61", "grades": [], "default_unit": "pcs", "category": "Aluminium"},
+    {"name": "5052", "shop_term": "50-52", "grades": [], "default_unit": "sheet", "category": "Aluminium"},
+    {"name": "Brass", "shop_term": None, "grades": [], "default_unit": "pcs", "category": "Non-ferrous"},
+    {"name": "Bronze", "shop_term": "Magnolia", "grades": [], "default_unit": "pcs", "category": "Non-ferrous"},
+    {"name": "Copper", "shop_term": None, "grades": [], "default_unit": "pcs", "category": "Non-ferrous"},
+    {"name": "Nylon", "shop_term": None, "grades": [], "default_unit": "pcs", "category": "Plastic"},
+    {"name": "Acetal", "shop_term": "Delrin", "grades": [], "default_unit": "pcs", "category": "Plastic"},
+    {"name": "UHMW", "shop_term": "UHMW-PE", "grades": [], "default_unit": "pcs", "category": "Plastic"},
+    {"name": "Teflon", "shop_term": "PTFE", "grades": [], "default_unit": "pcs", "category": "Plastic"},
+    {"name": "Bakelite", "shop_term": "Phenolic", "grades": [], "default_unit": "pcs", "category": "Plastic"},
 ]
+
 
 # An existing item with the name or an alias counts as present; one found
 # only by alias is renamed to the shop's name. Minimum stock is left blank.

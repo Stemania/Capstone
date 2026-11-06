@@ -8,7 +8,7 @@ import { inventoryApi, toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
 import { useShopDetails } from '../../hooks/useShopDetails';
 import type {
-  ConsumableRunOut,
+  ConsumableReplenishment,
   InventoryUsageByWorker,
   MaterialPurchase,
   MaterialPurchaseList,
@@ -38,11 +38,11 @@ import { PageSkeleton } from '../../components/ui';
 import './reportsPrint.css';
 
 const STATUS_LABEL: Record<string, string> = {
-  REORDER_NOW: 'Reorder now',
-  REORDER_SOON: 'Reorder soon',
+  OVERDUE: 'Overdue',
+  DUE_SOON: 'Due soon',
   OK: 'OK',
-  NO_DATA: 'No data yet',
-  NOT_STOCKED: 'Not stocked yet',
+  LEARNING: 'Too few purchases',
+  NO_HISTORY: 'Not bought yet',
 };
 
 export default function InventoryReportPage() {
@@ -51,7 +51,7 @@ export default function InventoryReportPage() {
   const params = rangeToParams(range);
   const [tools, setTools] = useState<Tool[]>([]);
   const [types, setTypes] = useState<ToolType[]>([]);
-  const [runOut, setRunOut] = useState<ConsumableRunOut | null>(null);
+  const [runOut, setRunOut] = useState<ConsumableReplenishment | null>(null);
   const [usageWorker, setUsageWorker] = useState<InventoryUsageByWorker | null>(null);
   const [purchases, setPurchases] = useState<MaterialPurchaseList | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,7 +64,7 @@ export default function InventoryReportPage() {
         const [t, typ, ro, byWorker, mp] = await Promise.all([
           toolsApi.list(),
           toolsApi.listTypes({ includeUnits: true }),
-          analyticsApi.consumableRunOut(),
+          analyticsApi.consumableReplenishment(),
           inventoryApi.usageByWorker(params),
           inventoryApi.materialPurchases({ ...params, status: 'ORDERED' }),
         ]);
@@ -107,8 +107,8 @@ export default function InventoryReportPage() {
   }, [types]);
   const toolUnits = sum(toolAvailability, (r) => r.total) ?? 0;
   const toolsOut = sum(toolAvailability, (r) => r.out) ?? 0;
-  const reorderNow = consumables.filter((c) => c.status === 'REORDER_NOW').length;
-  const reorderSoon = consumables.filter((c) => c.status === 'REORDER_SOON').length;
+  const overdue = consumables.filter((c) => c.status === 'OVERDUE').length;
+  const dueSoon = consumables.filter((c) => c.status === 'DUE_SOON').length;
 
   const exportReport = () => {
     const sections = [
@@ -116,12 +116,11 @@ export default function InventoryReportPage() {
       'Consumables',
       rowsToCsv(consumables, [
         { key: 'name', header: 'Item', value: (r) => r.name },
-        { key: 'code', header: 'Code', value: (r) => r.code },
-        { key: 'onHand', header: 'On hand', value: (r) => r.quantityOnHand },
-        { key: 'rop', header: 'Reorder level', value: (r) => r.reorderLevel },
-        { key: 'status', header: 'Status', value: (r) => r.status ?? '' },
-        { key: 'days', header: 'Days left', value: (r) => r.daysLeft },
-        { key: 'abc', header: 'ABC', value: (r) => r.abcClass ?? '' },
+        { key: 'last', header: 'Last bought', value: (r) => r.lastBoughtOn ?? '' },
+        { key: 'every', header: 'Every (days)', value: (r) => r.everyDays ?? '' },
+        { key: 'usual', header: 'Usual quantity', value: (r) => r.usualQuantity ?? '' },
+        { key: 'next', header: 'Next purchase', value: (r) => r.nextPurchaseOn ?? '' },
+        { key: 'status', header: 'Status', value: (r) => STATUS_LABEL[r.status] ?? '' },
       ]),
       'Tools out / available',
       rowsToCsv(toolAvailability, [
@@ -187,9 +186,9 @@ export default function InventoryReportPage() {
             <SummaryTable
               caption="Table 1. Summary of inventory"
               items={[
-                { label: 'Consumable items in stock list', value: formatInt(consumables.length) },
-                { label: 'Consumables to reorder now', value: formatInt(reorderNow) },
-                { label: 'Consumables to reorder soon', value: formatInt(reorderSoon) },
+                { label: 'Consumables in the catalog', value: formatInt(consumables.length) },
+                { label: 'Consumables overdue to be bought', value: formatInt(overdue) },
+                { label: 'Consumables due to be bought within a week', value: formatInt(dueSoon) },
                 {
                   label: 'Tool units out with workers',
                   value: `${formatInt(toolsOut)} of ${formatInt(toolUnits)}`,
@@ -198,13 +197,13 @@ export default function InventoryReportPage() {
               ]}
             />
 
-            <ReportHeading n={2}>Consumables Stock Status</ReportHeading>
+            <ReportHeading n={2}>Consumable Replenishment</ReportHeading>
             <FormalTable
-              caption={`Table 2. Stock on hand and reorder status of consumables as of ${longDate(today)}`}
+              caption={`Table 2. Replenishment forecast of consumables as of ${longDate(today)}`}
               numbered
               rows={consumables}
               rowKey={(r) => r.toolId}
-              rowClassName={(r) => (r.status === 'REORDER_NOW' ? 'fr-row-flag' : undefined)}
+              rowClassName={(r) => (r.status === 'OVERDUE' ? 'fr-row-flag' : undefined)}
               empty="No consumables on file."
               columns={[
                 {
@@ -215,53 +214,46 @@ export default function InventoryReportPage() {
                       {r.sizeSpec ? <span className="fr-sub">{r.sizeSpec}</span> : null}
                     </>
                   ),
-                  width: '22%',
+                  width: '24%',
                 },
                 {
-                  title: 'Code',
-                  render: (r) => r.code,
-                  width: '19%',
-                  nowrap: true,
-                  className: 'fr-code',
-                },
-                {
-                  title: 'On hand',
-                  render: (r) => qty(r.quantityOnHand, r.unit),
-                  align: 'right',
-                  width: '10%',
+                  title: 'Last bought',
+                  render: (r) => (r.lastBoughtOn ? longDate(r.lastBoughtOn) : '—'),
+                  width: '17%',
                   nowrap: true,
                 },
                 {
-                  title: 'Reorder level',
-                  render: (r) => qty(r.reorderLevel, r.unit),
+                  title: 'Every',
+                  render: (r) => (r.everyDays == null ? '—' : `${formatInt(Math.round(r.everyDays))} days`),
                   align: 'right',
-                  width: '10%',
+                  width: '11%',
+                  nowrap: true,
+                },
+                {
+                  title: 'Usual quantity',
+                  render: (r) => (r.usualQuantity == null ? '—' : qty(r.usualQuantity, r.unit)),
+                  align: 'right',
+                  width: '12%',
+                  nowrap: true,
+                },
+                {
+                  title: 'Next purchase',
+                  render: (r) => (r.nextPurchaseOn ? longDate(r.nextPurchaseOn) : '—'),
+                  width: '17%',
                   nowrap: true,
                 },
                 {
                   title: 'Status',
-                  render: (r) => STATUS_LABEL[r.status || ''] || '—',
+                  render: (r) => STATUS_LABEL[r.status] || '—',
                   width: '13%',
-                },
-                {
-                  title: 'Days left',
-                  render: (r) => (r.daysLeft == null ? '—' : formatInt(r.daysLeft)),
-                  align: 'right',
-                  width: '9%',
-                },
-                {
-                  title: 'ABC class',
-                  render: (r) => r.abcClass || '—',
-                  align: 'center',
-                  width: '9%',
                 },
               ]}
             />
             <ReportNotes
               items={[
-                'Items to reorder now are shown in bold.',
-                'The reorder level is computed from recent usage, the supplier lead time, and a safety buffer. Days left is how long the stock is expected to last at its recent rate of use.',
-                'ABC class ranks items by the value of their use: A for the few items with the highest value, C for the many with the lowest.',
+                'Items overdue to be bought are shown in bold.',
+                'Consumables are not counted. The forecast reads every recorded purchase and received supplier order: the usual quantity and the days between purchases are smoothed (Croston\'s method with the Syntetos-Boylan Approximation), and the next purchase is expected that many days after the last one.',
+                'An item needs three purchases before it is forecast.',
               ]}
             />
 

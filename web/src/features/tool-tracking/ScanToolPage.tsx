@@ -190,7 +190,7 @@ export default function ScanToolPage() {
         setLookupError(error);
       } catch {
         if (seq !== lookupSeq.current || detectedCodeRef.current !== code) return;
-        // Not a tool unit — treat as consumable (or unknown) and scan immediately.
+        // Not a tool unit: send it anyway so the server says what it is (consumables are refused).
         setDetectedUnit(null);
         setDetectedIntent(null);
         setLookingUp(false);
@@ -311,7 +311,7 @@ export default function ScanToolPage() {
     <div className="w-scan">
       <WorkerPageHeader
         title="Scan"
-        subtitle={offlineBanner ? 'Offline · scans save on this phone' : 'Tools and consumables'}
+        subtitle={offlineBanner ? 'Offline · scans save on this phone' : 'Borrow and return tools'}
       />
 
       <div className="w-scan__camera">
@@ -385,8 +385,8 @@ export default function ScanToolPage() {
         ) : (
           <div className="w-scan__prompt">
             {blocked
-              ? 'Type the asset or consumable code'
-              : "Point the camera at a tool or consumable QR"}
+              ? 'Type the tool asset code'
+              : "Point the camera at a tool's QR code"}
           </div>
         )}
         {lookupError && <div className="w-scan__error">{lookupError}</div>}

@@ -44,9 +44,7 @@ def list_users():
 @require_roles(UserRole.ADMIN)
 def create_user_route():
     data = request.get_json() or {}
-    required = ["fullName", "role", "mobileNumber"]
-    if data.get("role") != UserRole.PRODUCTION_WORKER.value:
-        required.insert(0, "email")
+    required = ["email", "fullName", "role"]
     for field in required:
         if not data.get(field):
             return (
@@ -80,7 +78,7 @@ def create_user_route():
     user, invitation, _raw = create_invited_user(
         full_name=data["fullName"],
         email=data.get("email") or "",
-        mobile_number=data["mobileNumber"],
+        mobile_number=data.get("mobileNumber"),
         role=UserRole(data["role"]),
         channel=InvitationChannel.EMAIL,
         created_by_id=get_current_user_id(),
@@ -158,11 +156,14 @@ def resend_invite(user_id):
     channel_raw = (data.get("channel") or data.get("inviteChannel") or "EMAIL").upper()
     if channel_raw != "EMAIL":
         raise AppError("Invitations are sent by email only", "VALIDATION_ERROR", 400)
-    invitation, _raw = resend_invitation(user, get_current_user_id(), InvitationChannel.EMAIL)
+    # deliver=false: the copy-link fallback, for when the email does not arrive.
+    deliver = data.get("deliver", True) is not False
+    invitation, _raw = resend_invitation(
+        user, get_current_user_id(), InvitationChannel.EMAIL, deliver=deliver
+    )
     payload = invitation.to_dict()
-    # No email: the link is shown on screen. Don't report that as a failed send.
     payload["delivery"] = (
-        delivery_summary(getattr(invitation, "delivery", None)) if user.email else None
+        delivery_summary(getattr(invitation, "delivery", None)) if deliver else None
     )
     payload["setupUrl"] = getattr(invitation, "setup_url", None)
     return jsonify(payload)

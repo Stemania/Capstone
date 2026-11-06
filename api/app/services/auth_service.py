@@ -96,6 +96,8 @@ def update_user(user, data):
 
     if "email" in data:
         email = (data["email"] or "").strip().lower() or None
+        if email is None or "@" not in email:
+            raise AppError("Valid email is required", "VALIDATION_ERROR", 400)
         if email != user.email:
             if email and User.query.filter_by(email=email).first():
                 raise AppError("Email already exists", "CONFLICT", 409)

@@ -111,7 +111,7 @@ export function rowsFromSummary(lines: JobMaterialLine[]): MaterialLineRow[] {
   return lines.map((l) => ({
     id: l.id,
     materialName: l.materialName,
-    gradeOrSpec: l.gradeOrSpec,
+    gradeOrSpec: [l.gradeOrSpec, l.sizeSpec].filter(Boolean).join(' · ') || null,
     quantity: l.quantity,
     unit: l.unit,
     status: lineStatus(l.status, l.dateReceived),

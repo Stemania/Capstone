@@ -25,11 +25,11 @@ export const usersApi = {
   list: () => apiClient.get<User[]>('/users'),
   get: (id: string) => apiClient.get<User>(`/users/${id}`),
   create: (data: {
-    email?: string;
+    email: string;
     fullName: string;
     nickname?: string;
     role: string;
-    mobileNumber: string;
+    mobileNumber?: string;
   }) => apiClient.post<User & InviteResponse>('/users', data),
   update: (id: string, data: Partial<User>) =>
     apiClient.patch<User>(`/users/${id}`, data),
@@ -43,8 +43,9 @@ export const usersApi = {
   deletePhoto: (id: string) => apiClient.delete<User>(`/users/${id}/photo`),
   getPhoto: (id: string) => apiClient.get<Blob>(`/users/${id}/photo`, { responseType: 'blob' }),
   deactivate: (id: string) => apiClient.delete(`/users/${id}`),
-  resendInvite: (id: string) =>
-    apiClient.post<InviteResponse>(`/users/${id}/invite`, {}),
+  /** Emails a new setup link; deliver: false only returns it (copy-link fallback). */
+  resendInvite: (id: string, opts?: { deliver?: boolean }) =>
+    apiClient.post<InviteResponse>(`/users/${id}/invite`, opts ?? {}),
   revokeInvite: (id: string) => apiClient.delete(`/users/${id}/invite`),
   revokeDevices: (id: string) => apiClient.delete(`/users/${id}/devices`),
 };

@@ -4,7 +4,7 @@ import StatusPill from '../../components/StatusPill';
 import { PageSkeleton, TabBar } from '../../components/ui';
 import { tones } from '../../theme/tokens';
 import { exportCsv } from '../../utils/csvExport';
-import type { ConsumableRunOutRow } from '../../types';
+import type { ReplenishmentItem } from '../../types';
 import { fmtDay, fmtMonth, fmtNum, fmtPeso, fmtPesoCompact } from './format';
 import {
   Card,
@@ -14,38 +14,30 @@ import {
   Kpis,
   LineTrend,
   PALETTE,
-  ParetoChart,
+  RESTOCK_LABEL,
+  RESTOCK_TONE,
   SortedBars,
-  STOCK_LABEL,
-  STOCK_TONE,
-  StockBar,
   type BarRow,
-  type ParetoRow,
 } from './kit';
-import { stockCounts } from './cards';
+import { restockCounts } from './cards';
 import { useConsumables, useInventory, usePeriods } from './sources';
 
-const NEEDS_ORDER = new Set(['LIKELY_OUT', 'REORDER_NOW', 'REORDER_SOON']);
-const STATUS_ORDER = ['LIKELY_OUT', 'REORDER_NOW', 'REORDER_SOON', 'OK', 'NO_DATA'] as const;
-const LIST_LIMIT = 8;
-const COVER_LIMIT = 10;
-const PARETO_LIMIT = 12;
+const STATUS_ORDER = ['OVERDUE', 'DUE_SOON', 'OK', 'LEARNING', 'NO_HISTORY'] as const;
+const LIST_LIMIT = 10;
+const NEXT_LIMIT = 10;
 
-const LEAD_SOURCE: Record<string, string> = {
-  MEASURED: 'measured from past restocks',
-  SUPPLIER: "supplier's stated lead time",
-  DEFAULT: 'default',
-};
-
-const aduOf = (i: ConsumableRunOutRow) => i.adu ?? i.dailyUsage ?? null;
-const ropOf = (i: ConsumableRunOutRow) => i.reorderLevel ?? i.reorderPoint ?? null;
-const leadOf = (i: ConsumableRunOutRow) => i.leadTimeWorkingDaysAvg ?? i.leadTimeDays ?? null;
 const itemName = (name: string, size?: string | null) => (size ? `${name} · ${size}` : name);
-const statusColor = (status?: string | null) =>
-  status === 'REORDER_NOW' || status === 'LIKELY_OUT'
-    ? tones.red.solid
-    : tones[STOCK_TONE[status ?? 'NO_DATA'] ?? 'grey'].solid;
+const statusColor = (status: string) => tones[RESTOCK_TONE[status] ?? 'grey'].solid;
 const lines = (n: number) => `${fmtNum(n)} line${n === 1 ? '' : 's'}`;
+const isDue = (i: ReplenishmentItem) => i.status === 'OVERDUE' || i.status === 'DUE_SOON';
+const nextLabel = (i: ReplenishmentItem) =>
+  i.daysUntilNext == null
+    ? '—'
+    : i.daysUntilNext < 0
+      ? `${fmtNum(-i.daysUntilNext)} d late`
+      : i.daysUntilNext === 0
+        ? 'today'
+        : `in ${fmtNum(i.daysUntilNext)} d`;
 
 type InvView = 'consumables' | 'materials';
 
@@ -66,84 +58,61 @@ export default function AnalyticsInventoryPage() {
   const stock = useConsumables().data;
   const inv = useInventory(period).data;
 
-  const counts = stockCounts(stock);
+  const counts = restockCounts(stock);
   const items = useMemo(() => stock?.items ?? [], [stock]);
 
-  // Lowest days of cover first; the tick is the lead time, so a bar shorter
-  // than its tick runs out before a new order would arrive.
-  const coverRows: BarRow[] = useMemo(
+  // Coming purchases, soonest first; overdue ones are in the To buy table.
+  const nextRows: BarRow[] = useMemo(
     () =>
       items
-        .filter((i) => i.daysLeft != null && i.status && i.status !== 'NO_DATA')
-        .sort((a, b) => (a.daysLeft ?? 0) - (b.daysLeft ?? 0))
-        .slice(0, COVER_LIMIT)
+        .filter((i) => i.daysUntilNext != null && i.daysUntilNext >= 0)
+        .sort((a, b) => (a.daysUntilNext ?? 0) - (b.daysUntilNext ?? 0))
+        .slice(0, NEXT_LIMIT)
         .map((i) => ({
           key: i.toolId,
           label: itemName(i.name, i.sizeSpec),
-          value: Math.max(i.daysLeft ?? 0, 0),
-          display: `${fmtNum(i.daysLeft)} d`,
+          value: Math.max(i.daysUntilNext ?? 0, 0),
+          display: nextLabel(i),
           color: statusColor(i.status),
-          marker: leadOf(i),
-          title: `${STOCK_LABEL[i.status ?? 'NO_DATA']} · lead time ${fmtNum(leadOf(i))} working days`,
+          title: `${RESTOCK_LABEL[i.status]} · bought every ~${fmtNum(i.everyDays)} days`,
         })),
     [items],
   );
 
-  const pareto = useMemo(() => {
-    const ranked = items
-      .filter((i) => (i.usageValue90d ?? 0) > 0)
-      .sort((a, b) => (b.usageValue90d ?? 0) - (a.usageValue90d ?? 0));
-    const total = ranked.reduce((s, i) => s + (i.usageValue90d ?? 0), 0);
-    let cum = 0;
-    const rows: ParetoRow[] = ranked.slice(0, PARETO_LIMIT).map((i) => {
-      cum += i.usageValue90d ?? 0;
-      return {
-        label: i.name,
-        hours: i.usageValue90d ?? 0,
-        shareOfTotalPct: total ? ((i.usageValue90d ?? 0) / total) * 100 : 0,
-        cumulativePct: total ? (cum / total) * 100 : 0,
-      };
-    });
-    const classA = ranked.filter((i) => i.abcClass === 'A').length;
-    return { rows, total, classA, count: ranked.length };
-  }, [items]);
-
-  const needsOrder = useMemo(
+  const everyRows: BarRow[] = useMemo(
     () =>
       items
-        .filter((i) => NEEDS_ORDER.has(i.status ?? ''))
-        .sort((a, b) => (a.daysLeft ?? -1) - (b.daysLeft ?? -1)),
+        .filter((i) => i.everyDays != null)
+        .sort((a, b) => (a.everyDays ?? 0) - (b.everyDays ?? 0))
+        .slice(0, NEXT_LIMIT)
+        .map((i) => ({
+          key: i.toolId,
+          label: itemName(i.name, i.sizeSpec),
+          value: i.everyDays ?? 0,
+          display: `${fmtNum(i.everyDays)} d`,
+          sub: i.usualQuantity != null ? `about ${fmtNum(i.usualQuantity)} ${i.unit} each time` : undefined,
+        })),
     [items],
   );
+
+  const toBuy = useMemo(() => items.filter(isDue), [items]);
 
   if (!stock || !inv) return <PageSkeleton variant="cards" />;
 
   const mats = inv.materials;
-  const cons = inv.consumables;
-  const stockValue = items.reduce(
-    (s, i) => s + Math.max(i.estimatedOnHand ?? i.quantityOnHand ?? 0, 0) * (i.unitCost ?? 0),
-    0,
-  );
-  const reorderNow = counts.REORDER_NOW + counts.LIKELY_OUT;
+  const due = counts.overdue + counts.dueSoon;
+  const errors = items.map((i) => i.typicalErrorDays).filter((v): v is number => v != null);
+  const typicalError = errors.length ? errors.reduce((s2, v) => s2 + v, 0) / errors.length : null;
   const monthRows = inv.months.map((m) => ({
     label: fmtMonth(m.month),
-    use: m.consumableUseValue,
     received: m.materialReceivedValue,
     consumed: m.materialConsumedValue,
   }));
-  const statusRows: BarRow[] = STATUS_ORDER.filter((k) => counts[k] > 0).map((k) => ({
-    key: k,
-    label: STOCK_LABEL[k],
-    value: counts[k],
-    color: statusColor(k),
-  }));
-  const topUse: BarRow[] = cons.topByValue.map((r) => ({
-    key: r.toolId,
-    label: itemName(r.name, r.sizeSpec),
-    value: r.value,
-    display: fmtPesoCompact(r.value),
-    sub: `${fmtNum(r.quantity)} ${r.unit}`,
-  }));
+  const spendRows = stock.summary.spendByMonth.map((m) => ({ label: fmtMonth(m.month), spent: m.amount }));
+  const statusCounts = STATUS_ORDER.map((k) => ({ k, n: items.filter((i) => i.status === k).length }));
+  const statusRows: BarRow[] = statusCounts
+    .filter((r) => r.n > 0)
+    .map((r) => ({ key: r.k, label: RESTOCK_LABEL[r.k], value: r.n, color: statusColor(r.k) }));
   const ageRows: BarRow[] = mats.ageBuckets.map((b, idx) => ({
     key: b.key,
     label: b.label,
@@ -276,13 +245,13 @@ export default function AnalyticsInventoryPage() {
         value={view}
         onChange={setView}
         items={[
-          { value: 'consumables', label: 'Consumables', count: reorderNow || null, countTone: 'red' },
+          { value: 'consumables', label: 'Consumables', count: due || null, countTone: 'red' },
           { value: 'materials', label: 'Job materials', count: mats.onHandLines || null },
         ]}
       />
       <span className="ana-inv__switch-sub">
         {view === 'consumables'
-          ? `Stock as of ${fmtDay(stock.today)} · consumable stock worth about ${fmtPesoCompact(stockValue)}`
+          ? `Forecast as of ${fmtDay(stock.asOf)} from what the shop bought · consumables are not counted`
           : 'Raw materials bought for job orders: in stock from receipt until their job starts'}
       </span>
     </div>
@@ -330,216 +299,162 @@ export default function AnalyticsInventoryPage() {
       {switcher}
       <Kpis>
         <Kpi
-          label="Consumables to reorder"
-          value={fmtNum(reorderNow)}
-          valueTone={reorderNow ? 'red' : 'green'}
-          sub={`${fmtNum(counts.REORDER_SOON)} more soon · ${fmtNum(items.length)} items`}
+          label="Consumables to buy"
+          value={fmtNum(due)}
+          valueTone={counts.overdue ? 'red' : due ? 'amber' : 'green'}
+          sub={`${fmtNum(counts.overdue)} overdue · ${fmtNum(counts.dueSoon)} due within ${stock.method.dueSoonDays} days`}
         />
         <Kpi
-          label="Consumables used"
-          value={fmtPesoCompact(cons.useValue)}
-          sub={`${fmtNum(cons.useQty)} scans · ${fmtNum(cons.itemsUsed)} items`}
+          label="Spent · last 30 days"
+          value={fmtPesoCompact(stock.summary.spentLast30Days)}
+          sub="Recorded purchases and received orders"
         />
         <Kpi
-          label="Stock on hand"
-          value={fmtPesoCompact(stockValue)}
-          sub={`${fmtNum(items.length)} consumables in the catalog`}
+          label="Items with a forecast"
+          value={`${fmtNum(stock.summary.forecast)} of ${fmtNum(items.length)}`}
+          sub={`Needs ${stock.method.minPurchases} purchases`}
         />
         <Kpi
-          label="Class A items"
-          value={fmtNum(pareto.classA)}
-          sub="80% of the usage value · last 90 days"
+          label="Typical forecast error"
+          value={typicalError == null ? '—' : `± ${fmtNum(typicalError, 1)} d`}
+          sub="Predicted vs actual days between purchases"
         />
       </Kpis>
       <Grid>
         <Card
-          title="Days of cover"
+          title="Coming purchases"
           span={7}
           takeaway={
-            coverRows.length
-              ? `Lowest ${coverRows.length}: a bar shorter than its tick runs out before a new order arrives`
-              : undefined
-          }
-          info={
-            <div style={{ maxWidth: 360 }}>
-              Working days the stock on hand lasts at the average daily use (ADU). The dark tick is
-              the supplier lead time in working days. Colour follows the stock status.
-            </div>
-          }
-        >
-          {coverRows.length ? (
-            <SortedBars rows={coverRows} sort={false} />
-          ) : (
-            <ChartEmpty title="No usage yet" text="Days of cover appear once consumables are scanned." />
-          )}
-        </Card>
-
-        <Card title="Stock status" span={5} takeaway={`${fmtNum(items.length)} consumables in the catalog`}>
-          {statusRows.length ? <SortedBars rows={statusRows} sort={false} /> : <ChartEmpty title="No consumables yet" />}
-        </Card>
-
-        <Card
-          title="Usage value · last 90 days"
-          span={12}
-          chip="ABC"
-          takeaway={
-            pareto.count
-              ? `${pareto.classA} of ${pareto.count} items (class A) make up 80% of the ${fmtPesoCompact(pareto.total)} used; watch these first`
+            nextRows.length
+              ? `The ${nextRows.length} due to be bought next${counts.overdue ? ` · ${counts.overdue} overdue are in the To buy list` : ''}`
               : undefined
           }
           info={
             <div style={{ maxWidth: 380 }}>
-              Scans in the last 90 days × unit cost, largest first, with the running share of the
-              total. ABC: A = items up to 80% of the value, B = the next 15%, C = the rest.
+              Days until each item is usually bought again: the last purchase plus the smoothed
+              number of days between purchases ({stock.method.name}, smoothing{' '}
+              {fmtNum(stock.method.alpha, 1)}). Red: the date has passed.
             </div>
           }
         >
-          {pareto.rows.length ? (
-            <ParetoChart
-              rows={pareto.rows}
-              vitalFew={Math.min(pareto.classA, pareto.rows.length)}
-              valueLabel="Usage value"
-              vitalLabel="class A"
-              valueFormat={(v) => fmtPeso(v)}
-              height={260}
-            />
+          {nextRows.length ? (
+            <SortedBars rows={nextRows} sort={false} />
           ) : (
-            <ChartEmpty title="No scans in the last 90 days" />
+            <ChartEmpty
+              title="No forecast yet"
+              text={`An item is forecast after ${stock.method.minPurchases} recorded purchases.`}
+            />
           )}
         </Card>
 
+        <Card title="Status" span={5} takeaway={`${fmtNum(items.length)} consumables in the catalog`}>
+          {statusRows.length ? <SortedBars rows={statusRows} sort={false} /> : <ChartEmpty title="No consumables yet" />}
+        </Card>
+
         <Card
-          title="Used per month"
+          title="Spent per month"
           span={6}
-          takeaway={`${fmtPesoCompact(cons.useValue)} of consumables scanned in this period`}
+          takeaway={`${fmtPesoCompact(stock.summary.spendByMonth.reduce((s2, m) => s2 + m.amount, 0))} on consumables in the last ${stock.summary.spendByMonth.length} months`}
         >
-          {cons.useQty ? (
+          {stock.summary.spendByMonth.some((m) => m.amount > 0) ? (
             <LineTrend
-              rows={monthRows}
-              series={[{ key: 'use', label: 'Consumables used (₱)', color: PALETTE.primary }]}
+              rows={spendRows}
+              series={[{ key: 'spent', label: 'Consumables bought (₱)', color: PALETTE.primary }]}
               yFormat={(v) => fmtPesoCompact(v)}
               tipFormat={(_k, v) => fmtPeso(v)}
               height={220}
             />
           ) : (
-            <ChartEmpty title="No scans in this period" />
+            <ChartEmpty title="No purchases recorded yet" />
           )}
         </Card>
 
-        <Card title="Most used" span={6} takeaway="By value in this period">
-          {topUse.length ? <SortedBars rows={topUse} sort={false} /> : <ChartEmpty title="No scans in this period" />}
+        <Card title="How often each is bought" span={6} takeaway="Smoothed days between purchases">
+          {everyRows.length ? (
+            <SortedBars rows={everyRows} sort={false} />
+          ) : (
+            <ChartEmpty title="No forecast yet" />
+          )}
         </Card>
 
         <Card
-          title="To order"
+          title="To buy"
           span={12}
           takeaway={
-            needsOrder.length
-              ? `${needsOrder.length} at or near the reorder level${
-                  needsOrder.length > LIST_LIMIT ? ` · showing the ${LIST_LIMIT} that run out first` : ''
-                }`
-              : 'Nothing at or near its reorder level'
+            toBuy.length
+              ? `${toBuy.length} due or overdue${toBuy.length > LIST_LIMIT ? ` · showing the ${LIST_LIMIT} most overdue` : ''}`
+              : 'Nothing due to be bought'
           }
-          takeawayTone={needsOrder.length ? 'bad' : 'good'}
+          takeawayTone={toBuy.length ? 'bad' : 'good'}
           controls={
             <Link to="/tools?tab=consumables" className="ana-muted" style={{ fontSize: 12 }}>
               All consumables
             </Link>
           }
-          info={
-            <div style={{ maxWidth: 400, display: 'grid', gap: 6 }}>
-              <div>{stock.description}</div>
-              <div>The bar is stock on hand; the tick marks the reorder level (ROP).</div>
-            </div>
-          }
           onExport={() =>
-            exportCsv(`consumables-${stock.today}`, items, [
+            exportCsv(`consumables-${stock.asOf}`, items, [
               { key: 'n', header: 'Item', value: (r) => r.name },
-              { key: 'c', header: 'Code', value: (r) => r.code },
               { key: 's', header: 'Size', value: (r) => r.sizeSpec ?? '' },
               { key: 'u', header: 'Unit', value: (r) => r.unit },
-              { key: 'o', header: 'On hand', value: (r) => r.estimatedOnHand ?? r.quantityOnHand ?? '' },
-              { key: 'adu', header: 'ADU', value: (r) => aduOf(r) ?? '' },
-              { key: 'rop', header: 'ROP', value: (r) => ropOf(r) ?? '' },
-              { key: 'd', header: 'Days left', value: (r) => r.daysLeft ?? '' },
-              { key: 'r', header: 'Run-out date', value: (r) => r.runOutDate ?? '' },
-              { key: 'ob', header: 'Order by', value: (r) => r.orderByDate ?? '' },
-              { key: 'sq', header: 'Suggested qty', value: (r) => r.suggestedOrderQty ?? '' },
-              { key: 'st', header: 'Status', value: (r) => STOCK_LABEL[r.status ?? 'NO_DATA'] },
-              { key: 'abc', header: 'ABC', value: (r) => r.abcClass ?? '' },
+              { key: 'p', header: 'Purchases', value: (r) => r.purchases },
+              { key: 'l', header: 'Last bought', value: (r) => r.lastBoughtOn ?? '' },
+              { key: 'e', header: 'Every (days)', value: (r) => r.everyDays ?? '' },
+              { key: 'q', header: 'Usual quantity', value: (r) => r.usualQuantity ?? '' },
+              { key: 'm', header: 'Monthly need', value: (r) => r.monthlyNeed ?? '' },
+              { key: 'x', header: 'Next purchase', value: (r) => r.nextPurchaseOn ?? '' },
+              { key: 'err', header: 'Typical error (days)', value: (r) => r.typicalErrorDays ?? '' },
+              { key: 'st', header: 'Status', value: (r) => RESTOCK_LABEL[r.status] },
             ])
           }
         >
-          {needsOrder.length ? (
+          {toBuy.length ? (
             <div className="ana-table__wrap">
               <table className="ana-table">
                 <thead>
                   <tr>
                     <th>Item</th>
-                    <th style={{ width: '16%' }}>Stock</th>
-                    <th className="num">On hand</th>
-                    <th className="num">ROP</th>
-                    <th className="num">Days left</th>
-                    <th>Order by</th>
-                    <th className="num">Order qty</th>
-                    <th>ABC</th>
+                    <th>Last bought</th>
+                    <th className="num">Every</th>
+                    <th className="num">Usual qty</th>
+                    <th>Next purchase</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody>
-                  {needsOrder.slice(0, LIST_LIMIT).map((i) => {
-                    const onHand = i.estimatedOnHand ?? i.quantityOnHand;
-                    const rop = ropOf(i);
-                    return (
-                      <tr key={i.toolId}>
-                        <td className="strong">
-                          {i.name}
-                          {i.sizeSpec ? (
-                            <span className="ana-muted" style={{ fontWeight: 400 }}>
-                              {' '}
-                              · {i.sizeSpec}
-                            </span>
-                          ) : null}
-                        </td>
-                        <td>
-                          <StockBar onHand={onHand ?? null} reorderPoint={rop} status={i.status ?? 'NO_DATA'} />
-                        </td>
-                        <td className="num">
-                          {fmtNum(onHand)} <span className="ana-muted">{i.unit}</span>
-                        </td>
-                        <td
-                          className="num"
-                          title={
-                            rop != null
-                              ? `ADU ${fmtNum(aduOf(i), 2)} · lead ${fmtNum(leadOf(i))} wd (${LEAD_SOURCE[i.leadTimeSource ?? 'DEFAULT']}) + ${fmtNum(i.safetyStock, 1)} safety`
-                              : undefined
-                          }
-                        >
-                          {rop == null ? '—' : fmtNum(rop)}
-                        </td>
-                        <td className="num">{i.likelyOut ? 'Out' : fmtNum(i.daysLeft)}</td>
-                        <td>{fmtDay(i.orderByDate)}</td>
-                        <td className="num">
-                          {i.suggestedOrderQty == null || i.suggestedOrderQty <= 0 ? '—' : fmtNum(i.suggestedOrderQty)}
-                        </td>
-                        <td>{i.abcClass || '—'}</td>
-                        <td style={{ textAlign: 'right' }}>
-                          <StatusPill tone={STOCK_TONE[i.status ?? 'NO_DATA']} compact>
-                            {STOCK_LABEL[i.status ?? 'NO_DATA']}
-                          </StatusPill>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {toBuy.slice(0, LIST_LIMIT).map((i) => (
+                    <tr key={i.toolId}>
+                      <td className="strong">
+                        {i.name}
+                        {i.sizeSpec ? (
+                          <span className="ana-muted" style={{ fontWeight: 400 }}>
+                            {' '}
+                            · {i.sizeSpec}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td>{fmtDay(i.lastBoughtOn)}</td>
+                      <td className="num">{fmtNum(i.everyDays)} d</td>
+                      <td className="num">
+                        {fmtNum(i.usualQuantity)} <span className="ana-muted">{i.unit}</span>
+                      </td>
+                      <td>
+                        {fmtDay(i.nextPurchaseOn)} <span className="ana-muted">({nextLabel(i)})</span>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <StatusPill tone={RESTOCK_TONE[i.status]} compact>
+                          {RESTOCK_LABEL[i.status]}
+                        </StatusPill>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           ) : (
-            <ChartEmpty title="Nothing to order" text="Every consumable with usage data is above its reorder level." />
+            <ChartEmpty title="Nothing to buy" text="No consumable is due within the next week." />
           )}
         </Card>
       </Grid>
-
     </div>
   );
 }

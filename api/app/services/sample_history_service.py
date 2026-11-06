@@ -28,6 +28,7 @@ from app.extensions import db
 from app.models.attendance import AttendanceRecord
 from app.models.audit_log import AuditLog
 from app.models.client import Client
+from app.models.consumable_purchase import ConsumablePurchase
 from app.models.job_order import (
     JobOrder,
     JobOrderStatus,
@@ -228,6 +229,7 @@ TRANSACTION_TABLES = (
     "schedule_moves",
     "sales_invoices",
     "material_purchases",
+    "consumable_purchases",
     "supplier_orders",
     "notification_logs",
     "staff_alerts",
@@ -690,11 +692,7 @@ def format_summary(summary):
             f"{row['onTimePct'] if row['onTimePct'] is not None else 'n/a'}% on time "
             f"({row['onTime']} on time, {row['late']} late, {row['open']} not yet due)"
         )
-    lines.append(
-        f"Consumable scans: {summary['consumableScans']}, "
-        f"receives: {summary['consumableReceives']}, "
-        f"corrections: {summary['corrections']}"
-    )
+    lines.append(f"Consumable purchases: {summary['consumablePurchases']}")
     lines.append(
         f"Tool borrows: {summary['toolBorrows']}, returns: {summary['toolReturns']}, "
         f"borrows with no return event: {summary['toolUnitsOpenBorrow']}"
@@ -754,7 +752,6 @@ def _generate(start, end, seed):
     _attendance(rng, shop, ledger, plans, counters)
     _consumables(rng, shop, ledger, counters)
     _tool_borrows(rng, shop, ledger, counters)
-    _retarget_stock(rng, shop, ledger, counters)
     db.session.flush()
     after = _master_fingerprint()
     if before != after:
@@ -860,7 +857,7 @@ def _one_job(rng, shop, ledger, plan, counters, admin, office):
     kind = plan["kind"]
     condition = (
         PartCondition.RAW_MATERIAL
-        if kind == JobType.FABRICATION
+        if kind == JobType.FABRICATION or (kind == JobType.MACHINING and plan["needs"])
         else PartCondition.CLIENT_SUPPLIED_ITEM
     )
     material_status = MaterialStatus.NOT_REQUIRED
@@ -887,8 +884,9 @@ def _one_job(rng, shop, ledger, plan, counters, admin, office):
         raw_materials = [
             {
                 "id": _new_id(rng),
+                "materialCatalogId": catalog.id,
                 "name": catalog.name,
-                "grade": _grade(catalog, rng),
+                "sizeSpec": _stock_size(plan["title"]),
                 "quantity": float(plan["qty"]),
                 "unit": catalog.default_unit,
             }
@@ -1092,15 +1090,13 @@ def _purchase_for_job(rng, shop, ledger, plan, job, catalog, office, counters):
     )
     ledger.add(order, issued_at)
     _audit(ledger, rng, office, "CREATE", "SupplierOrder", order.id, issued_at, {"po": order.po_number})
-    grade = (job.raw_materials or [{}])[0].get("grade")
     line = MaterialPurchase(
         id=_new_id(rng),
         job_order_id=job.id,
         material_catalog_id=catalog.id,
         planned_material_id=(job.raw_materials or [{}])[0].get("id"),
         material_name=catalog.name,
-        grade_or_spec=grade,
-        size_spec=plan["title"].split(", ", 1)[-1],
+        size_spec=_stock_size(plan["title"]),
         quantity=Decimal(str(max(plan["qty"], 1))),
         unit=catalog.default_unit or "pcs",
         unit_cost=Decimal(str(rng.randrange(80, 1800))),
@@ -1121,8 +1117,7 @@ def _purchase_for_job(rng, shop, ledger, plan, job, catalog, office, counters):
             job_order_id=job.id,
             material_catalog_id=other.id,
             material_name=other.name,
-            grade_or_spec=_grade(other, rng),
-            size_spec=plan["title"].split(", ", 1)[-1],
+            size_spec=_stock_size(plan["title"]),
             quantity=Decimal(str(max(1, plan["qty"] // 2))),
             unit=other.default_unit or "pcs",
             unit_cost=Decimal(str(rng.randrange(80, 1800))),
@@ -1138,8 +1133,9 @@ def _purchase_for_job(rng, shop, ledger, plan, job, catalog, office, counters):
         materials.append(
             {
                 "id": _new_id(rng),
+                "materialCatalogId": other.id,
                 "name": other.name,
-                "grade": extra_line.grade_or_spec,
+                "sizeSpec": extra_line.size_spec,
                 "quantity": float(extra_line.quantity),
                 "unit": extra_line.unit,
             }
@@ -1596,120 +1592,59 @@ def _attendance(rng, shop, ledger, plans, counters):
             counters["attendance"] += 1
 
 
+# Where cash purchases of consumables are made; not suppliers in the system.
+CASH_STORES = ("Hardware store", "Industrial supply store", "Welding supply store")
+# Typical days between purchases and amount bought, by how fast an item is used.
+BUY_EVERY = {"high": 10, "mid": 20, "low": 42, "bulk": 60}
+BUY_AMOUNT = {"high": 10, "mid": 6, "low": 3, "bulk": 1}
+
+
 def _consumables(rng, shop, ledger, counters):
+    """Consumable purchases. Nothing is counted or scanned: most items are bought
+    in cash and recorded by the office, and about one in ten goes on a supplier
+    order. Each item has its own rhythm so the forecasts differ."""
     office = shop.office or shop.admins[0]
     names = sorted(shop.consumables, key=lambda t: t.name.lower())
-    estimated = set()
-    if len(names) >= 6:
-        estimated = {t.id for t in names[-2:]}
-    elif len(names) >= 4:
-        estimated = {names[-1].id}
-    cutoff_days = [d for d in shop.working_days if d <= shop.end][-8:]
-    cutoff = cutoff_days[0] if cutoff_days else shop.end
-    qty = {t.id: Decimal(str(t.quantity_on_hand or 0)) for t in shop.consumables}
-    # Snapshot the real on-hand first so remove restores it, then start each
-    # item from a different quantity so usage history does not begin identical.
-    open_day = shop.working_days[0] if shop.working_days else shop.end
-    open_when = shop_local_to_utc(open_day, time(8, 0))
-    index_of = {tool.id: index for index, tool in enumerate(names)}
-    for tool in names:
-        _snapshot_stock(ledger, tool, open_when)
-        qty[tool.id] = Decimal(8 + (index_of[tool.id] * 5) % 31)
-        tool.quantity_on_hand = qty[tool.id]
-    inbound = []
+    days = [d for d in shop.working_days if d <= shop.end]
+    if not days:
+        return
     home = {}
     for index, tool in enumerate(sorted(shop.consumables, key=lambda t: t.id)):
-        home[tool.id] = shop.suppliers[index % len(shop.suppliers)]
-    levels = {"high": Decimal(8), "mid": Decimal(5), "low": Decimal(3)}
-    amounts = {"high": Decimal(72), "mid": Decimal(36), "low": Decimal(18)}
-
-    def receive_due(day):
-        still = []
-        for due, tool, amount, order, line in inbound:
-            if due > day:
-                still.append((due, tool, amount, order, line))
-                continue
-            _apply_receive(rng, shop, ledger, tool, amount, order, line, due, office, qty, counters)
-        inbound[:] = still
-
-    def order_due(day):
-        waiting = {row[1].id for row in inbound}
-        grouped = defaultdict(list)
-        for tool in names:
-            rate = _usage_rate(tool.name)
-            if tool.id in waiting or qty[tool.id] > levels[rate]:
-                continue
-            spread = index_of[tool.id] % 5
-            grouped[home[tool.id]].append((tool, amounts[rate] + Decimal(spread * 6)))
-        for supplier, rows in grouped.items():
-            order, due, packed = _stock_po(rng, shop, ledger, supplier, day, rows, office, counters)
-            for tool, amount, line in packed:
-                inbound.append((due, tool, amount, order, line))
-
-    weeks = _weeks(shop.working_days)
-    # Consumables are used in proportion to the work on the floor that day.
-    loads = [len(shop.day_work.get(d) or []) for d in shop.working_days]
-    busy = [n for n in loads if n]
-    avg_load = (sum(busy) / len(busy)) if busy else 1.0
-    for week in weeks:
-        for day in week:
-            receive_due(day)
-            load = len(shop.day_work.get(day) or [])
-            factor = min(1.8, max(0.25, load / avg_load)) if avg_load else 1.0
-            for tool in names:
-                if tool.id in estimated and day < cutoff:
-                    continue
-                rate = _usage_rate(tool.name)
-                spread = index_of[tool.id] % 5
-                # Spread is per item, not per rate band, so ADU / ROP / days-left differ.
-                if rate == "low":
-                    scans = 1 + (spread % 2) if (day.toordinal() + index_of[tool.id]) % 3 == 0 else 0
-                elif rate == "high":
-                    scans = 2 + spread
-                else:
-                    scans = 1 + (spread % 3)
-                scaled = scans * factor
-                scans = int(scaled) + (1 if rng.random() < scaled - int(scaled) else 0)
-                for n in range(scans):
-                    if qty[tool.id] < 1:
-                        break
-                    _snapshot_stock(ledger, tool, shop_local_to_utc(day, time(9, 0)))
-                    qty[tool.id] -= 1
-                    tool.quantity_on_hand = qty[tool.id]
-                    when = shop_local_to_utc(day, time(9, min(59, n * 7)))
-                    link = shop.day_work.get(day) or []
-                    worker_id = shop.workers[n % len(shop.workers)].id
-                    op_id = job_id = None
-                    if link:
-                        worker_id, op_id, job_id = link[n % len(link)]
-                    event = ToolEvent(
+        home[tool.id] = shop.suppliers[index % len(shop.suppliers)] if shop.suppliers else None
+    for index, tool in enumerate(names):
+        rate = _usage_rate(tool.name)
+        every = BUY_EVERY[rate] + (index % 4) * 3
+        amount = BUY_AMOUNT[rate] + (0 if rate == "bulk" else (index % 3) * 2)
+        cost = tool.unit_cost if tool.unit_cost is not None else Decimal(str(rng.randrange(15, 400)))
+        day = shop.next_working(days[0] + timedelta(days=rng.randrange(max(1, every))))
+        while day <= shop.end:
+            qty = Decimal(max(1, round(amount * rng.uniform(0.6, 1.4))))
+            supplier = home[tool.id]
+            if supplier is not None and rng.random() < 0.1:
+                _order, received, _packed = _stock_po(
+                    rng, shop, ledger, supplier, day, [(tool, qty)], office, counters
+                )
+                counters["consumable_purchases"] += 1 if received <= shop.end else 0
+            else:
+                when = shop_local_to_utc(day, time(15, 30))
+                price = (Decimal(str(cost)) * Decimal(str(rng.uniform(0.9, 1.15)))).quantize(Decimal("0.01"))
+                ledger.add(
+                    ConsumablePurchase(
                         id=_new_id(rng),
                         tool_id=tool.id,
-                        worker_id=worker_id,
-                        type=ToolEventType.SCAN,
-                        quantity=Decimal("1"),
-                        stock_delta=Decimal("-1"),
-                        job_order_id=job_id,
-                        operation_id=op_id,
+                        purchased_on=day,
+                        quantity=qty,
+                        unit=tool.unit or "pcs",
+                        unit_cost=price,
+                        bought_from=rng.choice(CASH_STORES),
+                        recorded_by_id=office.id,
                         created_at=when,
-                    )
-                    ledger.add(event, when)
-                    counters["scans"] += 1
-        order_due(week[-1])
-    receive_due(shop.end + timedelta(days=1))
-    # A few mid-history corrections, then the closing counts replace on-hand.
-    for tool in names[: min(3, len(names))]:
-        if qty[tool.id] < 2:
-            continue
-        delta = Decimal(rng.choice((-2, -1, 1)))
-        if qty[tool.id] + delta < 0:
-            continue
-        _snapshot_stock(ledger, tool, shop_local_to_utc(shop.end, time(15, 0)))
-        qty[tool.id] += delta
-        tool.quantity_on_hand = qty[tool.id]
-        _correction(rng, ledger, tool, office, delta, "Cycle count", shop_local_to_utc(shop.end, time(15, 0)), counters)
-    shop.closing_qty = qty
-    shop.estimated_ids = estimated
+                    ),
+                    when,
+                )
+                counters["consumable_purchases"] += 1
+            gap = max(2, round(every * rng.uniform(0.7, 1.3)))
+            day = shop.next_working(day + timedelta(days=gap))
 
 
 def _stock_po(rng, shop, ledger, supplier, day, rows, office, counters):
@@ -1779,58 +1714,6 @@ def _stock_po(rng, shop, ledger, supplier, day, rows, office, counters):
         bucket["late"] += 1
     counters["purchase_orders"] += 1
     return order, received, packed
-
-
-def _apply_receive(rng, shop, ledger, tool, amount, order, line, day, office, qty, counters):
-    when = shop_local_to_utc(day, time(11, 0))
-    _snapshot_stock(ledger, tool, when)
-    qty[tool.id] = qty.get(tool.id, Decimal("0")) + amount
-    tool.quantity_on_hand = qty[tool.id]
-    event = ToolEvent(
-        id=_new_id(rng),
-        tool_id=tool.id,
-        worker_id=office.id,
-        type=ToolEventType.RECEIVE,
-        quantity=amount,
-        stock_delta=amount,
-        supplier=_supplier_name(order.supplier_id),
-        received_on=day,
-        material_purchase_id=line.id,
-        created_at=when,
-    )
-    ledger.add(event, when)
-    counters["receives"] += 1
-
-
-def _retarget_stock(rng, shop, ledger, counters):
-    from app.services.forecast_service import stock_snapshot_for_tools
-
-    db.session.flush()
-    tools = sorted(shop.consumables, key=lambda t: t.name.lower())
-    if not tools:
-        return
-    snap = stock_snapshot_for_tools(tools, today=shop.end)
-    office = shop.office or shop.admins[0]
-    when = shop_local_to_utc(shop.end, time(16, 0))
-    for index, tool in enumerate(tools):
-        info = snap.get(tool.id) or {}
-        adu = info.get("adu")
-        rop = info.get("reorderPoint")
-        band = index % 10
-        target_kind = "now" if band == 0 else "soon" if band in (1, 2) else "ok"
-        target = _target_qty(adu, rop, target_kind)
-        if target_kind == "now":
-            target = max(Decimal("0"), target - Decimal(index % 4))
-        else:
-            target = target + Decimal((index * 3) % 11)
-        target = Decimal(int(target))  # whole units, as counted on the shelf
-        current = Decimal(str(tool.quantity_on_hand or 0))
-        delta = target - current
-        if delta == 0:
-            continue
-        _snapshot_stock(ledger, tool, when)
-        tool.quantity_on_hand = target
-        _correction(rng, ledger, tool, office, delta, "Cycle count", when, counters)
 
 
 def _tool_borrows(rng, shop, ledger, counters):
@@ -1936,6 +1819,7 @@ def _remove():
 
 
 _DELETE_ORDER = (
+    "consumable_purchases",
     "operation_time_logs",
     "schedule_moves",
     "tool_events",
@@ -1953,6 +1837,7 @@ _DELETE_ORDER = (
 )
 
 _DELETE_MODELS = {
+    "consumable_purchases": ConsumablePurchase,
     "operation_time_logs": OperationTimeLog,
     "schedule_moves": ScheduleMove,
     "tool_events": ToolEvent,
@@ -2248,43 +2133,6 @@ class _Ledger:
         )
 
 
-def _snapshot_stock(ledger, tool, when):
-    exists = (
-        SampleRecord.query.filter_by(table_name="tools", record_id=tool.id).first()
-        if False
-        else None
-    )
-    # In-memory guard: one snapshot per tool, the quantity before our first change.
-    seen = getattr(ledger, "_seen_tools", None)
-    if seen is None:
-        ledger._seen_tools = seen = set()
-    if tool.id in seen:
-        return
-    seen.add(tool.id)
-    ledger.note(
-        "tools",
-        tool.id,
-        when,
-        {"role": "stock_snapshot", "quantityOnHand": str(tool.quantity_on_hand or 0)},
-    )
-    ledger.snapshots += 1
-
-
-def _correction(rng, ledger, tool, user, delta, reason, when, counters):
-    event = ToolEvent(
-        id=_new_id(rng),
-        tool_id=tool.id,
-        worker_id=user.id,
-        type=ToolEventType.CORRECTION,
-        quantity=abs(delta),
-        stock_delta=delta,
-        reason=reason,
-        created_at=when,
-    )
-    ledger.add(event, when)
-    counters["corrections"] += 1
-
-
 def _log(ledger, rng, op, worker, kind, when, reason, note):
     row = OperationTimeLog(
         id=_new_id(rng),
@@ -2342,9 +2190,7 @@ def _summary(plans, counters, holidays_added, holidays_present, ledger):
         "absences": counters["absences"],
         "purchaseOrders": counters["purchase_orders"],
         "posBySupplier": pos,
-        "consumableScans": counters["scans"],
-        "consumableReceives": counters["receives"],
-        "corrections": counters["corrections"],
+        "consumablePurchases": counters["consumable_purchases"],
         "toolBorrows": counters["borrows"],
         "toolReturns": counters["returns"],
         "toolUnitsOpenBorrow": counters["open_borrows"],
@@ -2374,9 +2220,7 @@ def _blank_counters():
         "absences": 0,
         "purchase_orders": 0,
         "suppliers": defaultdict(lambda: {"name": "", "orders": 0, "on_time": 0, "late": 0, "open": 0}),
-        "scans": 0,
-        "receives": 0,
-        "corrections": 0,
+        "consumable_purchases": 0,
         "borrows": 0,
         "returns": 0,
         "open_borrows": 0,
@@ -2540,7 +2384,7 @@ def _job_title(kind, part, size):
     """Titles in the shop's own style, e.g. "Fabrication of Drive shaft, 50 mm"."""
     verb = {
         JobType.FABRICATION: "Fabrication of",
-        JobType.MODIFICATION: "Modification of",
+        JobType.MACHINING: "Machining of",
         JobType.REPAIR: "Repair of",
     }.get(kind, "Fabrication of")
     return f"{verb} {part}, {size}"
@@ -2556,7 +2400,7 @@ def _job_type(rng):
     if roll < 0.55:
         return JobType.FABRICATION
     if roll < 0.80:
-        return JobType.MODIFICATION
+        return JobType.MACHINING
     return JobType.REPAIR
 
 
@@ -2565,7 +2409,7 @@ def _needs_material(rng, kind):
     # exception, so job POs stay near a couple per week.
     if kind == JobType.FABRICATION:
         return rng.random() < 0.28
-    if kind == JobType.MODIFICATION:
+    if kind == JobType.MACHINING:
         return rng.random() < 0.08
     return rng.random() < 0.02
 
@@ -2702,37 +2546,27 @@ def _pick_rework(rng):
     return REWORK_WEIGHTS[0][0], REWORK_WEIGHTS[0][2]
 
 
-def _grade(item, rng):
-    grades = list(item.grades or [])
-    if not grades:
-        return "Commercial"
-    grade = grades[rng.randrange(len(grades))]
-    if isinstance(grade, dict):
-        grade = grade.get("name") or grade.get("grade") or "Commercial"
-    return str(grade)[:255]
+def _stock_size(title):
+    """Bar stock for a part, written the way the shop writes it on a PO:
+    "Drive shaft, 50 mm" needs a 60mm dia x 150mmL piece."""
+    raw = title.split(", ", 1)[-1].replace("mm", "").strip()
+    try:
+        part = int(float(raw))
+    except ValueError:
+        return None
+    return f"{part + 10}mm dia x {part * 3}mmL"
 
 
 def _usage_rate(name):
     text = (name or "").lower()
+    # Oil and other liquids come in pails or gallons and last for weeks.
+    if any(word in text for word in ("oil", "coolant", "grease", "fluid")):
+        return "bulk"
     if any(word in text for word in ("disc", "disk", "wheel", "cutting", "grinding")):
         return "high"
     if any(word in text for word in ("tap", "insert")):
         return "low"
     return "mid"
-
-
-def _target_qty(adu, rop, kind):
-    adu_n = float(adu or 0)
-    rop_n = float(rop or 0)
-    if kind == "now":
-        qty = max(0.0, math.floor(rop_n) - (0 if rop_n > math.floor(rop_n) else 1))
-        if rop_n <= 0:
-            qty = 0
-    elif kind == "soon":
-        qty = rop_n + max(adu_n * 4, 1)
-    else:
-        qty = rop_n + max(adu_n * 20, 8)
-    return Decimal(int(math.ceil(qty)))
 
 
 def _shift_time(value, minutes):
@@ -2788,7 +2622,3 @@ def _quiet_audit():
             if not event.contains(model, name, fn):
                 event.listen(model, name, fn)
 
-
-def _supplier_name(supplier_id):
-    row = db.session.get(Supplier, supplier_id)
-    return row.name if row is not None else "Supplier"

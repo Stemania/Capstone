@@ -186,7 +186,7 @@ export default function RawMaterialsPanel() {
       visibleRows,
       [
         { key: 'material', header: 'Material', value: (r) => r.materialName },
-        { key: 'grade', header: 'GradeOrSpec', value: (r) => r.gradeOrSpec },
+        { key: 'size', header: 'Size', value: (r) => [r.gradeOrSpec, r.sizeSpec].filter(Boolean).join(' ') },
         { key: 'qty', header: 'Quantity', value: (r) => r.quantity },
         { key: 'unit', header: 'Unit', value: (r) => r.unit },
         { key: 'job', header: 'ReservedFor', value: (r) => r.jobNumber },

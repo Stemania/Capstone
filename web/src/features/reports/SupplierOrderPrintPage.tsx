@@ -9,6 +9,7 @@ import { getErrorMessage } from '../../api/client';
 import { useShopDetails } from '../../hooks/useShopDetails';
 import type { SupplierOrderPrint } from '../../types';
 import { PrintDocument, SignatureBlock } from './PrintTemplate';
+import { poPrintRows } from './poPrintRows';
 
 /** The template has room for this many item rows; shorter orders keep the blank rows. */
 const FORM_ROWS = 10;
@@ -32,13 +33,6 @@ function money(v?: number | null) {
 
 function qty(v: number) {
   return Number(v).toLocaleString('en-PH', { maximumFractionDigits: 4 });
-}
-
-function itemDescription(row: SupplierOrderPrint['rows'][number]) {
-  return [row.materialName, row.gradeOrSpec, row.sizeSpec]
-    .map((p) => (p || '').trim())
-    .filter(Boolean)
-    .join(' — ');
 }
 
 function SummaryRow({ label, amount, total }: { label: string; amount: number; total?: boolean }) {
@@ -101,7 +95,8 @@ export default function SupplierOrderPrintPage() {
   }
 
   const { order, supplier } = data;
-  const blankRows = Math.max(FORM_ROWS - data.rows.length, 0);
+  const printRows = poPrintRows(data.rows);
+  const blankRows = Math.max(FORM_ROWS - printRows.length, 0);
 
   return (
     <PrintDocument
@@ -157,15 +152,25 @@ export default function SupplierOrderPrintPage() {
           </tr>
         </thead>
         <tbody>
-          {data.rows.map((r) => (
-            <tr key={`${r.isConsumable}-${r.materialName}-${r.gradeOrSpec}-${r.unit}`}>
-              <td>{itemDescription(r)}</td>
-              <td className="mid">{qty(r.quantity)}</td>
-              <td className="mid">{r.unit}</td>
-              <td className="num">{money(r.unitCost)}</td>
-              <td className="num">{money(r.amount)}</td>
-            </tr>
-          ))}
+          {printRows.map((row) =>
+            row.kind === 'heading' ? (
+              <tr key={row.key}>
+                <td style={{ fontWeight: 700 }}>{row.text}</td>
+                <td />
+                <td />
+                <td />
+                <td />
+              </tr>
+            ) : (
+              <tr key={row.key}>
+                <td>{row.text}</td>
+                <td className="mid">{qty(row.line.quantity)}</td>
+                <td className="mid">{row.line.unit}</td>
+                <td className="num">{money(row.line.unitCost)}</td>
+                <td className="num">{money(row.line.amount)}</td>
+              </tr>
+            )
+          )}
           {Array.from({ length: blankRows }, (_, i) => (
             <tr key={`blank-${i}`} className="blank">
               <td />

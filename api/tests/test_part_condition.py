@@ -101,7 +101,7 @@ def _add_op(job, code, status=OperationStatus.PENDING, seq=1):
 
 def test_initial_part_condition_from_job_type():
     assert _initial_part_condition(JobType.FABRICATION) == PartCondition.RAW_MATERIAL
-    assert _initial_part_condition(JobType.MODIFICATION) == PartCondition.CLIENT_SUPPLIED_ITEM
+    assert _initial_part_condition(JobType.MACHINING) == PartCondition.RAW_MATERIAL
     assert _initial_part_condition(JobType.REPAIR) == PartCondition.CLIENT_SUPPLIED_ITEM
 
 

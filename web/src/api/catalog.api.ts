@@ -45,7 +45,7 @@ export type CatalogUpdateInput = Partial<
   Omit<CatalogCreateInput, 'kind'> & { active?: boolean; minimumStock?: number | null }
 >;
 
-export const MATERIAL_UNITS = ['pcs', 'kg', 'm', 'ft', 'sheet'];
+export const MATERIAL_UNITS = ['pcs', 'm', 'ft', 'sheet'];
 export const CONSUMABLE_UNITS = [
   'pcs',
   'pack',

@@ -34,7 +34,7 @@ TRANSACTIONS = [
     "/api/v1/analytics/sales/summary",
     "/api/v1/analytics/sales/forecast",
     "/api/v1/analytics/demand/forecast",
-    "/api/v1/analytics/consumables/run-out",
+    "/api/v1/analytics/consumables/replenishment",
     "/api/v1/analytics/purchasing",
     "/api/v1/suppliers/reliability",
 ]

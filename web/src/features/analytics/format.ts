@@ -93,7 +93,7 @@ export function symmetricBound(values: (number | null | undefined)[], minimum = 
 
 export const JOB_TYPE_LABEL: Record<string, string> = {
   FABRICATION: 'Fabrication',
-  MODIFICATION: 'Modification',
+  MACHINING: 'Machining',
   REPAIR: 'Repair',
   OTHER: 'Other',
   UNKNOWN: 'Other',

@@ -4,7 +4,6 @@ import {
   AlertOutlined,
   FileDoneOutlined,
   FileTextOutlined,
-  MailOutlined,
   RightOutlined,
   ShoppingCartOutlined,
   TruckOutlined,
@@ -27,16 +26,7 @@ import {
 import { formatShop } from '../../utils/shopTime';
 import './officeDashboard.css';
 
-const UPDATE_LABEL: Record<string, string> = {
-  JOB_RECEIVED: 'Job received',
-  JOB_STARTED: 'Job started',
-  JOB_HALFWAY: 'Halfway update',
-  JOB_FINAL_STAGE: 'Final stage',
-  JOB_DELIVERED: 'Ready for delivery',
-  JOB_DELAYED: 'Delayed',
-};
-
-type TaskKind = 'materials' | 'invoice' | 'email';
+type TaskKind = 'materials' | 'invoice';
 type Task = {
   key: string;
   kind: TaskKind;
@@ -47,10 +37,9 @@ type Task = {
   when: string | null;
 };
 
-const TASK_LABEL: Record<TaskKind, { label: string; tone: 'amber' | 'blue' | 'red' }> = {
+const TASK_LABEL: Record<TaskKind, { label: string; tone: 'amber' | 'blue' }> = {
   materials: { label: 'Order materials', tone: 'amber' },
   invoice: { label: 'Record sales invoice', tone: 'blue' },
-  email: { label: 'Resend client email', tone: 'red' },
 };
 
 function day(iso: string | null) {
@@ -98,15 +87,6 @@ export default function OfficeDashboard() {
         clientName: j.clientName,
         detail: j.title,
         when: j.dueDate,
-      })),
-      ...data.failedEmails.map((e) => ({
-        key: `e-${e.id}`,
-        kind: 'email' as const,
-        jobId: e.jobOrderId,
-        jobNumber: e.jobNumber,
-        clientName: e.clientName,
-        detail: `${UPDATE_LABEL[e.milestone] || e.milestone} email failed`,
-        when: e.createdAt,
       })),
     ];
   }, [data]);
@@ -170,21 +150,12 @@ export default function OfficeDashboard() {
         <StatCard
           icon={<AlertOutlined />}
           tone="amber"
-          label="Low stock"
-          value={data?.lowStock.length ?? 0}
-          valueTone={data?.lowStock.length ? 'amber' : undefined}
+          label="Consumables to buy"
+          value={data?.restockDue.length ?? 0}
+          valueTone={data?.restockDue.length ? 'amber' : undefined}
           loading={loading}
-          hint="At the reorder level"
+          hint="Due by the purchase forecast"
           onClick={() => navigate('/tools?tab=consumables')}
-        />
-        <StatCard
-          icon={<MailOutlined />}
-          tone="red"
-          label="Failed client emails"
-          value={data?.failedEmails.length ?? 0}
-          valueTone={data?.failedEmails.length ? 'red' : undefined}
-          loading={loading}
-          hint="Not sent since, last 30 days"
         />
       </StatGrid>
 
@@ -277,8 +248,8 @@ export default function OfficeDashboard() {
           </SectionCard>
 
           <SectionCard
-            title="Low stock"
-            subtitle="Consumables at the reorder level"
+            title="Consumables to buy"
+            subtitle="Due or overdue by how often they are bought"
             extra={
               <Button type="link" size="small" onClick={() => navigate('/tools?tab=consumables')}>
                 Inventory <RightOutlined />
@@ -287,24 +258,29 @@ export default function OfficeDashboard() {
           >
             {loading ? (
               <Skeleton active paragraph={{ rows: 3 }} title={false} />
-            ) : !data || data.lowStock.length === 0 ? (
-              <EmptyState compact icon={<AlertOutlined />} title="Nothing to reorder" />
+            ) : !data || data.restockDue.length === 0 ? (
+              <EmptyState compact icon={<AlertOutlined />} title="Nothing due to buy" />
             ) : (
               <ul className="office-dash__list">
-                {data.lowStock.slice(0, 6).map((it) => (
+                {data.restockDue.slice(0, 6).map((it) => (
                   <li key={it.id}>
                     <button type="button" onClick={() => navigate('/tools?tab=consumables')}>
                       <span className="office-dash__main">
                         <strong>{it.name}</strong>
                         <span>
-                          {qty(it.onHand)} {it.unit} on hand · reorder at {qty(it.reorderLevel)}
+                          {it.lastBoughtOn ? `Bought ${formatShop(it.lastBoughtOn, 'MMM D')}` : 'Not bought yet'}
+                          {it.usualQuantity
+                            ? ` · usually ${qty(it.usualQuantity >= 10 ? Math.round(it.usualQuantity) : Math.round(it.usualQuantity * 10) / 10)} ${it.unit}`
+                            : ''}
                         </span>
                       </span>
-                      {it.suggestedOrderQty ? (
-                        <span className="office-dash__when ui-tabular">
-                          Order {qty(it.suggestedOrderQty)}
-                        </span>
-                      ) : null}
+                      <span
+                        className="office-dash__when ui-tabular"
+                        style={it.status === 'OVERDUE' ? { color: 'var(--c-danger, #b91c1c)' } : undefined}
+                      >
+                        {it.status === 'OVERDUE' ? 'Was due ' : 'Due '}
+                        {formatShop(it.nextPurchaseOn, 'MMM D')}
+                      </span>
                     </button>
                   </li>
                 ))}

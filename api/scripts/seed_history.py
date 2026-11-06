@@ -941,7 +941,7 @@ def _job_dates(today: date, rng: random.Random):
 def _job_type_mix_for_profile(profile_kind: str, rng: random.Random):
     """
     Construction → mostly FABRICATION.
-    Manufacturing → MODIFICATION / REPAIR on client-supplied items.
+    Manufacturing → MACHINING / REPAIR on client-supplied items.
     Mixed → balanced.
     Returns (job_type, part_condition).
     """
@@ -950,11 +950,11 @@ def _job_type_mix_for_profile(profile_kind: str, rng: random.Random):
         if roll < 0.90:
             return JobType.FABRICATION, PartCondition.RAW_MATERIAL
         if roll < 0.96:
-            return JobType.MODIFICATION, PartCondition.CLIENT_SUPPLIED_ITEM
+            return JobType.MACHINING, PartCondition.CLIENT_SUPPLIED_ITEM
         return JobType.REPAIR, PartCondition.CLIENT_SUPPLIED_ITEM
     if profile_kind == "manufacturing":
         if roll < 0.40:
-            return JobType.MODIFICATION, PartCondition.CLIENT_SUPPLIED_ITEM
+            return JobType.MACHINING, PartCondition.CLIENT_SUPPLIED_ITEM
         if roll < 0.60:
             return JobType.REPAIR, PartCondition.CLIENT_SUPPLIED_ITEM
         return JobType.FABRICATION, PartCondition.RAW_MATERIAL
@@ -962,7 +962,7 @@ def _job_type_mix_for_profile(profile_kind: str, rng: random.Random):
     if roll < 0.65:
         return JobType.FABRICATION, PartCondition.RAW_MATERIAL
     if roll < 0.85:
-        return JobType.MODIFICATION, PartCondition.CLIENT_SUPPLIED_ITEM
+        return JobType.MACHINING, PartCondition.CLIENT_SUPPLIED_ITEM
     return JobType.REPAIR, PartCondition.CLIENT_SUPPLIED_ITEM
 
 

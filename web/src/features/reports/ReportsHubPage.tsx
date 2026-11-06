@@ -26,7 +26,7 @@ const REPORTS = [
   {
     to: '/analytics/reports/inventory',
     title: 'Inventory report',
-    blurb: 'Consumables (on hand, reorder, days left, ABC), tools out/available, materials awaiting delivery.',
+    blurb: 'Consumables to buy (purchase forecast), tools out/available, materials awaiting delivery.',
     icon: <ToolOutlined style={{ fontSize: 22 }} />,
   },
   {

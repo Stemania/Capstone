@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from app.extensions import db
 from app.models.attendance import AttendanceRecord
 from app.models.client import Client
+from app.models.consumable_purchase import ConsumablePurchase
 from app.models.job_order import JobOrder, JobOrderStatus, JobType, MaterialStatus, PartCondition
 from app.models.material_purchase import MaterialPurchase
 from app.models.supplier_order import SupplierOrder, SupplierOrderStatus
@@ -169,8 +170,11 @@ def test_apply_then_remove_restores_stock_and_deletes_holidays(app):
         ).count()
         == 1
     )
+    # Consumables are bought, not counted: purchases are made and stock is untouched.
+    assert summary["consumablePurchases"] > 0
+    assert ConsumablePurchase.query.count() > 0
     db.session.refresh(disc)
-    assert Decimal(str(disc.quantity_on_hand)) != opening
+    assert Decimal(str(disc.quantity_on_hand)) == opening
     db.session.refresh(unit)
     assert unit.status == ToolUnitStatus.AVAILABLE
     assert unit.current_holder_id == held
@@ -189,8 +193,8 @@ def test_apply_then_remove_restores_stock_and_deletes_holidays(app):
     assert WorkCalendarException.query.filter_by(date=date(2026, 5, 1)).count() == 1
 
     done = remove(apply=True)
-    assert done["restoredStock"] >= 1
     assert JobOrder.query.count() == 0
+    assert ConsumablePurchase.query.count() == 0
     assert SampleRecord.query.count() == 0
     assert WorkCalendarException.query.filter_by(date=date(2026, 4, 9)).count() == 0
     assert WorkCalendarException.query.filter_by(date=date(2026, 5, 1)).count() == 0
@@ -332,18 +336,13 @@ def test_clear_old_demo_deletes_marked_rows_and_rewinds_stock(app):
     assert User.query.filter_by(full_name="Wren Calder").count() == 1
 
 
-def test_consumables_do_not_share_on_hand_rop_or_days_left(app):
+def test_consumables_get_different_buying_rhythms(app):
     _shop()
-    generate(date(2026, 4, 6), date(2026, 4, 17), seed=7, apply=True)
-    tools = Tool.query.filter_by(category=ToolCategory.CONSUMABLE).order_by(Tool.name).all()
-    from app.services.forecast_service import stock_snapshot_for_tools
+    generate(date(2026, 1, 5), date(2026, 4, 17), seed=7, apply=True)
+    from app.services.replenishment_service import replenishment
 
-    snap = stock_snapshot_for_tools(tools, today=date(2026, 4, 17))
-    rows = [snap[t.id] for t in tools]
-    hands = [row["quantityOnHand"] for row in rows]
-    rops = [row["reorderPoint"] for row in rows if row["reorderPoint"] is not None]
-    days = [row["daysLeft"] for row in rows if row["daysLeft"] is not None]
-    assert len(tools) >= 4
-    assert len(set(hands)) == len(hands)
-    assert len(set(rops)) > 1
-    assert len(set(days)) > 1
+    data = replenishment(date(2026, 4, 17))
+    forecast = [r for r in data["items"] if r["everyDays"] is not None]
+    assert len(forecast) >= 2
+    assert len({r["everyDays"] for r in forecast}) > 1
+    assert len({r["nextPurchaseOn"] for r in forecast}) > 1

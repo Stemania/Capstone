@@ -30,9 +30,9 @@ const { TextArea } = Input;
 
 type MaterialsNeeded = 'TO_ORDER' | 'NOT_REQUIRED';
 
-/** Fabrication needs material bought for it; Repair and Modification usually don't. */
+/** Fabrication and Machining need stock bought for them; Repair works on the client's part. */
 const defaultMaterialsNeeded = (jobType?: string): MaterialsNeeded =>
-  jobType === 'FABRICATION' ? 'TO_ORDER' : 'NOT_REQUIRED';
+  jobType === 'REPAIR' ? 'NOT_REQUIRED' : 'TO_ORDER';
 
 export default function JobOrderFormPage() {
   const { id } = useParams();
@@ -255,7 +255,7 @@ export default function JobOrderFormPage() {
               </Row>
 
               <Form.Item name="title" label="Title" rules={[{ required: true, message: 'Enter a title' }]}>
-                <Input placeholder="e.g. Modification of Cyclodrive Base" />
+                <Input placeholder="e.g. Machining of Cyclodrive Base" />
               </Form.Item>
               <Row gutter={[16, 0]}>
                 <Col xs={24} sm={12}>
@@ -263,7 +263,7 @@ export default function JobOrderFormPage() {
                     <Select
                       options={[
                         { value: 'FABRICATION', label: 'Fabrication' },
-                        { value: 'MODIFICATION', label: 'Modification' },
+                        { value: 'MACHINING', label: 'Machining' },
                         { value: 'REPAIR', label: 'Repair' },
                       ]}
                     />

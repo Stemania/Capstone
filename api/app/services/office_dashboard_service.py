@@ -1,9 +1,8 @@
 """Office Staff dashboard: the office's own work waiting to be done (objective 4.1).
 
 Job orders still to be planned, materials not yet ordered, supplier deliveries
-that are late or due this week, completed jobs without a sales invoice,
-consumables at their reorder level, and client emails that failed and were not
-sent since.
+that are late or due this week, completed jobs without a sales invoice, and
+consumables due to be bought again.
 """
 
 from __future__ import annotations
@@ -14,14 +13,12 @@ from sqlalchemy.orm import joinedload
 
 from app.extensions import db
 from app.models.job_order import JobOrder, JobOrderStatus, MaterialStatus
-from app.models.notification import NotificationLog, NotificationStatus
 from app.models.sales_invoice import SalesInvoice
 from app.models.supplier_order import SupplierOrder, SupplierOrderStatus
 from app.services import low_stock_service
 from app.services import material_purchase_service as mp_service
 from app.services.schedule_calendar import shop_now
 
-FAILED_EMAIL_DAYS = 30
 DUE_SOON_DAYS = 7
 OPEN_JOB = (JobOrderStatus.DRAFT, JobOrderStatus.SCHEDULED, JobOrderStatus.IN_PROGRESS)
 
@@ -89,39 +86,6 @@ def _deliveries(today):
     ]
 
 
-def _failed_emails(now):
-    since = now - timedelta(days=FAILED_EMAIL_DAYS)
-    logs = (
-        NotificationLog.query.options(
-            joinedload(NotificationLog.job_order), joinedload(NotificationLog.client)
-        )
-        .filter(
-            NotificationLog.created_at >= since,
-            NotificationLog.job_order_id.isnot(None),
-            NotificationLog.milestone.isnot(None),
-            NotificationLog.status.in_([NotificationStatus.FAILED, NotificationStatus.SENT]),
-        )
-        .order_by(NotificationLog.created_at.asc())
-        .all()
-    )
-    latest = {}
-    for log in logs:  # oldest first: the last one per job update wins
-        latest[(log.job_order_id, log.milestone)] = log
-    failed = [log for log in latest.values() if log.status == NotificationStatus.FAILED]
-    failed.sort(key=lambda log: log.created_at, reverse=True)
-    return [
-        {
-            "id": log.id,
-            "jobOrderId": log.job_order_id,
-            "jobNumber": log.job_order.job_number if log.job_order else None,
-            "clientName": log.client.name if log.client else None,
-            "milestone": log.milestone.value,
-            "createdAt": log.created_at.isoformat(),
-        }
-        for log in failed
-    ]
-
-
 def office_summary() -> dict:
     now = shop_now()
     today = now.date()
@@ -132,11 +96,10 @@ def office_summary() -> dict:
     )
     from app.services.read_cache import get_or_build
 
-    # The stock forecast behind this is the slow part; it changes only when
-    # tools, scans or purchases do (those clear the cache).
-    low = get_or_build(
-        ("office-low-stock", today.isoformat()),
-        lambda: low_stock_service.reorder_now_items(today)[0],
+    # The replenishment forecast changes only when purchases do (writes clear the cache).
+    restock = get_or_build(
+        ("office-restock", today.isoformat()),
+        lambda: low_stock_service.restock_due_items(today),
         ttl=60,
     )
     deliveries = _deliveries(today)
@@ -146,6 +109,16 @@ def office_summary() -> dict:
         "invoicesToRecord": _invoices_to_record(),
         "lateDeliveries": [d for d in deliveries if d["daysOverdue"] > 0],
         "deliveriesDueSoon": [d for d in deliveries if d["daysOverdue"] <= 0],
-        "lowStock": low,
-        "failedEmails": _failed_emails(now),
+        "restockDue": [
+            {
+                "id": r["toolId"],
+                "name": r["name"],
+                "unit": r["unit"],
+                "status": r["status"],
+                "nextPurchaseOn": r["nextPurchaseOn"],
+                "lastBoughtOn": r["lastBoughtOn"],
+                "usualQuantity": r["usualQuantity"],
+            }
+            for r in restock
+        ],
     }

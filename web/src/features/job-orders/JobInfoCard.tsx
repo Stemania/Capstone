@@ -82,7 +82,7 @@ function materialRows(job: JobOrder): MaterialRow[] {
     return {
       key: l.id,
       name: l.materialName,
-      spec: l.gradeOrSpec,
+      spec: [l.gradeOrSpec, l.sizeSpec].filter(Boolean).join(' · ') || undefined,
       qty: fmtQty(l.quantity, l.unit),
       state,
       detail,

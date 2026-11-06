@@ -20,7 +20,8 @@ import { PHONE_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import OverdueTag from '../../components/OverdueTag';
 import StatusPill from '../../components/StatusPill';
 import { Page, PageSkeleton, SectionCard, FormModal } from '../../components/ui';
-import { GradeInput, formatPoMaterialLabel } from '../../components/MaterialInputs';
+import { formatPoMaterialLabel } from '../../components/MaterialInputs';
+import { SIZE_PLACEHOLDER } from '../../components/materialPicker';
 import type { DeliveryMode, MaterialPurchase, SupplierOrder } from '../../types';
 import OrderMaterialsModal from './OrderMaterialsModal';
 import { LINE_STATUS_PILL, ORDER_STATUS_PILL, fmtDay, fmtMoney, fmtQty } from './supplierOrderUi';
@@ -883,25 +884,24 @@ export default function SupplierOrderDetailPage() {
         destroyOnHidden
       >
         <div style={{ display: 'grid', gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>Grade</div>
-            <GradeInput
-              placeholder=""
-              materialName={editLine?.materialName}
-              value={editValues.gradeOrSpec}
-              onChange={(g) => setEditValues((v) => ({ ...v, gradeOrSpec: g }))}
-            />
-          </div>
           {editLine && !editLine.toolId ? (
             <div>
-              <div style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>Size / spec</div>
+              <div style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>Size</div>
               <Input
-                placeholder="e.g. Ø50 × 200 mm"
+                placeholder={SIZE_PLACEHOLDER}
                 value={editValues.sizeSpec}
                 onChange={(e) => setEditValues((v) => ({ ...v, sizeSpec: e.target.value }))}
               />
             </div>
-          ) : null}
+          ) : (
+            <div>
+              <div style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>Spec</div>
+              <Input
+                value={editValues.gradeOrSpec}
+                onChange={(e) => setEditValues((v) => ({ ...v, gradeOrSpec: e.target.value }))}
+              />
+            </div>
+          )}
           <div>
             <div style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>Quantity</div>
             <InputNumber

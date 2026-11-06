@@ -99,7 +99,7 @@ def my_tool_history():
 @jwt_required()
 @require_roles(UserRole.PRODUCTION_WORKER)
 def scan_tool():
-    """One button: tool unit → borrow/return; consumable code → −1 unit."""
+    """One button: tool unit → borrow/return. Consumable codes are refused."""
     from app.services import consumable_scan_service as scan_svc
 
     data = request.get_json() or {}

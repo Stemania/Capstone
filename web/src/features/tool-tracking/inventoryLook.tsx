@@ -1,9 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
 import {
-  AlertOctagon,
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
   Droplets,
   Flame,
   HardHat,
@@ -214,112 +210,6 @@ export function InventorySummaryCards({
       })}
     </div>
   );
-}
-
-export function StockBar({
-  onHand,
-  reorderLevel,
-}: {
-  onHand: number;
-  reorderLevel: number | null | undefined;
-}) {
-  if (reorderLevel == null || reorderLevel <= 0) return null;
-  const pct = Math.min(100, Math.max(0, (onHand / Math.max(reorderLevel * 2, 1)) * 100));
-  const low = onHand <= reorderLevel;
-  return (
-    <div
-      aria-hidden
-      style={{
-        marginTop: 4,
-        height: 4,
-        borderRadius: 999,
-        background: '#e2e8f0',
-        overflow: 'hidden',
-        maxWidth: 96,
-      }}
-    >
-      <div
-        style={{
-          width: `${pct}%`,
-          height: '100%',
-          background: low ? '#7a1528' : '#16a34a',
-        }}
-      />
-    </div>
-  );
-}
-
-export type ConsumableListStatus =
-  | 'OK'
-  | 'REORDER_SOON'
-  | 'REORDER_NOW'
-  | 'NO_DATA'
-  | 'NOT_STOCKED';
-
-export function StockStatusPill({
-  status,
-  label,
-}: {
-  status: ConsumableListStatus | string | null | undefined;
-  /** Forecast label: Computed / Estimated / No data yet. */
-  label?: string | null;
-}): ReactNode {
-  let body: ReactNode;
-  if (status === 'REORDER_NOW') {
-    body = (
-      <>
-        <AlertOctagon size={14} aria-hidden /> Reorder now
-      </>
-    );
-  } else if (status === 'REORDER_SOON') {
-    body = (
-      <>
-        <AlertTriangle size={14} aria-hidden /> Reorder soon
-      </>
-    );
-  } else if (status === 'NOT_STOCKED' || status === 'NO_DATA') {
-    body = (
-      <>
-        <Clock size={14} aria-hidden /> {status === 'NOT_STOCKED' ? 'Not stocked yet' : 'No data yet'}
-      </>
-    );
-  } else {
-    body = (
-      <>
-        <CheckCircle2 size={14} aria-hidden /> OK
-      </>
-    );
-  }
-  const color =
-    status === 'REORDER_NOW'
-      ? '#b91c1c'
-      : status === 'REORDER_SOON'
-        ? '#b45309'
-        : status === 'NOT_STOCKED' || status === 'NO_DATA'
-          ? '#64748b'
-          : '#15803d';
-  return (
-    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, color, fontWeight: 600, fontSize: 12 }}>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{body}</span>
-      {label ? <span style={{ fontWeight: 500, opacity: 0.8 }}>{label}</span> : null}
-    </span>
-  );
-}
-
-/** Prefer API forecast status; fall back only when the field is missing. */
-export function consumableListStatus(
-  tool: {
-    status?: string | null;
-    lowStock?: boolean;
-    quantityOnHand?: number;
-    minimumStock?: number | null;
-  }
-): ConsumableListStatus {
-  if (tool.status === 'REORDER_NOW' || tool.status === 'REORDER_SOON' || tool.status === 'OK' || tool.status === 'NO_DATA') {
-    return tool.status;
-  }
-  if (tool.lowStock) return 'REORDER_NOW';
-  return 'OK';
 }
 
 /** Seed badge is a temporary placeholder until the real asset list arrives. */

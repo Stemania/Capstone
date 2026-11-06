@@ -511,10 +511,11 @@ def require_active_catalog_item(catalog_id):
     return item
 
 
-def check_material_unit(unit: str):
+def check_material_unit(unit: str, keep: str | None = None):
+    """``keep``: the unit already saved on the line, accepted even if no longer offered."""
     from app.models.material_catalog import MATERIAL_UNITS
 
-    if unit not in MATERIAL_UNITS:
+    if unit not in MATERIAL_UNITS and unit != keep:
         raise AppError(
             f"Unit must be one of {', '.join(MATERIAL_UNITS)}", "VALIDATION_ERROR", 400
         )
@@ -552,7 +553,7 @@ def build_draft_line(job: JobOrder, supplier: Supplier, data: dict) -> MaterialP
         "unitCost",
     )
     unit = (data.get("unit") or "").strip() or item.default_unit or "pcs"
-    check_material_unit(unit)
+    check_material_unit(unit, keep=(planned or {}).get("unit"))
     grade = (
         data.get("gradeOrSpec") or data.get("grade_or_spec") or ""
     ).strip() or None

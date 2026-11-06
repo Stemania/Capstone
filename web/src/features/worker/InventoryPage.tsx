@@ -1,16 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Input, Segmented, message } from 'antd';
-import { DownOutlined, ExperimentOutlined, RightOutlined, SearchOutlined, ToolOutlined } from '@ant-design/icons';
+import { Button, Input, message } from 'antd';
+import { DownOutlined, RightOutlined, SearchOutlined, ToolOutlined } from '@ant-design/icons';
 import { toolsApi } from '../../api/tools.api';
 import { getErrorMessage } from '../../api/client';
 import { WorkerPageHeader } from '../../layouts/WorkerLayout';
 import { EmptyState, PageSkeleton, StatusPill } from '../../components/ui';
 import { formatShop } from '../../utils/shopTime';
 import type { Tone } from '../../theme/tokens';
-import type { Tool, ToolType, ToolUnit, ToolUnitStatus } from '../../types';
+import type { ToolType, ToolUnit, ToolUnitStatus } from '../../types';
 import { TOOLS_CHANGED, announceToolsChanged } from './toolsEvents';
 
-type Tab = 'tools' | 'consumables';
 type ToolView = 'holding' | 'all';
 
 const UNIT_STATUS: Record<ToolUnitStatus, { label: string; tone: Tone }> = {
@@ -20,17 +19,11 @@ const UNIT_STATUS: Record<ToolUnitStatus, { label: string; tone: Tone }> = {
   RETIRED: { label: 'Retired', tone: 'slate' },
 };
 
-function qty(n: number) {
-  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
-}
-
 export default function InventoryPage() {
-  const [tab, setTab] = useState<Tab>('tools');
   const [view, setView] = useState<ToolView>('holding');
   const [query, setQuery] = useState('');
   const [held, setHeld] = useState<ToolUnit[]>([]);
   const [types, setTypes] = useState<ToolType[]>([]);
-  const [consumables, setConsumables] = useState<Tool[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [returning, setReturning] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -53,17 +46,6 @@ export default function InventoryPage() {
     window.addEventListener(TOOLS_CHANGED, onChange);
     return () => window.removeEventListener(TOOLS_CHANGED, onChange);
   }, []);
-
-  useEffect(() => {
-    if (tab !== 'consumables' || consumables) return;
-    toolsApi
-      .list({ category: 'CONSUMABLE' })
-      .then(({ data }) => setConsumables(data))
-      .catch((err) => {
-        message.error(getErrorMessage(err));
-        setConsumables([]);
-      });
-  }, [tab, consumables]);
 
   const handleReturn = async (unit: ToolUnit) => {
     setReturning(unit.id);
@@ -100,20 +82,7 @@ export default function InventoryPage() {
         : types,
     [types, q]
   );
-  const filteredConsumables = useMemo(
-    () =>
-      (consumables || []).filter(
-        (c) =>
-          !q ||
-          c.name.toLowerCase().includes(q) ||
-          c.code.toLowerCase().includes(q) ||
-          (c.shopTerm || '').toLowerCase().includes(q) ||
-          (c.sizeSpec || '').toLowerCase().includes(q)
-      ),
-    [consumables, q]
-  );
   const totalUnits = types.reduce((sum, t) => sum + (t.totalUnits || 0), 0);
-  const lowCount = (consumables || []).filter((c) => c.lowStock).length;
 
   const toggle = (id: string) =>
     setExpanded((prev) => {
@@ -228,117 +197,45 @@ export default function InventoryPage() {
       </div>
     );
 
-  const renderConsumables = () =>
-    !consumables ? (
-      <PageSkeleton variant="list" />
-    ) : filteredConsumables.length === 0 ? (
-      <EmptyState
-        compact
-        icon={<ExperimentOutlined />}
-        title={q ? 'No consumables match your search' : 'No consumables listed yet'}
-      />
-    ) : (
-      <>
-        <div className="w-card w-card--flush">
-          <div className="w-rows">
-            {filteredConsumables.map((c) => (
-              <div key={c.id} className="w-row" style={{ cursor: 'default' }}>
-                <div className="w-row__main">
-                  <div className="w-row__title">
-                    {c.name}
-                    {c.shopTerm ? <span className="w-muted" style={{ fontWeight: 500 }}> · {c.shopTerm}</span> : null}
-                  </div>
-                  <div className="w-row__sub">
-                    {[c.sizeSpec, c.code].filter(Boolean).join(' · ')}
-                  </div>
-                  {c.lowStock && (
-                    <div style={{ marginTop: 4 }}>
-                      <StatusPill tone="amber" compact>
-                        Low stock
-                      </StatusPill>
-                    </div>
-                  )}
-                </div>
-                <div className="w-stock">
-                  <div className="w-stock__qty">{qty(c.quantityOnHand)}</div>
-                  <div className="w-stock__unit">{c.unit || 'pcs'} on hand</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="w-note" style={{ padding: '0 4px' }}>
-          Scan a consumable each time you take one.
-        </div>
-      </>
-    );
-
   return (
     <div>
       <WorkerPageHeader
         title="Inventory"
-        subtitle={
-          tab === 'tools'
-            ? `${held.length} with you · ${totalUnits} tool units`
-            : consumables
-              ? `${consumables.length} items${lowCount ? ` · ${lowCount} low` : ''}`
-              : 'Consumables'
-        }
+        subtitle={`${held.length} with you · ${totalUnits} tool units`}
       />
       <div className="w-page">
         <div className="w-toolbar">
-          <Segmented
-            block
-            className="worker-seg"
-            value={tab}
-            onChange={(v) => {
-              setTab(v as Tab);
-              setQuery('');
-            }}
-            options={[
-              { label: 'Tools', value: 'tools' },
-              { label: 'Consumables', value: 'consumables' },
-            ]}
-          />
-          {tab === 'tools' && (
-            <div className="w-chips" role="tablist" aria-label="Which tools">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={view === 'holding'}
-                className={`w-chip${view === 'holding' ? ' is-active' : ''}`}
-                onClick={() => setView('holding')}
-              >
-                Holding ({held.length})
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={view === 'all'}
-                className={`w-chip${view === 'all' ? ' is-active' : ''}`}
-                onClick={() => setView('all')}
-              >
-                All tools ({totalUnits})
-              </button>
-            </div>
-          )}
+          <div className="w-chips" role="tablist" aria-label="Which tools">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'holding'}
+              className={`w-chip${view === 'holding' ? ' is-active' : ''}`}
+              onClick={() => setView('holding')}
+            >
+              Holding ({held.length})
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'all'}
+              className={`w-chip${view === 'all' ? ' is-active' : ''}`}
+              onClick={() => setView('all')}
+            >
+              All tools ({totalUnits})
+            </button>
+          </div>
           <Input
             allowClear
             className="worker-search"
             prefix={<SearchOutlined style={{ color: 'var(--c-text-muted)' }} />}
-            placeholder={tab === 'consumables' ? 'Search consumables' : view === 'all' ? 'Search tools or holder' : 'Search your tools'}
+            placeholder={view === 'all' ? 'Search tools or holder' : 'Search your tools'}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
 
-        {tab === 'consumables'
-          ? renderConsumables()
-          : loading
-            ? <PageSkeleton variant="list" />
-            : view === 'holding'
-              ? renderHolding()
-              : renderAll()}
+        {loading ? <PageSkeleton variant="list" /> : view === 'holding' ? renderHolding() : renderAll()}
       </div>
     </div>
   );

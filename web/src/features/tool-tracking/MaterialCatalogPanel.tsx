@@ -4,7 +4,7 @@ import { ChipOverflow, FilterBar, FilterSelect, TwoLineCell, rowOpenProps } from
 import { MOBILE_SHELL_QUERY, NARROW_QUERY, PHONE_QUERY, useMediaQuery } from '../../hooks/useViewport';
 import type { TableColumnsType } from 'antd';
 import { EditOutlined, PlusOutlined, SearchOutlined, BookOutlined } from '@ant-design/icons';
-import { BookOpen, Clock, Package, Layers } from 'lucide-react';
+import { BookOpen, Package, Layers } from 'lucide-react';
 import {
   CONSUMABLE_UNITS,
   MATERIAL_UNITS,
@@ -30,8 +30,8 @@ function sectionLabel(text: string) {
   return <div className="app-form-section">{text}</div>;
 }
 
-/** Unified buy-list: materials and consumables. Stock lives on the Consumables tab
- *  after the first PO receipt; Catalog is what we can order. */
+/** Unified buy-list: the materials and consumables the shop buys. Consumables are
+ *  not counted; their purchases are on the Consumables tab. */
 export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) {
   const [rows, setRows] = useState<CatalogItem[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
@@ -75,7 +75,6 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
       if (typeFilter === 'CONSUMABLE' && r.kind !== 'CONSUMABLE') return false;
       if (summaryKey === 'materials' && r.kind !== 'MATERIAL') return false;
       if (summaryKey === 'consumables' && r.kind !== 'CONSUMABLE') return false;
-      if (summaryKey === 'not_stocked' && !(r.kind === 'CONSUMABLE' && r.notStockedYet)) return false;
       if (summaryKey === 'not_offered' && r.active) return false;
       return catalogMatches(r, query);
     });
@@ -84,12 +83,10 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
   const catalogCards: InventorySummaryCard[] = useMemo(() => {
     const materials = rows.filter((r) => r.kind === 'MATERIAL').length;
     const consumables = rows.filter((r) => r.kind === 'CONSUMABLE').length;
-    const notStocked = rows.filter((r) => r.kind === 'CONSUMABLE' && r.notStockedYet).length;
     const notOffered = rows.filter((r) => !r.active).length;
     return [
       { key: 'materials', label: 'Materials', value: materials, icon: Layers, tone: 'blue' },
       { key: 'consumables', label: 'Consumables', value: consumables, icon: Package, tone: 'slate' },
-      { key: 'not_stocked', label: 'Not stocked yet', value: notStocked, icon: Clock, tone: 'amber' },
       { key: 'not_offered', label: 'Not offered', value: notOffered, icon: BookOpen, tone: 'red' },
     ];
   }, [rows]);
@@ -99,9 +96,8 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
     form.resetFields();
     form.setFieldsValue({
       kind: 'MATERIAL',
-      defaultUnit: 'kg',
+      defaultUnit: 'pcs',
       unit: 'pcs',
-      grades: [],
       active: true,
     });
     setModalOpen(true);
@@ -113,7 +109,6 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
       kind: r.kind,
       name: r.name,
       shopTerm: r.shopTerm,
-      grades: r.kind === 'MATERIAL' ? r.gradesOrSizes || r.grades || [] : undefined,
       sizeSpec: r.kind === 'CONSUMABLE' ? r.sizeSpec || r.gradesOrSizes?.[0] || undefined : undefined,
       defaultUnit: r.defaultUnit || r.unit,
       unit: r.unit,
@@ -123,7 +118,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
     setModalOpen(true);
   };
 
-  const onSave = async (values: CatalogCreateInput & { grades?: string[]; sizeSpec?: string }) => {
+  const onSave = async (values: CatalogCreateInput & { sizeSpec?: string }) => {
     try {
       setSaving(true);
       if (editing) {
@@ -133,7 +128,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
           active: values.active,
           category: values.category,
           ...(editing.kind === 'MATERIAL'
-            ? { grades: values.grades || [], defaultUnit: values.defaultUnit || values.unit }
+            ? { defaultUnit: values.defaultUnit || values.unit }
             : { sizeSpec: values.sizeSpec || null, unit: values.unit }),
         };
         if (editing.kind === 'MATERIAL') {
@@ -151,7 +146,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
           active: values.active ?? true,
           category: kind === 'MATERIAL' ? values.category : undefined,
           ...(kind === 'MATERIAL'
-            ? { grades: values.grades || [], defaultUnit: values.defaultUnit || 'kg' }
+            ? { defaultUnit: values.defaultUnit || 'pcs' }
             : { sizeSpec: values.sizeSpec || null, unit: values.unit || 'pcs' }),
         });
         message.success('Catalog item added');
@@ -170,9 +165,8 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
     r.gradesOrSizes?.length ? r.gradesOrSizes : r.grades || (r.sizeSpec ? [r.sizeSpec] : []);
 
   const statusCell = (r: CatalogItem) => {
-    const notStocked = r.kind === 'CONSUMABLE' && r.notStockedYet;
-    const label = !r.active ? 'Not offered' : notStocked ? 'Not stocked yet' : 'Offered';
-    const color = !r.active ? 'gray' : notStocked ? 'amber' : 'green';
+    const label = r.active ? 'Offered' : 'Not offered';
+    const color = r.active ? 'green' : 'gray';
     return (
       <div className="catalog-status">
         <StatusPill color={color} compact>
@@ -218,7 +212,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
       render: () => null,
     },
     {
-      title: 'Grades / sizes',
+      title: 'Size',
       key: 'grades',
       render: (_: unknown, r) => {
         const list = gradesOf(r);
@@ -264,7 +258,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
         ),
     },
     {
-      title: 'Grades / sizes',
+      title: 'Size',
       key: 'grades',
       ellipsis: true,
       render: (_: unknown, r) => <ChipOverflow items={gradesOf(r)} max={2} plain />,
@@ -308,13 +302,13 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
         onSelect={(key) => {
           setSummaryKey(key);
           if (key === 'materials') setTypeFilter('MATERIAL');
-          else if (key === 'consumables' || key === 'not_stocked') setTypeFilter('CONSUMABLE');
+          else if (key === 'consumables') setTypeFilter('CONSUMABLE');
           else if (key === null) setTypeFilter('all');
         }}
       />
       {compact ? (
         <FilterBar
-          search={{ value: query, onChange: setQuery, placeholder: 'Search name, shop term, grade…' }}
+          search={{ value: query, onChange: setQuery, placeholder: 'Search name or shop term…' }}
           activeFilters={typeFilter === 'all' ? 0 : 1}
           onClearFilters={() => {
             setTypeFilter('all');
@@ -352,7 +346,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
         <div className="std-list-filters">
           <Input
             allowClear
-            placeholder="Search name, shop term, grade, code…"
+            placeholder="Search name, shop term, code…"
             prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -446,7 +440,7 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
               <Form.Item name="name" label="Name" rules={[{ required: true }]}>
                 <Input
                   placeholder={
-                    isMaterial ? 'e.g. AISI 4140 alloy steel' : 'e.g. Cutting disc'
+                    isMaterial ? 'e.g. 1045' : 'e.g. Cutting disc'
                   }
                 />
               </Form.Item>
@@ -457,19 +451,11 @@ export default function MaterialCatalogPanel({ canEdit }: { canEdit: boolean }) 
                 label="Shop term"
                 tooltip="What the shop calls it; searching by it finds this entry."
               >
-                <Input placeholder={isMaterial ? 'e.g. 41-40' : 'e.g. Liha'} />
+                <Input placeholder={isMaterial ? 'e.g. 10-45' : 'e.g. Liha'} />
               </Form.Item>
             </Col>
           </Row>
-          {isMaterial ? (
-            <Form.Item
-              name="grades"
-              label="Grade / spec suggestions"
-              tooltip="Type a grade and press Enter to add it."
-            >
-              <Select mode="tags" open={false} placeholder="e.g. A36" tokenSeparators={[',']} />
-            </Form.Item>
-          ) : (
+          {isMaterial ? null : (
             <Form.Item name="sizeSpec" label="Size / spec">
               <Input placeholder='e.g. 4" (107 mm)' />
             </Form.Item>

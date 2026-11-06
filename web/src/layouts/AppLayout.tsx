@@ -60,7 +60,7 @@ const NAV: NavGroup[] = [
     label: 'Production',
     items: [
       { key: '/job-orders', icon: <FileTextOutlined />, label: 'Job Orders' },
-      { key: '/machines', icon: <BuildOutlined />, label: 'Machines' },
+      { key: '/machines', icon: <BuildOutlined />, label: 'Machines', adminOnly: true },
       { key: '/work-calendar', icon: <FieldTimeOutlined />, label: 'Work calendar' },
     ],
   },

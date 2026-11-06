@@ -1,4 +1,4 @@
-"""Consumable −1 scan, debounce, undo, and stock_delta on receive/correct."""
+"""Old consumable scan helpers (kept for history) and the refusal of new consumable scans."""
 
 from decimal import Decimal
 
@@ -97,8 +97,12 @@ def test_receive_and_correct_set_stock_delta(app, worker, oil):
     assert corr.stock_delta == Decimal("-2")
 
 
-def test_unified_scan_routes_consumable_code(app, worker, oil):
-    result = scan_svc.unified_scan(oil.code, worker.id)
-    assert result["kind"] == "CONSUMABLE_SCAN"
+def test_unified_scan_refuses_consumable_codes(app, worker, oil):
+    """Consumables are no longer scanned; the shop records what it buys instead."""
+    from app.utils.errors import AppError
+
+    with pytest.raises(AppError) as err:
+        scan_svc.unified_scan(oil.code, worker.id)
+    assert err.value.code == "CONSUMABLE_NOT_SCANNED"
     db.session.refresh(oil)
-    assert oil.quantity_on_hand == Decimal("4")
+    assert oil.quantity_on_hand == Decimal("5")

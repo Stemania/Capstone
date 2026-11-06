@@ -90,17 +90,16 @@ def test_add_catalog_material_and_consumable(client, shop):
         CATALOG,
         json={
             "kind": "MATERIAL",
-            "name": "Bronze rod office",
+            "name": "C93200",
             "category": "Non-ferrous",
-            "unit": "kg",
-            "grades": ["C93200"],
+            "unit": "pcs",
         },
         headers=h,
     )
     assert res.status_code == 201, res.get_json()
     item = res.get_json()
-    assert item["kind"] == "MATERIAL" and item["unit"] == "kg"
-    assert item["gradesOrSizes"] == ["C93200"]
+    assert item["kind"] == "MATERIAL" and item["unit"] == "pcs"
+    assert item["gradesOrSizes"] == []
 
     res = client.post(
         CATALOG,

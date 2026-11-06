@@ -873,32 +873,21 @@ export function Grade({ grade }: { grade: string | null }) {
   );
 }
 
-// ---------- Stock bar ----------
+// ---------- Restock status ----------
 
-export const STOCK_TONE: Record<string, Tone> = {
+export const RESTOCK_TONE: Record<string, Tone> = {
+  OVERDUE: 'red',
+  DUE_SOON: 'amber',
   OK: 'green',
-  REORDER_SOON: 'amber',
-  REORDER_NOW: 'amber',
-  LIKELY_OUT: 'red',
-  NO_DATA: 'grey',
+  LEARNING: 'grey',
+  NO_HISTORY: 'grey',
 };
 
-export const STOCK_LABEL: Record<string, string> = {
+export const RESTOCK_LABEL: Record<string, string> = {
+  OVERDUE: 'Overdue',
+  DUE_SOON: 'Due soon',
   OK: 'OK',
-  REORDER_SOON: 'Reorder soon',
-  REORDER_NOW: 'Reorder now',
-  LIKELY_OUT: 'Likely out',
-  NO_DATA: 'No data yet',
+  LEARNING: 'Too few purchases',
+  NO_HISTORY: 'Not bought yet',
 };
 
-/** On-hand bar with a tick at the reorder point. */
-export function StockBar({ onHand, reorderPoint, status }: { onHand: number | null; reorderPoint: number | null; status: string }) {
-  const top = Math.max((reorderPoint ?? 0) * 2.5, onHand ?? 0, 1);
-  const tone = tones[STOCK_TONE[status] ?? 'grey'];
-  return (
-    <div className="ana-stock" title={reorderPoint != null ? `Reorder point ${fmtNum(reorderPoint, 1)}` : undefined}>
-      <span className="ana-stock__fill" style={{ width: `${(Math.max(onHand ?? 0, 0) / top) * 100}%`, background: tone.solid }} />
-      {reorderPoint != null ? <span className="ana-stock__rop" style={{ left: `${(reorderPoint / top) * 100}%` }} /> : null}
-    </div>
-  );
-}

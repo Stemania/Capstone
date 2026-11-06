@@ -442,8 +442,8 @@ def build_fixtures(ctx):
 
     # TC-14: in progress (op 1 done yesterday); op 2 is ready to start, then pause/breakdown.
     tc14 = new_job(
-        ctx, title="TC-14 Coupling modification (log delays)", client=aboitiz,
-        job_type="MODIFICATION",
+        ctx, title="TC-14 Coupling machining (log delays)", client=aboitiz,
+        job_type="MACHINING",
         ops=[
             ("TURNING", 3, ctx.juan, "Turn coupling OD to 80 h7."),
             ("TEETH_CUTTING", 4, ctx.juan, "Cut external spline teeth per sketch C-14."),
@@ -548,8 +548,8 @@ def build_fixtures(ctx):
     ctx.note("TC-01", tc01, "Admin: To plan > Plan, assign workers, confirm.")
 
     tc19 = new_job(
-        ctx, title="TC-19 Hub bore modification (suggest workers)", client=aboitiz,
-        job_type="MODIFICATION",
+        ctx, title="TC-19 Hub bore machining (suggest workers)", client=aboitiz,
+        job_type="MACHINING",
         ops=[
             ("FACING", 2, None, "Face hub to 40 mm."),
             ("DRILLING", 2, None, "Open bore from 30 to 35 mm."),

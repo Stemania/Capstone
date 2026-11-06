@@ -54,43 +54,36 @@ def _receive(client, shop, order_id, when="2031-03-04", user=None):
     )
 
 
-def test_low_stock_consumables_are_offered_with_suggested_quantity(client, shop):
-    """Scan-based ROP: enough scans + low on-hand → offered for restock."""
-    from datetime import datetime, time, timedelta, timezone
+def test_due_consumables_are_offered_with_the_usual_quantity(client, shop):
+    """Bought every ~10 days, last bought 12 days ago: offered on a new supplier order."""
+    from datetime import timedelta
 
+    from app.models.consumable_purchase import ConsumablePurchase
     from app.services.schedule_calendar import shop_now
 
     disc = shop["disc"]
     today = shop_now().date()
-    # 16 shop working days of scans ending today; on-hand 3 → reorder now.
-    d = today
-    n = 0
-    while n < 16:
-        if d.weekday() < 6:
-            db.session.add(
-                ToolEvent(
-                    tool_id=disc.id,
-                    worker_id=shop["office"].id,
-                    type=ToolEventType.SCAN,
-                    quantity=Decimal("2"),
-                    stock_delta=Decimal("-2"),
-                    created_at=datetime.combine(d, time(9, 0), tzinfo=timezone.utc),
-                )
+    for days_ago, qty in ((42, 20), (32, 18), (22, 22), (12, 20)):
+        db.session.add(
+            ConsumablePurchase(
+                tool_id=disc.id,
+                purchased_on=today - timedelta(days=days_ago),
+                quantity=Decimal(qty),
+                unit="pcs",
+                unit_cost=Decimal("35"),
+                recorded_by_id=shop["office"].id,
             )
-            n += 1
-        d -= timedelta(days=1)
-    disc.quantity_on_hand = Decimal("3")
+        )
     db.session.commit()
 
-    res = client.get(
-        "/api/v1/supplier-orders/outstanding",
-        headers=_headers(shop["office"]),
-    )
+    res = client.get("/api/v1/supplier-orders/outstanding", headers=_headers(shop["office"]))
     assert res.status_code == 200, res.get_json()
-    rows = res.get_json()["lowStockConsumables"]
+    rows = res.get_json()["dueConsumables"]
     row = next((r for r in rows if r["toolId"] == disc.id), None)
     assert row is not None, f"expected disc in {rows}"
-    assert float(row["suggestedOrderQuantity"]) > 0
+    assert row["status"] == "OVERDUE"
+    assert 18 <= row["usualQuantity"] <= 22
+    assert row["remainingSuggestedQuantity"] == row["usualQuantity"]
 
 
 def test_one_order_holds_job_materials_and_consumables(client, shop):

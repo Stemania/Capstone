@@ -354,17 +354,17 @@ export interface OrderingJob {
   notOrderedYet: boolean;
 }
 
-/** A consumable at or below its minimum stock, offered when creating a supplier order. */
-export interface LowStockConsumable {
+/** A consumable due to be bought again, offered when creating a supplier order. */
+export interface DueConsumable {
   toolId: string;
   name: string;
   code: string;
   sizeSpec: string | null;
   shopTerm?: string | null;
   unit: string;
-  quantityOnHand: number;
-  minimumStock: number;
-  suggestedOrderQuantity: number;
+  status: 'OVERDUE' | 'DUE_SOON';
+  nextPurchaseOn: string;
+  usualQuantity: number | null;
   /** Already on a draft or open supplier order, not yet received. */
   onOrderQuantity: number;
   remainingSuggestedQuantity: number;
@@ -373,7 +373,7 @@ export interface LowStockConsumable {
 export interface OutstandingMaterials {
   jobs: OrderingJob[];
   /** Empty when the list is for one job. */
-  lowStockConsumables: LowStockConsumable[];
+  dueConsumables: DueConsumable[];
 }
 
 /** A job material from the catalog (jobOrderId + materialCatalogId) or a consumable restock (toolId). */
@@ -480,7 +480,7 @@ export type JobOrderStatus =
   | 'DELIVERED'
   | 'CANCELLED';
 export type JobPriority = 'HIGH' | 'MODERATE' | 'LOW';
-export type JobType = 'FABRICATION' | 'MODIFICATION' | 'REPAIR';
+export type JobType = 'FABRICATION' | 'MACHINING' | 'REPAIR';
 
 export type MaterialStatus = 'NOT_REQUIRED' | 'TO_ORDER' | 'ORDERED' | 'RECEIVED';
 export type PartCondition =
@@ -987,6 +987,7 @@ export interface JobMaterialLine {
   id: string;
   materialName: string;
   gradeOrSpec: string | null;
+  sizeSpec?: string | null;
   quantity: number | null;
   unit: string | null;
   status: MaterialPurchaseStatus;
@@ -1882,6 +1883,61 @@ export interface ConsumableRunOutRow {
   unitCost?: number | null;
 }
 
+export type ReplenishmentStatus = 'OVERDUE' | 'DUE_SOON' | 'OK' | 'LEARNING' | 'NO_HISTORY';
+
+/** One consumable in the replenishment forecast (Croston's method, SBA). */
+export interface ReplenishmentItem {
+  toolId: string;
+  name: string;
+  shopTerm: string | null;
+  sizeSpec: string | null;
+  unit: string;
+  purchases: number;
+  lastBoughtOn: string | null;
+  lastQuantity: number | null;
+  lastUnitCost: number | null;
+  everyDays: number | null;
+  usualQuantity: number | null;
+  monthlyNeed: number | null;
+  typicalErrorDays: number | null;
+  nextPurchaseOn: string | null;
+  daysUntilNext: number | null;
+  status: ReplenishmentStatus;
+}
+
+export interface ConsumableReplenishment {
+  asOf: string;
+  items: ReplenishmentItem[];
+  summary: {
+    tracked: number;
+    forecast: number;
+    dueSoon: number;
+    overdue: number;
+    spentLast30Days: number;
+    purchasesLast30Days: number;
+    spendByMonth: { month: string; amount: number }[];
+  };
+  method: { name: string; alpha: number; minPurchases: number; dueSoonDays: number };
+}
+
+/** A consumable purchase: recorded by the Office Staff, or a received supplier order line. */
+export interface ConsumablePurchase {
+  id: string;
+  source: 'RECORDED' | 'SUPPLIER_ORDER';
+  toolId: string;
+  name: string | null;
+  purchasedOn: string;
+  quantity: number;
+  unit: string;
+  unitCost: number | null;
+  amount: number | null;
+  boughtFrom: string | null;
+  note: string | null;
+  poNumber: string | null;
+  recordedBy: string | null;
+  createdAt: string | null;
+}
+
 export interface ConsumableRunOut {
   label: string;
   method: string;
@@ -2061,22 +2117,14 @@ export interface OfficeDeliveryRef {
   daysOverdue: number;
 }
 
-export interface OfficeLowStockItem {
+export interface OfficeRestockItem {
   id: string;
   name: string;
   unit: string;
-  onHand: number;
-  reorderLevel: number;
-  suggestedOrderQty: number | null;
-}
-
-export interface OfficeFailedEmail {
-  id: string;
-  jobOrderId: string;
-  jobNumber: string | null;
-  clientName: string | null;
-  milestone: string;
-  createdAt: string;
+  status: 'OVERDUE' | 'DUE_SOON';
+  nextPurchaseOn: string;
+  lastBoughtOn: string | null;
+  usualQuantity: number | null;
 }
 
 export interface OfficeSummary {
@@ -2085,8 +2133,7 @@ export interface OfficeSummary {
   invoicesToRecord: OfficeJobRef[];
   lateDeliveries: OfficeDeliveryRef[];
   deliveriesDueSoon: OfficeDeliveryRef[];
-  lowStock: OfficeLowStockItem[];
-  failedEmails: OfficeFailedEmail[];
+  restockDue: OfficeRestockItem[];
 }
 
 // ---- Audit trail (Admin only) ----

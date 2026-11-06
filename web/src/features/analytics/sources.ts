@@ -47,7 +47,8 @@ export const useByMachine = (p: Period | null) =>
 /** Forecasts and stock use all history, not the selected period. */
 export const useSalesForecast = () => useAnalyticsData(key('salesForecast'), () => analyticsApi.salesForecast());
 export const useDemandForecast = () => useAnalyticsData(key('demandForecast'), () => analyticsApi.demandForecast());
-export const useConsumables = () => useAnalyticsData(key('consumables'), () => analyticsApi.consumableRunOut());
+export const useConsumables = () =>
+  useAnalyticsData(key('consumables'), () => analyticsApi.consumableReplenishment());
 export const useCompletion = (enabled = true) =>
   useAnalyticsData(enabled ? key('completion') : null, () => analyticsApi.completionEstimates());
 export const useCapacity = (enabled = true) =>

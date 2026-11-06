@@ -115,7 +115,7 @@ def _receive(client, shop, order_id):
 
 @pytest.mark.parametrize(
     "job_type,expected",
-    [("FABRICATION", "TO_ORDER"), ("REPAIR", "NOT_REQUIRED"), ("MODIFICATION", "NOT_REQUIRED")],
+    [("FABRICATION", "TO_ORDER"), ("REPAIR", "NOT_REQUIRED"), ("MACHINING", "TO_ORDER")],
 )
 def test_materials_needed_defaults_by_job_type(client, shop, job_type, expected):
     job = _create_job(client, shop, job_type)
